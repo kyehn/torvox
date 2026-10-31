@@ -273,6 +273,21 @@ constructor(
      * 设置变化）统一由运行期裁定，视图多处各自读会出现「键栏用新布局、边距还是旧的」。
      */
     val termuxConfiguration: StateFlow<TermuxConfiguration> = termuxProperties.configuration
+
+    /**
+     * 终端页是否在前台。
+     *
+     * `termux.properties` 的音量键 / Ctrl+Space / back-key 改写挂在 Activity 的分发上，
+     * 设置页遮住终端时必须停用；否则在输入框里按音量键或 Ctrl+Space 也会写进终端。
+     */
+    @Volatile
+    var terminalScreenActive: Boolean = false
+        private set
+
+    fun setTerminalScreenActive(active: Boolean) {
+        terminalScreenActive = active
+    }
+
     private val clipboardAccess = ClipboardAccess(context, tag = "TerminalViewModel")
 
     private val selectionManager = SelectionManager()
@@ -917,10 +932,9 @@ constructor(
                     return@launch
                 }
                 // 先注册用户投放目录再应用，使其字体在 bridge 上可见
-                // （重复注册为空操作）。
-                terminal.emulator.termuxFontDir(context).takeIf { it.isDirectory }?.let { directory ->
-                    bridge.setExtraFontPaths(listOf(directory.absolutePath))
-                }
+                // （重复注册为空操作）；主/次路径都纳入。
+                val fontDirs = terminal.emulator.termuxFontDirs(context).filter { it.isDirectory }.map { it.absolutePath }
+                if (fontDirs.isNotEmpty()) bridge.setExtraFontPaths(fontDirs)
                 val storedFamily = settingsRepository.fontFamily.first()
                 clearUnknownFontFamily(
                     storedFamily,
@@ -954,10 +968,9 @@ constructor(
                         return@launch
                     }
                     // 先注册用户投放目录再列举，使其字体家族即使在早于
-                    // Runtime.start() 完成时也被纳入（重复注册为空操作）。
-                    terminal.emulator.termuxFontDir(context).takeIf { it.isDirectory }?.let { directory ->
-                        bridge.setExtraFontPaths(listOf(directory.absolutePath))
-                    }
+                    // Runtime.start() 完成时也被纳入（重复注册为空操作）；主/次路径都纳入。
+                    val fontDirs = terminal.emulator.termuxFontDirs(context).filter { it.isDirectory }.map { it.absolutePath }
+                    if (fontDirs.isNotEmpty()) bridge.setExtraFontPaths(fontDirs)
                     val allFonts =
                         terminal.emulator.settings.availableFontFamilies(
                             bridge.listFontFamilies().orEmpty(),

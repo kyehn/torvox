@@ -144,7 +144,7 @@ MUST NOT 使整份文件解析失败。
 家目录解析。尾部的 `/` MUST 被归一（`/` 自身除外），否则会话抽屉会随 shell 的
 OSC 7 上报在同一次会话里换名字。
 
-解析结果 MUST 落在真实存在的目录上，否则回退家目录：目录不存在时 PTY 会直接失败，
+解析结果 MUST 落在真实存在且可读的目录上，否则回退家目录：目录不存在或不可读时 PTY 会直接失败，
 配置里的一个笔误不该让应用「打不开终端」。
 
 #### Scenario: 工作目录不存在
@@ -198,9 +198,9 @@ OSC 7 上报在同一次会话里换名字。
 `hide-soft-keyboard-on-startup = true`（本应用默认）MUST 表示启动时不主动请求输入法，
 且平台按 `onCheckIsTextEditor` 自动弹键盘那条路径也不得在启动时把键盘带出来。
 
-`false` MUST 在首帧后主动请求一次输入法，并把「本视图可接收文本输入」的答案置真——
-否则焦点早已就位，平台不会再问，键盘永远不出现。请求 MUST 只执行一次：这是启动策略，
-不是运行期开关；平台拒绝（窗口尚未取得焦点）时 MUST NOT 重试。
+`false` MUST 在首帧后请求输入法，并把「本视图可接收文本输入」的答案置真——
+否则焦点早已就位，平台不会再问，键盘永远不出现。请求 MUST 等窗口取得焦点后再执行；
+窗口尚未取得焦点时 MUST 重试，最多 2 秒；成功或超时后 MUST 不再重试。
 
 默认取 `true` 而非上游的 `false`，因为本应用启动时从不请求输入法，默认值必须反映
 既有外观。
@@ -214,3 +214,17 @@ OSC 7 上报在同一次会话里换名字。
 
 - **WHEN** `hide-soft-keyboard-on-startup = false`，冷启动
 - **THEN** 终端拿到焦点后弹出一次输入法；用户收起后不会被再次弹回
+
+### Requirement: 其余已支持键的语义
+
+下列键与 `docs/specification/config.md` 的取值与默认值一致，MUST 按各自语义生效：
+
+- `fullscreen`：布尔，默认 `false`；为真时隐藏状态栏。
+- `use-fullscreen-workaround`：布尔，默认 `false`；为真时全屏下系统栏改为滑动临时唤出。
+- `ctrl-space-workaround`：布尔，默认 `false`；为真时补发 Ctrl+空格为 NUL。
+- `extra-keys-text-all-caps`：布尔，默认 `true`；键帽是否大写。
+- `terminal-margin-horizontal`：整数 0–100（dp），默认 3。
+- `terminal-margin-vertical`：整数 0–100（dp），默认 0。
+- `terminal-toolbar-height`：浮点 0.4–3，默认 1；修饰键栏单键高度倍率。
+- `back-key`：`back`/`escape`，默认 `back`；`escape` 时返回键改发 ESC。
+- `volume-keys`：`virtual`/`volume`，默认 `virtual`；`virtual` 时音量减作虚拟 Ctrl。

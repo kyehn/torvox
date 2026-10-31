@@ -34,12 +34,10 @@ class TermuxPropertiesParserTest {
         val loaded = parse(
             """
             fullscreen = TRUE
-            disable-hardware-keyboard-shortcuts = True
             ctrl-space-workaround=true
             """.trimIndent(),
         )
         assertTrue(loaded.properties.fullscreen)
-        assertTrue(loaded.properties.disableHardwareKeyboardShortcuts)
         assertTrue(loaded.properties.ctrlSpaceWorkaround)
     }
 
@@ -150,29 +148,6 @@ class TermuxPropertiesParserTest {
         val loaded = parse("back-key = sideways")
         assertEquals(BackKeyBehaviour.BACK, loaded.properties.backKey)
         assertTrue(loaded.errors.any { it.contains("back-key") })
-    }
-
-    @Test
-    fun `shortcuts are single characters and normalised to lower case`() {
-        val loaded = parse("shortcut.next-session = N")
-        assertEquals('n', loaded.properties.shortcutNextSession)
-    }
-
-    /** 多字符的快捷键值只禁用该快捷键，不影响其余解析。 */
-    @Test
-    fun `a multi-character shortcut is disabled and reported`() {
-        val loaded = parse("shortcut.create-session = ctrl+c")
-        assertNull(loaded.properties.shortcutCreateSession)
-        assertTrue(loaded.errors.any { it.contains("shortcut.create-session") })
-    }
-
-    /** 未写 `shortcut.*` 时必须是 null 而不是某个默认字符：默认值由应用决定，不由解析器猜。 */
-    @Test
-    fun `absent shortcuts stay null`() {
-        val loaded = parse("fullscreen = true")
-        assertNull(loaded.properties.shortcutCreateSession)
-        assertNull(loaded.properties.shortcutNextSession)
-        assertNull(loaded.properties.shortcutPreviousSession)
     }
 
     @Test

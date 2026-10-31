@@ -1244,7 +1244,7 @@ constructor(
                 }
                 .absolutePath
         // `default-working-directory`：termux 语义是「空值 = 家目录，相对路径相对家目录，
-        // `~` 展开为家目录」。写错的路径原样交给 PTY 层报错，不在这里静默改回家目录。
+        // `~` 展开为家目录」。不存在或不可读时由 resolveWorkingDirectory 回退家目录。
         val workingDirectory =
             resolveWorkingDirectory(
                 termuxProperties.configuration.value.properties.defaultWorkingDirectory,
@@ -4251,8 +4251,9 @@ constructor(
         syncGrid: Boolean,
         fontFamily: String,
     ) {
-        // 用户字体目录（home/.termux/font）此刻才真正到达原生字体库。
-        bridge.setExtraFontPaths(listOf(terminal.emulator.termuxFontDir(context).absolutePath))
+        // 用户字体目录（home/.termux/fonts 与 home/.config/termux/fonts）此刻才真正到达原生字体库。
+        val fontDirs = terminal.emulator.termuxFontDirs(context).filter { it.isDirectory }.map { it.absolutePath }
+        bridge.setExtraFontPaths(fontDirs)
         // 系统区域设置决定 CJK 回退顺序；缺失则原生管线停留在 locale ""。
         bridge.setSystemLocale(java.util.Locale.getDefault().toLanguageTag())
         val termux = termuxProperties.configuration.value
@@ -4682,9 +4683,9 @@ internal fun coerceSpToPxScale(density: Float, fontScale: Float, range: ClosedFl
  *
  * 空值 → 家目录；`~` 或 `~/x` → 家目录下；相对路径 → 相对家目录；绝对路径 → 原样。
  *
- * 解析结果必须落在真实存在的目录上，否则回退家目录（termux 的
- * `getDefaultWorkingDirectoryInternalPropertyValueFromValue` 同样回退）：目录不存在时
- * PTY 会直接失败，会话根本起不来——配置里的一个笔误不该让应用「打不开终端」。
+ * 解析结果必须落在真实存在且可读的目录上，否则回退家目录（termux 的
+ * `getDefaultWorkingDirectoryInternalPropertyValueFromValue` 同样回退）：目录不存在或
+ * 不可读时 PTY 会直接失败，会话根本起不来——配置里的一个笔误不该让应用「打不开终端」。
  *
  * 尾部的 `/` 一律去掉（`/` 自身除外）：shell 启动后经 OSC 7 回报的是规范化路径，若配置里
  * 写成 `~/src/`，会话抽屉会先显示 `src/`、第一条提示符后翻成 `src`——同一个会话在两帧之间
@@ -4701,7 +4702,8 @@ internal fun resolveWorkingDirectory(configured: String, homeDir: String): Strin
         }
     val absolute = if (expanded.startsWith("/")) expanded else "$homeDir/$expanded"
     val normalized = absolute.trimEnd('/').ifEmpty { "/" }
-    return if (java.io.File(normalized).isDirectory) normalized else homeDir
+    val directory = java.io.File(normalized)
+    return if (directory.isDirectory && directory.canRead()) normalized else homeDir
 }
 
 /**

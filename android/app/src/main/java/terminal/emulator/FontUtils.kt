@@ -4,14 +4,26 @@ package terminal.emulator
 internal fun termuxDir(context: android.content.Context): java.io.File =
     java.io.File(java.io.File(context.filesDir, "home"), ".termux")
 
-/** 用户字体目录 `~/.termux/fonts`（DESIGN.md 设置节字体选择项）：存在时并入字体扫描路径，
- *  其中的字体出现在字体列表里。从不复制/移动文件。 */
-internal fun termuxFontDir(context: android.content.Context): java.io.File = java.io.File(termuxDir(context), "fonts")
+/** Termux 的 XDG 次路径 `~/.config/termux`（DESIGN 用户数据节同样允许）：与主路径
+ *  并列，主路径优先。 */
+internal fun termuxConfigDir(context: android.content.Context): java.io.File =
+    java.io.File(java.io.File(context.filesDir, "home"), ".config/termux")
 
-/** 主字体覆盖 `~/.termux/font.ttf`（DESIGN.md 设置节字体选择项，ttc/otf 同理）：存在即设为主字体。 */
-internal fun termuxDefaultFontFile(homePath: String): java.io.File? = listOf("font.ttf", "font.ttc", "font.otf")
-    .map { java.io.File(java.io.File(homePath, ".termux"), it) }
-    .firstOrNull { it.isFile }
+/** 用户字体目录候选：`~/.termux/fonts` 与 `~/.config/termux/fonts`（DESIGN.md 设置节字体选择项）。
+ *  存在时并入字体扫描路径，其中的字体出现在字体列表里。从不复制/移动文件。 */
+internal fun termuxFontDirs(context: android.content.Context): List<java.io.File> =
+    listOf(termuxDir(context), termuxConfigDir(context)).map { java.io.File(it, "fonts") }
+
+/** 兼容旧调用：主路径的字体目录。 */
+internal fun termuxFontDir(context: android.content.Context): java.io.File = termuxFontDirs(context).first()
+
+/** 主字体覆盖：`~/.termux/font.*` 优先，其次 `~/.config/termux/font.*`（DESIGN.md 设置节字体选择项，
+ *  ttc/otf 同理）：存在即设为主字体。 */
+internal fun termuxDefaultFontFile(homePath: String): java.io.File? {
+    val names = listOf("font.ttf", "font.ttc", "font.otf")
+    val dirs = listOf(java.io.File(homePath, ".termux"), java.io.File(homePath, ".config/termux"))
+    return dirs.flatMap { dir -> names.map { java.io.File(dir, it) } }.firstOrNull { it.isFile }
+}
 
 /**
  * 设置项里保存的字族名 → 原生字族名：仅去空白，空值表示「取 fonts.xml 的 monospace」。
