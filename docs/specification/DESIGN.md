@@ -108,7 +108,7 @@
 - 对于 `nix --help` 这类命令，修饰键栏的向右按键（`->`）和向左按键（`<-`）以及向上和向下按键应该正确发送信号
 - 部分接口支持批量查询以保证性能。
 - 只渲染当前使用的会话，后台会话/切换应用/进入设置时暂停渲染。
-- 输入光标默认方块样式（高度、宽度等均参考 Termux），可通过 `termux.properties` 的 `terminal-cursor-style` 设为 `block`/`bar`/`underline`，不闪烁。
+- 输入光标默认方块样式（高度、宽度等均参考 Termux），可通过 `termux.properties` 的 `terminal-cursor-style` 设为 `block`/`bar`/`beam`/`underline`，不闪烁（`beam` 与 `bar` 同为竖线）。
 - 切换应用返回或从应用设置返回终端应该正常渲染且无进入卡顿、黑屏、闪烁、跳跃。输入弹出/隐藏时无卡顿、闪烁、跳跃、压扁、拉伸、溢出。
 - 只加载实际需要的字体（如 `DroidSansMono` `NotoColorEmoji` `Noto Sans CJK SC`），加载字体族如 `Noto Sans CJK SC` 而不是仅 `Noto Sans CJK SC Regular`，不加载未使用字体。支持非等宽字体作为主字体。
 - 支持 CJK 字体，比如退格一次一个汉字而不是两次一个汉字。CJK 字体渲染速度应该和英文字体基本一致，退格 CJK 字符的速度应该和英文基本一致，不卡顿。

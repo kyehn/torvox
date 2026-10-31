@@ -4251,8 +4251,9 @@ constructor(
         syncGrid: Boolean,
         fontFamily: String,
     ) {
-        // 用户字体目录（home/.termux/font）此刻才真正到达原生字体库。
-        bridge.setExtraFontPaths(listOf(terminal.emulator.termuxFontDir(context).absolutePath))
+        // 用户字体目录（home/.termux/fonts 与 home/.config/termux/fonts）此刻才真正到达原生字体库。
+        val fontDirs = terminal.emulator.termuxFontDirs(context).filter { it.isDirectory }.map { it.absolutePath }
+        bridge.setExtraFontPaths(fontDirs)
         // 系统区域设置决定 CJK 回退顺序；缺失则原生管线停留在 locale ""。
         bridge.setSystemLocale(java.util.Locale.getDefault().toLanguageTag())
         val termux = termuxProperties.configuration.value

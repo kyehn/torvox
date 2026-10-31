@@ -214,3 +214,17 @@ OSC 7 上报在同一次会话里换名字。
 
 - **WHEN** `hide-soft-keyboard-on-startup = false`，冷启动
 - **THEN** 终端拿到焦点后弹出一次输入法；用户收起后不会被再次弹回
+
+### Requirement: 其余已支持键的语义
+
+下列键与 `docs/specification/config.md` 的取值与默认值一致，MUST 按各自语义生效：
+
+- `fullscreen`：布尔，默认 `false`；为真时隐藏状态栏。
+- `use-fullscreen-workaround`：布尔，默认 `false`；为真时全屏下系统栏改为滑动临时唤出。
+- `ctrl-space-workaround`：布尔，默认 `false`；为真时补发 Ctrl+空格为 NUL。
+- `extra-keys-text-all-caps`：布尔，默认 `true`；键帽是否大写。
+- `terminal-margin-horizontal`：整数 0–100（dp），默认 3。
+- `terminal-margin-vertical`：整数 0–100（dp），默认 0。
+- `terminal-toolbar-height`：浮点 0.4–3，默认 1；修饰键栏单键高度倍率。
+- `back-key`：`back`/`escape`，默认 `back`；`escape` 时返回键改发 ESC。
+- `volume-keys`：`virtual`/`volume`，默认 `virtual`；`virtual` 时音量减作虚拟 Ctrl。

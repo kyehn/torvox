@@ -932,10 +932,9 @@ constructor(
                     return@launch
                 }
                 // 先注册用户投放目录再应用，使其字体在 bridge 上可见
-                // （重复注册为空操作）。
-                terminal.emulator.termuxFontDir(context).takeIf { it.isDirectory }?.let { directory ->
-                    bridge.setExtraFontPaths(listOf(directory.absolutePath))
-                }
+                // （重复注册为空操作）；主/次路径都纳入。
+                val fontDirs = terminal.emulator.termuxFontDirs(context).filter { it.isDirectory }.map { it.absolutePath }
+                if (fontDirs.isNotEmpty()) bridge.setExtraFontPaths(fontDirs)
                 val storedFamily = settingsRepository.fontFamily.first()
                 clearUnknownFontFamily(
                     storedFamily,
@@ -969,10 +968,9 @@ constructor(
                         return@launch
                     }
                     // 先注册用户投放目录再列举，使其字体家族即使在早于
-                    // Runtime.start() 完成时也被纳入（重复注册为空操作）。
-                    terminal.emulator.termuxFontDir(context).takeIf { it.isDirectory }?.let { directory ->
-                        bridge.setExtraFontPaths(listOf(directory.absolutePath))
-                    }
+                    // Runtime.start() 完成时也被纳入（重复注册为空操作）；主/次路径都纳入。
+                    val fontDirs = terminal.emulator.termuxFontDirs(context).filter { it.isDirectory }.map { it.absolutePath }
+                    if (fontDirs.isNotEmpty()) bridge.setExtraFontPaths(fontDirs)
                     val allFonts =
                         terminal.emulator.settings.availableFontFamilies(
                             bridge.listFontFamilies().orEmpty(),
