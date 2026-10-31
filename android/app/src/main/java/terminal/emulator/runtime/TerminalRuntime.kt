@@ -54,6 +54,13 @@ data class RuntimeState(
     val rows: Int = DEFAULT_GRID_ROWS,
     val cols: Int = DEFAULT_GRID_COLS,
     val activeSessionId: Long = 0L,
+    /**
+     * 全部会话 id，**升序**。
+     *
+     * 顺序是契约而非实现细节：抽屉里的标签序号（「会话 2」）按它换算，顺序随
+     * 哈希表桶序漂移会让同一个会话在不同帧换序号。故运行期按序发布，消费方
+     * MUST NOT 再各自排一遍——两处排序正是「同一份数据两种口径」的同型缺陷。
+     */
     val sessionIds: List<Long> = emptyList(),
     val scrollResetEpoch: Long = 0L,
 )
@@ -3480,17 +3487,21 @@ constructor(
                 renderThreadStopped = false
             }
         }
-        if (renderThreadStopped && !entry.renderThreadPossiblyAlive) {
-            // 仅在确认渲染线程已死时才释放 GPU surface。
+        if (renderThreadStopped) {
+            // 仅在确认渲染线程已死时才释放 GPU surface；守卫挂在
+            // `closeBridgeUnlessRenderThreadAlive` 里，与其余拆卸路径同一条。
             // stopRenderThread 的 join 可能在当前线程上成功，
             // 而更早挂起（来自先前 join 超时、记录在 hungRenderThread 中）的线程
             // 仍在原生代码中存活——renderThreadPossiblyAlive 覆盖该情形。
             // 在此释放/关闭会在该线程恢复时构成 use-after-free。
-            entry.bridge.releaseGpuSurface()
+            //
             // 同样的道理适用于 close()：destroySession 会拆除挂起线程
             // 可能仍在触碰的原生会话/PTY/wgpu 上下文。
             // 原生会话待进程消亡时回收；在此销毁会在该线程恢复的瞬间构成 use-after-free。
-            entry.bridge.close()
+            entry.closeBridgeUnlessRenderThreadAlive("closeSession") { bridge ->
+                bridge.releaseGpuSurface()
+                bridge.close()
+            }
         } else {
             LogUtil.error(
                 "Runtime",
@@ -4326,7 +4337,9 @@ constructor(
             current.copy(
                 isRunning = sessions.isNotEmpty(),
                 activeSessionId = active,
-                sessionIds = sessions.keys.toList(),
+                // 升序发布（契约见 [RuntimeState.sessionIds]）：`sessions` 是并发
+                // 映射，桶序不保证稳定，而标签序号按本列表下标换算。
+                sessionIds = sessions.keys.sorted(),
                 // 活动会话换了（或一个都不剩）就清掉旧标题：标题是**某个**会话的
                 // 属性，留在旧会话上会让 UI 显示别人的名字；真实标题由随后的
                 // 异步刷新填回（见 [scheduleActiveSessionTitleRefresh]）。

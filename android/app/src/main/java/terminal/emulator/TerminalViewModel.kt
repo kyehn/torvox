@@ -1162,7 +1162,9 @@ constructor(
                         )
                     }
                 }
-                val sortedIds = runtimeState.sessionIds.sorted()
+                // 运行期按升序发布（契约见 `RuntimeState.sessionIds`）：此处不再排序，
+                // 否则「谁负责排序」有两处答案，标签序号会随任一侧改动而分叉。
+                val sortedIds = runtimeState.sessionIds
                 val previousById = _state.value.sessions.associateBy { it.sessionId }
                 val sessions = sortedIds.map { sessionId ->
                     previousById[sessionId]
