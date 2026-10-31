@@ -259,7 +259,6 @@ impl FontPipeline {
     /// 清空整形/字形标识缓存。字体族或语言变化使码位到字形号的映射失效后调用。
     fn clear_identity_caches(&mut self) {
         self.caches.shape_cache.clear();
-        self.caches.glyph_id_cache.clear();
         self.caches.cjk_glyph_cache.clear();
         // 负缓存与 cjk_glyph_cache 同批失效：二者都依赖「当前库有哪些面」，换字体、
         // 换 locale（会补装区域回退面）、换字号都必须让「找不到」这一结论重来。
@@ -563,20 +562,10 @@ impl FontPipeline {
         }
 
         // ── 解析字形号（优先缓存） ──
-        let glyph_id = if let Some(&cached) = self.caches.glyph_id_cache.get(&code_point) {
-            cached
-        } else {
-            let gid = {
-                let font_database = self.font_system.db();
-                font_database.with_face_data(primary_font_id, |font_data, face_index| {
-                    let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                    let charmap = font_ref.charmap();
-                    Some(charmap.map(ch))
-                })?
-            }?;
-            self.caches.glyph_id_cache.put(code_point, gid);
-            gid
-        };
+        // 走 [`Self::face_glyph_id`] 而非另开一张「主字体码位 → 字形号」表：两张表
+        // 答的是同一个问题（这一面能否解析这一码位），分家会让「主字体换面」与
+        // 「回退链」两条路径的缓存结论各自演化，且白占一份条目。
+        let glyph_id = self.face_glyph_id(primary_font_id, ch)?;
 
         // 缓存 ASCII 字形号供后续快径命中。
         if code_point < ASCII_UPPER_BOUND {

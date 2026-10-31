@@ -711,6 +711,74 @@ fn warm_frame_glyphs(
     }
 }
 
+/// 竖线/下划线光标标记在单元盒内的几何；方块光标返回 `None`。
+///
+/// 空单元格与文本单元格两条路径共用同一份判据：分叉会让同一个光标在两种格
+/// 子里画出不同的粗细/高度，且这类偏差没有任何用例会覆盖（两种格子各测一遍
+/// 才发现）。
+///
+/// 标记锚在单元盒，不锚字形位图（spec cursor-rendering「光标标记锚在单元盒」）：
+/// 位图高度随字符变化，锚它会让同一个光标在空单元格与文本格之间变高变矮，
+/// 降部字形还会把标记带出行界。
+fn cursor_marker_geometry(
+    cursor: CellCursor,
+    origin: [f32; 2],
+    cell_width: f32,
+    cell_height: f32,
+    cell_span: f32,
+) -> Option<([f32; 2], [f32; 2])> {
+    match cursor.style {
+        // 整格就是光标盒，无需另发标记。
+        CursorStyle::Block => None,
+        // 竖线光标：单元格左侧细竖条，高度为整格。
+        // 宽度**不**乘 `cell_span`：宽字符上乘了会变成两倍粗的短横，不再是竖线；
+        // 宽字符只有头列一条记录，原点即字形原点，竖条已覆盖到字形。
+        CursorStyle::Bar => Some((
+            origin,
+            [
+                (cell_width * BAR_CURSOR_WIDTH_FRACTION).max(CURSOR_MARKER_MINIMUM_THICKNESS),
+                cell_height,
+            ],
+        )),
+        // 下划线光标：整格底部细横条，宽度覆盖整格。
+        CursorStyle::Underline => {
+            let marker_height = (cell_height * UNDERLINE_CURSOR_HEIGHT_FRACTION)
+                .max(CURSOR_MARKER_MINIMUM_THICKNESS);
+            Some((
+                [origin[0], origin[1] + cell_height - marker_height],
+                [cell_width * cell_span, marker_height],
+            ))
+        }
+    }
+}
+
+/// 无字形的纯色四边形：空单元格背景、光标标记、字形缺失时的兜底。
+///
+/// `atlas_offset`/`atlas_size` 全零 = 采样不到任何字形轮廓，着色器只取背景色；
+/// `bearing` 同理无意义。三处原先各写一遍同一份字面量，改动其中一处就会让
+/// 光标在空单元格与文本格之间不一致，故收在此处。
+fn push_flat_instance(
+    instances: &mut Vec<CellInstance>,
+    origin: [f32; 2],
+    size: [f32; 2],
+    cell_data_entry: &crate::terminal::ghostty_terminal::CellData,
+    foreground: [f32; 4],
+    background: [f32; 4],
+    flags: u32,
+) {
+    instances.push(CellInstance {
+        quad_origin: origin,
+        atlas_offset: [0.0; 2],
+        atlas_size: [0.0; 2],
+        foreground,
+        background,
+        underline_color: cell_data_entry.underline_color,
+        quad_size: size,
+        flags: flags as f32,
+        bearing: [0.0; 2],
+    });
+}
+
 /// 构建单个网格行的实例。全量与增量构建器共用，
 /// 使两条路径的单元级逻辑保持一致。
 // 渲染热路径：参数由双构建路径共享调用，成组改结构体只增间接无收益。
@@ -776,26 +844,19 @@ fn append_row_instances(
         let emitted_flags = if concealed { 0 } else { cell_data_entry.flags };
         let effective_foreground = foreground;
         let mut effective_background = background;
-        // 默认四边形尺寸（方块光标与空单元格共用）
+        // 整格四边形：字形、空单元格背景与下划线光标宽度都取它；竖线/下划线
+        // 光标标记由 [`cursor_marker_geometry`] 从它收缩。字形四边形**不**用
+        // 收缩后的尺寸，否则组合记号等会被光标标记尺寸裁掉。
         let quad_size = [cell_width * cell_span, cell_height];
         // 方块光标恒为整格矩形（spec cursor-rendering「方块光标按整格几何」）：
         // termux 的 TerminalRenderer 把光标画在 [基线 − 行高, 基线]，即整格。
         // 跟随字形位图会让同一光标随格内字符变高变矮、越出本行——空单元格取
         // 'M' 位图高度，文本单元格取该字形位图高度，两者不等。
-
         if is_cursor && matches!(cursor.style, CursorStyle::Block) {
             // 方块光标（独占样式）：保留原文前景保证可读，仅把背景
             // 替换为光标色半透明覆盖。
             effective_background = cursor.marker_background();
         }
-
-        // 整尺寸字形四边形（避免组合记号等被 Bar/Underline
-        // 光标标记尺寸裁掉）。
-        let glyph_quad_size = [cell_width * cell_span, cell_height];
-        let glyph_quad_origin = [
-            cell_data_entry.col as f32 * cell_width,
-            cell_data_entry.row as f32 * cell_height,
-        ];
         if concealed
             || character == ' '
             || character == '\0'
@@ -815,45 +876,32 @@ fn append_row_instances(
             }
             // 空单元格只发一个四边形：无光标时铺满全格背景；Bar/Underline 时收缩为
             // 光标标记，格内其余区域不被本帧覆盖（靠累加器保留，见脏带清除实例）。
-            // 方块光标不收缩——整格就是光标盒。
-            {
-                let mut origin = quad_origin;
-                let mut size = quad_size;
-                // 光标标记锚在单元盒，不锚字形位图（spec cursor-rendering
-                // 「光标标记锚在单元盒」）：位图高度随字符变化，锚它会让同一个光标
-                // 在空单元格与文本格之间变高变矮，降部字形还会把标记带出行界。
-                if is_cursor {
-                    let marker_background = cursor.marker_background();
-                    match cursor.style {
-                        CursorStyle::Block => {}
-                        CursorStyle::Bar => {
-                            // 竖线光标：单元格左侧细竖条，高度为整格。
-                            size[0] = (cell_width * BAR_CURSOR_WIDTH_FRACTION)
-                                .max(CURSOR_MARKER_MINIMUM_THICKNESS);
-                            effective_background = marker_background;
-                        }
-                        CursorStyle::Underline => {
-                            // 下划线光标：整格底部细横条，宽度覆盖整格。
-                            let marker_height = (cell_height * UNDERLINE_CURSOR_HEIGHT_FRACTION)
-                                .max(CURSOR_MARKER_MINIMUM_THICKNESS);
-                            origin[1] += cell_height - marker_height;
-                            size[1] = marker_height;
-                            effective_background = marker_background;
-                        }
-                    }
+            // 方块光标不收缩——整格就是光标盒（`cursor_marker_geometry` 返回 `None`）。
+            //
+            // 标记锚在单元盒，不锚字形位图（spec cursor-rendering
+            // 「光标标记锚在单元盒」）：位图高度随字符变化，锚它会让同一个光标
+            // 在空单元格与文本格之间变高变矮，降部字形还会把标记带出行界。
+            let (origin, size, background) = match cursor_marker_geometry(
+                cursor,
+                quad_origin,
+                cell_width,
+                cell_height,
+                cell_span,
+            ) {
+                Some((marker_origin, marker_size)) if is_cursor => {
+                    (marker_origin, marker_size, cursor.marker_background())
                 }
-                instances.push(CellInstance {
-                    quad_origin: origin,
-                    atlas_offset: [0.0; 2],
-                    atlas_size: [0.0; 2],
-                    foreground: effective_foreground,
-                    background: effective_background,
-                    underline_color: cell_data_entry.underline_color,
-                    quad_size: size,
-                    flags: emitted_flags as f32,
-                    bearing: [0.0; 2],
-                });
-            }
+                _ => (quad_origin, quad_size, effective_background),
+            };
+            push_flat_instance(
+                instances,
+                origin,
+                size,
+                cell_data_entry,
+                effective_foreground,
+                background,
+                emitted_flags,
+            );
             continue;
         }
 
@@ -909,57 +957,33 @@ fn append_row_instances(
                 cell_height,
             );
             // 方块光标不加修饰：quad 本身就是整格光标盒。
-            let origin = glyph_quad_origin;
-            let size = glyph_quad_size;
-
             instances.push(CellInstance {
-                quad_origin: origin,
+                quad_origin,
                 atlas_offset,
                 atlas_size,
                 foreground: effective_foreground,
                 background: effective_background,
                 underline_color: cell_data_entry.underline_color,
-                quad_size: size,
+                quad_size,
                 flags: cell_data_entry.flags as f32,
                 bearing: [bearing_x, bearing_y],
             });
 
             // 竖线/下划线光标：在字形之上追加细标记（原文颜色不动，
             // 标记盖在上层保证可见）；标记锚在单元盒，不锚字形位图。
-            if is_cursor && !matches!(cursor.style, CursorStyle::Block) {
-                let marker_background = cursor.marker_background();
-                let (marker_origin, marker_size) = match cursor.style {
-                    CursorStyle::Bar => (
-                        glyph_quad_origin,
-                        [
-                            (cell_width * BAR_CURSOR_WIDTH_FRACTION)
-                                .max(CURSOR_MARKER_MINIMUM_THICKNESS),
-                            cell_height,
-                        ],
-                    ),
-                    _ => {
-                        let marker_height = (cell_height * UNDERLINE_CURSOR_HEIGHT_FRACTION)
-                            .max(CURSOR_MARKER_MINIMUM_THICKNESS);
-                        (
-                            [
-                                glyph_quad_origin[0],
-                                glyph_quad_origin[1] + cell_height - marker_height,
-                            ],
-                            [cell_width * cell_span, marker_height],
-                        )
-                    }
-                };
-                instances.push(CellInstance {
-                    quad_origin: marker_origin,
-                    atlas_offset: [0.0; 2],
-                    atlas_size: [0.0; 2],
-                    foreground: effective_foreground,
-                    background: marker_background,
-                    underline_color: cell_data_entry.underline_color,
-                    quad_size: marker_size,
-                    flags: cell_data_entry.flags as f32,
-                    bearing: [0.0; 2],
-                });
+            if is_cursor
+                && let Some((marker_origin, marker_size)) =
+                    cursor_marker_geometry(cursor, quad_origin, cell_width, cell_height, cell_span)
+            {
+                push_flat_instance(
+                    instances,
+                    marker_origin,
+                    marker_size,
+                    cell_data_entry,
+                    effective_foreground,
+                    cursor.marker_background(),
+                    cell_data_entry.flags,
+                );
             }
 
             // 组合字形延续码点（组合记号、emoji ZWJ 等），
@@ -972,14 +996,14 @@ fn append_row_instances(
                         font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id)
                     {
                         let shaped_origin = [
-                            glyph_quad_origin[0] + glyph.x_offset,
-                            glyph_quad_origin[1] + glyph.y_offset,
+                            quad_origin[0] + glyph.x_offset,
+                            quad_origin[1] + glyph.y_offset,
                         ];
                         if let Some(overlay) = font_pipeline.shaped_overlay_instance(
                             &info,
                             crate::render::font::OverlayQuad {
                                 origin: shaped_origin,
-                                size: glyph_quad_size,
+                                size: quad_size,
                                 foreground: effective_foreground,
                                 background: effective_background,
                                 deco: cell_data_entry.underline_color,
@@ -999,8 +1023,8 @@ fn append_row_instances(
                     if let Some(overlay) = font_pipeline.overlay_glyph_instance(
                         *codepoint,
                         crate::render::font::OverlayQuad {
-                            origin: glyph_quad_origin,
-                            size: glyph_quad_size,
+                            origin: quad_origin,
+                            size: quad_size,
                             foreground: effective_foreground,
                             background: effective_background,
                             deco: cell_data_entry.underline_color,
@@ -1016,17 +1040,15 @@ fn append_row_instances(
             // 图集中找不到字形——推入一个空背景四边形，使
             // 单元格背景（含选区/高亮）可见。
             // 字体图集重建后字形即出现。
-            instances.push(CellInstance {
+            push_flat_instance(
+                instances,
                 quad_origin,
-                atlas_offset: [0.0; 2],
-                atlas_size: [0.0; 2],
-                foreground: effective_foreground,
-                background: effective_background,
-                underline_color: cell_data_entry.underline_color,
                 quad_size,
-                flags: cell_data_entry.flags as f32,
-                bearing: [0.0; 2],
-            });
+                cell_data_entry,
+                effective_foreground,
+                effective_background,
+                cell_data_entry.flags,
+            );
         }
     }
 }

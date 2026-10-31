@@ -18,9 +18,11 @@ pub(crate) const STYLE_FACE_CACHE_CAPACITY: usize = 64;
 /// 与上一项的三元组不同源。一屏 40×20 就有 800 个不同码位，64 条会被立刻穿透，
 /// 而每次穿透都要重入 `with_face_data` 并重建 charmap（字体解压）。
 ///
-/// 样式面与 CJK 回退链共用此缓存：两者查的是同一件事（某个面能否解析某个码位），
-/// 而合成运行（粗体/斜体）逐帧重走回退链，不入缓存则每帧每字都重建一次 charmap。
-pub(crate) const FACE_GLYPH_ID_CACHE_CAPACITY: usize = 4_096;
+/// 主字体解析、样式面与 CJK 回退链共用此缓存：三者查的是同一件事（某个面能否
+/// 解析某个码位），合成运行（粗体/斜体）又会逐帧重走回退链，不入缓存则每帧每字
+/// 都重建一次 charmap。故规模由「不同字符 × 参与解析的面数」决定，取值须同时
+/// 容得下主字体那一组与回退链那一组——CJK 密集输出时两组会互相挤占。
+pub(crate) const FACE_GLYPH_ID_CACHE_CAPACITY: usize = 8_192;
 
 /// 轮廓来源探测缓存容量：键带光栅尺寸，覆盖常用字号×字形组合。
 pub(crate) const OUTLINE_CACHE_CAPACITY: usize = 10_000;

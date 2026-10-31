@@ -58,6 +58,9 @@ fn styled_screenful_of_codepoints_stays_cached() {
     let sample: Vec<char> = (0x4E00..0x4E00 + SCREENFUL as u32)
         .filter_map(char::from_u32)
         .collect();
+    // 先清空再取样：这张表由主字体解析与回退链共用，管线初始化已往里写过条目
+    // （ASCII 预热等），不清空则本例数到的是「全管线累计」而非一屏的规模。
+    pipeline.caches.face_glyph_id_cache.clear();
     for codepoint in &sample {
         pipeline.face_glyph_id(face, *codepoint);
     }
@@ -83,8 +86,7 @@ fn cjk_fallback_state_matches_the_primary_coverage() {
     // 同一次 `font_info()` 里取状态与名字：分开两次调用会让两问的回答来自不同的重组。
     let info = pipeline.font_info();
     let primary = pipeline.font_id.expect("默认主字体必须已选定");
-    let primary_covers =
-        font_db::face_covers(pipeline.font_system.db(), primary, probe);
+    let primary_covers = font_db::face_covers(pipeline.font_system.db(), primary, probe);
     match info.cjk_state {
         crate::render::font::pipeline::CjkFallbackState::SkippedPrimaryCovers => assert!(
             primary_covers,

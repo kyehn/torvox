@@ -610,14 +610,10 @@ pub(crate) fn resolve_system_monospace_files() -> &'static [String] {
 /// 不是硬编码字体名。
 ///
 /// 设备主字体梯次与宿主（单元测试/基准）的主字体选择共用同一条门槛。
+/// 与 [`face_covers`] 同一套探测，只是换了探测字符：两份 `with_face_data` +
+/// charmap 的写法会让「查不到面」时的兜底（这里取 `false`）出现第二处口径。
 pub(crate) fn face_covers_latin(font_database: &fontdb::Database, face_id: fontdb::ID) -> bool {
-    font_database
-        .with_face_data(face_id, |font_data, face_index| {
-            swash::FontRef::from_index(font_data, face_index as usize)
-                .map(|font| font.charmap().map('m') != 0)
-        })
-        .flatten()
-        .unwrap_or(false)
+    face_covers(font_database, face_id, 'm')
 }
 
 /// 主字体面选择梯次（fonts.xml 是默认主字体的唯一来源）：

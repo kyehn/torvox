@@ -23,7 +23,6 @@ pub struct GlyphCache {
     pub shape_cache: LruCache<ShapeKey, Vec<super::ShapedGlyphInfo>>,
     /// ASCII 快速路径：预分配的 ' '..'~' 字形 id 数组。
     pub ascii_glyph_ids: [Option<swash::GlyphId>; ASCII_UPPER_BOUND as usize],
-    pub glyph_id_cache: LruCache<u32, swash::GlyphId>,
     /// CJK 字形解析（字符 → 最终 font_id + glyph_id）。
     pub cjk_glyph_cache: LruCache<char, (fontdb::ID, swash::GlyphId)>,
     /// 同族样式面解析（基础字体、bold、italic）→ 胜出面 id，需合成时为 None。
@@ -83,7 +82,6 @@ impl GlyphCache {
             glyph_cache: LruCache::new(cache_cap),
             shape_cache: LruCache::new(shape_cache_cap),
             ascii_glyph_ids: [None; ASCII_UPPER_BOUND as usize],
-            glyph_id_cache: LruCache::new(cache_cap),
             cjk_glyph_cache: LruCache::new(cache_cap),
             style_face_cache: LruCache::new(style_face_cache_cap),
             face_glyph_id_cache: LruCache::new(face_glyph_id_cap),
