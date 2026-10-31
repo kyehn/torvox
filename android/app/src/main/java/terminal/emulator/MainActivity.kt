@@ -314,13 +314,16 @@ class MainActivity : ComponentActivity() {
             properties.volumeKeys == VolumeKeysBehaviour.VIRTUAL &&
             event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
         ) {
-            // 按住期间持续生效在 termux 里是一个独立布尔量；本应用的修饰键只有
-            // 「一次性 / 锁定」两态，故按下即置一次性：按住音量减再敲一个键是实际用法，
-            // 而为此新增一条贯穿编码、输入法提交与工具条的「按住态」不划算。
-            // 抬起时只清掉自己置的那一次，不碰用户在这期间手动切换的状态。
+            // 按住期间持续生效（Termux 的 `mVirtualControlKeyDown`）：新增 `Held` 粘滞态，
+            // 与 `Once`/`Locked` 并列，`isActive()` 视其为按住；`consumeOneShotModifiers`
+            // 不回收它，故按住音量减再敲多键每键都带 Ctrl。抬起时仅回收自己置的 `Held`，
+            // 不碰用户手动锁定的 Ctrl。
             if (actionDown) {
-                terminalViewModel.setCtrlModifier(ModifierState.Once)
-            } else if (terminalViewModel.ctrlModifierState == ModifierState.Once) {
+                // 按住期间持续生效（Termux 的 `mVirtualControlKeyDown`）：
+                // Held 不会被 consumeOneShotModifiers 回收，故按住音量减再敲多键，
+                // 每键都带 Ctrl；抬起时仅回收自己置的 Held，不碰用户手动锁定的 Ctrl。
+                terminalViewModel.setCtrlModifier(ModifierState.Held)
+            } else if (terminalViewModel.ctrlModifierState == ModifierState.Held) {
                 terminalViewModel.setCtrlModifier(ModifierState.Off)
             }
             return true
