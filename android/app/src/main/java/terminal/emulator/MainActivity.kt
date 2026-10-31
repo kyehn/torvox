@@ -316,14 +316,10 @@ class MainActivity : ComponentActivity() {
             event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN &&
             !isExternalAlphabeticKeyEvent(event)
         ) {
-            // 按住期间持续生效（Termux 的 `mVirtualControlKeyDown`）：新增 `Held` 粘滞态，
-            // 与 `Once`/`Locked` 并列，`isActive()` 视其为按住；`consumeOneShotModifiers`
-            // 不回收它，故按住音量减再敲多键每键都带 Ctrl。抬起时仅回收自己置的 `Held`，
-            // 不碰用户手动锁定的 Ctrl。
+            // 按住期间持续生效（Termux 的 `mVirtualControlKeyDown`）：`Held` 不会被
+            // `consumeOneShotModifiers` 回收，故按住音量减再敲多键每键都带 Ctrl；
+            // 抬起时仅回收自己置的 `Held`，不碰用户手动锁定的 Ctrl。
             if (actionDown) {
-                // 按住期间持续生效（Termux 的 `mVirtualControlKeyDown`）：
-                // Held 不会被 consumeOneShotModifiers 回收，故按住音量减再敲多键，
-                // 每键都带 Ctrl；抬起时仅回收自己置的 Held，不碰用户手动锁定的 Ctrl。
                 terminalViewModel.setCtrlModifier(ModifierState.Held)
             } else if (terminalViewModel.ctrlModifierState == ModifierState.Held) {
                 terminalViewModel.setCtrlModifier(ModifierState.Off)
@@ -333,17 +329,18 @@ class MainActivity : ComponentActivity() {
 
         if (
             properties.ctrlSpaceWorkaround &&
-            actionDown &&
             event.keyCode == KeyEvent.KEYCODE_SPACE &&
             event.isCtrlPressed &&
             !event.isAltPressed
         ) {
-            // Ctrl+空格在终端语义里就是 NUL。拦截后直接按该语义发送，
-            // 不再交给编码器——两条路径都写会得到两个 NUL。
-            terminalViewModel.sendKey(
-                keyCode = KeyEvent.KEYCODE_SPACE,
-                modifiers = KeyModifiers.CTRL,
-            )
+            // Ctrl+空格在终端语义里就是 NUL。只在下按发送一次，但上下两路都要消费，
+            // 否则抬起事件仍会漏回输入法/编码器。
+            if (actionDown) {
+                terminalViewModel.sendKey(
+                    keyCode = KeyEvent.KEYCODE_SPACE,
+                    modifiers = KeyModifiers.CTRL,
+                )
+            }
             return true
         }
 

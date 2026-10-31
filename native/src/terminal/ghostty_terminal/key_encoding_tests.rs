@@ -94,6 +94,19 @@ fn ctrl_folds_printable_key_to_control_byte() {
 }
 
 #[test]
+fn ctrl_space_without_platform_text_is_nul() {
+    // `ctrl-space-workaround` 走的是「只下键码、不带平台文本」的通道
+    // （`TerminalViewModel.sendKey` 的 unicodeChar = 0）。可打印键没有文本就不
+    // 编码是上游的约束，若 Space 也不例外，补偿就等于什么都没发——故在此锁住。
+    let terminal = terminal();
+    assert_eq!(
+        encode(&terminal, key::Key::Space, Mods::CTRL),
+        [0x00],
+        "Ctrl+Space without platform text must still be NUL"
+    );
+}
+
+#[test]
 fn alt_prefixes_printable_text_with_escape() {
     let terminal = terminal();
     assert_eq!(
