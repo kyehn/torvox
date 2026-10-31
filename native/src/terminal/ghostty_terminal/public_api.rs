@@ -5,7 +5,7 @@ use std::thread;
 use flume::{Sender, bounded};
 use libghostty_vt::key;
 
-use super::commands::{Command, Query, RunConfig};
+use super::commands::{Command, Query, RunConfig, ViewportTarget};
 use super::frame_mailbox::FrameMailbox;
 #[cfg(test)]
 use super::internal::{BatchStats, CacheStats};
@@ -305,16 +305,16 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 下发视口滚动命令（向上为负）。成功返回 true。
+    /// 下发视口滚动命令。成功返回 true。
     ///
     /// 每次下发分配一个请求序号（进程级单调递增）：VT 处理命令后把序号随帧回传，
     /// 渲染侧据此判断收到的帧是否早于在途的滚动命令——在途期间到达的旧视口帧
     /// 不得呈现（旧视口配新余量会让内容先上跳半行再下跳整行）。
-    pub fn scroll_viewport(&self, delta: isize) -> bool {
+    pub fn scroll_viewport(&self, target: ViewportTarget) -> bool {
         let request_id = super::commands::next_scroll_request_id();
         if let Err(error) = self
             .cmd_tx
-            .try_send(Command::ScrollViewport { delta, request_id })
+            .try_send(Command::ScrollViewport { target, request_id })
         {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed for scroll: {error}");
             return false;

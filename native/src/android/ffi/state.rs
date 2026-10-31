@@ -1,6 +1,8 @@
 use super::query::session_handle;
 use super::*;
 
+use crate::terminal::ghostty_terminal::ViewportTarget;
+
 // ── 网格尺寸查询 ────────────────────────────────────────────────
 /// 当前单元格宽高（字号单位，取自渲染器的字体管线；物理像素再乘 `raster_scale`），
 /// 打包为一个 `jlong`：低 32 位是宽度的 `f32` 位、高 32 位是高度。无渲染状态时为 0。
@@ -88,6 +90,25 @@ pub(super) fn read_terminal_flag_jboolean(
 }
 
 // ── 滚动、模式与状态查询 ────────────────────────────────────────
+/// 宿主滚动偏移 → 视口滚动目标。`None` = 无需滚动（偏移未变）。
+///
+/// 偏移 0 是「回到实时视图」这个**意图**，不能按增量回退：回滚浏览期间若有新输出，
+/// 活动区底边已经下移，按增量回退只会退回浏览起点，停在离底边若干行处——新输出落在
+/// 视口之外，终端看上去「死了」（剩余输出不可见）。
+///
+/// 其余偏移按增量换算：负值 = 向上滚入历史，正值 = 回到更新内容。宿主偏移在用户
+/// 向上滑（进入历史）时增大，故这里必须取反——此前符号写反，向下滑到底部时发的是
+/// 负增量，结果反而滚进了历史。
+pub(super) fn scroll_target(target: i64, last_offset: i64) -> Option<ViewportTarget> {
+    if target == last_offset {
+        return None;
+    }
+    if target == 0 {
+        return Some(ViewportTarget::Bottom);
+    }
+    Some(ViewportTarget::Delta(-((target - last_offset) as isize)))
+}
+
 /// 设置视口滚动偏移（回滚区内的行数，0 = 活跃屏幕）。与上次偏移的差值在 VT 线程
 /// 经 `scroll_viewport(Delta)` 应用，故下一次 CellData 推送即携带滚动后的视图
 /// （此前在 Kotlin 侧是空操作）。
@@ -113,27 +134,22 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
             let Some(session) = session.try_lock() else {
                 return Ok(JNI_FALSE);
             };
-            let delta = target - session.last_scroll_offset();
-            if delta == 0 {
+            let Some(viewport_target) = scroll_target(target, session.last_scroll_offset()) else {
                 return Ok(JNI_TRUE);
-            }
-            // `scroll_viewport` 的增量语义（主机与模拟器已验证）：负值 = 向上滚入历史，
-            // 正值 = 回到底部。Kotlin 的 `scrollOffset` 在用户向上滑（进入历史）时增大，
-            // 故此处必须取反：此前符号写反，向下滑到底部时发的是负增量，
-            // 结果反而滚进了历史。
-            let sent = session.terminal().scroll_viewport(-(delta as isize));
+            };
+            let sent = session.terminal().scroll_viewport(viewport_target);
             if sent {
                 session.set_last_scroll_offset(target);
                 // 触摸滚动的每个 MOVE 都会走到这里（数十次/手势），与同路径的
                 // `setScrollYPx` 同级：日志级别取 trace，debug 级只会把 logcat 刷满。
                 // 偏移是否正确在画面上立刻可见，逐次数值不是排障信号。
-                log::trace!("setScrollOffset: target={target} delta={delta}");
+                log::trace!("setScrollOffset: target={target} viewport_target={viewport_target:?}");
             } else {
                 // 命令通道已满或 VT 线程已消失：**不**推进 `last_scroll_offset`，
                 // 使下次以相同目标调用时能重试该增量而非静默丢弃。此前先推进全局
                 // 偏移，发送失败后视口会永久停留在陈旧状态。
                 log::warn!(
-                    "setScrollOffset: scroll_viewport send failed (target={target} delta={delta}); will retry"
+                    "setScrollOffset: scroll_viewport send failed (target={target}); will retry"
                 );
             }
             (sent, session.terminal().latest_scroll_request_id())

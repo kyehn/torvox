@@ -10,7 +10,7 @@ fn scroll_viewport_reuses_shifted_rows() {
     terminal_under_test.take_cache_stats();
 
     assert!(
-        terminal_under_test.scroll_viewport(-2),
+        terminal_under_test.scroll_viewport(ViewportTarget::Delta(-2)),
         "scroll_viewport should accept delta"
     );
     terminal_under_test.flush();
@@ -41,7 +41,7 @@ fn write_after_scroll_does_not_reuse_shifted_rows() {
     terminal_under_test.take_cache_stats();
 
     assert!(
-        terminal_under_test.scroll_viewport(-2),
+        terminal_under_test.scroll_viewport(ViewportTarget::Delta(-2)),
         "scroll_viewport should accept delta"
     );
     terminal_under_test.vt_write(b"post-scroll output\n");
@@ -72,7 +72,7 @@ fn scroll_viewport_with_unchanged_content_still_pushes_frame() {
         "首帧必须到达"
     );
     assert!(
-        terminal_under_test.scroll_viewport(2),
+        terminal_under_test.scroll_viewport(ViewportTarget::Delta(2)),
         "scroll_viewport 应接受增量"
     );
     terminal_under_test.flush();
@@ -99,7 +99,10 @@ fn viewport_row_stays_put_while_new_output_arrives() {
         "贴底时视口行号应等于回滚长度（活动区顶行）"
     );
 
-    assert!(terminal_under_test.scroll_viewport(-3), "上滚必须被接受");
+    assert!(
+        terminal_under_test.scroll_viewport(ViewportTarget::Delta(-3)),
+        "上滚必须被接受"
+    );
     terminal_under_test.flush();
     let (_, browsing) = terminal_under_test
         .receive_cell_data()
@@ -125,6 +128,56 @@ fn viewport_row_stays_put_while_new_output_arrives() {
         "回滚长度应随新输出增长：{} -> {}",
         browsing.scrollback_length,
         after_output.scrollback_length
+    );
+}
+
+/// 「回到底部」必须落在活动区底边：浏览期间的新输出不得被视口甩在下面。
+///
+/// 判别力：按增量回退（浏览起点 → 0 的行差）只会退回浏览起点，而活动区底边在
+/// 新输出到达后已经下移，视口停在离底边若干行处——新输出落在视口之外，终端
+/// 看上去「死了」（剩余输出不可见）。
+#[test]
+fn scroll_to_bottom_lands_on_live_view_after_new_output() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    for line_number in 0..20 {
+        terminal_under_test.vt_write(format!("line{line_number}\r\n").as_bytes());
+    }
+    terminal_under_test.flush();
+    let _ = terminal_under_test
+        .receive_cell_data()
+        .expect("首帧必须到达");
+
+    assert!(
+        terminal_under_test.scroll_viewport(ViewportTarget::Delta(-3)),
+        "上滚必须被接受"
+    );
+    terminal_under_test.flush();
+    let (_, browsing) = terminal_under_test
+        .receive_cell_data()
+        .expect("滚动后必须收到帧");
+
+    terminal_under_test.vt_write(b"late one\r\nlate two\r\n");
+    terminal_under_test.flush();
+    let (_, after_output) = terminal_under_test
+        .receive_cell_data()
+        .expect("输出后必须收到帧");
+
+    assert!(
+        terminal_under_test.scroll_viewport(ViewportTarget::Bottom),
+        "回到底部必须被接受"
+    );
+    terminal_under_test.flush();
+    let (_, at_bottom) = terminal_under_test
+        .receive_cell_data()
+        .expect("回底后必须收到帧");
+    assert_eq!(
+        at_bottom.viewport_row, at_bottom.scrollback_length,
+        "回到底部后视口必须贴着活动区顶行（row={} scrollback={}）",
+        at_bottom.viewport_row, at_bottom.scrollback_length
+    );
+    assert!(
+        after_output.scrollback_length > browsing.scrollback_length,
+        "新输出必须把活动区底边推远，否则本用例无判别力"
     );
 }
 
@@ -260,7 +313,7 @@ fn absolute_row_text_survives_viewport_scroll() {
         scrollback > SCROLL_OFFSET,
         "回滚须多于上滚量, got {scrollback}"
     );
-    assert!(terminal_under_test.scroll_viewport(-(SCROLL_OFFSET as isize)));
+    assert!(terminal_under_test.scroll_viewport(ViewportTarget::Delta(-(SCROLL_OFFSET as isize))));
     terminal_under_test.flush();
 
     let dumped = terminal_under_test.dump_grid();
@@ -316,7 +369,7 @@ fn cursor_viewport_coordinates_track_scrollback_scroll() {
     // cursor page (active row 19) is out of view → the cursor must be
     // hidden, not drawn on scrollback row 4.
     assert!(
-        terminal_under_test.scroll_viewport(-1),
+        terminal_under_test.scroll_viewport(ViewportTarget::Delta(-1)),
         "scroll_viewport(-1)"
     );
     let mut hidden = None;
@@ -336,7 +389,7 @@ fn cursor_viewport_coordinates_track_scrollback_scroll() {
 
     // Scroll back to the bottom: the cursor reappears on row 4.
     assert!(
-        terminal_under_test.scroll_viewport(1),
+        terminal_under_test.scroll_viewport(ViewportTarget::Delta(1)),
         "scroll_viewport(+1)"
     );
     let mut restored = None;
@@ -815,7 +868,7 @@ fn search_select_leaves_scrolling_to_host() {
         "Scroll::None 选中不得移动视口"
     );
     // 宿主滚到命中（视图侧居中）后，命中才进入视口。
-    assert!(terminal_under_test.scroll_viewport(-10));
+    assert!(terminal_under_test.scroll_viewport(ViewportTarget::Delta(-10)));
     terminal_under_test.flush();
     assert_eq!(viewport_top_text(&terminal_under_test), "needle");
 }
@@ -1016,7 +1069,7 @@ fn scroll_request_id_travels_with_frame() {
     );
 
     assert!(
-        terminal_under_test.scroll_viewport(-1),
+        terminal_under_test.scroll_viewport(ViewportTarget::Delta(-1)),
         "scroll_viewport 应接受增量"
     );
     let request_id = terminal_under_test.latest_scroll_request_id();
@@ -1049,9 +1102,15 @@ fn scroll_request_id_is_process_wide_and_never_reused() {
     let first_terminal = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     let second_terminal = GhosttyTerminal::new(5, 10, 100).expect("terminal");
 
-    assert!(first_terminal.scroll_viewport(-1), "首个滚动应被接受");
+    assert!(
+        first_terminal.scroll_viewport(ViewportTarget::Delta(-1)),
+        "首个滚动应被接受"
+    );
     let first_id = first_terminal.latest_scroll_request_id();
-    assert!(second_terminal.scroll_viewport(-1), "第二个滚动应被接受");
+    assert!(
+        second_terminal.scroll_viewport(ViewportTarget::Delta(-1)),
+        "第二个滚动应被接受"
+    );
     let second_id = second_terminal.latest_scroll_request_id();
 
     assert!(

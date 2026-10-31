@@ -1,4 +1,6 @@
+use super::state::scroll_target;
 use super::{RenderWake, SessionEntry, rlock_session_registry, wlock_session_registry};
+use crate::terminal::ghostty_terminal::ViewportTarget;
 use crate::terminal::pty::Pty;
 use crate::terminal::session::Session;
 use std::sync::Arc;
@@ -60,5 +62,29 @@ fn scroll_bookkeeping_is_per_session() {
         second.lock().last_scroll_offset(),
         0,
         "另一会话的滚动不得推进本会话的记账"
+    );
+}
+
+/// 宿主偏移 0 必须译成「回到活动区」这个**意图**，不能译成增量回退。
+///
+/// 判别力：回滚浏览期间若有新输出，活动区底边已经下移；按增量回退只会退回浏览
+/// 起点，停在离底边若干行处——新输出落在视口之外，终端看上去「死了」。
+#[test]
+fn scroll_target_maps_zero_offset_to_bottom() {
+    assert_eq!(
+        scroll_target(0, 3),
+        Some(ViewportTarget::Bottom),
+        "偏移 0 是回到底部的意图"
+    );
+    assert_eq!(scroll_target(0, 0), None, "偏移未变则无需滚动");
+    assert_eq!(
+        scroll_target(5, 3),
+        Some(ViewportTarget::Delta(-2)),
+        "向上滚入历史发负增量"
+    );
+    assert_eq!(
+        scroll_target(1, 3),
+        Some(ViewportTarget::Delta(2)),
+        "回到更新内容发正增量"
     );
 }

@@ -17,6 +17,7 @@ pub(crate) mod unicode_placement;
 
 pub use commands::Command;
 pub use commands::Query;
+pub use commands::ViewportTarget;
 pub use types::*;
 
 use self::frame_mailbox::FrameMailbox;

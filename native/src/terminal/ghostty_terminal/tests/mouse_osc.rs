@@ -818,7 +818,7 @@ fn scroll_viewport_delta_scrolls_cell_data() {
     // CellData; the visible content shifts (rows are renumbered from the
     // new viewport top, so the row set is unchanged but the text differs).
     assert!(
-        terminal_under_test.scroll_viewport(-2),
+        terminal_under_test.scroll_viewport(ViewportTarget::Delta(-2)),
         "scroll_viewport should accept delta"
     );
     // Give the VT thread a moment to process and push.
@@ -855,7 +855,7 @@ fn scroll_viewport_delta_scrolls_cell_data() {
 
     // 向下滚回底部：可见文本必须再次变化（DESIGN 修饰键栏节：方向键/滑动双向移动）。
     assert!(
-        terminal_under_test.scroll_viewport(2),
+        terminal_under_test.scroll_viewport(ViewportTarget::Delta(2)),
         "scroll_viewport 应接受正向增量"
     );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);

@@ -7,6 +7,19 @@ use libghostty_vt::key;
 use super::frame_mailbox::FrameMailbox;
 use super::types::*;
 
+/// 视口滚动目标。
+///
+/// 「回到底部」是**意图**而非增量：回滚浏览期间若有新输出，活动区底边已经下移，
+/// 按增量回退只会退回浏览起点，停在离底边若干行处——新输出落在视口之外，终端
+/// 看上去「死了」（剩余输出不可见）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewportTarget {
+    /// 回到活动区底边：视口跟随最新输出。
+    Bottom,
+    /// 按增量滚动（向上为负）。
+    Delta(isize),
+}
+
 /// 调用方发往 VT 线程的命令，按序处理。
 ///
 /// 通道**有界**，VT 线程卡住时内存不会无限增长；发送方用 `try_send` 并回退到缓存值。
@@ -34,12 +47,12 @@ pub enum Command {
     TakeSnapshot {
         tx: Sender<Arc<GridSnapshot>>,
     },
-    /// 按增量滚动终端视口（向上为负），供应用浏览回滚。
+    /// 滚动终端视口，供应用浏览回滚。
     ///
     /// `request_id` 是本次请求的序号（进程级单调递增）：VT 处理命令后把序号随帧
     /// 回传，渲染侧据此判断收到的帧是否早于在途的滚动命令。
     ScrollViewport {
-        delta: isize,
+        target: ViewportTarget,
         request_id: u64,
     },
     /// 安装终端持有的线性活动选区（跟踪网格引用，随滚动/输出/重排跟随文本）。

@@ -61,7 +61,7 @@ fn kitty_placement_row_cache_survives_scrollback_viewing() {
     assert_eq!(at_bottom[0].viewport_row, 0);
     assert_eq!(terminal.take_kitty_scan_stats(), (0, 1));
 
-    assert!(terminal.scroll_viewport(-1));
+    assert!(terminal.scroll_viewport(ViewportTarget::Delta(-1)));
     terminal.flush();
     let (cells, cursor) = terminal
         .receive_cell_data()

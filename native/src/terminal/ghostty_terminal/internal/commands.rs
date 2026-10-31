@@ -44,8 +44,8 @@ impl super::GhosttyTerminal {
                 cell_width,
                 cell_height,
             } => Self::apply_cell_pixel_size(cell_width, cell_height, config, terminal),
-            Command::ScrollViewport { delta, request_id } => {
-                Self::apply_scroll_viewport(delta, request_id, terminal, extractors, state, batch);
+            Command::ScrollViewport { target, request_id } => {
+                Self::apply_scroll_viewport(target, request_id, terminal, extractors, state, batch);
                 CommandOutcome::Continue
             }
             Command::Repaint => {
@@ -255,7 +255,7 @@ impl super::GhosttyTerminal {
 
     /// 滚动视口（回滚浏览）。
     fn apply_scroll_viewport<'term>(
-        delta: isize,
+        target: ViewportTarget,
         request_id: u64,
         terminal: &mut Terminal<'term, '_>,
         extractors: &mut RenderExtractors<'term>,
@@ -270,7 +270,11 @@ impl super::GhosttyTerminal {
         // 请求量平移缓存、把内容推出画面。读取失败时不做平移，
         // 下一帧整帧重建（正确性优先）。
         let before = terminal.scrollbar().map(|bar| bar.offset).ok();
-        terminal.scroll_viewport(libghostty_vt::terminal::ScrollViewport::Delta(delta));
+        let upstream = match target {
+            ViewportTarget::Bottom => libghostty_vt::terminal::ScrollViewport::Bottom,
+            ViewportTarget::Delta(delta) => libghostty_vt::terminal::ScrollViewport::Delta(delta),
+        };
+        terminal.scroll_viewport(upstream);
         let after = terminal.scrollbar().map(|bar| bar.offset).ok();
         let actual_delta = match (before, after) {
             (Some(before), Some(after)) => Some(after as isize - before as isize),

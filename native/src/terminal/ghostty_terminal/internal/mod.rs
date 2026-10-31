@@ -16,7 +16,7 @@ use libghostty_vt::selection::{Order, SelectWordOptions, Selection};
 use libghostty_vt::style::PaletteIndex;
 use libghostty_vt::terminal::{Mode, Point, PointCoordinate, PointSpace};
 
-use super::commands::{Command, Query, RunConfig};
+use super::commands::{Command, Query, RunConfig, ViewportTarget};
 use super::frame_mailbox::FrameMailbox;
 use super::types::*;
 use flume::Sender;
