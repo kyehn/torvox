@@ -6,7 +6,7 @@
 
 ## 结论
 
-- 差异集中在配置面：`termux.properties` 实解析 20 个键，规范只允许 3 个；既然这些键
+- 差异集中在配置面：`termux.properties` 实解析 16 个键，规范允许 `config.md` 列出的键；既然这些键
   已有消费方，就不是死代码，而是规范未收录的能力。
 - `colors.properties` 解析已按用户指令移除，实现与 `config.md`、`PROHIBITED.md` 一致。
 - 修饰键栏默认布局与 Termux 上游不一致：规范要求「布局/按键和 Termux 完全相同」，
@@ -21,11 +21,11 @@
 - 本轮清掉了 `openspec/specs` 里已删除功能的残留条款（响铃、光标闪烁、会话切换提示），
   使次级规范重新与实现对齐；其余差异按现状登记，未擅自删除功能。
 
-## 配置键面：20 个键，规范只允许 3 个
+## 配置键面：16 个键（已移除实体键盘快捷键设置）
 
 `config.md` 规定只读取 `default-working-directory`、`terminal-transcript-rows`、
 `terminal-cursor-style`，其余键与 `colors.properties` 一律不解析；`PROHIBITED.md` 重申。
-`TermuxPropertiesParser.parse` 实际解析下表 20 个键，`TermuxProperties` 为每个键保留字段，
+`TermuxPropertiesParser.parse` 实际解析下表 16 个键，`TermuxProperties` 为每个键保留字段，
 并各有消费方。
 
 | 键 | 实际作用 | 与规范的关系 |
@@ -33,7 +33,6 @@
 | `default-working-directory` | 会话工作目录 | 允许 |
 | `terminal-transcript-rows` | 回滚行数 | 允许 |
 | `terminal-cursor-style` | 光标默认样式 | 允许 |
-| `disable-hardware-keyboard-shortcuts` | 关掉实体键盘快捷键 | 三键限制 |
 | `use-fullscreen-workaround` | 全屏时系统栏改为滑动临时唤出 | 三键限制 |
 | `fullscreen` | 隐藏系统栏 | 三键限制 |
 | `ctrl-space-workaround` | 补发 Ctrl+空格 | 三键限制 |
@@ -41,9 +40,6 @@
 | `extra-keys-text-all-caps` | 键帽大小写 | 三键限制 |
 | `terminal-margin-horizontal` | 终端左右边距 | 三键限制 |
 | `terminal-margin-vertical` | 终端上下边距 | 三键限制 |
-| `shortcut.create-session` | 实体键盘新建会话 | 三键限制；`PROHIBITED.md` 禁止实体键盘快捷键设置 |
-| `shortcut.next-session` | 实体键盘下一会话 | 同上 |
-| `shortcut.previous-session` | 实体键盘上一会话 | 同上 |
 | `terminal-toolbar-height` | 修饰键栏高度倍率 | 三键限制 |
 | `extra-keys-style` | 键帽字形档位 | 三键限制 |
 | `extra-keys` | 键栏布局（行、键位、字形、`display` 覆盖） | 三键限制；`DESIGN.md` 要求固定 2 行 7 列；`PROHIBITED.md` 禁止修改键栏布局 |
@@ -51,10 +47,9 @@
 | `volume-keys` | 音量减改为虚拟 Ctrl | 三键限制 |
 | `soft-keyboard-toggle-behaviour` | 键盘键改为启用/禁用输入法 | 三键限制 |
 
-证据：`TermuxPropertiesParser.parse` 的 `boolean`、`integer`、`float`、`choice`、`shortcut`
+证据：`TermuxPropertiesParser.parse` 的 `boolean`、`integer`、`float`、`choice`
 与 `extraKeys` 分支；`TermuxProperties` 的字段与默认值；消费方分别是 `MainActivity`
-（`disableHardwareKeyboardShortcuts`、`ctrlSpaceWorkaround`、`shortcutCreateSession`、
-`shortcutNextSession`、`shortcutPreviousSession`、`backKey`、`volumeKeys`）、
+（`ctrlSpaceWorkaround`、`backKey`、`volumeKeys`）、
 `TerminalScreen`（`useFullscreenWorkaround`、`fullscreen`、`hideSoftKeyboardOnStartup`、
 `extraKeys*`、`terminalMargin*Dp`、`softKeyboardToggleBehaviour`）、`SystemBars`
 （`fullscreen`）、`TerminalRuntime`（`terminalToolbarHeightScale`、`extraKeys`）。

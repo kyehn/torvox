@@ -168,7 +168,10 @@ class MainActivity : ComponentActivity() {
             object : androidx.activity.OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     val properties = terminalViewModel.termuxConfiguration.value.properties
-                    if (properties.backKey == BackKeyBehaviour.ESCAPE) {
+                    if (
+                        terminalViewModel.terminalScreenActive &&
+                        properties.backKey == BackKeyBehaviour.ESCAPE
+                    ) {
                         terminalViewModel.sendKey(KeyEvent.KEYCODE_ESCAPE)
                         return
                     }
@@ -301,10 +304,9 @@ class MainActivity : ComponentActivity() {
      *   里是虚拟 FN，而本应用没有 FN 映射表（FN+字母→ESC/方向键那一套），**故意不拦截**：
      *   抢走一个只能什么都不做的键，等于白丢音量加。
      * - `ctrl-space-workaround`：部分输入法/键盘把 Ctrl+空格吞成输入法切换，显式补发 NUL。
-     * - 会话快捷键：`Ctrl+Alt+<char>`，字符由 `shortcut.*-session` 配置；
-     *   `disable-hardware-keyboard-shortcuts = true` 时整条规则不生效，组合键原样进终端。
      */
     private fun handleTermuxPropertyKey(event: KeyEvent): Boolean {
+        if (!terminalViewModel.terminalScreenActive) return false
         val properties = terminalViewModel.termuxConfiguration.value.properties
         val actionDown = event.action == KeyEvent.ACTION_DOWN
 
@@ -340,35 +342,6 @@ class MainActivity : ComponentActivity() {
             return true
         }
 
-        if (
-            !properties.disableHardwareKeyboardShortcuts &&
-            actionDown &&
-            event.isCtrlPressed &&
-            event.isAltPressed
-        ) {
-            // 取无修饰字符：Ctrl+Alt 下 `event.unicodeChar` 会给出控制码。
-            // 取不到字符一律放行——`null` 与「未配置」比较会相等，那会让任意
-            // Ctrl+Alt+非字符键都变成「新建会话」。
-            val typed = event.getUnicodeChar(0).takeIf { it > 0 }?.toChar()?.lowercaseChar()
-            if (typed != null) {
-                when (typed) {
-                    properties.shortcutCreateSession -> {
-                        terminalViewModel.createSession()
-                        return true
-                    }
-
-                    properties.shortcutNextSession -> {
-                        terminalViewModel.switchToAdjacentSession(forward = true)
-                        return true
-                    }
-
-                    properties.shortcutPreviousSession -> {
-                        terminalViewModel.switchToAdjacentSession(forward = false)
-                        return true
-                    }
-                }
-            }
-        }
         return false
     }
 }

@@ -11,8 +11,6 @@ package terminal.emulator.settings
  * 用户文件而崩溃——这是外部配置，不是应用自己的设置数据。
  */
 data class TermuxProperties(
-    /** 切换会话时不弹提示（默认 `false`，与 termux 一致）；提示在顶部显示 `[序号] 标题`。 */
-    val disableHardwareKeyboardShortcuts: Boolean = false,
     val useFullscreenWorkaround: Boolean = false,
     val fullscreen: Boolean = false,
     val ctrlSpaceWorkaround: Boolean = false,
@@ -36,9 +34,6 @@ data class TermuxProperties(
      * 「没配好就用默认」。
      */
     val terminalTranscriptRows: Int = DEFAULT_TRANSCRIPT_ROWS,
-    val shortcutCreateSession: Char? = null,
-    val shortcutNextSession: Char? = null,
-    val shortcutPreviousSession: Char? = null,
     val terminalToolbarHeightScale: Float = 1f,
     val extraKeysStyle: ExtraKeysStyle = ExtraKeysStyle.DEFAULT,
     val extraKeys: List<List<ExtraKey>> = DEFAULT_EXTRA_KEYS,
@@ -305,16 +300,6 @@ internal object TermuxPropertiesParser {
             return raw
         }
 
-        fun shortcut(key: String): Char? {
-            val raw = values[key] ?: return null
-            val single = raw.trim()
-            if (single.length != 1) {
-                errors += "$key: '$raw' must be a single character; shortcut disabled"
-                return null
-            }
-            return single[0].lowercaseChar()
-        }
-
         val extraKeys =
             values["extra-keys"]?.let { raw ->
                 when (val parsed = ExtraKeysParser.parse(raw)) {
@@ -332,7 +317,6 @@ internal object TermuxPropertiesParser {
 
         val properties =
             TermuxProperties(
-                disableHardwareKeyboardShortcuts = boolean("disable-hardware-keyboard-shortcuts", false),
                 useFullscreenWorkaround = boolean("use-fullscreen-workaround", false),
                 fullscreen = boolean("fullscreen", false),
                 ctrlSpaceWorkaround = boolean("ctrl-space-workaround", false),
@@ -362,9 +346,6 @@ internal object TermuxPropertiesParser {
                     TermuxProperties.DEFAULT_TRANSCRIPT_ROWS,
                     TermuxProperties.TRANSCRIPT_ROWS_RANGE,
                 ),
-                shortcutCreateSession = shortcut("shortcut.create-session"),
-                shortcutNextSession = shortcut("shortcut.next-session"),
-                shortcutPreviousSession = shortcut("shortcut.previous-session"),
                 terminalToolbarHeightScale = float("terminal-toolbar-height", 1f, 0.4f..3f),
                 extraKeysStyle =
                 when (choice("extra-keys-style", "default").lowercase()) {
