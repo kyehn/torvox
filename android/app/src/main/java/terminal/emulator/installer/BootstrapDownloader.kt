@@ -1,6 +1,7 @@
 package terminal.emulator.installer
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -171,13 +172,13 @@ class BootstrapDownloader(
                                         }
                                     },
                                 )
-                            } catch (copyError: Exception) {
+                            } catch (copyError: IOException) {
                                 cachedFile.delete()
-                                return@withContext if (!isActive) {
-                                    Result.failure(Exception(BootstrapOrchestrator.ERROR_CANCELLED))
-                                } else {
-                                    Result.failure(copyError)
-                                }
+                                // 协程取消不是「下载失败」：返回 Result.failure 会让调用方
+                                // 把取消当成可重试的错误，而 withContext 返回时仍会抛
+                                // CancellationException——那条文案永远到不了 UI。
+                                if (!isActive) throw CancellationException("bootstrap download cancelled")
+                                return@withContext Result.failure(copyError)
                             }
                             if (total < MIN_BOOTSTRAP_SIZE_BYTES) {
                                 cachedFile.delete()

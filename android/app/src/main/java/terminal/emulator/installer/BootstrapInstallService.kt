@@ -5,8 +5,6 @@ import android.content.Intent
 import android.os.IBinder
 import kotlinx.coroutines.runBlocking
 import terminal.emulator.runtime.LogUtil
-import terminal.emulator.runtime.isElf
-import terminal.emulator.runtime.isSystemShellScript
 import terminal.emulator.util.runCatchingCancellable
 import java.io.File
 
@@ -61,25 +59,13 @@ class BootstrapInstallService : Service() {
         return runBlocking {
             val installer = BootstrapInstaller(directories.prefix, directories.home, directories.staging)
             try {
-                val install = installer.install(preserved)
-                if (install.isFailure) {
-                    install.exceptionOrNull()?.message ?: "install failed"
-                } else {
-                    val stage = SecondStageRunner(directories.prefix, directories.home).run()
-                    if (stage.success) {
-                        "OK prefix=${directories.prefix} shell=" +
-                            (
-                                listOf("bin/login", "bin/bash").firstOrNull {
-                                    val entry = File(directories.prefix, it)
-                                    entry.isFile && (isElf(entry) || isSystemShellScript(entry))
-                                } ?: "none"
-                                ) +
-                            " installed=${installer.isInstalled()}" +
-                            " needsInstall=${installer.needsInstall()}"
-                    } else {
-                        "SECOND_STAGE_FAILED: ${stage.errors}"
-                    }
+                installer.install(preserved).exceptionOrNull()?.let { failure ->
+                    return@runBlocking failure.message ?: "install failed"
                 }
+                val stage = SecondStageRunner(directories.prefix, directories.home).run()
+                if (!stage.success) return@runBlocking "SECOND_STAGE_FAILED: ${stage.errors}"
+                "OK prefix=${directories.prefix} shell=${installer.installedShellEntry() ?: "none"}" +
+                    " installed=${installer.isInstalled()} needsInstall=${installer.needsInstall()}"
             } finally {
                 // 始终删除中转包：落在用户数据树内，清除应用数据按规范不得触碰，
                 // 不删即永久占用数百MB。

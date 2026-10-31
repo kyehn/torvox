@@ -86,7 +86,6 @@
     <string name="install">安装</string>
 
     <string name="bootstrap_already_in_progress">引导程序安装已在进行中</string>
-    <string name="bootstrap_cancelled">下载已取消</string>
     <string name="bootstrap_complete">引导程序安装完成！</string>
     <string name="bootstrap_creating_symlinks">正在创建符号链接…</string>
     <string name="bootstrap_downloading">正在下载 %1$s（%2$s / %3$s）</string>

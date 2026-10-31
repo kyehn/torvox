@@ -1,6 +1,9 @@
 package terminal.emulator.installer
 
+import android.os.Process
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import terminal.emulator.detectDeviceArchitecture
 import terminal.emulator.util.TerminalDispatchers
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -29,15 +32,16 @@ class BootstrapOrchestrator(
         const val ERROR_PRIMARY_USER_REQUIRED = "primary_user_required"
         const val ERROR_ALREADY_IN_PROGRESS = "already_in_progress"
         const val ERROR_NO_URL = "no_bootstrap_url"
-        const val ERROR_CANCELLED = "cancelled"
 
         private val processInstalling = AtomicBoolean(false)
     }
 
-    fun getInstallStatus(): Status = if (installer.isInstalled()) {
-        Status.INSTALLED
-    } else {
-        state.get()
+    fun getInstallStatus(): Status = if (installer.isInstalled()) Status.INSTALLED else state.get()
+
+    /** 进度上报与错误状态是同一件事的两面，故只在此处成对出现。 */
+    private fun markError(progressKey: String) {
+        onProgress?.onProgress(BootstrapProgress.Error(progressKey))
+        state.set(Status.ERROR)
     }
 
     suspend fun ensureBootstrap(bootstrapUrl: String): Result<String> = withContext(TerminalDispatchers.inputOutput) {
@@ -48,7 +52,7 @@ class BootstrapOrchestrator(
         // 次用户共享 UID 命名空间但无法访问主用户的私有目录，
         // 会导致静默的 SELinux 拒绝与 exec 失败。
         // Android UID 以 uid / 100_000 编码 userId（稳定的 ABI 约定）。
-        val userId = android.os.Process.myUid() / 100_000
+        val userId = Process.myUid() / 100_000
         if (userId != 0) {
             return@withContext Result.failure(Exception(ERROR_PRIMARY_USER_REQUIRED))
         }
@@ -71,30 +75,25 @@ class BootstrapOrchestrator(
             return Result.success("")
         }
         state.set(Status.INSTALLING)
-        val resolvedUrl = bootstrapUrl
-        if (resolvedUrl.isBlank()) {
-            state.set(Status.ERROR)
+        if (bootstrapUrl.isBlank()) {
+            markError(ERROR_NO_URL)
             return Result.failure(Exception(ERROR_NO_URL))
         }
         try {
             onProgress?.onProgress(BootstrapProgress.Downloading(0, 0))
-            val architecture = terminal.emulator.detectDeviceArchitecture()
             val zipFile =
-                downloader.download(resolvedUrl, architecture).getOrElse { exception ->
-                    onProgress?.onProgress(BootstrapProgress.Error(exception.javaClass.simpleName))
-                    state.set(Status.ERROR)
+                downloader.download(bootstrapUrl, detectDeviceArchitecture()).getOrElse { exception ->
+                    markError(exception.javaClass.simpleName)
                     return Result.failure(Exception("Download failed: ${exception.javaClass.simpleName}"))
                 }
             try {
                 installer.install(zipFile).getOrElse { exception ->
-                    onProgress?.onProgress(BootstrapProgress.Error(exception.javaClass.simpleName))
-                    state.set(Status.ERROR)
+                    markError(exception.javaClass.simpleName)
                     return Result.failure(Exception("Install failed: ${exception.javaClass.simpleName}"))
                 }
                 val secondStageResult = secondStageRunner.run()
                 if (!secondStageResult.success) {
-                    onProgress?.onProgress(BootstrapProgress.Error("Postinst failed"))
-                    state.set(Status.ERROR)
+                    markError("Postinst failed")
                     val failureDetails = secondStageResult.errors.take(3).joinToString("\n") { "- $it" }
                     return Result.failure(Exception(failureDetails.ifEmpty { "Postinst failed" }))
                 }
@@ -112,11 +111,14 @@ class BootstrapOrchestrator(
                 // 留在 cacheDir 的 150 MB 文件永不复用。
                 zipFile.delete()
             }
+        } catch (exception: CancellationException) {
+            // 取消不是失败：吞掉它会让调用方收到一个「安装失败」的假结果，而协程
+            // 在取消后继续往下执行。原样抛给结构化并发，由父作用域收尾。
+            throw exception
         } catch (exception: Exception) {
             // 只取异常类名：底层失败可能嵌入引导 URL。
             val message = "Bootstrap orchestration failed: ${exception.javaClass.simpleName}"
-            onProgress?.onProgress(BootstrapProgress.Error(message))
-            state.set(Status.ERROR)
+            markError(message)
             // 不带 cause 链：原异常可能嵌入引导 URL/主机；消费者只看到已脱敏的消息。
             return Result.failure(Exception(message))
         }

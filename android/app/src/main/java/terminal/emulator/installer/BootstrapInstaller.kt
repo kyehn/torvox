@@ -2,6 +2,7 @@ package terminal.emulator.installer
 
 import android.content.Context
 import android.system.Os
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.isElf
@@ -11,10 +12,12 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.InterruptedIOException
 import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Paths
+import java.util.UUID
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
@@ -48,13 +51,13 @@ internal fun copyBootstrapArchive(
     val buffer = ByteArray(BootstrapInstaller.COPY_BUFFER_SIZE)
     var total = 0L
     while (true) {
-        if (shouldAbort()) throw java.io.InterruptedIOException("Bootstrap copy cancelled")
+        if (shouldAbort()) throw InterruptedIOException("Bootstrap copy cancelled")
         val read = input.read(buffer)
         if (read == -1) break
         // 先判后写：上限是硬保证，绝不允许「超出一个缓冲才报错」。
         val next = total + read
         if (next > BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES) {
-            throw java.io.IOException("Bootstrap exceeds ${BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES} bytes")
+            throw IOException("Bootstrap exceeds ${BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES} bytes")
         }
         output.write(buffer, 0, read)
         total = next
@@ -80,7 +83,15 @@ class BootstrapInstaller(
     companion object {
         private const val TAG = "BootstrapInstaller"
         const val COPY_BUFFER_SIZE = 8096
-        const val MAX_SYMLINKS_BYTES = 1024 * 1024
+
+        /** `SYMLINKS.txt` 与 `EXECUTABLES.txt` 是元数据清单，必须很小；无界读取会 OOM。 */
+        const val MAX_METADATA_BYTES = 1024 * 1024
+
+        /** 引导启动入口候选，按优先级排列：`bin/login` 优先，其次 `bin/bash`。 */
+        val SHELL_ENTRIES = listOf("bin/login", "bin/bash")
+
+        /** `SYMLINKS.txt` 每行的分隔符（官方包与第三方重建包各用过不同箭头）。 */
+        private val SYMLINK_SEPARATOR = Regex("""\s*(?:->|←|→|↔)\s*""")
         const val EXECUTABLE_FILE_MODE = 0x1ED
         val EXEC_PREFIXES = listOf("bin/", "libexec/", "lib/apt/apt-helper", "lib/apt/methods/")
         private const val EXTRACT_PROGRESS_INTERVAL = 10
@@ -98,26 +109,26 @@ class BootstrapInstaller(
     }
 
     /** 是否需要（重新）安装 prefix：不存在启动入口时。安装状态不做任何标记文件，只认启动入口存在性。 */
-    fun needsInstall(): Boolean = !hasShellBinary()
+    fun needsInstall(): Boolean = installedShellEntry() == null
 
-    /** 启动入口存在性：ELF 二进制或系统解释器启动脚本均可（后者经内核 shebang 直接执行）； 私有目录 shebang 脚本不计入，其解释器本身尚不可用。 */
-    private fun hasShellBinary(): Boolean = (
-        File(prefixDir, "bin/login").isFile &&
-            (
-                isElf(File(prefixDir, "bin/login")) ||
-                    isSystemShellScript(File(prefixDir, "bin/login"))
-                )
-        ) ||
-        (
-            File(prefixDir, "bin/bash").isFile &&
-                (
-                    isElf(File(prefixDir, "bin/bash")) ||
-                        isSystemShellScript(File(prefixDir, "bin/bash"))
-                    )
-            )
+    /**
+     * 引导启动入口（[SHELL_ENTRIES] 中第一个可用的相对路径），没有则 null。
+     *
+     * 可用 = 存在且是 ELF 二进制或系统解释器脚本（后者经内核 shebang 直接执行）；
+     * 私有目录 shebang 脚本不计入，其解释器本身尚不可用。
+     *
+     * 安装状态与安装日志都取自这里：两处若各写一份判定，就会出现「日志说装好了、
+     * 状态说没装」同时挂在同一次安装上。
+     */
+    fun installedShellEntry(): String? = SHELL_ENTRIES.firstOrNull(::isUsableShellEntry)
+
+    private fun isUsableShellEntry(relative: String): Boolean {
+        val entry = File(prefixDir, relative)
+        return entry.isFile && (isElf(entry) || isSystemShellScript(entry))
+    }
 
     /** 安装状态只认启动入口存在性，不写任何标记文件。 */
-    fun isInstalled(): Boolean = hasShellBinary()
+    fun isInstalled(): Boolean = installedShellEntry() != null
 
     suspend fun install(zipFile: File): Result<Unit> = withContext(TerminalDispatchers.inputOutput) {
         try {
@@ -140,6 +151,10 @@ class BootstrapInstaller(
             atomicRename()
             ensureHomeAndTmp()
             Result.success(Unit)
+        } catch (exception: CancellationException) {
+            // 取消不是安装失败：当成失败会让调用方继续走重试/报错路径，而协程此刻
+            // 已经取消。原样抛出，交给结构化并发收尾。
+            throw exception
         } catch (exception: Exception) {
             // 与 BootstrapDownloader 一致只记录异常类名：异常消息可能嵌入用户提供的路径。
             // 截断到 300 字符以便诊断而不泄露完整路径。
@@ -188,7 +203,7 @@ class BootstrapInstaller(
             // 消解后为空（`foo/..`、`.`）意味着目标其实是 staging 目录自身，
             // chmod 到目录上会让它带着 0755 进入 prefix。
             if (escapesStagingDir(executable) || resolvesToStagingRoot(executable)) {
-                throw java.io.IOException("Unsafe executable path: $executable")
+                throw IOException("Unsafe executable path: $executable")
             }
             try {
                 Os.chmod(File(stagingDir, executable).absolutePath, EXECUTABLE_FILE_MODE)
@@ -216,20 +231,20 @@ class BootstrapInstaller(
             // 消解后为空表示条目指向 staging 根：目录条目（`./`）只是无害空操作，
             // 但作为普通文件写出时目标其实是 staging 目录自身，必须拒绝。
             if (escapesStagingDir(name) || (!entry.isDirectory && resolvesToStagingRoot(name))) {
-                throw java.io.IOException("Unsafe zip entry name: $name")
+                throw IOException("Unsafe zip entry name: $name")
             }
             if (name == "SYMLINKS.txt") {
                 // 有界读取：该条目是元数据，必须很小；
                 // 在恶意归档上无界 readBytes() 会让进程 OOM。
-                val bytes = zipInputStream.readNBytes(MAX_SYMLINKS_BYTES)
-                if (bytes.size >= MAX_SYMLINKS_BYTES) {
-                    throw java.io.IOException("SYMLINKS.txt exceeds $MAX_SYMLINKS_BYTES bytes")
+                val bytes = zipInputStream.readNBytes(MAX_METADATA_BYTES)
+                if (bytes.size >= MAX_METADATA_BYTES) {
+                    throw IOException("SYMLINKS.txt exceeds $MAX_METADATA_BYTES bytes")
                 }
                 symlinks.addAll(parseSymlinks(bytes.decodeToString()))
             } else if (name == "EXECUTABLES.txt") {
-                val bytes = zipInputStream.readNBytes(MAX_SYMLINKS_BYTES)
-                if (bytes.size >= MAX_SYMLINKS_BYTES) {
-                    throw java.io.IOException("EXECUTABLES.txt exceeds $MAX_SYMLINKS_BYTES bytes")
+                val bytes = zipInputStream.readNBytes(MAX_METADATA_BYTES)
+                if (bytes.size >= MAX_METADATA_BYTES) {
+                    throw IOException("EXECUTABLES.txt exceeds $MAX_METADATA_BYTES bytes")
                 }
                 executables.addAll(
                     bytes
@@ -251,7 +266,7 @@ class BootstrapInstaller(
                         if (read < 0) break
                         entryBytes += read
                         if (entryBytes > MAX_EXTRACTED_BYTES) {
-                            throw java.io.IOException(
+                            throw IOException(
                                 "Bootstrap entry $name exceeds $MAX_EXTRACTED_BYTES bytes uncompressed",
                             )
                         }
@@ -260,7 +275,7 @@ class BootstrapInstaller(
                         // 跨多个条目可膨胀到 TB 级。此处在累计总量上施加上限，
                         // 而不只是逐条目。
                         if (totalExtractedBytes > MAX_EXTRACTED_BYTES) {
-                            throw java.io.IOException(
+                            throw IOException(
                                 "Bootstrap archive exceeds $MAX_EXTRACTED_BYTES bytes total uncompressed",
                             )
                         }
@@ -278,8 +293,6 @@ class BootstrapInstaller(
     }
 
     private fun isExecutable(name: String): Boolean = EXEC_PREFIXES.any { name.startsWith(it) }
-
-    internal val symlinkSeparator = Regex("""\s*(?:->|←|→|↔)\s*""")
 
     /**
      * 归档内路径是否逃出 staging 目录：绝对路径，或消解 `.`/`..` 后以 `..` 段开头。
@@ -310,7 +323,7 @@ class BootstrapInstaller(
         .lines()
         .filter { it.isNotBlank() }
         .mapNotNull { line ->
-            val parts = line.split(symlinkSeparator)
+            val parts = line.split(SYMLINK_SEPARATOR)
             if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
         }
 
@@ -320,7 +333,7 @@ class BootstrapInstaller(
             // 恶意 SYMLINKS.txt 绝不能创建 staging 目录之外的链接，
             // 也不得让链接落在 staging 目录自身（`foo/..`）。
             if (escapesStagingDir(linkPath) || resolvesToStagingRoot(linkPath)) {
-                throw java.io.IOException("Unsafe symlink path: $linkPath")
+                throw IOException("Unsafe symlink path: $linkPath")
             }
             // 目标同样由攻击者控制。拒绝绝对路径与路径穿越，使链接不能指向
             // staging 树之外——否则下方的递归 delete()
@@ -350,7 +363,7 @@ class BootstrapInstaller(
                     try {
                         File(canonicalTarget).canonicalPath
                     } catch (exception: Exception) {
-                        throw java.io.IOException(
+                        throw IOException(
                             "Unsafe symlink target: $target (${exception.message})",
                             exception,
                         )
@@ -358,7 +371,7 @@ class BootstrapInstaller(
                 if (
                     resolvedAbsolute != canonicalPrefix && !resolvedAbsolute.startsWith("$canonicalPrefix/")
                 ) {
-                    throw java.io.IOException("Unsafe symlink target: $target")
+                    throw IOException("Unsafe symlink target: $target")
                 }
             } else {
                 val linkParent = File(linkPath).parent
@@ -366,7 +379,7 @@ class BootstrapInstaller(
                 // File.path 不消解 ".." 段（File("a/../b").path == "a/../b"），
                 // 故先用 Path.normalize 消解，再按路径元素判是否逃出 staging。
                 if (Paths.get(resolvedTarget).normalize().startsWith("..")) {
-                    throw java.io.IOException("Unsafe symlink target: $target")
+                    throw IOException("Unsafe symlink target: $target")
                 }
             }
             val linkFile = File(stagingDir, linkPath)
@@ -382,22 +395,22 @@ class BootstrapInstaller(
         if (prefix.exists()) {
             // 旧目录先整体移入随机后缀备份（同文件系统 rename 为原子操作），再换入新目录；
             // 失败则恢复备份，旧环境保持可用；成功后备份保留，由用户手动删除。
-            val backup = File(prefix.parentFile, "${prefix.name}.${java.util.UUID.randomUUID().toString().take(8)}")
+            val backup = File(prefix.parentFile, "${prefix.name}.${UUID.randomUUID().toString().take(8)}")
             if (!prefix.renameTo(backup)) {
-                throw Exception("Failed to move old prefix aside: ${prefix.path}")
+                throw IOException("Failed to move old prefix aside: ${prefix.path}")
             }
             val renamed = staging.renameTo(prefix)
             if (!renamed) {
                 // 恢复旧 prefix，使先前的引导仍可用。
                 if (!backup.renameTo(prefix)) {
-                    throw Exception(
+                    throw IOException(
                         "Atomic rename failed and rollback failed: staging=${staging.path} prefix=${prefix.path} backup=${backup.path}",
                     )
                 }
-                throw Exception("Atomic rename failed: ${staging.path} -> ${prefix.path}")
+                throw IOException("Atomic rename failed: ${staging.path} -> ${prefix.path}")
             }
         } else if (!staging.renameTo(prefix)) {
-            throw Exception("Atomic rename failed: ${staging.path} -> ${prefix.path}")
+            throw IOException("Atomic rename failed: ${staging.path} -> ${prefix.path}")
         }
     }
 

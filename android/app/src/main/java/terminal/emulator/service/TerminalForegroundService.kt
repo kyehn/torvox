@@ -12,9 +12,11 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import dagger.hilt.android.EntryPointAccessors
 import terminal.emulator.MainActivity
 import terminal.emulator.R
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.TerminalRuntimeEntryPoint
 
 class TerminalForegroundService : Service() {
     companion object {
@@ -103,8 +105,8 @@ class TerminalForegroundService : Service() {
         // 通知的「退出」按钮（DESIGN：常驻通知提供退出按钮）：关闭全部会话后
         // 前台服务计数归零并自行停掉——与侧边面板关闭会话是同一条既有路径。
         if (intent?.action == ACTION_EXIT) {
-            dagger.hilt.android.EntryPointAccessors
-                .fromApplication(applicationContext, terminal.emulator.runtime.TerminalRuntimeEntryPoint::class.java)
+            EntryPointAccessors
+                .fromApplication(applicationContext, TerminalRuntimeEntryPoint::class.java)
                 .terminalRuntime()
                 .closeAllSessions()
             stopSelf()

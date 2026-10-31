@@ -1,12 +1,20 @@
 package terminal.emulator.installer
 
+import android.system.ErrnoException
 import android.system.Os
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import terminal.emulator.detectDeviceArchitecture
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
+import java.nio.file.Files
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /** 排空时保留的最大字节数；超出部分继续读并丢弃。 */
 internal const val DRAIN_KEEP_BYTES = 64 * 1024
@@ -21,13 +29,13 @@ internal const val DRAIN_KEEP_BYTES = 64 * 1024
  * 字节：崩溃的脚本循环刷 stderr 时，无界累积会把整个进程读成 OOM，而调用方只取其中
  * 几百字符做诊断。
  */
-internal fun drainQuietly(stream: java.io.InputStream): String? = runCatchingCancellable {
+internal fun drainQuietly(stream: InputStream): String? = runCatchingCancellable {
     // use：读到 EOF 后必须显式关掉读端，否则管道 fd 要等 GC/finalizer 才回收。
     // 一趟引导要跑 var/lib/dpkg/info/*.postinst 全表（真实引导约 250-300 个），
     // 不关就是数百个悬挂 fd；Android 进程 fd 默认上限 1024，未及 GC 就用尽会得到
     // EMFILE，表现为后续 chmod/开文件抛 IOException 而整次 postinst 阶段失败。
     stream.use { input ->
-        val kept = java.io.ByteArrayOutputStream()
+        val kept = ByteArrayOutputStream()
         val buffer = ByteArray(8 * 1024)
         while (true) {
             val read = input.read(buffer)
@@ -67,10 +75,7 @@ class SecondStageRunner(
 
     suspend fun run(): Result = withContext(TerminalDispatchers.inputOutput) {
         val lockFile = File(prefixDir, "bin/termux-bootstrap-second-stage.sh.lock")
-        if (lockFile.exists() ||
-            java.nio.file.Files
-                .isSymbolicLink(lockFile.toPath())
-        ) {
+        if (lockFile.exists() || Files.isSymbolicLink(lockFile.toPath())) {
             // 该锁是自指符号链接（如下方所创建）。
             // File.exists() 会跟随链接 → ELOOP → 返回 false，
             // 故被杀进程遗留的陈旧锁（SIGKILL 跳过 finally）
@@ -91,7 +96,7 @@ class SecondStageRunner(
         try {
             lockFile.parentFile?.mkdirs()
             Os.symlink(lockFile.absolutePath, lockFile.absolutePath)
-        } catch (exception: android.system.ErrnoException) {
+        } catch (exception: ErrnoException) {
             // EEXIST 表示另一个安装进程正持有锁：postinst 根本没跑，不能报成功。
             return@withContext Result(listOf("Lock file error: ${exception.message}"))
         }
@@ -111,7 +116,7 @@ class SecondStageRunner(
         // （postinst 是普通 shell 脚本，DESIGN「不做无意义检查」）。探测失败本身
         // 已在 detectDpkgVersion 内记警告，不是静默。
         val dpkgVersion = detectDpkgVersion().orEmpty()
-        val architecture = terminal.emulator.detectDeviceArchitecture()
+        val architecture = detectDeviceArchitecture()
         // 按文件名排序：`File.listFiles()` 的返回顺序未定义（实测为目录项顺序），
         // 于是 postinst 的执行次序随文件系统而变。两个后果：进度条的脚本名顺序不可复现，
         // 且依赖彼此的包（dpkg 自身即依赖某些包先就位）可能随机失败。
@@ -123,6 +128,9 @@ class SecondStageRunner(
         val errors = mutableListOf<String>()
         var scriptsCompleted = 0
         scripts.forEach { script ->
+            // 每个脚本之间响应取消：一趟引导要跑数百个 postinst，若只在最外层检查，
+            // 用户取消后仍会把整表跑完（每个还有 30s 超时），协程实际停不下来。
+            currentCoroutineContext().ensureActive()
             onProgress?.onProgress(
                 BootstrapProgress.RunningPostInstall(scriptsCompleted, totalScripts),
             )
@@ -209,7 +217,7 @@ class SecondStageRunner(
                     }
             // 只保留前缀（drainQuietly 有界读取），故用 AtomicReference 交接：
             // join 超时后排空线程仍可能写入，非线程安全的 StringBuilder 会脏读。
-            val stderrText = java.util.concurrent.atomic.AtomicReference("")
+            val stderrText = AtomicReference("")
             val stderrThread =
                 Thread { stderrText.set(drainQuietly(process.errorStream).orEmpty()) }
                     .apply { isDaemon = true }
@@ -271,7 +279,7 @@ class SecondStageRunner(
             // stdout 同样在守护线程上排空，且与 waitFor 并行：dpkg 的任何后代进程若
             // 继承了 stdout 并长期持有管道，waitFor 返回后再读会永远阻塞，
             // finally 的 destroy() 与其后的锁文件清理都执行不到。
-            val stdoutText = java.util.concurrent.atomic.AtomicReference("")
+            val stdoutText = AtomicReference("")
             val stdoutThread =
                 Thread {
                     // 读毕再写：读本身可能被后代进程永久阻塞，写必须是最后一步；
@@ -369,11 +377,14 @@ class SecondStageRunner(
     /** 读取脚本的 `#!` 解释器；没有时返回 `null`。 */
     private fun readShebang(script: File): String? = script.bufferedReader().use { reader ->
         val firstLine = reader.readLine() ?: return null
-        if (firstLine.startsWith("#!")) {
-            firstLine.removePrefix("#!").trim().substringBefore(' ')
-        } else {
-            null
-        }
+        if (!firstLine.startsWith("#!")) return null
+        // 解释器与参数之间可能是空格或制表符；只按空格切会把 `sh\t-e` 整串当成路径。
+        firstLine
+            .removePrefix("#!")
+            .trim()
+            .split(' ', '\t')
+            .first()
+            .takeIf { it.isNotEmpty() }
     }
 }
 
