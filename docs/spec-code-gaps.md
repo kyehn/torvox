@@ -21,11 +21,11 @@
   `FN`/`SHIFT` 键仍不支持，已写入 `PROHIBITED.md`。
 - `volume-keys` 此前无条件拦截音量减；本轮补上上游口径「外接字母键盘在场时不抢它的
   音量键」。
-- 边界差异：配置重读时机与实现一致；超大文件口径首次加载与重载略有分叉（实现保留上次成功结果）；
-  `beam` 取值在 `DESIGN.md` 与 `config.md` 现已一致，且已注明上游无此取值。
+- 边界差异：配置重读时机与实现一致；超大文件口径已按实现写明（沿用上一次成功的配置，
+  首次加载即默认值）；`beam` 取值在 `DESIGN.md` 与 `config.md` 现已一致，且已注明上游无此取值。
 - 字体：`~/.config/termux` 的默认字体与字体目录现已纳入扫描/注册，主路径优先。
-- 新增差异：Bootstrap 安装前清空而非拒绝已存在的 `usr-staging`，与 `DESIGN.md` 字面要求
-  不一致；实现更利于恢复失败安装，但并发/失败语义需确认。
+- Bootstrap 安装前清空而非拒绝已存在的 `usr-staging`：本轮定案保留清空策略，`DESIGN.md`
+  已按现状更正（见下节）。
 - Bootstrap 的内置 SHA-256 校验不是 `PROHIBITED.md` 禁止的「随 zip 分发的独立校验文件」：
   它不读取外部校验文件，只对钉住的预设 URL 生效，复杂度与性能开销低，保留合理。
 - 本轮清掉了 `openspec/specs` 里已删除功能的残留条款（响铃、光标闪烁、会话切换提示），
@@ -53,7 +53,7 @@
 | `terminal-margin-vertical` | 终端上下边距 | config.md 已收录 |
 | `terminal-toolbar-height` | 修饰键栏高度倍率 | config.md 已收录 |
 | `extra-keys-style` | 键帽字形档位 | config.md 已收录 |
-| `extra-keys` | 键栏布局（行、键位、字形、`display` 覆盖、宏播放、键名别名） | config.md 已收录；默认布局与 Termux 上游一致（见下节） |
+| `extra-keys` | 键栏布局（行、键位、字形、`display` 覆盖、`popup` 次级键、宏播放、键名别名） | config.md 已收录；默认布局与 Termux 上游一致（见下节） |
 | `back-key` | 返回键改发 ESC | config.md 已收录 |
 | `volume-keys` | 音量减改为虚拟 Ctrl | config.md 已收录 |
 | `soft-keyboard-toggle-behaviour` | 键盘键改为启用/禁用输入法 | config.md 已收录 |
