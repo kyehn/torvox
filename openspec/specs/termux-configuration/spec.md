@@ -171,18 +171,6 @@ OSC 7 上报在同一次会话里换名字。
 - **WHEN** `default-working-directory` 写成 `~/work/`
 - **THEN** 工作目录是 `~/work`，OSC 7 上报的名字不带尾斜杠
 
-### Requirement: bell-character 的响铃方式
-
-`bell-character` MUST 支持 `vibrate`（默认）/`beep`/`ignore`；非法值 MUST 回退
-`vibrate`。
-
-连续响铃 MUST 有最小间隔，避免每秒刷新的程序把手机震成蜂鸣器。
-
-#### Scenario: 连续响铃被节流
-
-- **WHEN** 程序在极短时间内连发两次 BEL
-- **THEN** 只提示一次，不叠加成连震
-
 ### Requirement: terminal-cursor-style 的取值
 
 `terminal-cursor-style` MUST 接受 `block`/`bar`/`beam`/`underline`（`beam` 与 `bar`
@@ -194,19 +182,6 @@ OSC 7 上报在同一次会话里换名字。
 
 - **WHEN** `terminal-cursor-style = beam`
 - **THEN** 光标画成竖线，与 `bar` 的效果相同
-
-### Requirement: terminal-cursor-blink-rate 的区间与相位
-
-`terminal-cursor-blink-rate` 为 0 时 MUST NOT 产生任何补帧；非 0 时 MUST 落在
-100–2000，越界按「不闪」处理。
-
-相位 MUST 由时基计算而 MUST NOT 由帧计数累加：空闲省电会让帧间隔抖动到秒级，
-累加出来的相位会跟着漂。
-
-#### Scenario: 静止终端里光标照常闪
-
-- **WHEN** 终端没有任何输出，`terminal-cursor-blink-rate` 为 500
-- **THEN** 光标每 500ms 翻转一次，画面随之重绘
 
 ### Requirement: 键盘切换键的两种语义
 
@@ -254,22 +229,3 @@ OSC 7 上报在同一次会话里换名字。
 - **WHEN** `hide-soft-keyboard-on-startup = false`，冷启动
 - **THEN** 终端拿到焦点后弹出一次输入法；用户收起后不会被再次弹回
 
-### Requirement: 会话切换提示
-
-切换活动会话时 MUST 在屏幕顶部显示一条 `[序号] 标题` 提示；标题为空时只显示序号。
-序号 MUST 与抽屉里的编号一致。首次建立会话 MUST NOT 提示，切到同一个会话 MUST NOT
-提示——那不是「变化」。
-
-`disable-terminal-session-change-toast = true` MUST 抑制这条提示。
-
-连按切换时 MUST 取消上一条提示：排队会让提示滞后到用户早已离开的会话。
-
-#### Scenario: 快捷键切会话
-
-- **WHEN** 两个会话，用户按 `shortcut.next-session`
-- **THEN** 顶部出现一次 `[2] <标题>` 提示；再按一次回到 `[1]`
-
-#### Scenario: 关掉提示
-
-- **WHEN** `disable-terminal-session-change-toast = true`
-- **THEN** 切换会话不出现任何提示，屏幕照常切换
