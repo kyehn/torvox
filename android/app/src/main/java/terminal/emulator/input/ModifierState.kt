@@ -1,6 +1,6 @@
 package terminal.emulator.input
 
-enum class ModifierState { Off, Once, Locked }
+enum class ModifierState { Off, Once, Held, Locked }
 
 // 与 Termux 一致：轻点仅切换一次性生效状态，锁定只由长按触发。
 fun ModifierState.toggled(): ModifierState = if (this == ModifierState.Off) ModifierState.Once else ModifierState.Off
@@ -11,4 +11,5 @@ fun ModifierState.toggled(): ModifierState = if (this == ModifierState.Off) Modi
  * 判定只此一处：粘滞状态分散在工具条、按键编码与输入法提交三条路径上，
  * 各写一遍时漏改一处就表现为「工具条亮着但按键没带修饰」。
  */
-fun ModifierState.isActive(): Boolean = this == ModifierState.Locked || this == ModifierState.Once
+fun ModifierState.isActive(): Boolean =
+    this == ModifierState.Locked || this == ModifierState.Once || this == ModifierState.Held

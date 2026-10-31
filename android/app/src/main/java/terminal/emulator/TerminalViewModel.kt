@@ -478,6 +478,7 @@ constructor(
         var newAlt = currentState.altState
         if (newCtrl == ModifierState.Once) newCtrl = ModifierState.Off
         if (newAlt == ModifierState.Once) newAlt = ModifierState.Off
+        // `Held`（音量键按住）由抬起事件回收，此处不消费。
         if (newCtrl != currentState.ctrlState || newAlt != currentState.altState) {
             _state.update { current -> current.copy(ctrlState = newCtrl, altState = newAlt) }
         }
