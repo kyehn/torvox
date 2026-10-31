@@ -8,7 +8,7 @@
 - 主路径：`/data/data/com.termux/files/home/.termux/termux.properties`
 - 次路径：`/data/data/com.termux/files/home/.config/termux/termux.properties`
 - 仅首个可读的常规文件生效，不合并；符号链接与非常规文件跳过；文件不存在时全部取默认值。
-- 读取为 UTF-8；单文件超过 64 KiB 视为无效并跳过。
+- 读取为 UTF-8；单文件超过 64 KiB 视为无效并跳过（不读进内存，沿用上一次成功的配置；首次加载即默认值）。
 - 不创建、不写入、不修改任何文件；配置在启动首帧前与会话配置重下发时重读，不监听文件变化。
 
 ## 键

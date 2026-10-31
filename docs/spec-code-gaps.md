@@ -156,9 +156,9 @@
 - 配置重读时机：`config.md` 写「启动首帧前与会话配置重下发时重读」，实现一致
   （`TerminalRuntime.start` 与 `TerminalRuntime.applySettings`），比上游的「下次启动
   会话时生效」更早。
-- 超大文件口径：`config.md` 写「单文件超过 64 KiB 视为无效并跳过」；实现把超限当作
-  读失败（`TermuxPropertiesRepository.readFile`），保留上一次成功的结果。首次加载时
-  「上一次成功的结果」就是默认值，两者一致；重载时才会分叉。
+- 超大文件口径：实现把超限当作读失败（`TermuxPropertiesRepository.readFile`），保留上一次
+  成功的结果；首次加载时「上一次成功的结果」就是默认值，重载时沿用旧配置。规范已按
+  现状写明（`config.md` 与 `openspec` 的「配置过大」场景），差异消解。
 - `terminal-cursor-style` 的 `beam`：`config.md` 与 `DESIGN.md` 均允许 `block`/`bar`/`beam`/`underline`，
   实现接受 `beam`，落成竖线（与 `bar` 同形）。termux 上游只有 `block`/`bar`/`underline`，
   `beam` 是本应用额外接受的别名，已在文档中注明。

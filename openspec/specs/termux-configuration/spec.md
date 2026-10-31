@@ -21,7 +21,9 @@
 只认**常规文件**且 MUST NOT 跟随符号链接：该文件由外部写入，链接可以把读取带到
 家目录之外，也可能指向设备；非常规文件（管道、目录）同样跳过。
 
-读取 MUST 为 UTF-8；单文件超过 64 KiB MUST 视为无效并跳过（MUST NOT 读进内存）。
+读取 MUST 为 UTF-8；单文件超过 64 KiB MUST 视为无效并跳过（MUST NOT 读进内存），
+沿用上一次成功的配置。
+
 应用 MUST NOT 创建、写入或修改该文件。
 
 `colors.properties` MUST NOT 被读取或解析，终端配色只来自内置主题。
@@ -44,7 +46,7 @@
 #### Scenario: 配置过大
 
 - **WHEN** `termux.properties` 超过 64 KiB
-- **THEN** 该文件不被读取，日志里有一条体积超限的说明，配置取默认值
+- **THEN** 该文件不被读取，日志里有一条体积超限的说明，界面沿用上一次成功的配置（首次加载即默认值）
 
 #### Scenario: colors.properties 不生效
 
