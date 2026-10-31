@@ -40,6 +40,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -144,12 +145,10 @@ fun TerminalScreen(
     val termuxProperties by viewModel.termuxConfiguration.collectAsStateWithLifecycle()
     val modifierLayout =
         remember(
-            termuxProperties.properties.extraKeys,
             termuxProperties.properties.extraKeysStyle,
             termuxProperties.properties.extraKeysTextAllCaps,
         ) {
-            buildExtraKeySlots(
-                rows = termuxProperties.properties.extraKeys,
+            defaultExtraKeySlots(
                 style = termuxProperties.properties.extraKeysStyle,
                 allCaps = termuxProperties.properties.extraKeysTextAllCaps,
             )
@@ -160,7 +159,7 @@ fun TerminalScreen(
     // 「软键盘可用与否」，而不是当次可见性。状态放在组合里：翻转后 AndroidView 的
     // update 块把新值推给 TerminalSurface，轻点路径据此决定要不要拉起输入法。
     val softKeyboardBehaviour = termuxProperties.properties.softKeyboardToggleBehaviour
-    var softKeyboardEnabled by remember { mutableStateOf(true) }
+    var softKeyboardEnabled by rememberSaveable(softKeyboardBehaviour) { mutableStateOf(true) }
     // 未知名已在 TerminalRuntime.clearUnknownThemeNames 清除对应键；此处取不到
     // 说明该键刚被写入但尚未生效，用默认主题渲染本帧，不抛。
     val resolvedTerminalTheme =
@@ -201,12 +200,16 @@ fun TerminalScreen(
         SystemBarsFullscreen(
             view = view,
             fullscreen = termuxProperties.properties.fullscreen,
-            transientBarsBySwipe = termuxProperties.properties.useFullscreenWorkaround,
         )
     }
+    // `termux.properties` 的按键改写（音量键 / Ctrl+Space / back-key）挂在 Activity
+    // 的按键分发上；设置页遮住终端时必须停用，否则在输入框里按音量键也会改终端修饰态。
+    DisposableEffect(isOverlayVisible) {
+        viewModel.setTerminalScreenActive(!isOverlayVisible)
+        onDispose { viewModel.setTerminalScreenActive(false) }
+    }
     val surfaceRef = remember { mutableStateOf<TerminalSurface?>(null) }
-    // 切换软键盘（termux 的 KEYBOARD 键）：供会话抽屉的键盘按钮使用，
-    // `extra-keys` 里写 `KEYBOARD` 也会走到这里。
+    // 切换软键盘（termux 的 KEYBOARD 键）：供会话抽屉的键盘按钮使用。
     // 可见性在轻点时从已挂载的 window insets 同步读取：这里是用户手势，
     // 允许同步读一次平台状态；而 IME 高度那条链路不行——它必须靠持续派发，
     // 因为回调里写组合状态不保证被观察到（见 imeInsetFlow 的说明）。

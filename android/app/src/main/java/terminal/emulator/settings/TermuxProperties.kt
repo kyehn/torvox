@@ -3,25 +3,21 @@ package terminal.emulator.settings
 /**
  * `~/.termux/termux.properties` 的解析结果。
  *
- * 字段语义与默认值对齐 termux-app `TermuxPropertyConstants`：默认值不是随手取的
- * 常量，而是上游声明的缺省行为，改动其中任何一个都会让同一份用户配置在两个应用里
- * 表现不同。
+ * 字段语义与默认值取自 termux-app `TermuxPropertyConstants`，仅实现本应用实际支持的键；
+ * 上游存在但本应用无法正确实现的键不解析（见 `docs/specification/config.md`）。
  *
  * 解析失败一律「保留默认值 + 记录错误」，不让一个写错的键把整份配置作废，更不因
  * 用户文件而崩溃——这是外部配置，不是应用自己的设置数据。
  */
 data class TermuxProperties(
-    /** 切换会话时不弹提示（默认 `false`，与 termux 一致）；提示在顶部显示 `[序号] 标题`。 */
-    val disableHardwareKeyboardShortcuts: Boolean = false,
-    val useFullscreenWorkaround: Boolean = false,
     val fullscreen: Boolean = false,
     val ctrlSpaceWorkaround: Boolean = false,
     /**
      * 启动时不弹软键盘。
      *
      * 默认 `true`，与上游不同（上游默认 `false` = 启动即弹）：本应用启动时从不主动
-     * 请求输入法，默认值必须反映既有外观。写 `false` 会在首帧后主动请求一次；平台仍
-     * 可能拒绝（窗口尚未取得焦点时 `show` 会被丢弃），此时轻点终端即可。
+     * 请求输入法，默认值必须反映既有外观。写 `false` 会在首帧后等窗口取得焦点再请求
+     * 一次输入法，避免 `show` 在无焦点窗口上被平台丢弃。
      */
     val hideSoftKeyboardOnStartup: Boolean = true,
     val extraKeysTextAllCaps: Boolean = true,
@@ -36,12 +32,8 @@ data class TermuxProperties(
      * 「没配好就用默认」。
      */
     val terminalTranscriptRows: Int = DEFAULT_TRANSCRIPT_ROWS,
-    val shortcutCreateSession: Char? = null,
-    val shortcutNextSession: Char? = null,
-    val shortcutPreviousSession: Char? = null,
     val terminalToolbarHeightScale: Float = 1f,
     val extraKeysStyle: ExtraKeysStyle = ExtraKeysStyle.DEFAULT,
-    val extraKeys: List<List<ExtraKey>> = DEFAULT_EXTRA_KEYS,
     val defaultWorkingDirectory: String = "",
     val backKey: BackKeyBehaviour = BackKeyBehaviour.BACK,
     val volumeKeys: VolumeKeysBehaviour = VolumeKeysBehaviour.VIRTUAL,
@@ -58,36 +50,20 @@ data class TermuxProperties(
         val TRANSCRIPT_ROWS_RANGE = 100..50000
 
         /**
-         * 默认两行布局：`ESC DRAWER SCROLL HOME ↑ END PGUP` / `TAB CTRL ALT ← ↓ → PGDN`。
+         * 固定两行布局：`ESC DRAWER SCROLL HOME ↑ END PGUP` / `TAB CTRL ALT ← ↓ → PGDN`。
          *
          * **不是** termux 上游的 `DEFAULT_IVALUE_EXTRA_KEYS`（上游是
          * `ESC / - HOME ↑ END PGUP`，没有 DRAWER 与 SCROLL）：在 termux 里抽屉由
          * 左缘滑动打开、且它没有滚动锁定，而本应用把这两者做成了键栏上的固定入口。
          * 换成上游默认会让「打开会话列表」和「锁定滚动位置」两个功能失去唯一入口。
          *
-         * 列数仍守 DESIGN.md 修饰键栏节的「固定 2 行 7 列」。用户一旦写了 `extra-keys`，
-         * 布局、列数与键位完全以配置为准（见 [TermuxPropertiesParser]），本默认值不再参与。
+         * 列数守 DESIGN.md 修饰键栏节的「固定 2 行 7 列」。`extra-keys` 不解析，
+         * 用户无法改动键位；`extra-keys-style` 与 `extra-keys-text-all-caps` 只改字形。
          */
-        val DEFAULT_EXTRA_KEYS: List<List<ExtraKey>> =
+        val DEFAULT_EXTRA_KEYS: List<List<String>> =
             listOf(
-                listOf(
-                    ExtraKey("ESC"),
-                    ExtraKey("DRAWER"),
-                    ExtraKey("SCROLL"),
-                    ExtraKey("HOME"),
-                    ExtraKey("UP"),
-                    ExtraKey("END"),
-                    ExtraKey("PGUP"),
-                ),
-                listOf(
-                    ExtraKey("TAB"),
-                    ExtraKey("CTRL"),
-                    ExtraKey("ALT"),
-                    ExtraKey("LEFT"),
-                    ExtraKey("DOWN"),
-                    ExtraKey("RIGHT"),
-                    ExtraKey("PGDN"),
-                ),
+                listOf("ESC", "DRAWER", "SCROLL", "HOME", "UP", "END", "PGUP"),
+                listOf("TAB", "CTRL", "ALT", "LEFT", "DOWN", "RIGHT", "PGDN"),
             )
     }
 }
@@ -114,22 +90,6 @@ enum class SoftKeyboardToggleBehaviour { SHOW_HIDE, ENABLE_DISABLE }
  */
 enum class ExtraKeysStyle { DEFAULT, ARROWS_ONLY, ARROWS_ALL, ALL, NONE }
 
-/**
- * `extra-keys` 的一个按键。
- *
- * [name] 是 termux 的键名（`ESC`、`F1`、`UP`、`CTRL`……）或单字符字面量；
- * [popup] 是长按/上档显示的次级字符，本应用把它作为长按发送的文本；
- * [display] 是键帽上显示的文本（`{key: 'X', display: 'Y'}`），为空时按 `extra-keys-style`
- * 取字形；[macro] 是 termux 的宏（`{macro: "CTRL f d"}`），本应用只解析、不播放——
- * 键栏会把这类键隐藏（见 `ModifierBar.buildExtraKeySlots`）。
- */
-data class ExtraKey(
-    val name: String,
-    val popup: String? = null,
-    val macro: String? = null,
-    val display: String? = null,
-)
-
 /** 一份配置的来源文件与解析错误，供日志与诊断使用。 */
 data class TermuxPropertiesLoad(val properties: TermuxProperties, val sourcePath: String?, val errors: List<String>)
 
@@ -137,8 +97,7 @@ data class TermuxPropertiesLoad(val properties: TermuxProperties, val sourcePath
  * Java Properties 风格的读取器：`key = value` / `key: value`，`#` 与 `!` 起注释，
  * 行尾反斜杠续行，支持 `\n` `\t` `\\` `\ ` `\uXXXX` 转义。
  *
- * 不用 `java.util.Properties`：它会把 `extra-keys` 里的 `:`（对象字面量
- * `{key: '-'}`）当成键值分隔符处理吗？不会——分隔符只在首个未转义的 `=`/`:` 处切一次，
+ * 不用 `java.util.Properties`：分隔符只在首个未转义的 `=`/`:` 处切一次，
  * 但 `Properties.load` 会吃掉续行前的空白并对 ISO-8859-1 做转码，非 ASCII 键值
  * （中文路径）会被静默破坏。故这里显式按 UTF-8 解析。
  */
@@ -305,35 +264,8 @@ internal object TermuxPropertiesParser {
             return raw
         }
 
-        fun shortcut(key: String): Char? {
-            val raw = values[key] ?: return null
-            val single = raw.trim()
-            if (single.length != 1) {
-                errors += "$key: '$raw' must be a single character; shortcut disabled"
-                return null
-            }
-            return single[0].lowercaseChar()
-        }
-
-        val extraKeys =
-            values["extra-keys"]?.let { raw ->
-                when (val parsed = ExtraKeysParser.parse(raw)) {
-                    is ExtraKeysParser.Result.Success -> {
-                        errors += parsed.warnings
-                        parsed.rows
-                    }
-
-                    is ExtraKeysParser.Result.Failure -> {
-                        errors += "extra-keys: ${parsed.message}; keeping the default layout"
-                        TermuxProperties.DEFAULT_EXTRA_KEYS
-                    }
-                }
-            } ?: TermuxProperties.DEFAULT_EXTRA_KEYS
-
         val properties =
             TermuxProperties(
-                disableHardwareKeyboardShortcuts = boolean("disable-hardware-keyboard-shortcuts", false),
-                useFullscreenWorkaround = boolean("use-fullscreen-workaround", false),
                 fullscreen = boolean("fullscreen", false),
                 ctrlSpaceWorkaround = boolean("ctrl-space-workaround", false),
                 hideSoftKeyboardOnStartup = boolean("hide-soft-keyboard-on-startup", true),
@@ -362,9 +294,6 @@ internal object TermuxPropertiesParser {
                     TermuxProperties.DEFAULT_TRANSCRIPT_ROWS,
                     TermuxProperties.TRANSCRIPT_ROWS_RANGE,
                 ),
-                shortcutCreateSession = shortcut("shortcut.create-session"),
-                shortcutNextSession = shortcut("shortcut.next-session"),
-                shortcutPreviousSession = shortcut("shortcut.previous-session"),
                 terminalToolbarHeightScale = float("terminal-toolbar-height", 1f, 0.4f..3f),
                 extraKeysStyle =
                 when (choice("extra-keys-style", "default").lowercase()) {
@@ -383,7 +312,6 @@ internal object TermuxPropertiesParser {
                         ExtraKeysStyle.DEFAULT
                     }
                 },
-                extraKeys = extraKeys,
                 defaultWorkingDirectory = values["default-working-directory"]?.trim().orEmpty(),
                 backKey =
                 when (choice("back-key", "back").lowercase()) {
@@ -421,240 +349,5 @@ internal object TermuxPropertiesParser {
                 },
             )
         return TermuxPropertiesLoad(properties, null, errors)
-    }
-}
-
-/**
- * `extra-keys` 的迷你解析器。
- *
- * 语法就是 termux 的 JSON 风格字面量：外层数组是行，内层数组是按键；按键可以是
- * 带引号的字符串，或 `{key: 'x', popup: 'y'}`。不引入 JSON 库：这份语法只有三种
- * 记号（数组、对象、字符串），而且 termux 允许单引号与裸键名，标准 JSON 解析器反而
- * 不接收。
- *
- * 本应用不支持的字段（`macro`、对象形式的 `popup`）MUST 只丢自己那一项：整份布局
- * 因为一个宏回到默认，等于用户精心配的两行键位被一个不认识的对象整体作废。
- */
-internal object ExtraKeysParser {
-    sealed interface Result {
-        data class Success(
-            val rows: List<List<ExtraKey>>,
-            /** 保住了布局、但有一项被丢掉时的说明（例如对象形式的 popup）。 */
-            val warnings: List<String> = emptyList(),
-        ) : Result
-
-        data class Failure(val message: String) : Result
-    }
-
-    private class Cursor(private val text: String) {
-        var index: Int = 0
-        val warnings: MutableList<String> = mutableListOf()
-
-        fun skipWhitespace() {
-            while (index < text.length && text[index].isWhitespace()) index++
-        }
-
-        fun peek(): Char? {
-            skipWhitespace()
-            return text.getOrNull(index)
-        }
-
-        fun consume(expected: Char) {
-            skipWhitespace()
-            require(index < text.length && text[index] == expected) {
-                "expected '$expected' at offset $index"
-            }
-            index++
-        }
-
-        fun readString(): String {
-            skipWhitespace()
-            val quote = text.getOrNull(index)
-            if (quote != '\'' && quote != '"') {
-                val start = index
-                while (index < text.length && text[index] !in ",]}") index++
-                val bare = text.substring(start, index).trim()
-                require(bare.isNotEmpty()) { "empty key at offset $start" }
-                return bare
-            }
-            index++
-            val output = StringBuilder()
-            while (index < text.length) {
-                val character = text[index]
-                if (character == '\\' && index + 1 < text.length) {
-                    output.append(text[index + 1])
-                    index += 2
-                    continue
-                }
-                if (character == quote) {
-                    index++
-                    return output.toString()
-                }
-                output.append(character)
-                index++
-            }
-            error("unterminated string starting at offset $index")
-        }
-
-        fun readBare(): String {
-            skipWhitespace()
-            val start = index
-            while (index < text.length && (text[index].isLetterOrDigit() || text[index] == '_' || text[index] == '-')) {
-                index++
-            }
-            require(index > start) { "expected a name at offset $start" }
-            return text.substring(start, index)
-        }
-
-        /** 字段值：字符串或裸名；`{...}`、`[...]` 这类复合值整段跳过并返回 null。 */
-        fun readValueOrNull(): String? {
-            skipWhitespace()
-            return when (text.getOrNull(index)) {
-                '{', '[' -> {
-                    skipComposite()
-                    null
-                }
-
-                else -> readString()
-            }
-        }
-
-        /** 跳过一段配平的 `{...}` / `[...]`；字符串里的括号不参与配对。 */
-        fun skipComposite() {
-            var depth = 0
-            while (index < text.length) {
-                when (text[index]) {
-                    '\'', '"' -> readString()
-
-                    '{', '[' -> {
-                        depth++
-                        index++
-                    }
-
-                    '}', ']' -> {
-                        depth--
-                        index++
-                        if (depth == 0) return
-                    }
-
-                    else -> index++
-                }
-            }
-            error("unterminated object or array")
-        }
-    }
-
-    fun parse(text: String): Result = try {
-        val cursor = Cursor(text)
-        cursor.consume('[')
-        val rows = mutableListOf<List<ExtraKey>>()
-        if (cursor.peek() == ']') {
-            cursor.consume(']')
-        } else {
-            while (true) {
-                rows += parseRow(cursor)
-                when (cursor.peek()) {
-                    ',' -> {
-                        cursor.consume(',')
-                        // 末行后的逗号允许（手写配置常见）。
-                        if (cursor.peek() == ']') break
-                    }
-
-                    ']' -> break
-
-                    else -> error("expected ',' or ']' after a row")
-                }
-            }
-            cursor.consume(']')
-        }
-        cursor.skipWhitespace()
-        require(cursor.index == text.length) { "trailing characters after ']'" }
-        // 显式空布局（`[]`）就是「不要键栏」，照常返回零行。
-        // 但只要写了行、坏项又把这些行全掏空，就按写坏处理退回默认——键栏是抽屉与
-        // 滚动锁定的唯一入口，一个空对象不该把它们一起藏起来。
-        if (rows.isEmpty()) return Result.Success(emptyList(), cursor.warnings)
-        val nonEmptyRows = rows.filter { it.isNotEmpty() }
-        require(nonEmptyRows.isNotEmpty()) { "extra-keys contains no keys" }
-        Result.Success(nonEmptyRows, cursor.warnings)
-    } catch (error: IllegalArgumentException) {
-        Result.Failure(error.message ?: "invalid extra-keys")
-    } catch (error: IllegalStateException) {
-        Result.Failure(error.message ?: "invalid extra-keys")
-    }
-
-    private fun parseRow(cursor: Cursor): List<ExtraKey> {
-        cursor.consume('[')
-        val keys = mutableListOf<ExtraKey>()
-        if (cursor.peek() == ']') {
-            cursor.consume(']')
-            return keys
-        }
-        while (true) {
-            // 单个写坏的对象只丢自己那一项（见类文档）：整行/整份布局作废会让用户
-            // 精心配好的键位因为一个不认识的字段全部消失。
-            parseKey(cursor)?.let { keys += it }
-            when (cursor.peek()) {
-                ',' -> {
-                    cursor.consume(',')
-                    if (cursor.peek() == ']') break
-                }
-
-                ']' -> break
-
-                else -> error("expected ',' or ']' inside a row")
-            }
-        }
-        cursor.consume(']')
-        return keys
-    }
-
-    private fun parseKey(cursor: Cursor): ExtraKey? {
-        if (cursor.peek() == '{') {
-            cursor.consume('{')
-            var key: String? = null
-            var popup: String? = null
-            var macro: String? = null
-            var display: String? = null
-            while (true) {
-                val name = cursor.readBare()
-                cursor.consume(':')
-                when (name) {
-                    "key" -> key = cursor.readValueOrNull()
-
-                    "popup" -> {
-                        popup = cursor.readValueOrNull()
-                        if (popup == null) {
-                            cursor.warnings +=
-                                "extra-keys: object popups are not supported; long-press action dropped"
-                        }
-                    }
-
-                    "macro" -> macro = cursor.readValueOrNull()
-
-                    "display" -> display = cursor.readValueOrNull()
-
-                    // 未知字段：吃掉值（可能是嵌套对象），别让它拖垮整份布局。
-                    else -> cursor.readValueOrNull()
-                }
-                when (cursor.peek()) {
-                    ',' -> cursor.consume(',')
-                    '}' -> break
-                    else -> error("expected ',' or '}' inside a key object")
-                }
-            }
-            cursor.consume('}')
-            if (key == null && macro == null && display == null) {
-                // 没有任何可执行内容：丢掉这一项，其余按键照常保留。
-                cursor.warnings += "extra-keys: object without 'key' or 'macro' dropped"
-                return null
-            }
-            return ExtraKey(
-                name = key ?: display.orEmpty(),
-                popup = popup,
-                macro = macro,
-                display = display.takeIf { key != null },
-            )
-        }
-        return ExtraKey(cursor.readString())
     }
 }

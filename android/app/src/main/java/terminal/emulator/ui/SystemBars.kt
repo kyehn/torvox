@@ -43,24 +43,16 @@ internal fun SystemBarsFollowBackground(view: View, background: Color) {
 /**
  * `fullscreen = true` 时隐藏状态栏（`termux.properties`）。
  *
- * `use-fullscreen-workaround` 决定隐藏方式：开启时从边缘滑动唤出的是**临时**栏
- * （`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`，松手后自动收回），关闭时用默认行为
- * （唤出后停留直到用户操作）。该键在上游是为特定设备的全屏兼容准备的；边到边实现下
- * 「布局到系统栏之下」已恒成立，剩下的可观测差异就是唤出后的驻留方式，故按此实现，
- * 不假装它还有别的效果。
+ * 只隐藏状态栏，导航栏保持可见；这是上游 `FLAG_FULLSCREEN` 的语义，不是沉浸式全屏。
+ * 系统栏唤出后使用默认驻留行为。
  */
 @Composable
-internal fun SystemBarsFullscreen(view: View, fullscreen: Boolean, transientBarsBySwipe: Boolean) {
+internal fun SystemBarsFullscreen(view: View, fullscreen: Boolean) {
     val window = (view.context as? Activity)?.window ?: return
     SideEffect {
         val controller = WindowInsetsControllerCompat(window, view)
         if (fullscreen) {
-            controller.systemBarsBehavior =
-                if (transientBarsBySwipe) {
-                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                } else {
-                    WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
-                }
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
             controller.hide(WindowInsetsCompat.Type.statusBars())
         } else {
             controller.show(WindowInsetsCompat.Type.statusBars())

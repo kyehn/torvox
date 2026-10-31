@@ -153,7 +153,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * `back-key` 决定返回键的语义。
+     * `back-key` 决定返回键的语义，只在终端页位于前台时生效（设置页自己处理返回）。
      *
      * `escape`：返回键改发 ESC 且**不退出应用**——终端里跑 vim/less 时「返回」该怎么走
      * 由远端决定，退出应用反而是意外的副作用。`back`（默认）交回系统：先收键盘，
@@ -168,7 +168,10 @@ class MainActivity : ComponentActivity() {
             object : androidx.activity.OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     val properties = terminalViewModel.termuxConfiguration.value.properties
-                    if (properties.backKey == BackKeyBehaviour.ESCAPE) {
+                    if (
+                        terminalViewModel.terminalScreenActive &&
+                        properties.backKey == BackKeyBehaviour.ESCAPE
+                    ) {
                         terminalViewModel.sendKey(KeyEvent.KEYCODE_ESCAPE)
                         return
                     }
@@ -294,17 +297,19 @@ class MainActivity : ComponentActivity() {
      * `termux.properties` 里的按键改写，在输入法/编码器之前生效。
      *
      * 规则都返回「已消费」，因为它们改写的是**事件的路由**而不是字符：
-     * 放回平台路径就意味着同一个组合键既进终端又触发快捷键。
+     * 放回平台路径就意味着同一个组合键既进终端又触发别的行为。
      *
      * - `volume-keys = virtual`（termux 默认）：音量减键当虚拟 Ctrl（termux 的
      *   `handleVirtualKeys` 把音量减映射成 `mVirtualControlKeyDown`）。音量加在 termux
      *   里是虚拟 FN，而本应用没有 FN 映射表（FN+字母→ESC/方向键那一套），**故意不拦截**：
      *   抢走一个只能什么都不做的键，等于白丢音量加。
      * - `ctrl-space-workaround`：部分输入法/键盘把 Ctrl+空格吞成输入法切换，显式补发 NUL。
-     * - 会话快捷键：`Ctrl+Alt+<char>`，字符由 `shortcut.*-session` 配置；
-     *   `disable-hardware-keyboard-shortcuts = true` 时整条规则不生效，组合键原样进终端。
+     *
+     * 只在终端页位于前台时生效：设置页的输入框同样走 Activity 分发，不设这道门会把
+     * 用户输入框里的音量键/组合键写进后台终端。
      */
     private fun handleTermuxPropertyKey(event: KeyEvent): Boolean {
+        if (!terminalViewModel.terminalScreenActive) return false
         val properties = terminalViewModel.termuxConfiguration.value.properties
         val actionDown = event.action == KeyEvent.ACTION_DOWN
 
@@ -340,35 +345,6 @@ class MainActivity : ComponentActivity() {
             return true
         }
 
-        if (
-            !properties.disableHardwareKeyboardShortcuts &&
-            actionDown &&
-            event.isCtrlPressed &&
-            event.isAltPressed
-        ) {
-            // 取无修饰字符：Ctrl+Alt 下 `event.unicodeChar` 会给出控制码。
-            // 取不到字符一律放行——`null` 与「未配置」比较会相等，那会让任意
-            // Ctrl+Alt+非字符键都变成「新建会话」。
-            val typed = event.getUnicodeChar(0).takeIf { it > 0 }?.toChar()?.lowercaseChar()
-            if (typed != null) {
-                when (typed) {
-                    properties.shortcutCreateSession -> {
-                        terminalViewModel.createSession()
-                        return true
-                    }
-
-                    properties.shortcutNextSession -> {
-                        terminalViewModel.switchToAdjacentSession(forward = true)
-                        return true
-                    }
-
-                    properties.shortcutPreviousSession -> {
-                        terminalViewModel.switchToAdjacentSession(forward = false)
-                        return true
-                    }
-                }
-            }
-        }
         return false
     }
 }

@@ -94,6 +94,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         stopFlingAnimation()
         pendingUnpauseRunnable?.let { removeCallbacks(it) }
         pendingUnpauseRunnable = null
+        startupKeyboardRunnable?.let { removeCallbacks(it) }
+        startupKeyboardRunnable = null
         // 两个防抖的 resume 回调同样持有本视图：detach 恰在防抖窗内则
         // pause 之后 resume 丢失，渲染永久暂停。直接取消会吞掉配对的 resume
         // ——先把持有的暂停全部归还（计数归零），再取消回调。
@@ -3119,6 +3121,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /** 启动键盘策略是否已执行过（`hide-soft-keyboard-on-startup`）：只执行一次。 */
     private var startupKeyboardRequested = false
 
+    /** 启动键盘弹起重试：窗口取得焦点前 `show` 会被平台丢弃，按 100ms 重试到 2s。 */
+    private var startupKeyboardAttempts = 0
+    private var startupKeyboardRunnable: Runnable? = null
+
     /**
      * 软键盘是否允许弹出（`soft-keyboard-toggle-behaviour = enable/disable`）。
      *
@@ -3137,18 +3143,34 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 后平台才会在焦点变化时按 [onCheckIsTextEditor] 自动弹出，同时自己再显式 `show`
      * 一次——只靠自动弹出时，焦点往往早已就位、平台不会再问，键盘永远不出现。
      *
-     * 不保证成功：窗口尚未取得焦点时 `show` 会被平台丢弃。该键的语义是「不要主动隐藏」，
-     * 不是「强制弹出」。
+     * 窗口尚未取得焦点时 `show` 会被平台丢弃，故先等焦点，最多重试 2s。
      */
     fun requestKeyboardOnStart() {
         if (startupKeyboardRequested) return
         startupKeyboardRequested = true
         keyboardRequested = true
-        post {
-            if (!softKeyboardEnabled) return@post
-            requestFocus()
-            windowInsetsController?.show(android.view.WindowInsets.Type.ime())
-        }
+        val runnable =
+            object : Runnable {
+                override fun run() {
+                    if (!softKeyboardEnabled) {
+                        startupKeyboardRunnable = null
+                        return
+                    }
+                    if (hasWindowFocus()) {
+                        startupKeyboardRunnable = null
+                        requestFocus()
+                        windowInsetsController?.show(android.view.WindowInsets.Type.ime())
+                        return
+                    }
+                    if (startupKeyboardAttempts++ >= STARTUP_KEYBOARD_ATTEMPTS) {
+                        startupKeyboardRunnable = null
+                        return
+                    }
+                    postDelayed(this, STARTUP_KEYBOARD_RETRY_INTERVAL_MS)
+                }
+            }
+        startupKeyboardRunnable = runnable
+        post(runnable)
     }
 
     fun finishComposing() {
@@ -4168,6 +4190,10 @@ internal fun clampSelection(
 internal fun isWhitespaceCell(line: String?, col: Int): Boolean = line?.getOrNull(col)?.isWhitespace() != false
 
 /** 手柄拖动结束后的保护窗：期间在松手位置的轻点被吞掉，而不是关闭刚重新显示的菜单（termux 隐藏保护）。 */
+/** 启动键盘等待焦点的重试节奏与上限。 */
+private const val STARTUP_KEYBOARD_RETRY_INTERVAL_MS = 100L
+private const val STARTUP_KEYBOARD_ATTEMPTS = 20
+
 internal const val SELECTION_MENU_RESHOW_GUARD_MS = 300L
 
 /**
