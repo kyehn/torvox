@@ -353,6 +353,7 @@ impl super::GhosttyTerminal {
                 visible: cursor_visible,
                 style: cursor_style,
                 scrollback_length: scrollback_len(terminal),
+                viewport_row: viewport_row(terminal),
                 scroll_request_id,
                 rows,
                 cols,

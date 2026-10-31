@@ -79,6 +79,55 @@ fn scroll_viewport_with_unchanged_content_still_pushes_frame() {
     await_pushed_frame(&mut terminal_under_test, "内容不变的滚动后");
 }
 
+/// 视口行号（绝对行）必须锚在内容上：回滚浏览期间来新输出只把活动区底边推远，
+/// 视口行号不动。
+///
+/// 这是渲染基行的唯一真源：宿主手里的「离实时视图多少行」会随输出一起增长，
+/// 拿它折算基行会让画面在每次输出到达时整体错位（上下滑动晃动）。
+#[test]
+fn viewport_row_stays_put_while_new_output_arrives() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    for line_number in 0..20 {
+        terminal_under_test.vt_write(format!("line{line_number}\r\n").as_bytes());
+    }
+    terminal_under_test.flush();
+    let (_, at_bottom) = terminal_under_test
+        .receive_cell_data()
+        .expect("首帧必须到达");
+    assert_eq!(
+        at_bottom.viewport_row, at_bottom.scrollback_length,
+        "贴底时视口行号应等于回滚长度（活动区顶行）"
+    );
+
+    assert!(terminal_under_test.scroll_viewport(-3), "上滚必须被接受");
+    terminal_under_test.flush();
+    let (_, browsing) = terminal_under_test
+        .receive_cell_data()
+        .expect("滚动后必须收到帧");
+    assert!(
+        browsing.viewport_row < browsing.scrollback_length,
+        "上滚后视口应离开活动区：row={} scrollback={}",
+        browsing.viewport_row,
+        browsing.scrollback_length
+    );
+
+    terminal_under_test.vt_write(b"late output\r\n");
+    terminal_under_test.flush();
+    let (_, after_output) = terminal_under_test
+        .receive_cell_data()
+        .expect("输出后必须收到帧");
+    assert_eq!(
+        after_output.viewport_row, browsing.viewport_row,
+        "浏览期间新输出不得挪动视口行号"
+    );
+    assert!(
+        after_output.scrollback_length > browsing.scrollback_length,
+        "回滚长度应随新输出增长：{} -> {}",
+        browsing.scrollback_length,
+        after_output.scrollback_length
+    );
+}
+
 /// 同步更新（模式 2026）期间，VT 线程不得发布中间帧：BSU 与 ESU 分两次写入，
 /// 保持期间收到的 CellData 必须为空，ESU 之后的帧才包含期间写入的内容。
 #[test]

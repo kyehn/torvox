@@ -242,6 +242,23 @@ fn scrollback_len(terminal: &Terminal) -> u32 {
     }) as u32
 }
 
+/// VT 视口顶部的绝对行号（上游 `scrollbar.offset` 的行空间：0 = 回滚区顶部）。
+///
+/// 与 [`scrollback_len`]（回滚行数）配套：活动区顶行 = `scrollback_len`，故视口
+/// 行号落在 `0..=scrollback_len`。视口行号锚在内容上——回滚浏览期间新输出只把
+/// 活动区底边推远，视口行号不动。
+///
+/// 上游把视口偏移缓存起来，读取是摊还 O(1)。
+fn viewport_row(terminal: &Terminal) -> u32 {
+    terminal.scrollbar().map_or_else(
+        |error| {
+            log::warn!("ghostty_terminal: scrollbar query failed: {error}");
+            0
+        },
+        |bar| bar.offset.min(u64::from(u32::MAX)) as u32,
+    )
+}
+
 /// 单格码点直读：调用方保证列在界内，不逐格查网格宽度。
 fn cell_codepoint(terminal: &Terminal, row: u32, col: u32) -> u32 {
     terminal

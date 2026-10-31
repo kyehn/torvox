@@ -17,6 +17,7 @@ fn cursor_column_folds_onto_the_wide_characters_head() {
         visible: true,
         style: CursorStyle::Block,
         scrollback_length: 0,
+        viewport_row: 0,
         scroll_request_id: 0,
         rows: 24,
         cols: 80,

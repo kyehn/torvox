@@ -29,7 +29,7 @@ pub(super) enum FrameData {
     Idle,
 }
 
-/// 新帧的全部数据：单元、光标、网格尺寸与宿主滚动状态。
+/// 新帧的全部数据：单元、光标、网格尺寸与滚动在途状态。
 ///
 /// 成组传递：取帧与出图按同一组数据走，拆成散参数传一遍只会让两处签名各写
 /// 一份字段清单，改一处漏一处。
@@ -38,7 +38,6 @@ pub(super) struct NewFrame {
     cursor_info: crate::terminal::ghostty_terminal::CursorInfo,
     rows: u32,
     cols: u32,
-    scroll_offset: i64,
     /// 宿主已送达的最后一个滚动请求序号（0 = 从未下发过滚动命令）。
     latest_scroll_request_id: u64,
 }
@@ -236,7 +235,6 @@ pub(super) fn collect_frame_data(session_id: u64) -> Result<FrameData, jint> {
                 cursor_info,
                 rows,
                 cols,
-                scroll_offset: session.last_scroll_offset(),
                 latest_scroll_request_id: session.terminal().latest_scroll_request_id(),
             }))
         }
@@ -301,7 +299,6 @@ pub(super) fn render_new_frame(
         cursor_info,
         rows,
         cols,
-        scroll_offset,
         latest_scroll_request_id,
     } = frame;
     let mut locked = lock_render_state();
@@ -347,7 +344,11 @@ pub(super) fn render_new_frame(
     } else {
         Vec::new()
     };
-    let absolute_base_row = i64::from(cursor_info.scrollback_length).saturating_sub(scroll_offset);
+    // 视口顶行的绝对行号取 VT 真值（`CursorInfo.viewport_row`），不取宿主的
+    // 「离实时视图多少行」折算：浏览期间新输出把活动区底边推远，宿主的折算值
+    // 随之漂移，而 VT 视口锚在内容上、行号不动——两者一旦分叉，画面就会在输出
+    // 到达时整体错位（上下滑动晃动）。
+    let absolute_base_row = i64::from(cursor_info.viewport_row);
     let placeholder_signature =
         placeholder_layout_signature(&placeholder_rows, absolute_base_row.max(0) as u64);
     // 网格单元格像素（与 render_cell_data 同口径：字体度量×光栅缩放）。
