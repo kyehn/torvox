@@ -507,13 +507,23 @@ fn cached_stale_atlas_generation_forces_full_rebuild() {
     );
 }
 
+/// 图集必须装得下**一帧的工作集**，但装不下「工作集 + churn」。
+///
+/// 上限来自「收敛」而非「驱逐」：这一用例要验的是帧内搬迁之后 UV 仍然一致，
+/// 而工作集一旦本身装不进图集，每一遍发射都会把另一个字形挤出去——遍数再多也不
+/// 可能收敛（此时正确的行为是 [`build_row_instances_into`] 放弃写缓存并告警，
+/// 而不是反复重建）。故取 160：实测 churn 在此推进约 9 次搬迁、第二帧发射再
+/// 推进约 3 次，既真的脏到会在帧内搬迁，又留得住本帧工作集。
+/// 调大前先看下面的 churn / 帧间代际断言：两者同时成立才说明场景有效。
+const THRASHING_ATLAS: f32 = 160.0;
+
 /// 帧内驱逐回归：小 atlas 上混合旧字形（clean 行）与大量新字形
 /// （dirty 行，迫使驱逐）的一帧，增量结果中每个实例的 UV 必须与
 /// 当前缓存查询一致。驱逐前构建/服务的旧 UV 即 stale（同字不同区
 /// 渲染不一致，如 "d 部分区域像 a"），必须被预热 + 全量降级消除。
 #[test]
 fn incremental_frame_with_midframe_eviction_has_current_uvs() {
-    const ATLAS: f32 = 128.0;
+    const ATLAS: f32 = THRASHING_ATLAS;
     const ROWS: u32 = 24;
     const COLS_PER_ROW: u32 = 8;
     let pool: Vec<char> = ('A'..='Z')
@@ -569,6 +579,7 @@ fn incremental_frame_with_midframe_eviction_has_current_uvs() {
             ));
         }
     }
+    let generation_before_frame1 = font_pipeline.atlas_generation();
     let all_dirty = vec![true; ROWS as usize];
     let ok = build_instances_cached(
         &frame1,
@@ -589,9 +600,17 @@ fn incremental_frame_with_midframe_eviction_has_current_uvs() {
         .chain('\u{2190}'..='\u{21FF}')
         .collect();
     assert!(churn.len() > 300, "churn set must exceed atlas headroom");
+    let generation_before_churn = font_pipeline.atlas_generation();
     for &character in &churn {
         let _ = font_pipeline.glyph_information(character);
     }
+    let generation_after_churn = font_pipeline.atlas_generation();
+    // 场景前提：churn 必须真的把第一帧的字形逐出图集。不推进即 ATLAS 太大，
+    // 第二帧不会在帧内搬迁，本用例就退化成「干净行照抄」的平凡用例。
+    assert!(
+        generation_after_churn > generation_before_churn.max(generation_before_frame1),
+        "churn set must evict the first frame's glyphs (generation {generation_before_churn} -> {generation_after_churn})"
+    );
     // Frame 2：偶数行不变（clean），奇数行换新字形（dirty，迫使驱逐）。
     let mut frame2 = Vec::new();
     for row in 0..ROWS {
@@ -615,6 +634,7 @@ fn incremental_frame_with_midframe_eviction_has_current_uvs() {
         *dirty_entry = row % 2 == 1;
     }
     instances.clear();
+    let generation_before_frame2 = font_pipeline.atlas_generation();
     let ok = build_instances_cached(
         &frame2,
         config,
@@ -624,6 +644,12 @@ fn incremental_frame_with_midframe_eviction_has_current_uvs() {
         &mut instances,
     );
     assert!(ok.is_some(), "incremental build should succeed");
+    // 场景前提（之二）：第二帧内部必须有字形搬迁。代际不动即 churn 没有
+    // 真的制造帧内驱逐，本用例就没有碰到它要验的那条路径。
+    assert!(
+        font_pipeline.atlas_generation() > generation_before_frame2,
+        "frame 2 must relocate glyphs mid-frame (generation stuck at {generation_before_frame2})"
+    );
     assert_eq!(
         instances.len(),
         frame2.len(),

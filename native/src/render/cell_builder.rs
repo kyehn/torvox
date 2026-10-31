@@ -3,6 +3,7 @@
 //! 要求：
 //! - FR-050——surface 生命周期：resize / surface 重建时重建单元格实例
 use crate::render::CellInstance;
+use crate::slow_log::SlowLogThrottle;
 
 use crate::terminal::CursorStyle;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
@@ -11,6 +12,20 @@ use crate::terminal::ghostty_terminal::cell_flags;
 use crate::terminal::ghostty_terminal::unicode_placement::PLACEHOLDER;
 
 use foldhash::fast::RandomState;
+
+/// 同一帧内为拿到稳定图集的最大发射遍数。
+///
+/// 第一遍发射时可能仍在解算本帧尚未装入的字形（例如刚从脏行以外来的簇形），
+/// 触发一次搬迁；再多给两遍足以让「零星缺失」收敛。再多遍不会带来新的判定
+/// 信息——若容量本身不够，遍数再多也不收敛（见循环末的告警）。
+const MAX_STABLE_ATTEMPTS: usize = 3;
+
+/// 「图集抖动」告警的限频闸门。
+///
+/// 工作集超过图集容量时每一遍都要搬迁字形，UV 永远无法在帧内收敛。这是
+/// 逐帧发生的故障形态，若逐帧输出会把 logcat 刷成洪水（见 `logcat-hygiene`
+/// 规范），故与其他逐帧诊断同口径限频。
+static ATLAS_THRASH_THROTTLE: SlowLogThrottle = SlowLogThrottle::new();
 
 /// 搜索高亮 alpha 超过该阈值时交换前景/背景色
 /// （高 alpha = 不透明高亮，交换后视觉更清晰）。
@@ -558,7 +573,7 @@ fn build_row_instances_into(
     let mut row_ends: Vec<usize> = Vec::with_capacity(rows as usize);
     // 末遍是否在稳定代际下建完：只有稳定才允许把实例写回缓存。
     let mut built_stable = false;
-    for _ in 0..2 {
+    for _ in 0..MAX_STABLE_ATTEMPTS {
         instances.clear();
         row_ends.clear();
         let generation_before_emit = font_pipeline.atlas_generation();
@@ -609,6 +624,16 @@ fn build_row_instances_into(
             &instances[..],
             row_ends,
             font_pipeline.atlas_generation(),
+        );
+    } else if !built_stable && ATLAS_THRASH_THROTTLE.should_log() {
+        // 遍数用尽仍不稳定 = 本帧工作集在图集里装不下：每次查询都把另一字形挤出去，
+        // 增遍数亦不可能收敛。此时必须出声——画面上的字会在同一个字符之间出现
+        // 不同的字形轮廓（stale UV 的典型症状），而归因所需的唯一线索就是「图集
+        // 抖动」。不出声则现象只会由用户上报，毫无现场信息。
+        let (atlas_width, atlas_height) = (atlas_width as u32, atlas_height as u32);
+        log::warn!(
+            "cell_builder: atlas {atlas_width}x{atlas_height} thrashes at {rows}x{cols} cells \
+             (workingset exceeds the atlas; raise the atlas size or lower the raster scale)"
         );
     }
     Some(())
