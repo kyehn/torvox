@@ -776,26 +776,29 @@ fn font_switching_clears_cache() {
     // ASCII 光栅结果重新填充，故长度必然降到该值以下。
     pipeline.glyph_information('好');
     let before = pipeline.cache_length();
-    let names = pipeline.list_monospace_fonts();
-    if names.len() > 1 {
-        let alt = names.last().unwrap();
-        pipeline.set_font_family(alt, &[]);
-        assert!(
-            pipeline.cache_length() < before,
-            "cache should shrink after font switch to '{alt}'"
-        );
-    } else {
-        pipeline.set_font_family("monospace", &[]);
-        assert_ne!(
-            pipeline.cache_length(),
-            0,
-            "cache must be non-empty after font switch"
-        );
-        assert!(
-            pipeline.cache_length() < before,
-            "cache should shrink after font switch"
-        );
-    }
+    let original_id = pipeline.font_id;
+    // 必须切到**真正换掉 font_id** 的族：字体库枚举顺序随宿主装了什么而变，
+    // 「最后一个族」可能解析回当前面（或切换失败却仍返回 true），缓存根本没清，
+    // 断言就变成在测宿主字体表的排序。逐个尝试，直到 font_id 真的变了。
+    let switched = pipeline
+        .list_monospace_fonts()
+        .into_iter()
+        .filter(|name| !name.is_empty())
+        .any(|name| {
+            if !pipeline.set_font_family(&name, &[]) || pipeline.font_id == original_id {
+                return false;
+            }
+            assert!(
+                pipeline.cache_length() < before,
+                "切换到 '{name}' 后缓存必须收缩（切换前 {before}，切换后 {}）",
+                pipeline.cache_length()
+            );
+            true
+        });
+    assert!(
+        switched,
+        "至少有一个字体族能把 font_id 从 {original_id:?} 改掉"
+    );
 }
 
 #[test]

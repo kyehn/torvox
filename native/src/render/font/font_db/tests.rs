@@ -638,11 +638,24 @@ fn host_faces() -> (fontdb::Database, fontdb::ID, fontdb::ID) {
         .find(|face| face.monospaced)
         .map(|face| face.id)
         .expect("宿主字体库须有等宽面（run inside nix develop）");
+    // fontdb 的枚举顺序取决于宿主装了哪些字体：装过 Symbols/Emoji 类字体的机器上，
+    // 第一个非等宽面可能根本不覆盖拉丁。取「第一个覆盖拉丁的比例面」，断言才是在
+    // 钉 face_covers_latin 的判定，而不是宿主字体表的排序。探测直接读 charmap，
+    // 不调用被测函数，避免自我证明。
     let proportional = font_database
         .faces()
-        .find(|face| !face.monospaced)
+        .find(|face| {
+            !face.monospaced
+                && font_database
+                    .with_face_data(face.id, |data, index| {
+                        swash::FontRef::from_index(data, index as usize)
+                            .map(|font| font.charmap().map('m') != 0)
+                    })
+                    .flatten()
+                    .unwrap_or(false)
+        })
         .map(|face| face.id)
-        .expect("宿主字体库须有比例面（run inside nix develop）");
+        .expect("宿主字体库须有覆盖拉丁的比例面（run inside nix develop）");
     (font_database, monospace, proportional)
 }
 
