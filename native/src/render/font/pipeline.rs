@@ -169,6 +169,81 @@ fn glyph_bearing_y_matches_the_centering_fallback_contract() {
     assert_eq!((cjk_bearing, cjk_raw), (-6.0, -6.0));
 }
 
+/// 面本身是否已具备请求的字重/样式。
+///
+/// 判据与 [`fontdb::Query`] 的语义对齐：字重按「≥ 请求值」取（600 之类不算 bold，
+/// 700 才算），样式只要不是正体即算（Oblique 同样覆盖斜体请求）。
+///
+/// 只在「查询把基底面自己选回来」时用（见
+/// [`FontPipeline::resolve_style_face`]）：那一刻答案决定的是「用真面还是合成」。
+fn face_has_style(face: &fontdb::FaceInfo, bold: bool, italic: bool) -> bool {
+    (!bold || face.weight >= fontdb::Weight::BOLD)
+        && (!italic || face.style != fontdb::Style::Normal)
+}
+
+/// 回归钉：「查询把基底面自己选回来」时，判据决定的是用真面还是合成。
+///
+/// 判反了的表现是「用户把粗体族设为主字体后，粗体比别处更粗」——合成叠在已经是
+/// 粗体的位图上。真实字体库里复现「查询选中基底面」很不稳定（取决于设备上装了
+/// 哪些面），故在此直接钉住判据本身。
+#[test]
+fn face_has_style_only_accepts_a_face_that_already_carries_the_style() {
+    let face = |weight: u16, style: fontdb::Style| fontdb::FaceInfo {
+        id: fontdb::ID::default(),
+        source: fontdb::Source::Binary(std::sync::Arc::new(Vec::<u8>::new())),
+        index: 0,
+        families: vec![("Test".to_string(), fontdb::Language::English_UnitedStates)],
+        post_script_name: "Test".to_string(),
+        style,
+        weight: fontdb::Weight(weight),
+        stretch: fontdb::Stretch::Normal,
+        monospaced: true,
+    };
+    let regular = face(400, fontdb::Style::Normal);
+    // 请求粗体：正体不算，半粗（600）不算，到 700 才算。
+    assert!(!face_has_style(&regular, true, false));
+    assert!(!face_has_style(
+        &face(600, fontdb::Style::Normal),
+        true,
+        false
+    ));
+    assert!(face_has_style(
+        &face(700, fontdb::Style::Normal),
+        true,
+        false
+    ));
+    assert!(face_has_style(
+        &face(900, fontdb::Style::Normal),
+        true,
+        false
+    ));
+    // 请求斜体：Italic 与 Oblique 都算（倾斜体同样覆盖斜体请求）。
+    assert!(!face_has_style(&regular, false, true));
+    assert!(face_has_style(
+        &face(400, fontdb::Style::Italic),
+        false,
+        true
+    ));
+    assert!(face_has_style(
+        &face(400, fontdb::Style::Oblique),
+        false,
+        true
+    ));
+    // 同时请求：两项须同时满足，否则仍要合成。
+    assert!(!face_has_style(
+        &face(700, fontdb::Style::Normal),
+        true,
+        true
+    ));
+    assert!(face_has_style(
+        &face(700, fontdb::Style::Italic),
+        true,
+        true
+    ));
+    // 未请求任何样式时恒真：这条路径本就不会问到（调用方已提前返回）。
+    assert!(face_has_style(&regular, false, false));
+}
+
 impl FontPipeline {
     pub fn new(atlas_width: i32, atlas_height: i32, font_size: f32) -> Self {
         // 渲染侧只常驻 3 个族（fonts.xml 等宽主字体 + 一个符号族 + 一个区域族），
@@ -464,6 +539,11 @@ impl FontPipeline {
 
     /// 查找同族内符合请求字重/样式的面：基底面已符合时返回同一 id，
     /// 无匹配面时返回 None（由调用方改用合成）。
+    ///
+    /// 「返回同一 id」不是无操作：它让调用方走**真面**路径（不合成）。用户把粗体
+    /// 或斜体族设为主字体时，fontdb 的查询只会把基底面自己选回来；此时若判为
+    /// 「无匹配面」，调用方会在已经是粗/斜的位图上再合成一遍——粗体叠成双粗、
+    /// 斜体斜两次，而那正是本函数要避免的结果。
     /// 结果记在 `style_face_cache`，使 fontdb 查询每个 (字体, 粗, 斜)
     /// 组合至多执行一次，而非每帧每个样式单元一次。
     pub(crate) fn resolve_style_face(
@@ -478,6 +558,7 @@ impl FontPipeline {
         }
         let font_database = self.font_system.db();
         let base = font_database.face(base_id)?;
+        let base_already_styled = face_has_style(base, bold, italic);
         let family = base.families.first()?.0.clone();
         let query = fontdb::Query {
             families: &[fontdb::Family::Name(&family)],
@@ -495,8 +576,13 @@ impl FontPipeline {
         };
         let matched = font_database.query(&query);
         let result = match matched {
+            // 库里有另一个更贴合的面：用它出真字形，不合成。
             Some(id) if id != base_id => Some(id),
-            _ => None,
+            // 查询把基底面自己选回来了（族内没有别的候选）：基底面本身已是粗/斜时
+            // 它就是答案，返回它以跳过合成；否则交给调用方合成。
+            Some(_) => base_already_styled.then_some(base_id),
+            // 族内连一个候选都没有：只能合成。
+            None => None,
         };
         self.caches.style_face_cache.put(key, result);
         result
