@@ -247,6 +247,60 @@ class TermuxPropertiesParserTest {
         assertTrue("对象形式的 popup 不是错误: ${loaded.errors}", loaded.errors.isEmpty())
     }
 
+    /** `shortcut.*` 解析成「小写码点 → 动作」，Ctrl+Shift+N 也能命中。 */
+    @Test
+    fun `session shortcuts parse ctrl combinations`() {
+        val loaded =
+            parse(
+                """
+                shortcut.create-session = Ctrl+t
+                shortcut.next-session = Ctrl+N
+                shortcut.previous-session = Ctrl+p
+                """.trimIndent(),
+            )
+        assertEquals(
+            mapOf(
+                SessionShortcut.CREATE to 't'.code,
+                SessionShortcut.NEXT to 'n'.code,
+                SessionShortcut.PREVIOUS to 'p'.code,
+            ),
+            loaded.properties.sessionShortcuts,
+        )
+        assertTrue("合法快捷键不是错误: ${loaded.errors}", loaded.errors.isEmpty())
+    }
+
+    /** 不是 `Ctrl+<字符>` 的值不生效，但要留痕。 */
+    @Test
+    fun `an invalid session shortcut is ignored with an error`() {
+        val loaded = parse("shortcut.next-session = Alt+n")
+        assertEquals(emptyMap<SessionShortcut, Int>(), loaded.properties.sessionShortcuts)
+        assertTrue(loaded.errors.any { it.contains("shortcut.next-session") })
+    }
+
+    /** 没有重命名 UI 时，`rename-session` 明确忽略而不是假装支持。 */
+    @Test
+    fun `rename shortcut is reported as unsupported`() {
+        val loaded = parse("shortcut.rename-session = Ctrl+r")
+        assertEquals(emptyMap<SessionShortcut, Int>(), loaded.properties.sessionShortcuts)
+        assertTrue(loaded.errors.any { it.contains("rename") })
+    }
+
+    /** 空键名没有可发送的内容，等同于没有 key。 */
+    @Test
+    fun `an empty key name drops only itself`() {
+        val loaded = parse("""extra-keys = [['ESC',{key:''}]]""")
+        assertEquals(listOf(listOf(ExtraKey("ESC"))), loaded.properties.extraKeys)
+        assertTrue(loaded.errors.any { it.contains("dropped") })
+    }
+
+    /** 对象字段名既可裸写也可带引号（上游 JSON 两者都收）。 */
+    @Test
+    fun `quoted object field names are accepted`() {
+        val loaded = parse("""extra-keys = [[{"key":"ESC","display":"quit"}]]""")
+        assertEquals(listOf(listOf(ExtraKey("ESC", display = "quit"))), loaded.properties.extraKeys)
+        assertTrue("带引号的字段名不是错误: ${loaded.errors}", loaded.errors.isEmpty())
+    }
+
     /** popup 对象里没有 `key` 也没有 `macro`：只丢这个 popup，主键照常保留。 */
     @Test
     fun `an unusable object popup is dropped without losing the key`() {

@@ -111,7 +111,17 @@ constructor(@ApplicationContext private val context: Context) {
             return null
         }
         return try {
-            file.readText(Charsets.UTF_8)
+            // 上限在读时再兜一次：length() 与打开文件之间文件可能被外部改写，
+            // 只信 stat 会把一个已经长到几百兆的文件整份读进内存。
+            file.inputStream().buffered().use { stream ->
+                val bytes = stream.readNBytes(MAX_BYTES + 1)
+                if (bytes.size > MAX_BYTES) {
+                    errors += "${file.name}: larger than $MAX_BYTES bytes; skipped"
+                    null
+                } else {
+                    String(bytes, Charsets.UTF_8)
+                }
+            }
         } catch (error: IOException) {
             errors += "${file.name}: read failed (${error.message})"
             null

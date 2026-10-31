@@ -46,12 +46,21 @@ class ModifierBarLayoutTest {
         assertEquals(1, buildExtraKeySlots(layout, ExtraKeysStyle.DEFAULT, true).size)
     }
 
+    /**
+     * 键名表之外的键名是字面量文本，不是未知键名。
+     *
+     * 上游 termux 对 `PRIMARY_KEY_CODES_FOR_STRINGS` 之外的键名原样写出，故
+     * `-_-` 这类自定义文本在两个应用里都能用。
+     */
     @Test
-    fun `unknown key names are dropped`() {
+    fun `unknown key names are sent as literal text`() {
         val layout = listOf(listOf(ExtraKey("NOT_A_KEY"), ExtraKey("ESC")))
         val slots = buildExtraKeySlots(layout, ExtraKeysStyle.DEFAULT, true)
         assertEquals(1, slots.size)
-        assertEquals(listOf("ESC"), slots[0].map { it.name })
+        assertEquals(listOf("NOT_A_KEY", "ESC"), slots[0].map { it.name })
+        assertEquals(KeyAction.Text("NOT_A_KEY"), slots[0][0].action)
+        assertEquals("NOT_A_KEY", slots[0][0].label)
+        assertEquals("Key_NOT_A_KEY", slots[0][0].testTag)
         assertEquals(1, extraKeyRowCount(layout))
     }
 
@@ -159,7 +168,7 @@ class ModifierBarLayoutTest {
         assertEquals(1, extraKeyRowCount(layout))
     }
 
-    /** 宏键帽默认显示宏串（上游亦然：显示文本由宏的键名拼成）。 */
+    /** 宏键帽默认显示宏串（上游亦然：逐记号套别名与显示表，再用空格拼回）。 */
     @Test
     fun `a macro without an explicit display shows the macro text`() {
         val slot = buildExtraKeySlots(
@@ -170,7 +179,18 @@ class ModifierBarLayoutTest {
         assertEquals("CTRL F D", slot.label)
     }
 
-    /** 不可解析的宏（未知记号、含 FN）不渲染，但同行其余键照常。 */
+    /** `extra-keys-style` 对宏的每个记号分别生效，而不是只认整串。 */
+    @Test
+    fun `macro labels follow the selected style`() {
+        val slot = buildExtraKeySlots(
+            listOf(listOf(ExtraKey("tmux", macro = "CTRL f d"))),
+            ExtraKeysStyle.ALL,
+            true,
+        )[0][0]
+        assertEquals("⎈ F D", slot.label)
+    }
+
+    /** 不可解析的宏（含 FN）不渲染，但同行其余键照常。 */
     @Test
     fun `an unusable macro is dropped without dropping the row`() {
         val layout = listOf(listOf(ExtraKey("ESC"), ExtraKey("bad", macro = "FN f")))
@@ -245,11 +265,11 @@ class ModifierBarLayoutTest {
         assertEquals(3, (action as KeyAction.Macro).steps.size)
     }
 
-    /** 不可用的 popup（未知键名）不产生长按动作，但主键照常渲染。 */
+    /** 不可用的 popup（FN）不产生长按动作，但主键照常渲染。 */
     @Test
     fun `an unusable popup leaves the key without a long press action`() {
         val slot = buildExtraKeySlots(
-            listOf(listOf(ExtraKey("-", popup = ExtraKey("NOT_A_KEY")))),
+            listOf(listOf(ExtraKey("-", popup = ExtraKey("FN")))),
             ExtraKeysStyle.DEFAULT,
             true,
         )[0][0]

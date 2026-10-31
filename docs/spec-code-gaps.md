@@ -16,11 +16,13 @@
 - 上游键名别名表此前未实现：`ESCAPE`/`CONTROL`/`PAGEUP` 等写法会被当成未知键名丢掉。
   本轮已实现（`TerminalKeyCatalog.normalizeKeyName`）。
 - `extra-keys` 的 `{macro: ...}` 此前只解析不渲染；本轮已按上游语义实现播放
-  （`MacroParser` + `TerminalViewModel.sendMacro`）。`popup` 此前只把字符串当纯文本
-  发出、对象形式整个丢弃；本轮按上游语义实现为**完整的次级按键**（见下节）。
+  （`MacroParser` + `TerminalViewModel.sendMacro`），含无键码记号的字面量文本。
+  `popup` 此前只把字符串当纯文本发出、对象形式整个丢弃；本轮按上游语义实现为**完整的次级按键**（见下节）。
   `FN`/`SHIFT` 键仍不支持，已写入 `PROHIBITED.md`。
 - `volume-keys` 此前无条件拦截音量减；本轮补上上游口径「外接字母键盘在场时不抢它的
   音量键」。
+- `shortcut.*` 会话快捷键此前未实现；本轮按 `termux.properties` 解析 `Ctrl+<字符>` 并在
+  实体键盘事件进入终端前匹配，`rename-session` 明确忽略。
 - 边界差异：配置重读时机与实现一致；超大文件口径已按实现写明（沿用上一次成功的配置，
   首次加载即默认值）；`beam` 取值在 `DESIGN.md` 与 `config.md` 现已一致，且已注明上游无此取值。
 - 字体：`~/.config/termux` 的默认字体与字体目录现已纳入扫描/注册，主路径优先。
@@ -122,7 +124,8 @@
 `{macro: "CTRL f d"}` 此前被解析后丢弃（键栏不渲染）。本轮按上游
 `TerminalExtraKeys.onExtraKeyButtonClick` 的语义实现：宏串按空白切分，`CTRL`/`ALT`/
 `SHIFT` 作用于其后第一个普通记号，普通记号经原生键编码器发出（连同平台文本，否则
-可打印键不产生字节）。
+可打印键不产生字节）；没有键码的记号按上游 `TerminalView.inputCodePoint` 的语义直接
+写出（Ctrl 逐码点折叠、Alt 逐码点加 ESC、Shift 对文本无作用）。
 
 不可用的宏（含 `FN` 或未知记号）只丢自己那一项，不作废整行。`FN`/`SHIFT` 键本身与
 `volume-keys` 的虚拟 FN 映射不支持，已写入 `PROHIBITED.md`。
@@ -144,6 +147,13 @@
 与上游的一处差异：上游由「上滑」触发并弹出浮层，本应用没有浮层，长按直接执行次级键
 （语义一致，少了中间那层浮层）。`PROHIBITED.md` 中「对象形式 `popup` 不支持」一条已
 删除。
+
+## 会话快捷键（此前未实现）
+
+`shortcut.create-session` / `shortcut.next-session` / `shortcut.previous-session` 此前未解析；
+本轮按 `termux.properties` 的 `Ctrl+<字符>` 语义实现：在实体键盘事件进入终端前匹配，
+命中时消费下按与抬起，分别新建会话、切到下一个/上一个会话。`Ctrl+Shift` 与配置的小写
+等价，Ctrl+Alt 不参与。`shortcut.rename-session` 没有对应 UI，解析时明确忽略并记警告。
 
 ## Ctrl+空格的抬起事件（此前漏回输入法）
 

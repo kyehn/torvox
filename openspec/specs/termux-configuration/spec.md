@@ -106,22 +106,27 @@ MUST NOT 使整份文件解析失败。
 
 ### Requirement: 键栏中不可渲染的项
 
-未知键名 MUST 被跳过并记警告，MUST NOT 当作字面量渲染。键名 MUST 先套用 termux 上游的
-别名表（`ESCAPE`=`ESC`、`CONTROL`=`CTRL`、`RETURN`=`ENTER`、`PAGEUP`=`PGUP`、
-`DELETE`=`DEL`、`BACKSLASH`=`\` 等）：上游按同一张表归一，不套表则同一份 `extra-keys`
-在两个应用里画出的键栏不一样。
+键名 MUST 先套用 termux 上游的别名表（`ESCAPE`=`ESC`、`CONTROL`=`CTRL` 等），
+否则同一份 `extra-keys` 在两个应用里画出的键栏不一样。键名表之外的键名 MUST 按上游语义
+当作**字面量文本**渲染并发送（`-_-` 发送三个字符），MUST NOT 被丢弃。
 
 `FN` 与 `SHIFT` 键 MUST NOT 渲染：`SHIFT` 由粘滞修饰栏承担，`FN` 在本应用没有二次映射。
 
 只含坏字段的对象 MUST 只丢自己那一项，MUST NOT 作废整行或整份布局。只有 `display`、
-没有 `key`/`macro` 的对象 MUST 被丢弃并记一条说明。
+没有 `key`/`macro` 的对象 MUST 被丢弃并记一条说明。对象字段名 MUST 同时接受裸名与带引号
+的名字（`{key:'ESC'}` 与 `{"key":"ESC"}` 等价）。
 
 `display` MUST 覆盖键帽文本（`extra-keys-text-all-caps` 照常作用于它），MUST NOT 改变键码、
 特殊动作或长按内容。
 
-#### Scenario: 未知键名不落到键栏
+#### Scenario: 未知键名按字面量发送
 
-- **WHEN** `extra-keys` 里出现本应用不认识的键名
+- **WHEN** `extra-keys` 里出现 `-_-`
+- **THEN** 键栏画出一个 `-_-` 键，按下发送三个字符 `-_-`，同行其余按键照常渲染
+
+#### Scenario: FN 与 SHIFT 不渲染
+
+- **WHEN** `extra-keys` 里出现 `FN` 或 `SHIFT`
 - **THEN** 该键不出现在键栏上，日志里有一条警告，同行其余按键照常渲染
 
 #### Scenario: 别名键名与原名等价
@@ -160,17 +165,20 @@ MUST NOT 使整份文件解析失败。
 ### Requirement: extra-keys 的宏
 
 `{macro: "..."}` MUST 被解析并播放：宏串按空白切分，`CTRL`/`ALT`/`SHIFT` 是修饰记号，
-作用于其后第一个普通记号（用过即清），普通记号是键名或可编码的单字符——语义与 termux
+作用于其后第一个普通记号（用过即清），普通记号是键名或字面量文本——语义与 termux
 上游 `TerminalExtraKeys` 一致。大写字母是字面量，MUST 补 Shift 以产出大写，MUST NOT
 被当成小写字母发送。
 
-普通记号 MUST 走原生键编码器，并连同平台文本一起下发：可打印键没有文本时编码器
+有键码的普通记号 MUST 走原生键编码器，并连同平台文本一起下发：可打印键没有文本时编码器
 不产生任何字节，Ctrl 折叠与 Alt 的 ESC 前缀也由编码器决定。
 
 宏 MUST NOT 影响键栏上的粘滞 CTRL/ALT：宏自带修饰位，两者叠加会让语义与用户预期不符。
 
-宏内出现 `FN` 或无法识别的记号时，该项 MUST NOT 渲染（只丢自己那一项），MUST NOT
-发出与配置不符的半截按键序列。
+宏内出现 `FN` 时该项 MUST NOT 渲染（只丢自己那一项），MUST NOT 发出与配置不符的半截
+按键序列。
+
+宏键帽没有显式 `display` 时 MUST 逐记号套键名别名与 `extra-keys-style` 字形，再用空格
+拼回（上游 `ExtraKeyButton` 口径）。
 
 #### Scenario: 宏按顺序发出
 
@@ -186,6 +194,16 @@ MUST NOT 使整份文件解析失败。
 
 - **WHEN** `extra-keys` 里有一项 `{macro: "FN f"}`
 - **THEN** 该项不占位置也不可点，其余键位照常生效
+
+### Requirement: 宏里的字面量文本
+
+没有键码的普通记号 MUST 按上游 `inputCodePoint` 的语义整串写出：Ctrl 逐码点折叠、Alt 在
+每个码点前加 ESC、Shift 对字面量没有作用，非 ASCII 文本按 UTF-8 编码。
+
+#### Scenario: 宏里的非键名文本按字面量发送
+
+- **WHEN** `extra-keys` 里有一项 `{macro: "CTRL -_-"}` 且用户点击它
+- **THEN** 终端收到 Ctrl 按上游 `inputCodePoint` 折叠后的 `-_-` 字节，而不是该键被丢弃
 
 ### Requirement: default-working-directory 的解析
 
@@ -333,6 +351,31 @@ MUST NOT 拦截——上游把它映射成虚拟 FN，本应用没有 FN 映射�
 - **WHEN** `ctrl-space-workaround = true`，用户按下并抬起 Ctrl+空格
 - **THEN** 终端只收到一个 NUL，抬起事件不再产生第二个
 
+### Requirement: 会话快捷键
+
+`shortcut.create-session` / `shortcut.next-session` / `shortcut.previous-session` MUST 接受
+`Ctrl+<字符>`（`Ctrl` 大小写不敏感、允许空格，字符必须恰好一个码点），在实体键盘事件进入
+终端前匹配：命中时 MUST 消费下按与抬起事件，不得再作为 Ctrl 字符写进终端。匹配 MUST 先
+清掉 Ctrl 修饰并转小写，故 Ctrl+Shift+N 与配置的小写 `Ctrl+n` 等价；Ctrl+Alt 组合 MUST NOT
+参与匹配（上游把该组合留给硬件快捷键）。
+
+`shortcut.rename-session` 没有对应 UI，MUST 在解析时忽略并记警告，MUST NOT 静默接受。
+
+#### Scenario: 新建会话
+
+- **WHEN** `shortcut.create-session = Ctrl+t` 且用户按 Ctrl+t
+- **THEN** 新建一个会话，终端不收到该组合键的字符
+
+#### Scenario: 切换会话
+
+- **WHEN** `shortcut.next-session = Ctrl+n` 且存在多个会话，用户按 Ctrl+Shift+N
+- **THEN** 切换到下一个会话
+
+#### Scenario: 非法写法
+
+- **WHEN** `shortcut.next-session = Alt+n`
+- **THEN** 该快捷键不生效，日志里有一条格式错误说明
+
 ### Requirement: extra-keys 的 popup 语义
 
 `popup` MUST 被解析为**完整的次级按键**（上游 termux 的 `ExtraKeysInfo.normalizeKeyConfig`
@@ -340,9 +383,10 @@ MUST NOT 拦截——上游把它映射成虚拟 FN，本应用没有 FN 映射�
 可带 `macro`。长按该键 MUST 执行次级按键，且 MUST NOT 连带触发主键。
 
 次级按键 MUST 与主键同构：键名走原生键编码器，特殊键（`PASTE`、`KEYBOARD` 等）走键栏
-自身的动作，宏按顺序播放，字面量直接写出。次级按键的 `display` MUST NOT 改变它执行的动作。
+自身的动作，宏按顺序播放，键名表之外的文本整串写出。次级按键的 `display` MUST NOT 改变
+它执行的动作。
 
-次级按键不可用（未知键名、不可用的宏）时 MUST 丢弃该次级按键并记一条说明，MUST NOT
+次级按键不可用（`FN`/`SHIFT`、不可用的宏）时 MUST 丢弃该次级按键并记一条说明，MUST NOT
 丢弃主键。
 
 #### Scenario: 长按执行次级按键
@@ -357,5 +401,5 @@ MUST NOT 拦截——上游把它映射成虚拟 FN，本应用没有 FN 映射�
 
 #### Scenario: 不可用的次级键只丢长按动作
 
-- **WHEN** `extra-keys` 里有一项 `{key: '-', popup: 'NOT_A_KEY'}`
+- **WHEN** `extra-keys` 里有一项 `{key: '-', popup: 'FN'}`
 - **THEN** 该键照常渲染并发送 `-`，日志里说明长按动作被丢弃

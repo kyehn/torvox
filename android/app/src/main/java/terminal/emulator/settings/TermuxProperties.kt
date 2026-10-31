@@ -41,6 +41,8 @@ data class TermuxProperties(
     val backKey: BackKeyBehaviour = BackKeyBehaviour.BACK,
     val volumeKeys: VolumeKeysBehaviour = VolumeKeysBehaviour.VIRTUAL,
     val softKeyboardToggleBehaviour: SoftKeyboardToggleBehaviour = SoftKeyboardToggleBehaviour.SHOW_HIDE,
+    /** `shortcut.*` 的 Ctrl 组合键：码点 → 动作；空表示没有配置。 */
+    val sessionShortcuts: Map<SessionShortcut, Int> = emptyMap(),
 ) {
     companion object {
         const val DEFAULT_MARGIN_HORIZONTAL_DP = 3
@@ -135,6 +137,20 @@ data class ExtraKey(
 
 /** 一份配置的解析结果与错误，供日志与诊断使用。 */
 data class TermuxPropertiesLoad(val properties: TermuxProperties, val errors: List<String>)
+
+/**
+ * 会话快捷键（`shortcut.*`），值是一段 `Ctrl+<字符>` 的码点。
+ *
+ * 上游把配置存在 `MAP_SESSION_SHORTCUTS`，由 `TermuxTerminalViewClient` 在 Ctrl
+ * 组合键上匹配。这里只保留本应用有入口的三项；`rename-session` 没有重命名 UI，
+ * 解析时明确忽略。
+ */
+enum class SessionShortcut(val propertyKey: String) {
+    CREATE("shortcut.create-session"),
+    NEXT("shortcut.next-session"),
+    PREVIOUS("shortcut.previous-session"),
+    RENAME("shortcut.rename-session"),
+}
 
 /**
  * Java Properties 风格的读取器：`key = value` / `key: value`，`#` 与 `!` 起注释，
@@ -322,6 +338,22 @@ internal object TermuxPropertiesParser {
                 }
             } ?: defaults.extraKeys
 
+        val sessionShortcuts = buildMap {
+            for (shortcut in SessionShortcut.entries) {
+                val raw = values[shortcut.propertyKey] ?: continue
+                if (shortcut == SessionShortcut.RENAME) {
+                    errors += "${shortcut.propertyKey}: no session rename UI; ignored"
+                    continue
+                }
+                val codePoint = parseCtrlShortcut(raw)
+                if (codePoint == null) {
+                    errors += "${shortcut.propertyKey}: '$raw' is not Ctrl+<character>; ignored"
+                } else {
+                    put(shortcut, codePoint)
+                }
+            }
+        }
+
         val properties =
             TermuxProperties(
                 useFullscreenWorkaround = boolean("use-fullscreen-workaround", defaults.useFullscreenWorkaround),
@@ -423,8 +455,24 @@ internal object TermuxPropertiesParser {
                         SoftKeyboardToggleBehaviour.SHOW_HIDE
                     }
                 },
+                sessionShortcuts = sessionShortcuts,
             )
         return TermuxPropertiesLoad(properties, errors)
+    }
+
+    /**
+     * `Ctrl+<字符>` → 码点；格式不对返回 null。
+     *
+     * 上游 `TermuxPropertyConstants` 的写法是 `Ctrl+n`（大小写不敏感，允许空格），
+     * 只接受两个分量且第二段恰好一个码点；其他键名（`Alt+n`）上游也解析，但本应用
+     * 只处理 Ctrl，故明确拒绝。
+     */
+    private fun parseCtrlShortcut(raw: String): Int? {
+        val parts = raw.split('+').map { it.trim() }
+        if (parts.size != 2 || !parts[0].equals("ctrl", ignoreCase = true)) return null
+        val character = parts[1]
+        if (character.isEmpty() || character.codePointCount(0, character.length) != 1) return null
+        return Character.toLowerCase(character.codePointAt(0))
     }
 }
 
@@ -512,6 +560,15 @@ internal object ExtraKeysParser {
             }
             require(index > start) { "expected a name at offset $start" }
             return text.substring(start, index)
+        }
+
+        /** 对象字段名：上游 JSON 同时接受裸名与带引号的名字。 */
+        fun readName(): String {
+            skipWhitespace()
+            return when (text.getOrNull(index)) {
+                '\'', '"' -> readString()
+                else -> readBare()
+            }
         }
 
         /** 字段值：字符串或裸名；`{...}`、`[...]` 这类复合值整段跳过并返回 null。 */
@@ -640,7 +697,7 @@ internal object ExtraKeysParser {
         var macro: String? = null
         var display: String? = null
         while (true) {
-            val name = cursor.readBare()
+            val name = cursor.readName()
             cursor.consume(':')
             when (name) {
                 "key" -> key = cursor.readValueOrNull()
@@ -672,7 +729,7 @@ internal object ExtraKeysParser {
             cursor.warnings += "extra-keys: $context sets both 'key' and 'macro'; dropped"
             return null
         }
-        if (key == null && macro == null) {
+        if (key.isNullOrEmpty() && macro == null) {
             // `display` 只是键帽文字，没有可执行内容：丢掉这一项，其余按键照常保留。
             cursor.warnings += "extra-keys: $context without 'key' or 'macro' dropped (display is only a label)"
             return null

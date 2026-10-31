@@ -121,9 +121,9 @@ data class ExtraKeySlot(
 /**
  * `extra-keys` 配置 → 可渲染的按键槽位。
  *
- * 不可渲染的键跳过并记警告：把它当字面量渲染会让用户点出一串无意义的字符，静默丢弃
- * 至少留下证据。判据统一走 [resolveKey]，与 [isRenderableKey] 同源——两者一旦
- * 分家，预留高度就会与实际键栏高度不符。
+ * 不可渲染的键（`FN`/`SHIFT`/含 `FN` 的宏）跳过并记警告：静默丢弃至少留下证据。
+ * 判据统一走 [resolveKey]，与 [isRenderableKey] 同源——两者一旦分家，预留高度就会与
+ * 实际键栏高度不符。
  */
 internal fun buildExtraKeySlots(
     rows: List<List<ExtraKey>>,
@@ -153,7 +153,7 @@ internal fun buildExtraKeySlots(
                 label =
                 key.display?.let { display -> if (allCaps) display.uppercase() else display }
                     ?: if (action is KeyAction.Macro) {
-                        if (allCaps) key.macro.orEmpty().uppercase() else key.macro.orEmpty()
+                        MacroParser.display(key.macro.orEmpty(), style, allCaps)
                     } else {
                         // 传原名（不是归一名）：`extra-keys-text-all-caps = false` 时
                         // 键帽要保留用户写的大小写（`Tab` → `Tab`）。
@@ -185,9 +185,10 @@ private sealed interface KeyResolution {
 /**
  * `extra-keys` 一项 → 它的动作。
  *
- * 单一判据：宏没有播放器、FN 需要一整套二次映射（未实现）、未知键名按字面量渲染
- * 会点出无意义字符，三者都不渲染。SHIFT 需要一整套粘滞修饰态（本应用只有
- * CTRL/ALT），同样不渲染。
+ * 单一判据：含 `FN` 的宏不可用（本应用没有 FN 二次映射）、`FN` 需要一整套二次映射
+ * （未实现）、`SHIFT` 需要一整套粘滞修饰态（本应用只有 CTRL/ALT），三者都不渲染。其余
+ * 没有键码的键名按上游语义是字面量文本——termux 里 `-_-` 就是发送这三个字符，不是未知
+ * 键名。
  */
 private fun resolveKey(key: ExtraKey): KeyResolution {
     val macro = key.macro
@@ -211,13 +212,12 @@ private fun resolveKey(key: ExtraKey): KeyResolution {
 
         keyCode != null -> KeyResolution.Resolved(KeyAction.Code(keyCode, normalized), normalized)
 
-        normalized.length == 1 ->
+        // 上游把键名表之外的键名整串当文本发送（`TerminalExtraKeys` 的 else 分支）。
+        else ->
             KeyResolution.Resolved(
                 KeyAction.Text(TerminalKeyCatalog.literalText(key.name, normalized)),
                 normalized,
             )
-
-        else -> KeyResolution.Unusable("unknown key '$normalized'")
     }
 }
 

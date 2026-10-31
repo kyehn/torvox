@@ -46,6 +46,7 @@ import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.runtime.pasteByteChunks
 import terminal.emulator.runtime.truncatePasteText
+import terminal.emulator.settings.MacroParser
 import terminal.emulator.settings.MacroStep
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.settings.TermuxConfiguration
@@ -1835,10 +1836,13 @@ constructor(
     /**
      * 播放 `extra-keys` 的宏（`{macro: "CTRL f d"}`）。
      *
-     * 逐个普通键走原生键编码器：修饰位与可打印键的**平台文本**一并下发，编码器据此
-     * 折叠 Ctrl 字节、加 ESC 前缀（Alt）、并按 Shift 给出大写文本。只下键码不下文本
-     * 的话，可打印键在编码器眼里「没有字面量」——它不会发出任何字节（上游
+     * 有键码的普通记号走原生键编码器：修饰位与可打印键的**平台文本**一并下发，编码器
+     * 据此折叠 Ctrl 字节、加 ESC 前缀（Alt）、并按 Shift 给出大写文本。只下键码不下
+     * 文本的话，可打印键在编码器眼里「没有字面量」——它不会发出任何字节（上游
      * `key::Encoder` 的既有约束）。
+     *
+     * 没有键码的记号按上游 `TerminalView.inputCodePoint` 的语义直接写出：Ctrl 折叠每个
+     * 码点，Alt 在每个码点前加 ESC，Shift 对字面量没有作用。
      *
      * 宏自带修饰位，不吃键栏上的粘滞 CTRL/ALT：两者叠加会让「Ctrl f」这类宏在用户
      * 恰好按着粘滞 Ctrl 时变成 Ctrl+Ctrl+f。
@@ -1853,6 +1857,12 @@ constructor(
                 is MacroStep.Key -> {
                     sendMacroKey(bridge, step, modifiers)
                     // 修饰位只作用于其后第一个普通键（上游语义）。
+                    modifiers = 0
+                }
+
+                is MacroStep.Text -> {
+                    val bytes = MacroParser.encodeLiteral(step.text, modifiers)
+                    if (bytes.isNotEmpty()) writeToPty(runtime.inputTargetSessionId, bytes)
                     modifiers = 0
                 }
             }

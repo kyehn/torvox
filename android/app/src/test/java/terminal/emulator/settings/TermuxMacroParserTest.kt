@@ -72,10 +72,17 @@ class TermuxMacroParserTest {
         assertNull(MacroParser.parse("FN f"))
     }
 
-    /** 未知记号不可用：宁可整个宏不渲染，也不发一半。 */
     @Test
-    fun `an unknown token makes the whole macro unusable`() {
-        assertNull(MacroParser.parse("CTRL NOT_A_KEY"))
+    fun `tokens without a key code are literal text`() {
+        val steps = MacroParser.parse("CTRL NOT_A_KEY é")
+        assertEquals(
+            listOf(
+                MacroStep.Modifier(KeyModifiers.CTRL),
+                MacroStep.Text("NOT_A_KEY"),
+                MacroStep.Text("é"),
+            ),
+            steps,
+        )
     }
 
     /** 空宏与只有修饰记号的宏都没有可发的东西。 */
@@ -85,9 +92,38 @@ class TermuxMacroParserTest {
         assertNull(MacroParser.parse("CTRL ALT"))
     }
 
-    /** 解析不出可用步骤时调用方据此不渲染该键。 */
+    /** 含 FN 的宏不可用：调用方据此不渲染该键。 */
     @Test
     fun `an unusable macro has no steps`() {
-        assertTrue(MacroParser.parse("CTRL NOT_A_KEY").isNullOrEmpty())
+        assertTrue(MacroParser.parse("FN f").isNullOrEmpty())
+    }
+
+    /** 宏键帽默认逐记号套别名与字形，与上游 `ExtraKeyButton` 的显示文本一致。 */
+    @Test
+    fun `macro display applies the style to each token`() {
+        assertEquals("CTRL F D", MacroParser.display("CTRL f d", ExtraKeysStyle.DEFAULT, true))
+        assertEquals("⎈ F D", MacroParser.display("CTRL f d", ExtraKeysStyle.ALL, true))
+        assertEquals("CTRL f d", MacroParser.display("CTRL f d", ExtraKeysStyle.DEFAULT, false))
+    }
+
+    /** 宏里的字面量按上游 `inputCodePoint` 折叠 Ctrl，并给每个码点加 Alt 的 ESC 前缀。 */
+    @Test
+    fun `literal macro text follows inputCodePoint`() {
+        assertEquals(
+            listOf<Byte>(6, 15, 15),
+            MacroParser.encodeLiteral("foo", KeyModifiers.CTRL).toList(),
+        )
+        assertEquals(
+            listOf<Byte>(27, 'a'.code.toByte(), 27, 'b'.code.toByte()),
+            MacroParser.encodeLiteral("ab", KeyModifiers.ALT).toList(),
+        )
+        assertEquals(
+            listOf<Byte>(27, 0xC3.toByte(), 0xA9.toByte()),
+            MacroParser.encodeLiteral("é", KeyModifiers.ALT).toList(),
+        )
+        assertEquals(
+            listOf<Byte>(1, 2),
+            MacroParser.encodeLiteral("AB", KeyModifiers.CTRL).toList(),
+        )
     }
 }
