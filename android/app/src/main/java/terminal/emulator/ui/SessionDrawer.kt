@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -188,6 +190,15 @@ private fun SessionDrawerActions(
     onSettings: () -> Unit,
     textColor: Color,
 ) {
+    // 四个动作排成两行两列：两行的布局完全相同，只有数据不同。用一份列表 + chunked
+    // 生成，避免把同一段 Row/weight 样板抄两遍，改每行个数也只改常量。
+    val actions =
+        listOf(
+            DrawerAction(Icons.Default.Search, R.string.text_search, "SearchButton", onSearch),
+            DrawerAction(Icons.Default.Keyboard, R.string.toggle_keyboard, "KeyboardToggle", onKeyboardToggle),
+            DrawerAction(Icons.Default.Refresh, R.string.reset_terminal, "ResetTerminalButton", onResetTerminal),
+            DrawerAction(Icons.Default.Settings, R.string.settings_button, "SettingsButton", onSettings),
+        )
     Column(
         modifier =
         Modifier
@@ -195,62 +206,39 @@ private fun SessionDrawerActions(
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            DrawerActionButton(
-                icon = Icons.Default.Search,
-                label = stringResource(R.string.text_search),
-                onClick = {
-                    onClose()
-                    onSearch()
-                },
-                textColor = textColor,
-                testTag = "SearchButton",
-                modifier = Modifier.weight(1f),
-            )
-            DrawerActionButton(
-                icon = Icons.Default.Keyboard,
-                label = stringResource(R.string.toggle_keyboard),
-                onClick = {
-                    onClose()
-                    onKeyboardToggle()
-                },
-                textColor = textColor,
-                testTag = "KeyboardToggle",
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            DrawerActionButton(
-                icon = Icons.Default.Refresh,
-                label = stringResource(R.string.reset_terminal),
-                onClick = {
-                    onClose()
-                    onResetTerminal()
-                },
-                textColor = textColor,
-                testTag = "ResetTerminalButton",
-                modifier = Modifier.weight(1f),
-            )
-            DrawerActionButton(
-                icon = Icons.Default.Settings,
-                label = stringResource(R.string.settings_button),
-                onClick = {
-                    onClose()
-                    onSettings()
-                },
-                textColor = textColor,
-                testTag = "SettingsButton",
-                modifier = Modifier.weight(1f),
-            )
+        actions.chunked(ACTIONS_PER_ROW).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                row.forEach { action ->
+                    DrawerActionButton(
+                        icon = action.icon,
+                        label = stringResource(action.labelRes),
+                        onClick = {
+                            onClose()
+                            action.onClick()
+                        },
+                        textColor = textColor,
+                        testTag = action.testTag,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
         }
     }
 }
+
+/** 每行动作数。[SessionDrawerActions] 的四个动作按此分块生成行。 */
+private const val ACTIONS_PER_ROW = 2
+
+/** 抽屉底部的一个动作：图标、文案资源、testTag 与回调。 */
+private class DrawerAction(
+    val icon: ImageVector,
+    @StringRes val labelRes: Int,
+    val testTag: String,
+    val onClick: () -> Unit,
+)
 
 /**
  * 会话条目文案：`[序号] 标题`——序号加粗、终端标题斜体，两者同行。
@@ -331,7 +319,7 @@ private fun SessionItem(
 
 @Composable
 private fun DrawerActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     label: String,
     onClick: () -> Unit,
     textColor: Color,

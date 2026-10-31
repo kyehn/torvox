@@ -69,7 +69,7 @@ class FontInfoPackedTest {
         assertEquals(14.0f, info.cellHeightPx, 0.0f)
         assertEquals(14.0f, info.fontSizeSp, 0.0f)
         assertEquals("Noto Sans CJK SC, Noto Sans CJK JP", info.cjkFallbackText())
-        assertTrue(info.hasRealCjkFallback)
+        assertFalse(info.isCjkFallbackMissing)
     }
 
     /**
@@ -104,7 +104,6 @@ class FontInfoPackedTest {
     @Test
     fun `none state has no fallback`() {
         val info = FontInfo.fromPacked(pack(names = listOf("Liberation Mono"), monospaced = true))
-        assertFalse(info.hasRealCjkFallback)
         assertNull(info.cjkFallbackText())
         assertEquals(CjkState.NONE, info.cjkState)
         assertFalse(info.isCjkFallbackSkipped)
@@ -126,8 +125,38 @@ class FontInfoPackedTest {
             val info = FontInfo.fromPacked(pack(names = listOf("Liberation Mono"), cjkState = state))
             assertEquals(state, info.cjkState)
             assertTrue("状态 $state 属跳过，不得报成缺失", info.isCjkFallbackSkipped)
-            assertFalse(info.hasRealCjkFallback)
+            assertFalse(info.isCjkFallbackMissing)
         }
+    }
+
+    /**
+     * 原生若报 FALLBACK 却没有族名，界面能拿到的只有一句没有名字的「CJK 回退」——
+     * 对用户与 NONE 是同一件事。缺失判定必须按「有没有族名」判，否则这种上报会被
+     * 当成「有回退」：界面写着「未检测到」却是正常色，也没有警告行。
+     */
+    @Test
+    fun `fallback state without names is still missing`() {
+        val info = FontInfo.fromPacked(pack(names = listOf("Liberation Mono"), cjkState = CjkState.FALLBACK))
+        assertEquals(CjkState.FALLBACK, info.cjkState)
+        assertNull(info.cjkFallbackText())
+        assertTrue(info.isCjkFallbackMissing)
+    }
+
+    /** 原生尚未上报时什么都无从判断：不得把「不知道」报成「缺失」。 */
+    @Test
+    fun `not reported state is not missing`() {
+        val info =
+            FontInfo(
+                activeName = "",
+                activeMonospaced = false,
+                cjkState = CjkState.NOT_REPORTED,
+                cjkFamilies = emptyList(),
+                otherFamilies = emptyList(),
+                cellWidthPx = 0f,
+                cellHeightPx = 0f,
+                fontSizeSp = 0f,
+            )
+        assertFalse(info.isCjkFallbackMissing)
     }
 
     @Test

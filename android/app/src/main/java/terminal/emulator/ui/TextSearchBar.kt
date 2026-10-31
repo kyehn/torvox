@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -73,7 +74,7 @@ fun TextSearchBar(
             .fillMaxWidth()
             .height(56.dp)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(horizontal = 8.dp, vertical = 0.dp)
+            .padding(horizontal = 8.dp)
             .onPreviewKeyEvent(escapeHandler),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -93,30 +94,27 @@ fun TextSearchBar(
 
 @Composable
 private fun SearchResultCounter(query: String, resultCount: Int, currentResultIndex: Int?) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Spacer(modifier = Modifier.width(4.dp))
-        if (query.isNotEmpty()) {
-            Text(
-                text =
-                if (resultCount == 0) {
-                    stringResource(R.string.search_no_results)
-                } else if (currentResultIndex == null) {
-                    // 还没按过上一个/下一个：上游此刻没有选中命中，报「第 1 个」是假话。
-                    stringResource(R.string.search_results_total, resultCount)
-                } else {
-                    stringResource(R.string.search_result_of, currentResultIndex + 1, resultCount)
-                },
-                fontSize = 12.sp,
-                color =
-                if (resultCount == 0) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.testTag("SearchResultCount"),
-            )
-        }
-    }
+    // 没有查询词时整块不发射：外层再包一层 Row 只会留下一个 4dp 的空隙。
+    if (query.isEmpty()) return
+    Text(
+        text =
+        if (resultCount == 0) {
+            stringResource(R.string.search_no_results)
+        } else if (currentResultIndex == null) {
+            // 还没按过上一个/下一个：上游此刻没有选中命中，报「第 1 个」是假话。
+            stringResource(R.string.search_results_total, resultCount)
+        } else {
+            stringResource(R.string.search_result_of, currentResultIndex + 1, resultCount)
+        },
+        fontSize = 12.sp,
+        color =
+        if (resultCount == 0) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        modifier = Modifier.padding(start = 4.dp).testTag("SearchResultCount"),
+    )
 }
 
 @Composable
@@ -143,7 +141,7 @@ private fun SearchNavButtons(resultCount: Int, onPrevious: () -> Unit, onNext: (
 /** 搜索栏的步进箭头按钮；无结果时置灰。 */
 @Composable
 private fun SearchNavButton(
-    imageVector: androidx.compose.ui.graphics.vector.ImageVector,
+    imageVector: ImageVector,
     description: String,
     resultCount: Int,
     onClick: () -> Unit,

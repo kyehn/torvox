@@ -20,9 +20,6 @@ data class FontInfo(
     /** 逻辑字号，单位 sp（原生 `setFontSizeInPlace` 单位，非 px）。 */
     val fontSizeSp: Float,
 ) {
-    val hasRealCjkFallback: Boolean
-        get() = cjkState == CjkState.FALLBACK && cjkFamilies.isNotEmpty()
-
     /**
      * 回退层是否**按设计**缺席（跳过而非缺失）。
      *
@@ -36,13 +33,17 @@ data class FontInfo(
                 cjkState == CjkState.SKIPPED_LOCALE_UNKNOWN
 
     /**
-     * 是否**确实缺失** CJK 回退：原生已上报，且状态既不是「有回退」也不是「按设计跳过」。
+     * 是否**确实缺失** CJK 回退：没有具名回退族，且状态既不是「按设计跳过」也不是
+     * 「原生尚未上报」。
      *
-     * 只有这一种情况才该报「未检测到 CJK 备用字体」；[CjkState.NOT_REPORTED]
-     * 是原生尚未上报，什么都无从判断，不得当成缺失。
+     * 判据取「有没有族名」而非「状态是否为 [CjkState.NONE]」：原生若上报 [CjkState.FALLBACK]
+     * 却给出空族名表，界面上就是一句没有名字的「CJK 回退」——对用户与 NONE 是同一件事，
+     * 按状态判会把这种上报当成「有回退」，于是黑色显示「未检测到 CJK 备用字体」还不给警告。
+     * 只有本属性为真时才报「未检测到 CJK 备用字体」；[CjkState.NOT_REPORTED] 是原生尚未
+     * 上报，什么都无从判断，不得当成缺失。
      */
     val isCjkFallbackMissing: Boolean
-        get() = cjkState == CjkState.NONE
+        get() = cjkFamilies.isEmpty() && !isCjkFallbackSkipped && cjkState != CjkState.NOT_REPORTED
 
     /** 带真实家族名的 CJK 回退文本，无则返回 null。 */
     fun cjkFallbackText(): String? = cjkFamilies.takeIf { it.isNotEmpty() }?.joinToString(", ")

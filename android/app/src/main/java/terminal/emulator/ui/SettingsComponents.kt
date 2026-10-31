@@ -38,6 +38,7 @@ import kotlinx.collections.immutable.ImmutableList
 import terminal.emulator.R
 import terminal.emulator.bridge.CjkState
 import terminal.emulator.bridge.FontInfo
+import java.util.Locale
 
 /** 设置界面进入紧凑模式的屏幕宽度阈值。 */
 val SMALL_SCREEN_WIDTH_DP = 400.dp
@@ -84,7 +85,7 @@ fun SettingsSliderRow(
     colors: SettingsColors,
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
-    valueFormatter: (Float) -> String = { "%.0f".format(java.util.Locale.US, it) },
+    valueFormatter: (Float) -> String = { "%.0f".format(Locale.US, it) },
     testTag: String? = null,
     enabled: Boolean = true,
     onValueChangeFinished: () -> Unit = {},
@@ -238,50 +239,28 @@ internal fun CjkFallbackMissingWarning() {
 @Composable
 internal fun CjkFallbackStatusLine(fontInfo: FontInfo, secondaryText: Color) {
     val cjkText = fontInfo.cjkFallbackText()
-    val hasCjk = fontInfo.hasRealCjkFallback
-    // 「按设计跳过」与「确实缺失」是两回事：前者不是问题，不得报缺失；
-    // 「尚未上报」同样不是缺失——原生还没给结论。
-    val cjkSkipped = fontInfo.isCjkFallbackSkipped
-    val displayColor =
-        when {
-            hasCjk -> secondaryText
-            cjkSkipped -> secondaryText
-            fontInfo.cjkState == CjkState.NOT_REPORTED -> secondaryText
-            else -> WARNING_ORANGE
-        }
+    // 缺失判定、文字颜色与警告行必须同源：三者若各判一次，「按状态判缺失」与
+    // 「按族名判缺失」的差异就会让界面自相矛盾（黑字写着「未检测到」、却不给警告）。
+    val missing = fontInfo.isCjkFallbackMissing
     val statusLine =
-        when {
-            cjkText != null -> {
-                stringResource(R.string.font_info_cjk_fallback, cjkText)
-            }
-
-            fontInfo.cjkState == CjkState.SKIPPED_PRIMARY_COVERS -> {
-                stringResource(R.string.font_info_cjk_skipped)
-            }
-
-            fontInfo.cjkState == CjkState.SKIPPED_NON_CJK_LOCALE -> {
-                stringResource(R.string.font_info_cjk_skipped_non_cjk_locale)
-            }
-
-            fontInfo.cjkState == CjkState.SKIPPED_LOCALE_UNKNOWN -> {
-                stringResource(R.string.font_info_cjk_skipped_locale_unknown)
-            }
-
-            fontInfo.cjkState == CjkState.NOT_REPORTED -> {
-                stringResource(R.string.font_info_cjk_not_reported)
-            }
-
-            else -> {
-                stringResource(R.string.font_info_cjk_none)
+        if (cjkText != null) {
+            stringResource(R.string.font_info_cjk_fallback, cjkText)
+        } else {
+            when (fontInfo.cjkState) {
+                CjkState.SKIPPED_PRIMARY_COVERS -> stringResource(R.string.font_info_cjk_skipped)
+                CjkState.SKIPPED_NON_CJK_LOCALE -> stringResource(R.string.font_info_cjk_skipped_non_cjk_locale)
+                CjkState.SKIPPED_LOCALE_UNKNOWN -> stringResource(R.string.font_info_cjk_skipped_locale_unknown)
+                CjkState.NOT_REPORTED -> stringResource(R.string.font_info_cjk_not_reported)
+                else -> stringResource(R.string.font_info_cjk_none)
             }
         }
     Text(
         text = statusLine,
         style = MaterialTheme.typography.bodySmall,
-        color = displayColor,
+        color = if (missing) WARNING_ORANGE else secondaryText,
         modifier = Modifier.testTag("CjkFallbackStatusLine"),
     )
-    if (fontInfo.isCjkFallbackMissing) {
+    if (missing) {
         CjkFallbackMissingWarning()
     }
 }
