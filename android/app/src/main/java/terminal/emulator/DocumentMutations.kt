@@ -4,6 +4,7 @@ import android.content.Context
 import android.provider.DocumentsContract
 import terminal.emulator.util.runCatchingCancellable
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -45,7 +46,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
         val root = rootDir()
         val parent = TerminalDocumentsProvider.decodeDocId(parentDocumentId, root)
         requireDirectory(parent)
-        val isDir = mimeType == android.provider.DocumentsContract.Document.MIME_TYPE_DIR
+        val isDir = mimeType == DocumentsContract.Document.MIME_TYPE_DIR
         val safeName = createName(displayName, mimeType)
         val child = uniqueChild(parent, safeName)
         if (isDir) {
@@ -70,7 +71,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
         val root = rootDir()
         val rootCanonical = root.canonicalFile
         if (documentId == TerminalDocumentsProvider.ROOT_ID) {
-            throw java.io.FileNotFoundException("Refusing to rename the root document")
+            throw FileNotFoundException("Refusing to rename the root document")
         }
         val safeName = sanitize(displayName)
         // 链接条目重命名链接自身而非目标：decode 会跟随链接到目标，
@@ -83,9 +84,9 @@ internal class DocumentMutations(private val context: Context, private val rootD
                 TerminalDocumentsProvider.decodeDocId(documentId, root)
             }
         val parent =
-            source.parentFile ?: throw java.io.FileNotFoundException("Invalid document id: $documentId")
+            source.parentFile ?: throw FileNotFoundException("Invalid document id: $documentId")
         if (source.canonicalFile == rootCanonical) {
-            throw java.io.FileNotFoundException("Refusing to rename the root document")
+            throw FileNotFoundException("Refusing to rename the root document")
         }
         if (safeName == source.name) {
             // 名字没变：框架约定「原 docId 仍有效时返回 null」。少了这一守卫，
@@ -118,7 +119,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
     fun deleteDocument(documentId: String) {
         val root = rootDir()
         if (documentId == TerminalDocumentsProvider.ROOT_ID) {
-            throw java.io.FileNotFoundException("Refusing to delete the root document")
+            throw FileNotFoundException("Refusing to delete the root document")
         }
         val rawFile = File(root, documentId)
         if (TerminalDocumentsProvider.isHomeLink(rawFile, root)) {
@@ -130,7 +131,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
         val file = TerminalDocumentsProvider.decodeDocId(documentId, root)
         if (file.canonicalFile == root.canonicalFile) {
             // "" 或 "." 解码回根目录自身：拒绝，否则一次调用清空整个家目录。
-            throw java.io.FileNotFoundException("Refusing to delete the root document")
+            throw FileNotFoundException("Refusing to delete the root document")
         }
         deleteWithoutFollowingSymlinks(file)
         notifyParentOf(file, root)
@@ -141,14 +142,14 @@ internal class DocumentMutations(private val context: Context, private val rootD
         val root = rootDir()
         val rootCanonical = root.canonicalFile
         if (sourceDocumentId == TerminalDocumentsProvider.ROOT_ID) {
-            throw java.io.FileNotFoundException("Refusing to copy the root document")
+            throw FileNotFoundException("Refusing to copy the root document")
         }
         val source = TerminalDocumentsProvider.decodeDocId(sourceDocumentId, root)
         if (source.canonicalFile == rootCanonical) {
-            throw java.io.FileNotFoundException("Refusing to copy the root document")
+            throw FileNotFoundException("Refusing to copy the root document")
         }
         if (!Files.exists(source.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-            throw java.io.FileNotFoundException("Source document does not exist: '$sourceDocumentId'")
+            throw FileNotFoundException("Source document does not exist: '$sourceDocumentId'")
         }
         val targetParent = TerminalDocumentsProvider.decodeDocId(targetParentDocumentId, root)
         requireDirectory(targetParent)
@@ -188,7 +189,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
     ): String {
         val root = rootDir()
         if (sourceDocumentId == TerminalDocumentsProvider.ROOT_ID) {
-            throw java.io.FileNotFoundException("Refusing to move the root document")
+            throw FileNotFoundException("Refusing to move the root document")
         }
         val rawSource = File(root, sourceDocumentId)
         val source =
@@ -198,7 +199,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
                 TerminalDocumentsProvider.decodeDocId(sourceDocumentId, root)
             }
         if (source.canonicalFile == root.canonicalFile) {
-            throw java.io.FileNotFoundException("Refusing to move the root document")
+            throw FileNotFoundException("Refusing to move the root document")
         }
         // AOSP 契约：sourceParentDocumentId 是客户端声称的源父目录。忽略它，
         // 跨父移动时客户端手里的过期列表不会暴露，源会从真实父目录悄悄搬走。
@@ -207,7 +208,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
             val claimedParent = TerminalDocumentsProvider.decodeDocId(sourceParentDocumentId, root)
             val actualParent = source.parentFile ?: root
             if (claimedParent.canonicalFile != actualParent.canonicalFile) {
-                throw java.io.FileNotFoundException(
+                throw FileNotFoundException(
                     "sourceParentDocumentId '$sourceParentDocumentId' is not the parent of '$sourceDocumentId'",
                 )
             }
@@ -293,13 +294,13 @@ internal class DocumentMutations(private val context: Context, private val rootD
      * 终端侧 `rm` 掉的**幽灵行**——删幽灵时目标已不存在，此前的实现抛 IOException，
      * 跨 Binder 变成 RuntimeException（`exists=false` 那两条未捕获异常即此），
      * 客户端只能报操作失败。删除的后置条件是「不再存在」，已满足就没有失败可言。
-     * 确实删不掉（权限、目录非空）时抛 [java.io.FileNotFoundException]：框架
+     * 确实删不掉（权限、目录非空）时抛 [FileNotFoundException]：框架
      * `DocumentsProvider.call` 只把这一种类型原样转交，其余一律包成 RuntimeException。
      */
     private fun deleteOrFail(target: File, message: String) {
         if (target.delete()) return
         if (!Files.exists(target.toPath(), LinkOption.NOFOLLOW_LINKS)) return
-        throw java.io.FileNotFoundException(
+        throw FileNotFoundException(
             "$message '${target.path}' " +
                 "(exists=${target.exists()}, isDirectory=${target.isDirectory()}, " +
                 "canWrite=${target.canWrite()}, isSymlink=${Files.isSymbolicLink(target.toPath())})",
@@ -502,10 +503,10 @@ internal class DocumentMutations(private val context: Context, private val rootD
     private fun sanitize(displayName: String): String {
         val safeName = displayName.trim()
         if (safeName.isEmpty() || safeName == "." || safeName == "..") {
-            throw java.io.FileNotFoundException("Invalid document name: '$displayName'")
+            throw FileNotFoundException("Invalid document name: '$displayName'")
         }
         if (safeName.contains('/') || safeName.contains('\\')) {
-            throw java.io.FileNotFoundException(
+            throw FileNotFoundException(
                 "Document name must not contain a path separator: '$displayName'",
             )
         }
@@ -522,7 +523,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
      */
     private fun createName(displayName: String, mimeType: String): String {
         if (displayName.isNotBlank()) return sanitize(displayName)
-        if (mimeType == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {
+        if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
             return DEFAULT_DIRECTORY_NAME
         }
         val extension =
@@ -536,7 +537,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
         // 抛 FileNotFoundException 而非 require() 的 IllegalArgumentException：
         // 后者跨 Binder 会让调用方（DocumentsUI / 编辑器）崩溃而非得到可处理的失败。
         if (!candidate.isDirectory) {
-            throw java.io.FileNotFoundException("Not a directory: ${candidate.path}")
+            throw FileNotFoundException("Not a directory: ${candidate.path}")
         }
     }
 
@@ -554,8 +555,10 @@ internal class DocumentMutations(private val context: Context, private val rootD
         // 广播一律由文件反推行内 docId（见 notifyDocument/notifyChildren），
         // 调用方传进来的可能带树根前缀（`terminal_home/nix.conf`），而那与本提供者
         // 发行的 `nix.conf` 是兄弟 URI，广播过去收不到。
-        notifyDocument(written, rootDir())
-        notifyParentOf(written, rootDir())
+        // 根只取一次：rootDir 是外部 lambda，两次调用没有「必然同一对象」的契约。
+        val root = rootDir()
+        notifyDocument(written, root)
+        notifyParentOf(written, root)
     }
 
     /** 父目录列表的变更广播；目录无法编码（根外）时静默跳过，不是可报的错误。 */

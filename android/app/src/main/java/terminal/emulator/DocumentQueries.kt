@@ -6,6 +6,11 @@ import android.provider.DocumentsContract.Document
 import android.webkit.MimeTypeMap
 import terminal.emulator.runtime.LogUtil
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.attribute.BasicFileAttributes
+import java.util.Locale
 
 /**
  * 查询侧辅助：根目录解析、链接条目归一、行组装、MIME 判定。
@@ -20,17 +25,16 @@ internal class DocumentQueries(private val context: Context) {
      * 经符号链接祖先到达的 `filesDir`），前缀就剥不掉，链接条目的 docId 退化成整条
      * 绝对路径，客户端回查时被重新拼到根目录下而永远打不开。
      */
-    fun rootDir(): File = java.io
-        .File(
-            requireNotNull(context) { "TerminalDocumentsProvider requires a Context" }.filesDir,
-            "home",
-        ).also { directory ->
-            // mkdirs 在目录已存在时返回 false，只有目录仍不存在才告警。
-            directory.mkdirs()
-            if (!directory.isDirectory) {
-                LogUtil.warn("TerminalDocumentsProvider", "Failed to create home directory: $directory")
-            }
-        }.canonicalFile
+    fun rootDir(): File = File(
+        requireNotNull(context) { "TerminalDocumentsProvider requires a Context" }.filesDir,
+        "home",
+    ).also { directory ->
+        // mkdirs 在目录已存在时返回 false，只有目录仍不存在才告警。
+        directory.mkdirs()
+        if (!directory.isDirectory) {
+            LogUtil.warn("TerminalDocumentsProvider", "Failed to create home directory: $directory")
+        }
+    }.canonicalFile
 
     // 链接条目返回链接自身而非目标：与 queryChildDocuments 给出的行
     // 保持同一 docId，否则客户端按浏览结果回查会拿到另一个 id。
@@ -51,7 +55,7 @@ internal class DocumentQueries(private val context: Context) {
 
     fun canonicalOrNull(file: File): String? = try {
         file.canonicalPath
-    } catch (error: java.io.IOException) {
+    } catch (error: IOException) {
         LogUtil.warn("TerminalDocumentsProvider", "query skipping unreadable entry", error)
         null
     }
@@ -82,22 +86,22 @@ internal class DocumentQueries(private val context: Context) {
      * 链接条目的身份是链接自身，客户端看到的目标大小不变。
      */
     fun readChildren(parentCanonical: File, rootCanonical: String): List<ChildEntry> {
-        val parentRel = relativeDocId(parentCanonical.path, rootCanonical)
+        val parentRel = TerminalDocumentsProvider.relativeDocId(parentCanonical.path, rootCanonical)
         val entries = ArrayList<ChildEntry>()
         for (child in parentCanonical.listFiles() ?: return emptyList()) {
             val attributes =
                 try {
-                    java.nio.file.Files.readAttributes(
+                    Files.readAttributes(
                         child.toPath(),
-                        java.nio.file.attribute.BasicFileAttributes::class.java,
-                        java.nio.file.LinkOption.NOFOLLOW_LINKS,
+                        BasicFileAttributes::class.java,
+                        LinkOption.NOFOLLOW_LINKS,
                     )
-                } catch (error: java.io.IOException) {
+                } catch (error: IOException) {
                     LogUtil.warn("TerminalDocumentsProvider", "query skipping unreadable entry", error)
                     continue
                 }
             val docId = if (parentRel.isEmpty()) child.name else "$parentRel/${child.name}"
-            val sortKey = child.name.lowercase(java.util.Locale.ROOT)
+            val sortKey = child.name.lowercase(Locale.ROOT)
             if (!attributes.isSymbolicLink) {
                 entries +=
                     ChildEntry(
@@ -163,14 +167,10 @@ internal class DocumentQueries(private val context: Context) {
     }
 
     fun getMimeType(fileName: String): String {
-        val extension = fileName.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+        val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
         if (extension.isEmpty()) return "application/octet-stream"
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
     }
-
-    /** 规范路径 [path] 相对根 [rootCanonical] 的 docId 前缀；根自身为空串。 */
-    private fun relativeDocId(path: String, rootCanonical: String): String =
-        if (path == rootCanonical) "" else path.removePrefix(rootCanonical + File.separator)
 }
 
 /**

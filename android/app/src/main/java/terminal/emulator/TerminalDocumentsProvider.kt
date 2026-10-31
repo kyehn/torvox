@@ -6,11 +6,15 @@ import android.database.MatrixCursor
 import android.graphics.Point
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
+import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import android.provider.DocumentsContract.Root
 import android.provider.DocumentsProvider
 import terminal.emulator.runtime.LogUtil
 import java.io.File
+import java.io.FileNotFoundException
+import java.nio.file.Files
 
 class TerminalDocumentsProvider : DocumentsProvider() {
     companion object {
@@ -71,7 +75,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             // deleteDocument 只删除链接——绝不会删除目标的整棵目录树。
             // 包含性仍针对规范路径检查（指向 home 之外的链接在下文被跳过，同之前）。
             val filePath =
-                if (java.nio.file.Files
+                if (Files
                         .isSymbolicLink(file.toPath())
                 ) {
                     file.path
@@ -88,9 +92,19 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             return if (fileCanonical == rootPath) {
                 ROOT_ID
             } else {
-                filePath.removePrefix(rootPath + File.separator)
+                relativeDocId(filePath, rootPath)
             }
         }
+
+        /**
+         * 规范路径 [path] 相对根 [rootCanonical] 的 docId；根自身为空串。
+         *
+         * 行内 docId 的前缀剥离只有这一份实现：目录列举（[DocumentQueries.readChildren]）
+         * 与单条编码（[encodeDocId]）各写一遍时，任一处改了分隔符处理，
+         * 列举出来的 docId 就与回查时的编码不再是同一个字符串。
+         */
+        internal fun relativeDocId(path: String, rootCanonical: String): String =
+            if (path == rootCanonical) "" else path.removePrefix(rootCanonical + File.separator)
 
         /**
          * 规范路径 [path] 是否落在根 [rootCanonical] 之内（含根本身）。
@@ -112,13 +126,13 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             val exact = File(rootDir, docId)
             val rootPrefix = "$ROOT_ID/"
             if (docId.startsWith(rootPrefix) && !exact.exists() &&
-                !java.nio.file.Files
+                !Files
                     .isSymbolicLink(exact.toPath())
             ) {
                 // 去前缀别名只收无链接的普通路径：前缀形恰好命中一条家目录内的链接时，
                 // 交给原样解码走链接自身的读写分支（重命名只动链接、删除只删链接）。
                 val stripped = File(rootDir, docId.removePrefix(rootPrefix))
-                if (!java.nio.file.Files
+                if (!Files
                         .isSymbolicLink(stripped.toPath())
                 ) {
                     val resolved = stripped.canonicalFile
@@ -136,7 +150,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             // rawFile 可能含 ".." 段（恶意 docId），而 File 不会规范化它们。
             // 规范解析父目录后重新追加文件名，使检查覆盖实际被触及的条目。
             // 父目录为 null（无目录部分的裸文件名）无法逃出根目录。
-            if (!java.nio.file.Files
+            if (!Files
                     .isSymbolicLink(rawFile.toPath())
             ) {
                 return false
@@ -151,7 +165,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             val root = rootDir.canonicalFile
             val target = file.canonicalFile
             if (!(target.path.startsWith(root.path + File.separator) || target == root)) {
-                throw java.io.FileNotFoundException(
+                throw FileNotFoundException(
                     "Access denied: ${target.path} is outside the terminal home directory",
                 )
             }
@@ -162,7 +176,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             // openDocument 跨 Binder 返回，后者在调用方进程里是未捕获异常（崩溃），
             // 前者才是 SAF 契约里「这个文档打不开」的可处理失败。
             fun unsupported(reason: String): Nothing =
-                throw java.io.FileNotFoundException("Unsupported open mode '$mode': $reason")
+                throw FileNotFoundException("Unsupported open mode '$mode': $reason")
             if (mode.isEmpty() || mode.length > MAX_OPEN_MODE_LENGTH) {
                 unsupported("length must be 1..$MAX_OPEN_MODE_LENGTH")
             }
@@ -284,7 +298,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         context?.contentResolver?.let { resolver ->
             cursor.setNotificationUri(
                 resolver,
-                android.provider.DocumentsContract.buildRootsUri(AUTHORITY),
+                DocumentsContract.buildRootsUri(AUTHORITY),
             )
         }
         return cursor
@@ -301,10 +315,10 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         // 链接按链接自身判存在（lstat 语义）：断链会出现在列举结果里，按列举结果回查
         // 必须同样拿得到，否则客户端点开列举里的条目就报「不存在」。
         if (!file.exists() &&
-            !java.nio.file.Files
+            !Files
                 .isSymbolicLink(file.toPath())
         ) {
-            throw java.io.FileNotFoundException("queryDocument: no such document '$documentId'")
+            throw FileNotFoundException("queryDocument: no such document '$documentId'")
         }
         queries.addDocRow(cursor, file, rootDir, columns)
         context?.contentResolver?.let { resolver ->
@@ -317,7 +331,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             encodeDocId(file, rootDir)?.let { docId ->
                 cursor.setNotificationUri(
                     resolver,
-                    android.provider.DocumentsContract.buildDocumentUri(AUTHORITY, docId),
+                    DocumentsContract.buildDocumentUri(AUTHORITY, docId),
                 )
             }
         }
@@ -329,7 +343,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         projection: Array<out String>?,
         sortOrder: String?,
     ): Cursor {
-        val started = android.os.SystemClock.elapsedRealtime()
+        val started = SystemClock.elapsedRealtime()
         val columns = projection ?: DOC_PROJECTION
         val cursor = MatrixCursor(columns)
         val rootDir = queries.rootDir()
@@ -341,7 +355,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         // 而不是回空游标。空游标让客户端把「目录已消失」当成「空目录」，
         // 继续往一个不存在的路径写入。
         if (!parentCanonical.isDirectory) {
-            throw java.io.FileNotFoundException(
+            throw FileNotFoundException(
                 "queryChildDocuments: no such directory '$parentDocumentId'",
             )
         }
@@ -354,7 +368,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         }
         // 逐条目 stat 在巨大目录里会拖慢整次列举；「保存超时」一类反馈需要一条
         // 「慢在哪一层」的证据，正常规模（毫秒级）不落日志。
-        val elapsed = android.os.SystemClock.elapsedRealtime() - started
+        val elapsed = SystemClock.elapsedRealtime() - started
         if (elapsed >= SLOW_LISTING_MILLIS) {
             LogUtil.warn(TAG, "slow listing '$parentDocumentId': ${entries.size} entries in ${elapsed}ms")
         }
@@ -368,7 +382,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
                 }
             cursor.setNotificationUri(
                 resolver,
-                android.provider.DocumentsContract.buildChildDocumentsUri(AUTHORITY, parentId),
+                DocumentsContract.buildChildDocumentsUri(AUTHORITY, parentId),
             )
         }
         return cursor
@@ -490,15 +504,15 @@ class TerminalDocumentsProvider : DocumentsProvider() {
      * 出去、结果如何」就能把下一份反馈直接归因，不必再靠猜。
      */
     private fun <T> trace(operation: String, block: () -> T): T {
-        val started = android.os.SystemClock.elapsedRealtime()
+        val started = SystemClock.elapsedRealtime()
         try {
             val result = block()
-            LogUtil.info(TAG, "$operation ok (${android.os.SystemClock.elapsedRealtime() - started}ms)")
+            LogUtil.info(TAG, "$operation ok (${SystemClock.elapsedRealtime() - started}ms)")
             return result
         } catch (error: Exception) {
             LogUtil.warn(
                 TAG,
-                "$operation failed (${android.os.SystemClock.elapsedRealtime() - started}ms)",
+                "$operation failed (${SystemClock.elapsedRealtime() - started}ms)",
                 error,
             )
             throw error
@@ -511,7 +525,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             val parent = decodeDocId(parentDocumentId, rootDir)
             val child = decodeDocId(documentId, rootDir)
             child.canonicalPath.startsWith(parent.canonicalPath + File.separator)
-        } catch (error: java.io.FileNotFoundException) {
+        } catch (error: FileNotFoundException) {
             LogUtil.warn(TAG, "isChildDocument: docId outside root", error)
             false
         } catch (error: IllegalArgumentException) {
@@ -550,7 +564,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             if (!(canonical.startsWith(rootPath + File.separator) || canonical == rootPath)) {
                 continue
             }
-            if (!java.nio.file.Files
+            if (!Files
                     .isSymbolicLink(current.toPath()) && current.isDirectory
             ) {
                 if (canonical != rootPath && current.name.lowercase().contains(needle)) {
@@ -564,14 +578,14 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         if (truncated) {
             // 静默截断会让用户以为「文件不存在」：只搜到部分目录时必须留证据。
             LogUtil.info(
-                "TerminalDocumentsProvider",
+                TAG,
                 "querySearchDocuments: traversal hit $MAX_SEARCH_VISITS entries; results truncated",
             )
         }
         context?.contentResolver?.let { resolver ->
             cursor.setNotificationUri(
                 resolver,
-                android.provider.DocumentsContract.buildSearchDocumentsUri(AUTHORITY, rootId, query),
+                DocumentsContract.buildSearchDocumentsUri(AUTHORITY, rootId, query),
             )
         }
         return cursor

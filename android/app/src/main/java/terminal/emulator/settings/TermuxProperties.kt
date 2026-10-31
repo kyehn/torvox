@@ -52,6 +52,12 @@ data class TermuxProperties(
         /** 回滚行数区间（上游同值）。 */
         val TRANSCRIPT_ROWS_RANGE = 100..50000
 
+        /** 终端边距区间（dp，上游同值）。 */
+        val MARGIN_RANGE = 0..100
+
+        /** 工具栏高度缩放区间（上游同值）。 */
+        val TOOLBAR_HEIGHT_SCALE_RANGE = 0.4f..3f
+
         /**
          * 默认两行布局：`ESC DRAWER SCROLL HOME ↑ END PGUP` / `TAB CTRL ALT ← ↓ → PGDN`。
          *
@@ -297,6 +303,10 @@ internal object TermuxPropertiesParser {
             return parsed
         }
 
+        // 默认值只有一个来源：data class 的默认实例。此处再抄一份字面量时，改默认值
+        // （例如边距从 3 改成 5）只有一处生效，另一处继续吐旧值，两份配置在
+        // 「没写这个键」与「写了合法值」之间出现说不清的分叉。
+        val defaults = TermuxProperties()
         val extraKeys =
             values["extra-keys"]?.let { raw ->
                 when (val parsed = ExtraKeysParser.parse(raw)) {
@@ -307,20 +317,31 @@ internal object TermuxPropertiesParser {
 
                     is ExtraKeysParser.Result.Failure -> {
                         errors += "extra-keys: ${parsed.message}; keeping the default layout"
-                        TermuxProperties.DEFAULT_EXTRA_KEYS
+                        defaults.extraKeys
                     }
                 }
-            } ?: TermuxProperties.DEFAULT_EXTRA_KEYS
+            } ?: defaults.extraKeys
 
         val properties =
             TermuxProperties(
-                useFullscreenWorkaround = boolean("use-fullscreen-workaround", false),
-                fullscreen = boolean("fullscreen", false),
-                ctrlSpaceWorkaround = boolean("ctrl-space-workaround", false),
-                hideSoftKeyboardOnStartup = boolean("hide-soft-keyboard-on-startup", true),
-                extraKeysTextAllCaps = boolean("extra-keys-text-all-caps", true),
-                terminalMarginHorizontalDp = integer("terminal-margin-horizontal", 3, 0..100),
-                terminalMarginVerticalDp = integer("terminal-margin-vertical", 0, 0..100),
+                useFullscreenWorkaround = boolean("use-fullscreen-workaround", defaults.useFullscreenWorkaround),
+                fullscreen = boolean("fullscreen", defaults.fullscreen),
+                ctrlSpaceWorkaround = boolean("ctrl-space-workaround", defaults.ctrlSpaceWorkaround),
+                hideSoftKeyboardOnStartup =
+                boolean("hide-soft-keyboard-on-startup", defaults.hideSoftKeyboardOnStartup),
+                extraKeysTextAllCaps = boolean("extra-keys-text-all-caps", defaults.extraKeysTextAllCaps),
+                terminalMarginHorizontalDp =
+                integer(
+                    "terminal-margin-horizontal",
+                    defaults.terminalMarginHorizontalDp,
+                    TermuxProperties.MARGIN_RANGE,
+                ),
+                terminalMarginVerticalDp =
+                integer(
+                    "terminal-margin-vertical",
+                    defaults.terminalMarginVerticalDp,
+                    TermuxProperties.MARGIN_RANGE,
+                ),
                 terminalCursorStyle =
                 when ((values["terminal-cursor-style"] ?: "block").lowercase()) {
                     "block" -> TerminalCursorStyle.BLOCK
@@ -340,10 +361,15 @@ internal object TermuxPropertiesParser {
                 terminalTranscriptRows =
                 integer(
                     "terminal-transcript-rows",
-                    TermuxProperties.DEFAULT_TRANSCRIPT_ROWS,
+                    defaults.terminalTranscriptRows,
                     TermuxProperties.TRANSCRIPT_ROWS_RANGE,
                 ),
-                terminalToolbarHeightScale = float("terminal-toolbar-height", 1f, 0.4f..3f),
+                terminalToolbarHeightScale =
+                float(
+                    "terminal-toolbar-height",
+                    defaults.terminalToolbarHeightScale,
+                    TermuxProperties.TOOLBAR_HEIGHT_SCALE_RANGE,
+                ),
                 extraKeysStyle =
                 when ((values["extra-keys-style"] ?: "default").lowercase()) {
                     "default" -> ExtraKeysStyle.DEFAULT
@@ -458,6 +484,7 @@ internal object ExtraKeysParser {
                 require(bare.isNotEmpty()) { "empty key at offset $start" }
                 return bare
             }
+            val start = index
             index++
             val output = StringBuilder()
             while (index < text.length) {
@@ -474,7 +501,7 @@ internal object ExtraKeysParser {
                 output.append(character)
                 index++
             }
-            error("unterminated string starting at offset $index")
+            error("unterminated string starting at offset $start")
         }
 
         fun readBare(): String {
