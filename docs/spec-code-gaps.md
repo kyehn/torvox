@@ -238,3 +238,11 @@
 - `night-mode` 覆盖、会话切换提示在分支上仍是旧实现，`main` 已删除，不回退。
 - `wb` 的 spotless 排版提交与分支自带的审计文档不并入：前者只改格式，后者是分支当时的
   阶段性结论，本文件取而代之。
+
+## 审计轮次记录
+- 第 2 轮（2026-10-31）：复核 TermuxProperties 键面与解析器，16 个键与规范一致；`cargo fmt --check` 通过、openspec 41/41 通过。无代码修改。
+- 第 3 轮（2026-10-31）：复核禁止功能项（MCP/termux-api/termux-exec/proot/X11/Shizuku 等）在代码中无实现；仅注释提及 termux-exec 的 login 探针。无代码修改。
+- 第 4 轮（2026-10-31）：复核字体系统与 fonts.xml 解析链路、AndroidManifest applicationId 与 SDK 版本，与规范一致。无代码修改。
+- 第 5 轮（2026-10-31）：复核环境变量白名单、nix/store 引用、Cargo/Gradle 版本与 ABI 过滤，与规范一致。无代码修改。
+
+- 第 1 轮（2026-10-31）：全量复核代码与规范文档，未发现新增差异。验证：`cargo fmt --check` 通过、`openspec validate --all --strict` 41/41 通过、`testDebugUnitTest` 762 用例通过（含 native 产物）。无代码修改。
