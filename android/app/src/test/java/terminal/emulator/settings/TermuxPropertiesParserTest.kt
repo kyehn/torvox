@@ -1,7 +1,6 @@
 package terminal.emulator.settings
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -24,15 +23,10 @@ class TermuxPropertiesParserTest {
         assertTrue("空文件是正常状态，不该报错: ${loaded.errors}", loaded.errors.isEmpty())
     }
 
-    /**
-     * 两个「启动/切换」键的默认值都是刻意的：启动不主动弹键盘（与既有外观一致，
-     * 上游默认相反），会话切换有提示（与上游一致，嫌吵可关）。
-     */
+    /** 启动不主动弹键盘（与既有外观一致，上游默认相反）。 */
     @Test
-    fun `keyboard and session toast defaults match the app's behaviour`() {
-        val defaults = parse("").properties
-        assertTrue(defaults.hideSoftKeyboardOnStartup)
-        assertFalse(defaults.disableTerminalSessionChangeToast)
+    fun `keyboard startup default matches the app's behaviour`() {
+        assertTrue(parse("").properties.hideSoftKeyboardOnStartup)
     }
 
     @Test
@@ -60,11 +54,11 @@ class TermuxPropertiesParserTest {
         val loaded = parse(
             """
             fullscreen = yes-please
-            bell-character = beep
+            terminal-transcript-rows = 1000
             """.trimIndent(),
         )
         assertEquals(false, loaded.properties.fullscreen)
-        assertEquals(BellCharacter.BEEP, loaded.properties.bellCharacter)
+        assertEquals(1000, loaded.properties.terminalTranscriptRows)
         assertTrue(
             "非法值必须留下可读的错误: ${loaded.errors}",
             loaded.errors.any { it.contains("fullscreen") },
@@ -100,29 +94,6 @@ class TermuxPropertiesParserTest {
         assertEquals(2000, parse("terminal-transcript-rows = 99999").properties.terminalTranscriptRows)
     }
 
-    /**
-     * 闪烁间隔：0 = 不闪；有效区间 100..2000；其余取值按无效处理（不闪）。
-     *
-     * 上游把越界值当无效并直接禁用闪烁，不是钳到边界。
-     */
-    @Test
-    fun `cursor blink rate only accepts zero or the upstream range`() {
-        assertEquals(0, parse("terminal-cursor-blink-rate = 0").properties.terminalCursorBlinkRateMs)
-        assertEquals(500, parse("terminal-cursor-blink-rate = 500").properties.terminalCursorBlinkRateMs)
-        assertEquals(2000, parse("terminal-cursor-blink-rate = 2000").properties.terminalCursorBlinkRateMs)
-        assertEquals(0, parse("terminal-cursor-blink-rate = 50").properties.terminalCursorBlinkRateMs)
-        assertEquals(0, parse("terminal-cursor-blink-rate = 5000").properties.terminalCursorBlinkRateMs)
-    }
-
-    @Test
-    fun `an invalid cursor blink rate is reported`() {
-        val loaded = parse("terminal-cursor-blink-rate = 50")
-        assertTrue(
-            "无效的闪烁间隔必须留痕: ${loaded.errors}",
-            loaded.errors.any { it.contains("terminal-cursor-blink-rate") },
-        )
-    }
-
     @Test
     fun `a non numeric transcript rows keeps the default`() {
         val loaded = parse("terminal-transcript-rows = many")
@@ -151,8 +122,6 @@ class TermuxPropertiesParserTest {
             TerminalCursorStyle.BAR,
             parse("terminal-cursor-style = beam").properties.terminalCursorStyle,
         )
-        assertEquals(NightMode.TRUE, parse("night-mode = true").properties.nightMode)
-        assertEquals(NightMode.FALSE, parse("night-mode = false").properties.nightMode)
         assertEquals(ExtraKeysStyle.ALL, parse("extra-keys-style = all").properties.extraKeysStyle)
         assertEquals(BackKeyBehaviour.ESCAPE, parse("back-key = escape").properties.backKey)
     }
@@ -192,14 +161,8 @@ class TermuxPropertiesParserTest {
     /** 多字符的快捷键值只禁用该快捷键，不影响其余解析。 */
     @Test
     fun `a multi-character shortcut is disabled and reported`() {
-        val loaded = parse(
-            """
-            shortcut.create-session = ctrl+c
-            bell-character = ignore
-            """.trimIndent(),
-        )
+        val loaded = parse("shortcut.create-session = ctrl+c")
         assertNull(loaded.properties.shortcutCreateSession)
-        assertEquals(BellCharacter.IGNORE, loaded.properties.bellCharacter)
         assertTrue(loaded.errors.any { it.contains("shortcut.create-session") })
     }
 
