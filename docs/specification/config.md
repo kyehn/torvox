@@ -29,7 +29,7 @@
   - 默认布局与 termux 上游一致：首行 `ESC DRAWER SCROLL HOME ↑ END PGUP`，次行 `TAB CTRL ALT ← ↓ → PGDN`；DRAWER 长按为粘贴。
   - 键名支持 termux 的别名表（`ESCAPE`=`ESC`、`CONTROL`=`CTRL`、`SHFT`=`SHIFT`、`RETURN`=`ENTER`、`LT`/`RT`/`DN`=方向键、`PAGEUP`/`PAGE UP`= `PGUP`、`DELETE`=`DEL`、`BACKSPACE`=`BKSP`、`BACKSLASH`=`\` 等）。
   - `display` 只改键帽文字，不改变点击发送的内容；没有 `key`/`macro`、只有 `display` 的对象会被丢弃并记警告。
-  - `popup` 是长按发送的键名或单字符；对象形式（如 `{macro: ...}`）不支持，丢弃长按动作并记警告，主键照常保留。
+  - `popup` 是长按触发的次级按键，与主键同构：字符串是键名或单字符，对象形式可带 `macro`（`{key:'X',popup:{macro:'CTRL f d'}}`）。键名走按键编码器，特殊键（`PASTE`、`KEYBOARD` 等）走键栏自身的动作，宏按顺序播放，单字符直接写出。对象形式不再丢弃；次级键不可用（未知键名、不可用的宏）时只丢长按动作并记警告，主键照常保留。
   - `macro` 按上游语义播放：宏串按空白切分，`CTRL`/`ALT`/`SHIFT` 作用于其后第一个键；普通记号是键名或可编码的单字符（大写字母自动补 Shift）。宏内出现 `FN`、无法识别的键名或不可编码字符时，该键不渲染（其余键照常）。
   - `FN` 与 `SHIFT` 键本身不渲染：本应用只有 CTRL/ALT 两套粘滞修饰，没有 FN 与 Shift 的二次映射。
 - `back-key`：`back`/`escape`，默认 `back`；`escape` 时返回键改发 ESC。

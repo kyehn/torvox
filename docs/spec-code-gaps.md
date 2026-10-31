@@ -16,8 +16,9 @@
 - 上游键名别名表此前未实现：`ESCAPE`/`CONTROL`/`PAGEUP` 等写法会被当成未知键名丢掉。
   本轮已实现（`TerminalKeyCatalog.normalizeKeyName`）。
 - `extra-keys` 的 `{macro: ...}` 此前只解析不渲染；本轮已按上游语义实现播放
-  （`MacroParser` + `TerminalViewModel.sendMacro`）。`FN`/`SHIFT` 键与对象形式 `popup`
-  仍不支持，已写入 `PROHIBITED.md`。
+  （`MacroParser` + `TerminalViewModel.sendMacro`）。`popup` 此前只把字符串当纯文本
+  发出、对象形式整个丢弃；本轮按上游语义实现为**完整的次级按键**（见下节）。
+  `FN`/`SHIFT` 键仍不支持，已写入 `PROHIBITED.md`。
 - `volume-keys` 此前无条件拦截音量减；本轮补上上游口径「外接字母键盘在场时不抢它的
   音量键」。
 - 边界差异：配置重读时机与实现一致；超大文件口径首次加载与重载略有分叉（实现保留上次成功结果）；
@@ -67,8 +68,8 @@
 其中默认值本身改变行为：
 
 - `extra-keys` 默认布局与上游一致（首行 `ESC DRAWER SCROLL HOME ↑ END PGUP`，次行
-  `TAB CTRL ALT ← ↓ → PGDN`），只有 DRAWER 的 `popup: 'PASTE'` 由本应用以「长按即粘贴」
-  的动作实现，语义等价。
+  `TAB CTRL ALT ← ↓ → PGDN`），DRAWER 的 `popup: 'PASTE'` 按上游语义写成次级按键，
+  长按即粘贴。
 - `volume-keys` 默认 `virtual`，`MainActivity` 默认把音量减拦截为虚拟 Ctrl（按住期间持续生效）；
   `DESIGN.md` 未声明该行为。
 - `hide-soft-keyboard-on-startup` 默认 `true`，与上游的 `false` 相反（本应用启动时从不
@@ -100,9 +101,8 @@
 
 `TermuxProperties.DEFAULT_EXTRA_KEYS` 第一行为 `ESC DRAWER SCROLL HOME UP END PGUP`，
 第二行为 `TAB CTRL ALT LEFT DOWN RIGHT PGDN`。这与 termux v0.119.0-beta.3 的
-`DEFAULT_IVALUE_EXTRA_KEYS` 一致（上游同样含 DRAWER 与 SCROLL），差异只有一处：上游把
-DRAWER 写成 `{key: 'DRAWER', popup: 'PASTE'}`，本应用以「长按抽屉键粘贴」的动作实现
-同一语义。
+`DEFAULT_IVALUE_EXTRA_KEYS` 一致（上游同样含 DRAWER 与 SCROLL）：上游把 DRAWER 写成
+`{key: 'DRAWER', popup: 'PASTE'}`，本应用按同一写法表达，长按即粘贴。
 
 `DESIGN.md` 已按此更正记录。抽屉仍有 `ModalNavigationDrawer` 的左缘滑动入口；滚动锁定
 是本应用相对 Termux 的补充功能，但入口本身在上游默认键栏里。
@@ -124,8 +124,32 @@ DRAWER 写成 `{key: 'DRAWER', popup: 'PASTE'}`，本应用以「长按抽屉键
 `SHIFT` 作用于其后第一个普通记号，普通记号经原生键编码器发出（连同平台文本，否则
 可打印键不产生字节）。
 
-不可用的宏（含 `FN` 或未知记号）只丢自己那一项，不作废整行。`FN`/`SHIFT` 键本身、
-对象形式 `popup`、`volume-keys` 的虚拟 FN 映射不支持，已写入 `PROHIBITED.md`。
+不可用的宏（含 `FN` 或未知记号）只丢自己那一项，不作废整行。`FN`/`SHIFT` 键本身与
+`volume-keys` 的虚拟 FN 映射不支持，已写入 `PROHIBITED.md`。
+
+## extra-keys 的 popup（此前只当纯文本）
+
+上游的 `popup` 是**完整的按键**（`ExtraKeysInfo.normalizeKeyConfig` 把字符串包成
+`{key: 'X'}`，对象原样成为次级按键）。本应用此前只把字符串 `popup` 当纯文本发出，
+对象形式整个丢弃并记警告：同一份 `extra-keys` 在两个应用里长按的结果不同。
+
+本轮已实现：
+
+- `ExtraKey.popup` 改为 `ExtraKey?`，popup 与主键同构：字符串是键名或字面量，对象
+  形式可带 `macro`。
+- 键栏引入 `KeyAction`（编码器键码 / 特殊动作 / 字面量文本 / 宏），主键与 popup 共用
+  同一条派发路径：键名走编码器，特殊键走键栏回调，宏按顺序播放，字面量直接写出。
+- 长按执行次级按键且不连带触发主键；次级按键不可用时只丢长按动作并记警告。
+
+与上游的一处差异：上游由「上滑」触发并弹出浮层，本应用没有浮层，长按直接执行次级键
+（语义一致，少了中间那层浮层）。`PROHIBITED.md` 中「对象形式 `popup` 不支持」一条已
+删除。
+
+## Ctrl+空格的抬起事件（此前漏回输入法）
+
+`ctrl-space-workaround` 此前只在下按补发 NUL，抬起事件仍漏回输入法/编码器，同一次
+组合键有两条去路。本轮改为上下两路都消费，只在下按发送一次；原生侧补一条回归锁住
+「Ctrl+空格在没有平台文本时仍是 NUL」（补偿走的正是这条只下键码的通道）。
 
 ## 边界差异
 
@@ -169,10 +193,12 @@ DRAWER 写成 `{key: 'DRAWER', popup: 'PASTE'}`，本应用以「长按抽屉键
   `terminal-cursor-style` 的取值集合现已一致（均含 `block`/`bar`/`beam`/`underline`）。
 - `openspec/specs/termux-configuration` 中 `colors.properties` 覆盖与 `extra-keys`
   布局的 MUST 要求与 `docs/specification` 的禁令相反。`colors.properties` 要求已随
-  功能移除；`extra-keys` 的布局要求现已与 `config.md` 对齐，`openspec` 仍缺
-  `fullscreen`、`use-fullscreen-workaround`、`ctrl-space-workaround`、`extra-keys-text-all-caps`、
-  `terminal-margin-*`、`terminal-toolbar-height`、`back-key`、`volume-keys` 的逐键条款，
-  仅作能力登记，不阻断实现。
+  功能移除；`extra-keys` 的布局要求现已与 `config.md` 对齐，逐键条款（`fullscreen`、
+  `use-fullscreen-workaround`、`ctrl-space-workaround`、`extra-keys-text-all-caps`、
+  `terminal-margin-*`、`terminal-toolbar-height`、`back-key`、`volume-keys`）也已补齐。
+- `openspec/specs/termux-configuration` 的「键栏中不可渲染的项」单条 requirement 超过
+  500 字符，`openspec validate --all --strict` 不过（本轮拆分该条并把 `popup` 语义
+  单独成条后，41 项全部通过）。
 
 ## 规范文档与实现的漂移
 
