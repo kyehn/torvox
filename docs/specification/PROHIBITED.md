@@ -44,4 +44,10 @@
   - 提供“重置为默认”按钮。
 - **自定义终端主题**：支持用户自定义主题，自定义主题可修改（支持预览）和删除（未使用状态下，包括名称也可修改）。
 - **Shizuku 集成开关**。支持从 [Shizuku](https://github.com/rikkaapps/shizuku) 获取权限并提供给 Shell，只为启动入口设置。新会话启动时检查权限如果已打开开关但未被实际授权显示对话框提示提供两个选项：关闭 Shizuku 集成开关/关闭会话（无其他会话时应用退出），Shizuku 需要 `adb shell /data/app/~~Sa3_liMwmjUIoWwNMF_x7w==/moe.shizuku.privileged.api-No2vLGXjkKhlYU6TcXtuHg==/lib/arm64/libshizuku.so` 类似命令激活
+
+## 配置文件
+
 - 解析 `termux.properties` 中未在 `config.md` 列出的键，以及 `colors.properties`、`termux.float.properties`。允许读取的键仅按 `config.md` 列出；其他键一律忽略。
+- `extra-keys` 的 `FN` 键与 `SHIFT` 键：本应用只有 CTRL/ALT 两套粘滞修饰，没有 FN 与 Shift 的二次映射，这两类键不渲染。
+- `extra-keys` 的对象形式 `popup`（`{key:'X',popup:{macro:'...'}}`）：只支持字符串 `popup`。
+- `volume-keys` 的虚拟 FN 映射：音量加键既不拦截也不映射成 FN。

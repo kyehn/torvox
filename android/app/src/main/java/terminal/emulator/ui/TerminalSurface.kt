@@ -4190,11 +4190,11 @@ internal fun clampSelection(
  */
 internal fun isWhitespaceCell(line: String?, col: Int): Boolean = line?.getOrNull(col)?.isWhitespace() != false
 
-/** 手柄拖动结束后的保护窗：期间在松手位置的轻点被吞掉，而不是关闭刚重新显示的菜单（termux 隐藏保护）。 */
 /** 启动键盘等待焦点的重试节奏与上限。 */
 private const val STARTUP_KEYBOARD_RETRY_INTERVAL_MS = 100L
 private const val STARTUP_KEYBOARD_ATTEMPTS = 20
 
+/** 手柄拖动结束后的保护窗：期间在松手位置的轻点被吞掉，而不是关闭刚重新显示的菜单（termux 隐藏保护）。 */
 internal const val SELECTION_MENU_RESHOW_GUARD_MS = 300L
 
 /**

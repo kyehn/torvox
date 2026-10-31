@@ -55,10 +55,10 @@ data class TermuxProperties(
         /**
          * 默认两行布局：`ESC DRAWER SCROLL HOME ↑ END PGUP` / `TAB CTRL ALT ← ↓ → PGDN`。
          *
-         * **不是** termux 上游的 `DEFAULT_IVALUE_EXTRA_KEYS`（上游是
-         * `ESC / - HOME ↑ END PGUP`，没有 DRAWER 与 SCROLL）：在 termux 里抽屉由
-         * 左缘滑动打开、且它没有滚动锁定，而本应用把这两者做成了键栏上的固定入口。
-         * 换成上游默认会让「打开会话列表」和「锁定滚动位置」两个功能失去唯一入口。
+         * 与 termux 上游的 `DEFAULT_IVALUE_EXTRA_KEYS` 一致（上游同样含 DRAWER 与
+         * SCROLL），只差一处细节：上游把 DRAWER 写成 `{key: 'DRAWER', popup: 'PASTE'}`，
+         * 即长按抽屉键粘贴剪贴板。本应用把 DRAWER 做成会话抽屉入口，长按同样是粘贴
+         * （见 `ModifierBar` 的 DRAWER 长按动作），语义一致。
          *
          * 列数仍守 DESIGN.md 修饰键栏节的「固定 2 行 7 列」。用户一旦写了 `extra-keys`，
          * 布局、列数与键位完全以配置为准（见 [TermuxPropertiesParser]），本默认值不再参与。
@@ -67,7 +67,7 @@ data class TermuxProperties(
             listOf(
                 listOf(
                     ExtraKey("ESC"),
-                    ExtraKey("DRAWER"),
+                    ExtraKey("DRAWER", popup = "PASTE"),
                     ExtraKey("SCROLL"),
                     ExtraKey("HOME"),
                     ExtraKey("UP"),
@@ -115,8 +115,8 @@ enum class ExtraKeysStyle { DEFAULT, ARROWS_ONLY, ARROWS_ALL, ALL, NONE }
  * [name] 是 termux 的键名（`ESC`、`F1`、`UP`、`CTRL`……）或单字符字面量；
  * [popup] 是长按/上档显示的次级字符，本应用把它作为长按发送的文本；
  * [display] 是键帽上显示的文本（`{key: 'X', display: 'Y'}`），为空时按 `extra-keys-style`
- * 取字形；[macro] 是 termux 的宏（`{macro: "CTRL f d"}`），本应用只解析、不播放——
- * 键栏会把这类键隐藏（见 `ModifierBar.buildExtraKeySlots`）。
+ * 取字形；[macro] 是 termux 的宏（`{macro: "CTRL f d"}`），按下时按顺序发一串键
+ * （见 `MacroParser` 与 `ModifierBar.buildExtraKeySlots`）。
  */
 data class ExtraKey(
     val name: String,
@@ -633,7 +633,7 @@ internal object ExtraKeysParser {
                 name = key ?: display.orEmpty(),
                 popup = popup,
                 macro = macro,
-                display = display.takeIf { key != null },
+                display = display,
             )
         }
         return ExtraKey(cursor.readString())

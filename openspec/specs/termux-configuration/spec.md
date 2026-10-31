@@ -104,29 +104,29 @@ MUST NOT 使整份文件解析失败。
 
 ### Requirement: 键栏中不可渲染的项
 
-未知键名 MUST 被跳过并记警告，MUST NOT 当作字面量渲染——那会让用户点出一串无意义的
-字符。`FN` 未实现，MUST NOT 渲染。
+未知键名 MUST 被跳过并记警告，MUST NOT 当作字面量渲染。
+键名 MUST 先套用 termux 上游的别名表（`ESCAPE`=`ESC`、`CONTROL`=`CTRL`、`SHFT`=`SHIFT`、
+`RETURN`=`ENTER`、`LT`/`RT`/`DN`=方向键、`PAGEUP`/`PAGE UP`=`PGUP`、`DELETE`=`DEL`、
+`BACKSPACE`=`BKSP`、`BACKSLASH`=`\` 等）：上游按同一张表归一，不套表则同一份 `extra-keys`
+在两个应用里画出的键栏不一样。
 
-`{macro: ...}` MUST 被解析但 MUST NOT 渲染成按键：没有播放器时，渲染一个点了没反应的
-键比不渲染更糟。对象形式的 `popup` MUST 被丢弃并记一条说明。既没有 `key` 也没有
-`macro`、`display` 的对象 MUST 只丢自己那一项，MUST NOT 作废整行或整份布局。
+`FN` 与 `SHIFT` 键 MUST NOT 渲染：`SHIFT` 由粘滞修饰栏承担，`FN` 在本应用没有二次映射。
 
-`display` MUST 覆盖键帽文本（`extra-keys-text-all-caps` 照常作用于它），MUST NOT 改变
-键码、特殊动作或长按内容。
+对象形式的 `popup` MUST 被丢弃并记一条说明。只含坏字段的对象 MUST 只丢自己那一项，
+MUST NOT 作废整行或整份布局。
 
-上述情形 MUST NOT 让整份布局回落到默认：一个不认识的键不该作废用户配好的其余键位。
-唯一的例外是「写了行、但每一行都被坏项掏空」——此时退回默认布局并记错误，因为键栏是
-抽屉与滚动锁定的唯一入口，空键栏会把它们一起藏起来。显式写 `[]` 仍按「不要键栏」处理。
+`display` MUST 覆盖键帽文本（`extra-keys-text-all-caps` 照常作用于它），MUST NOT 改变键码、
+特殊动作或长按内容。
 
 #### Scenario: 未知键名不落到键栏
 
 - **WHEN** `extra-keys` 里出现本应用不认识的键名
 - **THEN** 该键不出现在键栏上，日志里有一条警告，同行其余按键照常渲染
 
-#### Scenario: 宏被解析但不渲染
+#### Scenario: 别名键名与原名等价
 
-- **WHEN** `extra-keys` 里有一项 `{macro: "CTRL f d"}`
-- **THEN** 该项不占位置也不可点，其余键位照常生效
+- **WHEN** `extra-keys` 里写 `ESCAPE` 而非 `ESC`
+- **THEN** 键栏画出一个与 `ESC` 等价的键，按下发出 ESC
 
 #### Scenario: 空对象只丢自己
 
@@ -137,6 +137,52 @@ MUST NOT 使整份文件解析失败。
 
 - **WHEN** `extra-keys = [[{key:'ESC',display:'quit'}]]` 且 `extra-keys-text-all-caps = false`
 - **THEN** 键帽显示 `quit`，按下仍发出 ESC
+
+### Requirement: 键栏布局的容错
+
+坏项 MUST NOT 让整份布局回落到默认：一个不认识的键不该作废用户配好的其余键位。
+
+唯一的例外是「写了行、但每一行都被坏项掏空」——此时 MUST 退回默认布局并记错误，因为键栏
+是抽屉与滚动锁定的唯一入口，空键栏会把它们一起藏起来。显式写 `[]` 仍按「不要键栏」处理。
+
+#### Scenario: 坏项不连坐
+
+- **WHEN** `extra-keys` 的一行里有一个坏项与若干好项
+- **THEN** 好项照常渲染，坏项被跳过
+
+#### Scenario: 整行都被掏空时退回默认
+
+- **WHEN** `extra-keys` 写了行，但每一行都被坏项掏空
+- **THEN** 键栏退回默认布局，并记一条错误
+
+### Requirement: extra-keys 的宏
+
+`{macro: "..."}` MUST 被解析并播放：宏串按空白切分，`CTRL`/`ALT`/`SHIFT` 是修饰记号，
+作用于其后第一个普通记号（用过即清），普通记号是键名或单字符——语义与 termux 上游
+`TerminalExtraKeys` 一致。
+
+普通记号 MUST 走原生键编码器，并连同平台文本一起下发：可打印键没有文本时编码器
+不产生任何字节，Ctrl 折叠与 Alt 的 ESC 前缀也由编码器决定。
+
+宏 MUST NOT 影响键栏上的粘滞 CTRL/ALT：宏自带修饰位，两者叠加会让语义与用户预期不符。
+
+宏内出现 `FN` 或无法识别的记号时，该项 MUST NOT 渲染（只丢自己那一项），MUST NOT
+发出与配置不符的半截按键序列。
+
+#### Scenario: 宏按顺序发出
+
+- **WHEN** `extra-keys` 里有一项 `{macro: "CTRL f d"}` 且用户点击它
+- **THEN** 终端依次收到 Ctrl+f 与 d 两个按键
+
+#### Scenario: 宏里的修饰只作用于一个键
+
+- **WHEN** `extra-keys` 里有一项 `{macro: "CTRL f d"}`
+- **THEN** `d` 不带 Ctrl
+
+#### Scenario: 不可用的宏不渲染
+
+- **WHEN** `extra-keys` 里有一项 `{macro: "FN f"}`
+- **THEN** 该项不占位置也不可点，其余键位照常生效
 
 ### Requirement: default-working-directory 的解析
 
@@ -159,8 +205,9 @@ OSC 7 上报在同一次会话里换名字。
 
 ### Requirement: terminal-cursor-style 的取值
 
-`terminal-cursor-style` MUST 接受 `block`/`bar`/`beam`/`underline`（`beam` 与 `bar`
-同为竖线），非法值 MUST 回退 `block`。
+`terminal-cursor-style` MUST 接受 `block`/`bar`/`underline`，非法值 MUST 回退 `block`。
+另 MUST 接受 `beam` 作为 `bar` 的别名（同为竖线）——termux 上游没有这个取值，它是本
+应用对常见写法的兼容。
 
 它 MUST 作为**默认**样式下发，程序用 DECSCUSR 指定过的样式仍然优先。
 
@@ -215,16 +262,49 @@ OSC 7 上报在同一次会话里换名字。
 - **WHEN** `hide-soft-keyboard-on-startup = false`，冷启动
 - **THEN** 终端拿到焦点后弹出一次输入法；用户收起后不会被再次弹回
 
-### Requirement: 其余已支持键的语义
+### Requirement: 窗口与边距类键
 
-下列键与 `docs/specification/config.md` 的取值与默认值一致，MUST 按各自语义生效：
+下列键 MUST 按 `docs/specification/config.md` 的取值与默认值生效：
 
 - `fullscreen`：布尔，默认 `false`；为真时隐藏状态栏。
 - `use-fullscreen-workaround`：布尔，默认 `false`；为真时全屏下系统栏改为滑动临时唤出。
-- `ctrl-space-workaround`：布尔，默认 `false`；为真时补发 Ctrl+空格为 NUL。
 - `extra-keys-text-all-caps`：布尔，默认 `true`；键帽是否大写。
 - `terminal-margin-horizontal`：整数 0–100（dp），默认 3。
 - `terminal-margin-vertical`：整数 0–100（dp），默认 0。
 - `terminal-toolbar-height`：浮点 0.4–3，默认 1；修饰键栏单键高度倍率。
-- `back-key`：`back`/`escape`，默认 `back`；`escape` 时返回键改发 ESC。
-- `volume-keys`：`virtual`/`volume`，默认 `virtual`；`virtual` 时音量减作虚拟 Ctrl。
+
+#### Scenario: 全屏隐藏状态栏
+
+- **WHEN** `fullscreen = true`
+- **THEN** 状态栏隐藏，终端占满窗口
+
+#### Scenario: 边距与倍率按配置生效
+
+- **WHEN** `terminal-margin-horizontal = 10` 且 `terminal-toolbar-height = 1.5`
+- **THEN** 终端内容左右内缩 10 dp，键栏单键高度为默认值的 1.5 倍
+
+### Requirement: 返回键、音量键与 Ctrl+空格
+
+`back-key` MUST 支持 `back`/`escape`（默认 `back`）：`escape` 时返回键改发 ESC。
+
+`volume-keys` MUST 支持 `virtual`/`volume`（默认 `virtual`）：`virtual` 时音量减按下即置为
+虚拟 Ctrl，按住期间持续生效、抬起时回收；`volume` 时不拦截，系统照常调节音量。外接字母
+键盘发出的音量键 MUST NOT 拦截（termux 上游口径：完整键盘在场时不抢它的音量键）；音量加
+MUST NOT 拦截——上游把它映射成虚拟 FN，本应用没有 FN 映射。
+
+`ctrl-space-workaround` MUST 为布尔（默认 `false`）：为真时把 Ctrl+空格补发为 NUL。
+
+#### Scenario: escape 模式下返回键发 ESC
+
+- **WHEN** `back-key = escape` 且用户按系统返回键
+- **THEN** 终端收到 ESC，而不是退出应用
+
+#### Scenario: 外接字母键盘的音量键不被拦截
+
+- **WHEN** 外接字母键盘在场，用户按它的音量减
+- **THEN** 该按键不被应用拦截，交给键盘自身处理
+
+#### Scenario: Ctrl+空格补发为 NUL
+
+- **WHEN** `ctrl-space-workaround = true` 且用户按下 Ctrl+空格
+- **THEN** 终端收到一个 NUL

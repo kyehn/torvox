@@ -905,6 +905,7 @@ fun TerminalScreen(
                                 onDrawerClick = modifierBarActions.onDrawerClick,
                                 onPasteClick = modifierBarActions.onPasteClick,
                                 onScrollClick = modifierBarActions.onScrollClick,
+                                onMacro = modifierBarActions.onMacro,
                                 scrollActive = state.scrollActive,
                                 ctrlState = state.ctrlState,
                                 altState = state.altState,
@@ -985,5 +986,6 @@ private fun buildModifierBarActions(
     onLockCtrl = { viewModel.lockCtrlState() },
     onLockAlt = { viewModel.lockAltState() },
     onPasteClick = { viewModel.pasteFromClipboard() },
+    onMacro = { steps -> viewModel.sendMacro(steps) },
     onConsumeModifiers = { viewModel.consumeOneShotModifiers() },
 )

@@ -57,13 +57,61 @@ object TerminalKeyCatalog {
     /** termux `PRIMARY_REPETITIVE_KEYS`：按住即连发。 */
     private val repetitive: Set<String> = setOf("UP", "DOWN", "LEFT", "RIGHT", "BKSP", "DEL", "PGUP", "PGDN")
 
-    fun keyCodeFor(name: String): Int? = keyCodes[name.uppercase()]
+    /**
+     * termux `ExtraKeysConstants.CONTROL_CHARS_ALIASES`：键名别名。
+     *
+     * 上游在解析每个键名时先套这张表（`ExtraKeyButton` 构造函数的 `replaceAlias`），
+     * 故 `ESCAPE` 与 `ESC`、`CONTROL` 与 `CTRL` 在上游等价。少了这一步，这些写法会被
+     * 当成未知键名丢掉——同一份 `extra-keys` 在两个应用里画出的键栏不一样。
+     */
+    private val aliases: Map<String, String> =
+        mapOf(
+            "ESCAPE" to "ESC",
+            "CONTROL" to "CTRL",
+            "SHFT" to "SHIFT",
+            "RETURN" to "ENTER",
+            "FUNCTION" to "FN",
+            // 方向键常写成首尾字母
+            "LT" to "LEFT",
+            "RT" to "RIGHT",
+            "DN" to "DOWN",
+            "PAGEUP" to "PGUP",
+            "PAGE_UP" to "PGUP",
+            "PAGE UP" to "PGUP",
+            "PAGE-UP" to "PGUP",
+            "PAGEDOWN" to "PGDN",
+            "PAGE_DOWN" to "PGDN",
+            "PAGE-DOWN" to "PGDN",
+            "DELETE" to "DEL",
+            "BACKSPACE" to "BKSP",
+            // 便于在 termux.properties 里写这三个字符
+            "BACKSLASH" to "\\",
+            "QUOTE" to "\"",
+            "APOSTROPHE" to "'",
+        )
 
-    fun specialFor(name: String): Special? = specials[name.uppercase()]
+    /**
+     * 归一键名：先大写，再套用上游别名表。
+     *
+     * 大写是本应用的宽松之处（上游的别名表按原文精确匹配），但归一后的名字才是
+     * 「这个键到底是什么」的答案：别名指向单字符时（`BACKSLASH` → `\`）尤其重要——
+     * 按原名判会把它当成未知键名丢掉，按归一名判才是字面量。
+     */
+    fun normalizeKeyName(name: String): String {
+        val upper = name.uppercase()
+        return aliases[upper] ?: upper
+    }
 
-    fun isRepetitive(name: String): Boolean = name.uppercase() in repetitive
+    fun keyCodeFor(name: String): Int? = keyCodes[normalizeKeyName(name)]
 
-    fun isKnown(name: String): Boolean = keyCodeFor(name) != null || specialFor(name) != null || name.length == 1
+    fun specialFor(name: String): Special? = specials[normalizeKeyName(name)]
+
+    fun isRepetitive(name: String): Boolean = normalizeKeyName(name) in repetitive
+
+    fun isKnown(name: String): Boolean {
+        val normalized = normalizeKeyName(name)
+        return keyCodes[normalized] != null || specials[normalized] != null || normalized.length == 1
+    }
 
     /** 各样式下 termux 使用的显示字符。样式只改外观，不改按键本身。 */
     private val arrows = mapOf("LEFT" to "←", "RIGHT" to "→", "UP" to "↑", "DOWN" to "↓")
@@ -99,9 +147,14 @@ object TerminalKeyCatalog {
                 ExtraKeysStyle.ALL -> arrows + wellKnown + lessKnown + nicer + notKnownIso
                 ExtraKeysStyle.NONE -> emptyMap()
             }
-        val upper = name.uppercase()
-        val glyph = glyphs[upper] ?: glyphs[name]
+        // 别名先归一：上游的字形表查的是**归一后**的名字（`ExtraKeyButton` 先
+        // `replaceAlias` 再查显示表），故 `ESCAPE` 与 `ESC` 画同一个字形。
+        val normalized = normalizeKeyName(name)
+        val glyph = glyphs[normalized]
         if (glyph != null) return glyph
-        return if (allCaps) upper else name
+        // 没有字形：显示键名本身。别名改过名字时用归一后的名字（上游亦然：
+        // `BACKSLASH` 显示 `\`），没改过时保留用户写的大小写。
+        val text = if (normalized == name.uppercase()) name else normalized
+        return if (allCaps) normalized else text
     }
 }

@@ -7,6 +7,7 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.InputDevice
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -312,7 +313,8 @@ class MainActivity : ComponentActivity() {
 
         if (
             properties.volumeKeys == VolumeKeysBehaviour.VIRTUAL &&
-            event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+            event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN &&
+            !isExternalAlphabeticKeyEvent(event)
         ) {
             // 按住期间持续生效（Termux 的 `mVirtualControlKeyDown`）：新增 `Held` 粘滞态，
             // 与 `Once`/`Locked` 并列，`isActive()` 视其为按住；`consumeOneShotModifiers`
@@ -347,6 +349,16 @@ class MainActivity : ComponentActivity() {
 
         return false
     }
+
+    /**
+     * 该按键事件是否来自外接的**完整字母键盘**。
+     *
+     * 上游 `TermuxTerminalViewClient.handleVirtualKeys` 的判据：外接字母键盘在场时
+     * 不抢它的音量键——那些键属于键盘自身的布局（部分蓝牙键盘带音量键），抢过来
+     * 当 Ctrl 用会让用户调不了音量。本应用沿用同一判据。
+     */
+    private fun isExternalAlphabeticKeyEvent(event: KeyEvent): Boolean =
+        event.device?.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC
 }
 
 @Composable
