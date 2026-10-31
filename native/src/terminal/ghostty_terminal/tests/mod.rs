@@ -218,6 +218,7 @@ fn row_text_from_cells(cells: &[CellData], row: u32) -> String {
     by_col.into_iter().map(|(_, ch)| ch).collect()
 }
 
+mod batch_latency;
 mod grid_text;
 mod lifecycle;
 mod mouse_osc;

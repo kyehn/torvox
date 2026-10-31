@@ -103,7 +103,10 @@ impl super::GhosttyTerminal {
             // 同批到达的 TakeSnapshot 必须能观察到 FIFO 序上排在它之前的写入，
             // 并重建而不是提供陈旧缓存。
             let mut batch = BatchState::default();
+            let mut batch_size = 0u64;
+            let batch_started = std::time::Instant::now();
             'batch: while let Some(command) = pending.take() {
+                batch_size += 1;
                 match Self::apply_command(
                     command,
                     &config,
@@ -116,8 +119,22 @@ impl super::GhosttyTerminal {
                     CommandOutcome::EndBatch => break 'batch,
                     CommandOutcome::Terminate => break 'vt_loop,
                 }
+                // 批有两道界（见 `MAX_COMMANDS_PER_BATCH` 与 `COMMAND_BATCH_BUDGET`）：
+                // 批尾是唯一的帧发布点与查询应答点，批若只等命令通道排空，持续输出
+                // 下通道恒非空——帧与查询被无限期推迟：屏幕停在旧帧（剩余输出不可见），
+                // 查询逐个超时。
+                //
+                // 判据放在取下一条命令之前：先取再断批会把那条已出队的命令丢在
+                // 半路（命令随之消失，终端少了一段输出）。
+                if batch_size >= MAX_COMMANDS_PER_BATCH
+                    || batch_started.elapsed() >= COMMAND_BATCH_BUDGET
+                {
+                    break 'batch;
+                }
                 pending = config.command_receiver.try_recv().ok();
             }
+            #[cfg(test)]
+            config.batch_stats.record(batch_size);
             Self::finish_command_batch(
                 &config,
                 taken_query,
@@ -212,6 +229,10 @@ impl super::GhosttyTerminal {
     ///
     /// 同步更新（模式 2026）保持中不发布中间帧：渲染线程继续显示进入保持前
     /// 的那一帧，ESU 的写入重新置脏并在批尾发布最终帧。
+    ///
+    /// 帧是全量快照，后到的覆盖先到的：这里不因「上一帧尚未被取走」而跳过构建——
+    /// 跳过后最新状态会滞留到下一批甚至下一次节拍才送达，渲染线程先取到的仍是
+    /// 旧帧。抽取成本由「每批至多构建一帧」约束，而不是由丢弃最新帧约束。
     fn publish_cell_data<'alloc>(
         config: &RunConfig,
         terminal: &mut Terminal<'alloc, '_>,

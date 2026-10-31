@@ -276,4 +276,7 @@ pub(crate) struct RunConfig {
     /// Kitty 占位符扫描计数，仅测试使用。
     #[cfg(test)]
     pub(crate) kitty_stats: super::internal::CacheStats,
+    /// 批大小计数，仅测试使用：断言命令批有条数上界（持续输出不得饿死帧与查询）。
+    #[cfg(test)]
+    pub(crate) batch_stats: super::internal::BatchStats,
 }
