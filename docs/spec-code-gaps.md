@@ -11,6 +11,12 @@
 - 修饰键栏默认布局与 Termux 上游不一致：规范要求「布局/按键和 Termux 完全相同」，
   代码把首行的 `/` 与 `-` 换成了 `DRAWER` 与 `SCROLL`。
 - 三处边界差异：配置重读时机、超大文件的口径、`beam` 取值在两份规范里的说法不一致。
+- 新增差异：字体用户目录只扫描 `~/.termux`，遗漏 `~/.config/termux` 的默认字体与字体目录；
+  影响 Termux 用户已有字体配置的兼容性，修复成本低。
+- 新增差异：Bootstrap 安装前清空而非拒绝已存在的 `usr-staging`，与 `DESIGN.md` 字面要求
+  不一致；实现更利于恢复失败安装，但并发/失败语义需确认。
+- Bootstrap 的内置 SHA-256 校验不是 `PROHIBITED.md` 禁止的 sidecar 校验：它不读取外部
+  校验文件，只对钉住的预设 URL 生效，复杂度与性能开销低，保留合理。
 - 本轮清掉了 `openspec/specs` 里已删除功能的残留条款（响铃、光标闪烁、会话切换提示），
   使次级规范重新与实现对齐；其余差异按现状登记，未擅自删除功能。
 
@@ -76,6 +82,16 @@
 本轮合入的改动只改了失败口径（读失败保留上一次覆盖，见下节），没有触碰「该不该解析」
 这件事——那属于功能取舍，不在合入范围内。
 
+## Bootstrap：清空而非拒绝已存在的 staging
+
+`DESIGN.md` 要求安装前 `usr-staging` 目录必须不存在，存在则拒绝执行。实现里
+`BootstrapInstaller.install` 先调 `clearStaging(stagingDir)`：目录能清空就继续，只有清不净
+才抛错中止。这不是「存在即拒绝」，而是「存在就清掉」。
+
+评估：清空残留 staging 能恢复上一次失败安装，避免用户手动删目录；但与规范字面
+不同，且把「上一次安装失败留下的 staging」与「并发安装」混在一起处理。复杂度低，
+风险主要在并发/失败恢复语义，建议明确是保留清空策略还是按规范改成拒绝。
+
 ## 修饰键栏默认布局
 
 `TermuxProperties.DEFAULT_EXTRA_KEYS` 第一行为 `ESC DRAWER SCROLL HOME UP END PGUP`，
@@ -97,6 +113,37 @@
   「上一次成功的结果」就是默认值，两者一致；重载时才会分叉。
 - `terminal-cursor-style` 的 `beam`：`config.md` 允许 `block`/`bar`/`beam`/`underline`，
   `DESIGN.md` 只列 `block`/`bar`/`underline`。实现接受 `beam`，落成竖线（与 `bar` 同形）。
+
+## 字体：仅扫描 `.termux`，遗漏 `.config/termux`
+
+`DESIGN.md` 字体节明确允许两组路径：
+
+- 默认字体覆盖：`/data/data/com.termux/files/home/.termux/font.ttf` 或
+  `/data/data/com.termux/files/home/.config/termux/font.ttf`（也支持 ttc、otf）。
+- 用户字体目录：`/data/data/com.termux/files/home/.termux/fonts` 或
+  `/data/data/com.termux/files/home/.config/termux/fonts` 存在时加入扫描路径。
+
+实现只认前一组/前一个目录：
+
+- `FontUtils.termuxDefaultFontFile` 只在 `~/.termux` 下查找 `font.ttf`/`font.ttc`/`font.otf`，
+  不查找 `~/.config/termux`。`Bridge.probeDefaultFontFile` 用它决定主字体覆盖。
+- `FontUtils.termuxFontDir` 只返回 `~/.termux/fonts`；`TerminalViewModel.applyStoredFontSettings`
+  与 `refreshFontList` 只注册这一目录，`TerminalRuntime` 的额外字体路径 likewise。
+
+影响：Termux 用户若把字体放在 `~/.config/termux`（规范明确支持的路径），应用会忽略它们，
+主字体覆盖不生效、字体列表里也看不到。复杂度低、稳定性影响低；修复只需把两个路径都纳入
+查找/注册，不改变渲染逻辑。
+
+## Bootstrap 内置 SHA-256 与禁止条目
+
+`PROHIBITED.md` 禁止的是「Bootstrap zip 的 sha256 sidecar 校验」，即随 zip 一起分发的
+外部校验文件。实现不是 sidecar：`BootstrapDownloader` 只在 URL 等于
+`TermuxBootstrap.downloadUrl(architecture)` 时，使用 `TermuxBootstrap.sha256(architecture)`
+内置的钉住摘要校验；自定义 URL 无法预知内容，会明确记录日志并跳过，不会静默降级。
+摘要在下载落盘途中顺带计算，不为校验再读一遍归档。
+
+评估：这是有意义的安全校验，防止引导 URL 被用户改成不可信来源后执行其中的 `postinst`；
+复杂度低、性能开销低，与禁止条目字面不冲突。保留合理。
 
 ## 规范文档自身的不一致
 
