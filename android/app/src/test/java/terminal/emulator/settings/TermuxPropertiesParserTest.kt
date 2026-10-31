@@ -1,7 +1,6 @@
 package terminal.emulator.settings
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -215,7 +214,7 @@ class TermuxPropertiesParserTest {
     }
 
     /**
-     * 宏是 termux 的正式语法（`{macro: "CTRL f d"}`），本应用只解析、不播放。
+     * 宏是 termux 的正式语法（`{macro: "CTRL f d"}`），本应用解析并播放。
      * 它 MUST 只丢自己那一项：整份布局因为一个宏回到默认，等于用户配好的键位被
      * 一个不认识的对象整体作废。
      */
@@ -223,7 +222,7 @@ class TermuxPropertiesParserTest {
     fun `a macro key does not void the whole layout`() {
         val loaded = parse("""extra-keys = [['ESC',{macro:'CTRL f d',display:'tmux'}]]""")
         assertEquals(
-            listOf(listOf(ExtraKey("ESC"), ExtraKey("tmux", macro = "CTRL f d"))),
+            listOf(listOf(ExtraKey("ESC"), ExtraKey("tmux", macro = "CTRL f d", display = "tmux"))),
             loaded.properties.extraKeys,
         )
         assertTrue("宏本身不是错误: ${loaded.errors}", loaded.errors.isEmpty())

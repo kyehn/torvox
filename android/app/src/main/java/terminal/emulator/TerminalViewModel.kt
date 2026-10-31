@@ -36,6 +36,7 @@ import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.runtime.pasteByteChunks
 import terminal.emulator.runtime.truncatePasteText
+import terminal.emulator.settings.MacroStep
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.settings.TermuxConfiguration
 import terminal.emulator.settings.TermuxPropertiesRepository
@@ -289,6 +290,14 @@ constructor(
     }
 
     private val clipboardAccess = ClipboardAccess(context, tag = "TerminalViewModel")
+
+    /**
+     * 宏键的文本来源：虚拟键盘的字符表。
+     *
+     * 与实体键盘同源（平台自己的布局表），故「Shift+f → F」「AltGr → 组合字符」
+     * 这些细节不必在应用侧另写一份。
+     */
+    private val macroCharacterMap by lazy { KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD) }
 
     private val selectionManager = SelectionManager()
 
@@ -934,7 +943,9 @@ constructor(
                 }
                 // 先注册用户投放目录再应用，使其字体在 bridge 上可见
                 // （重复注册为空操作）；主/次路径都纳入。
-                val fontDirs = terminal.emulator.termuxFontDirs(context).filter { it.isDirectory }.map { it.absolutePath }
+                val fontDirs = terminal.emulator.termuxFontDirs(context).filter {
+                    it.isDirectory
+                }.map { it.absolutePath }
                 if (fontDirs.isNotEmpty()) bridge.setExtraFontPaths(fontDirs)
                 val storedFamily = settingsRepository.fontFamily.first()
                 clearUnknownFontFamily(
@@ -970,7 +981,9 @@ constructor(
                     }
                     // 先注册用户投放目录再列举，使其字体家族即使在早于
                     // Runtime.start() 完成时也被纳入（重复注册为空操作）；主/次路径都纳入。
-                    val fontDirs = terminal.emulator.termuxFontDirs(context).filter { it.isDirectory }.map { it.absolutePath }
+                    val fontDirs = terminal.emulator.termuxFontDirs(context).filter {
+                        it.isDirectory
+                    }.map { it.absolutePath }
                     if (fontDirs.isNotEmpty()) bridge.setExtraFontPaths(fontDirs)
                     val allFonts =
                         terminal.emulator.settings.availableFontFamilies(
@@ -1802,10 +1815,48 @@ constructor(
         )
     }
 
+    /**
+     * 播放 `extra-keys` 的宏（`{macro: "CTRL f d"}`）。
+     *
+     * 逐个普通键走原生键编码器：修饰位与可打印键的**平台文本**一并下发，编码器据此
+     * 折叠 Ctrl 字节、加 ESC 前缀（Alt）、并按 Shift 给出大写文本。只下键码不下文本
+     * 的话，可打印键在编码器眼里「没有字面量」——它不会发出任何字节（上游
+     * `key::Encoder` 的既有约束）。
+     *
+     * 宏自带修饰位，不吃键栏上的粘滞 CTRL/ALT：两者叠加会让「Ctrl f」这类宏在用户
+     * 恰好按着粘滞 Ctrl 时变成 Ctrl+Ctrl+f。
+     */
+    fun sendMacro(steps: List<MacroStep>) {
+        val bridge = runtime.bridge() ?: return
+        var modifiers = 0
+        for (step in steps) {
+            when (step) {
+                is MacroStep.Modifier -> modifiers = modifiers or step.bit
+
+                is MacroStep.Key -> {
+                    sendMacroKey(bridge, step, modifiers)
+                    // 修饰位只作用于其后第一个普通键（上游语义）。
+                    modifiers = 0
+                }
+            }
+        }
+    }
+
+    /** 宏里的一个普通键：键码 + 平台文本 → 编码器。 */
+    private fun sendMacroKey(bridge: Bridge, step: MacroStep.Key, modifiers: Int) {
+        // 文本只按 Shift 取：Ctrl 的字面量仍是未折叠的字母（折叠由编码器做），
+        // Alt 的 ESC 前缀也由编码器加——文本若已带上这两种修饰，编码器就会折两次。
+        val metaState = if (modifiers and KeyModifiers.SHIFT != 0) KeyEvent.META_SHIFT_ON else 0
+        val text = macroCharacterMap.get(step.keyCode, metaState)
+        val unshifted = macroCharacterMap.get(step.keyCode, 0)
+        if (!bridge.processKeyEvent(step.keyCode, modifiers, KeyEvent.ACTION_DOWN, text, unshifted)) {
+            LogUtil.warn("TerminalViewModel", "macro key '${step.token}' produced no bytes")
+        }
+    }
+
     fun closeSession() {
         closeSession(_state.value.activeSessionId)
     }
-
     fun closeSession(sessionId: Long) {
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
             // 关闭资格必须在 closeSession **之前**捕获：runtime 在关掉活动会话时会切到

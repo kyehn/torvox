@@ -132,21 +132,71 @@ class ModifierBarLayoutTest {
         assertEquals("ENTER", label("ENTER", ExtraKeysStyle.NONE))
     }
 
-    /** 宏没有播放器：键不渲染，但同一行的其他键与行数都不受影响。 */
+    /**
+     * 宏键会被渲染成一个宏槽位：宏有播放器（见 `MacroParser`），没有理由把它藏起来。
+     *
+     * 宏槽位没有单一键码，键帽默认显示宏串。
+     */
     @Test
-    fun `macro keys are hidden without dropping the row`() {
-        val layout = listOf(listOf(ExtraKey("ESC"), ExtraKey("tmux", macro = "CTRL f d")))
+    fun `macro keys become macro slots`() {
+        val layout = listOf(listOf(ExtraKey("ESC"), ExtraKey("tmux", macro = "CTRL f d", display = "tmux")))
+        val slots = buildExtraKeySlots(layout, ExtraKeysStyle.DEFAULT, true)
+        assertEquals(2, slots[0].size)
+        val macro = slots[0][1]
+        // `extra-keys-text-all-caps` 照常作用于显式 display。
+        assertEquals("TMUX", macro.label)
+        assertNull(macro.keyCode)
+        assertEquals(3, macro.macro?.size)
+        assertEquals(1, extraKeyRowCount(layout))
+    }
+
+    /** 宏键帽默认显示宏串（上游亦然：显示文本由宏的键名拼成）。 */
+    @Test
+    fun `a macro without an explicit display shows the macro text`() {
+        val slot = buildExtraKeySlots(
+            listOf(listOf(ExtraKey("tmux", macro = "CTRL f d"))),
+            ExtraKeysStyle.DEFAULT,
+            true,
+        )[0][0]
+        assertEquals("CTRL F D", slot.label)
+    }
+
+    /** 不可解析的宏（未知记号、含 FN）不渲染，但同行其余键照常。 */
+    @Test
+    fun `an unusable macro is dropped without dropping the row`() {
+        val layout = listOf(listOf(ExtraKey("ESC"), ExtraKey("bad", macro = "FN f")))
         val slots = buildExtraKeySlots(layout, ExtraKeysStyle.DEFAULT, true)
         assertEquals(listOf("ESC"), slots[0].map { it.name })
         assertEquals(1, extraKeyRowCount(layout))
     }
 
-    /** 只有宏的一行不占高度：预留高度必须与画出的键栏同判据。 */
+    /** 只有宏的一行占高度：预留高度必须与画出的键栏同判据。 */
     @Test
-    fun `a macro-only row reserves no height`() {
+    fun `a macro-only row reserves height`() {
         val layout = listOf(listOf(ExtraKey("tmux", macro = "CTRL f d")))
-        assertEquals(0, extraKeyRowCount(layout))
-        assertTrue(buildExtraKeySlots(layout, ExtraKeysStyle.DEFAULT, true).isEmpty())
+        assertEquals(1, extraKeyRowCount(layout))
+        assertEquals(1, buildExtraKeySlots(layout, ExtraKeysStyle.DEFAULT, true).size)
+    }
+
+    /**
+     * 上游的键名别名：`ESCAPE` 与 `ESC` 等价。
+     *
+     * 不套别名表时 `ESCAPE` 会被当成未知键名丢掉——同一份 `extra-keys` 在两个应用里
+     * 画出的键栏不一样。
+     */
+    @Test
+    fun `upstream key aliases resolve to the same key`() {
+        val escape = buildExtraKeySlots(listOf(listOf(ExtraKey("ESCAPE"))), ExtraKeysStyle.DEFAULT, true)[0][0]
+        assertEquals(android.view.KeyEvent.KEYCODE_ESCAPE, escape.keyCode)
+        assertEquals("ESC", escape.name)
+
+        val control = buildExtraKeySlots(listOf(listOf(ExtraKey("CONTROL"))), ExtraKeysStyle.DEFAULT, true)[0][0]
+        assertEquals(TerminalKeyCatalog.Special.CTRL, control.special)
+
+        // 别名指向单字符时按字面量发送（上游：BACKSLASH → `\`）。
+        val backslash = buildExtraKeySlots(listOf(listOf(ExtraKey("BACKSLASH"))), ExtraKeysStyle.DEFAULT, true)[0][0]
+        assertNull(backslash.keyCode)
+        assertEquals("\\", backslash.name)
     }
 
     /** popup 随槽位带下去，供长按发送。 */

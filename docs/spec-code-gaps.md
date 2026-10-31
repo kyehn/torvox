@@ -7,17 +7,26 @@
 ## 结论
 
 - 配置面：`termux.properties` 实解析 16 个键，`docs/specification/config.md` 与 `PROHIBITED.md` 现已全部收录；
-  代码与规范对齐，不再是「规范未收录」。剩余差异集中在修饰键栏默认布局、字体扫描路径、Bootstrap staging 与边界口径。
+  代码与规范对齐，不再是「规范未收录」。
 - `colors.properties` 解析已按用户指令移除，实现与 `config.md`、`PROHIBITED.md` 一致。
-- 修饰键栏默认布局：`DESIGN.md` 现已明确记录在 Termux 上游基础上将 `/` 与 `-` 替换为
-  `DRAWER` 与 `SCROLL`，键面与规范对齐；剩余为产品取舍，不再是文档漂移。
+- 修饰键栏默认布局：**与 Termux 上游一致**（上游 v0.119.0-beta.3 的
+  `DEFAULT_IVALUE_EXTRA_KEYS` 首行即 `ESC DRAWER SCROLL HOME UP END PGUP`，并非
+  `ESC / - …`）。此前文档与代码注释把默认值说成「上游把 `/` 与 `-` 换成 DRAWER 与
+  SCROLL」是**错的**，本轮已按上游源码更正。
+- 上游键名别名表此前未实现：`ESCAPE`/`CONTROL`/`PAGEUP` 等写法会被当成未知键名丢掉。
+  本轮已实现（`TerminalKeyCatalog.normalizeKeyName`）。
+- `extra-keys` 的 `{macro: ...}` 此前只解析不渲染；本轮已按上游语义实现播放
+  （`MacroParser` + `TerminalViewModel.sendMacro`）。`FN`/`SHIFT` 键与对象形式 `popup`
+  仍不支持，已写入 `PROHIBITED.md`。
+- `volume-keys` 此前无条件拦截音量减；本轮补上上游口径「外接字母键盘在场时不抢它的
+  音量键」。
 - 边界差异：配置重读时机与实现一致；超大文件口径首次加载与重载略有分叉（实现保留上次成功结果）；
-  `beam` 取值在 `DESIGN.md` 与 `config.md` 现已一致。
+  `beam` 取值在 `DESIGN.md` 与 `config.md` 现已一致，且已注明上游无此取值。
 - 字体：`~/.config/termux` 的默认字体与字体目录现已纳入扫描/注册，主路径优先。
 - 新增差异：Bootstrap 安装前清空而非拒绝已存在的 `usr-staging`，与 `DESIGN.md` 字面要求
   不一致；实现更利于恢复失败安装，但并发/失败语义需确认。
-- Bootstrap 的内置 SHA-256 校验不是 `PROHIBITED.md` 禁止的 sidecar 校验：它不读取外部
-  校验文件，只对钉住的预设 URL 生效，复杂度与性能开销低，保留合理。
+- Bootstrap 的内置 SHA-256 校验不是 `PROHIBITED.md` 禁止的「随 zip 分发的独立校验文件」：
+  它不读取外部校验文件，只对钉住的预设 URL 生效，复杂度与性能开销低，保留合理。
 - 本轮清掉了 `openspec/specs` 里已删除功能的残留条款（响铃、光标闪烁、会话切换提示），
   使次级规范重新与实现对齐；其余差异按现状登记，未擅自删除功能。
 
@@ -43,7 +52,7 @@
 | `terminal-margin-vertical` | 终端上下边距 | config.md 已收录 |
 | `terminal-toolbar-height` | 修饰键栏高度倍率 | config.md 已收录 |
 | `extra-keys-style` | 键帽字形档位 | config.md 已收录 |
-| `extra-keys` | 键栏布局（行、键位、字形、`display` 覆盖） | config.md 已收录；`DESIGN.md` 默认布局在 Termux 上游基础上将 `/` 与 `-` 替换为 DRAWER 与 SCROLL（见下节） |
+| `extra-keys` | 键栏布局（行、键位、字形、`display` 覆盖、宏播放、键名别名） | config.md 已收录；默认布局与 Termux 上游一致（见下节） |
 | `back-key` | 返回键改发 ESC | config.md 已收录 |
 | `volume-keys` | 音量减改为虚拟 Ctrl | config.md 已收录 |
 | `soft-keyboard-toggle-behaviour` | 键盘键改为启用/禁用输入法 | config.md 已收录 |
@@ -57,12 +66,15 @@
 
 其中默认值本身改变行为：
 
-- `extra-keys` 默认把第一行的 `/` 与 `-` 换成 `DRAWER` 与 `SCROLL`：`DESIGN.md` 现已明确记录这一替换，
-  作为本应用相对 Termux 的有意偏离（抽屉与滚动锁定需要固定入口）。
-- `volume-keys` 默认 `virtual`，`MainActivity` 默认把音量减拦截为一次性 Ctrl；
+- `extra-keys` 默认布局与上游一致（首行 `ESC DRAWER SCROLL HOME ↑ END PGUP`，次行
+  `TAB CTRL ALT ← ↓ → PGDN`），只有 DRAWER 的 `popup: 'PASTE'` 由本应用以「长按即粘贴」
+  的动作实现，语义等价。
+- `volume-keys` 默认 `virtual`，`MainActivity` 默认把音量减拦截为虚拟 Ctrl（按住期间持续生效）；
   `DESIGN.md` 未声明该行为。
+- `hide-soft-keyboard-on-startup` 默认 `true`，与上游的 `false` 相反（本应用启动时从不
+  主动请求输入法，默认值必须反映既有外观），已在 `config.md` 与 `openspec` 注明。
 - `terminal-margin-horizontal` 默认 3dp、`terminal-margin-vertical` 默认 0dp、
-  `terminal-toolbar-height` 默认 1 倍：默认视觉与 Termux 接近，但键面本身违规。
+  `terminal-toolbar-height` 默认 1 倍：默认视觉与 Termux 接近。
 
 其余键默认值不改变现有行为，非默认值会启用未声明能力。
 
@@ -87,12 +99,33 @@
 ## 修饰键栏默认布局
 
 `TermuxProperties.DEFAULT_EXTRA_KEYS` 第一行为 `ESC DRAWER SCROLL HOME UP END PGUP`，
-第二行为 `TAB CTRL ALT LEFT DOWN RIGHT PGDN`。上游 termux 的默认首行是
-`ESC / - HOME ↑ END PGUP`：本应用把 `/` 与 `-` 换成了抽屉与滚动锁定两个入口。
+第二行为 `TAB CTRL ALT LEFT DOWN RIGHT PGDN`。这与 termux v0.119.0-beta.3 的
+`DEFAULT_IVALUE_EXTRA_KEYS` 一致（上游同样含 DRAWER 与 SCROLL），差异只有一处：上游把
+DRAWER 写成 `{key: 'DRAWER', popup: 'PASTE'}`，本应用以「长按抽屉键粘贴」的动作实现
+同一语义。
 
-`DESIGN.md` 现已明确记录：固定 2 行 7 列，默认布局在 Termux 上游基础上将 `/` 与 `-`
-替换为 DRAWER 与 SCROLL 入口。抽屉仍有 `ModalNavigationDrawer` 的左缘滑动入口；滚动锁定是
-本应用相对 Termux 的有意补充。键面本身已无规范差异，剩余的是产品取舍，不是文档漂移。
+`DESIGN.md` 已按此更正记录。抽屉仍有 `ModalNavigationDrawer` 的左缘滑动入口；滚动锁定
+是本应用相对 Termux 的补充功能，但入口本身在上游默认键栏里。
+
+## 上游键名别名（此前缺失）
+
+上游 `ExtraKeysConstants.CONTROL_CHARS_ALIASES` 在解析每个键名时先做一次别名替换，
+故 `ESCAPE`、`CONTROL`、`SHFT`、`RETURN`、`FUNCTION`、`LT`/`RT`/`DN`、
+`PAGEUP`/`PAGE UP`/`PAGE-UP`、`PAGEDOWN`/`PAGE DOWN`/`PAGE-DOWN`、`DELETE`、
+`BACKSPACE`、`BACKSLASH`、`QUOTE`、`APOSTROPHE` 都与原名等价。
+
+本轮已实现（`TerminalKeyCatalog.normalizeKeyName`），并同时用于键码/特殊键查表、字形
+查表与宏记号解析。此前这些写法会被当成未知键名丢掉。
+
+## 宏播放（此前只解析）
+
+`{macro: "CTRL f d"}` 此前被解析后丢弃（键栏不渲染）。本轮按上游
+`TerminalExtraKeys.onExtraKeyButtonClick` 的语义实现：宏串按空白切分，`CTRL`/`ALT`/
+`SHIFT` 作用于其后第一个普通记号，普通记号经原生键编码器发出（连同平台文本，否则
+可打印键不产生字节）。
+
+不可用的宏（含 `FN` 或未知记号）只丢自己那一项，不作废整行。`FN`/`SHIFT` 键本身、
+对象形式 `popup`、`volume-keys` 的虚拟 FN 映射不支持，已写入 `PROHIBITED.md`。
 
 ## 边界差异
 
@@ -103,7 +136,8 @@
   读失败（`TermuxPropertiesRepository.readFile`），保留上一次成功的结果。首次加载时
   「上一次成功的结果」就是默认值，两者一致；重载时才会分叉。
 - `terminal-cursor-style` 的 `beam`：`config.md` 与 `DESIGN.md` 均允许 `block`/`bar`/`beam`/`underline`，
-  实现接受 `beam`，落成竖线（与 `bar` 同形）。
+  实现接受 `beam`，落成竖线（与 `bar` 同形）。termux 上游只有 `block`/`bar`/`underline`，
+  `beam` 是本应用额外接受的别名，已在文档中注明。
 
 ## 字体：`.config/termux` 路径已纳入（已修复）
 
@@ -120,8 +154,8 @@
 
 ## Bootstrap 内置 SHA-256 与禁止条目
 
-`PROHIBITED.md` 禁止的是「Bootstrap zip 的 sha256 sidecar 校验」，即随 zip 一起分发的
-外部校验文件。实现不是 sidecar：`BootstrapDownloader` 只在 URL 等于
+`PROHIBITED.md` 禁止的是「Bootstrap zip 的 sha256 独立校验文件」，即随 zip 一起分发的
+外部校验文件。实现不是这种独立校验文件：`BootstrapDownloader` 只在 URL 等于
 `TermuxBootstrap.downloadUrl(architecture)` 时，使用 `TermuxBootstrap.sha256(architecture)`
 内置的钉住摘要校验；自定义 URL 无法预知内容，会明确记录日志并跳过，不会静默降级。
 摘要在下载落盘途中顺带计算，不为校验再读一遍归档。
