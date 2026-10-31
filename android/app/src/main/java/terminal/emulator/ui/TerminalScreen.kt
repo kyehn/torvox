@@ -66,13 +66,12 @@ import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.SearchMatchRange
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.selectionEndpoints
 import terminal.emulator.settings.SoftKeyboardToggleBehaviour
 import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
-import kotlin.math.max
-import kotlin.math.min
 
 // toggleKeyboard lambda 在抽屉完全关闭时已跳过延迟路径；
 // 抽屉打开时，50ms 足以让遮罩轻击在输入法与关闭动画竞争前生效。
@@ -696,17 +695,14 @@ fun TerminalScreen(
                         if (selectionActive) {
                             val selStart = selection.start
                             val selEnd = selection.end
-                            val loRow = min(selStart.row, selEnd.row)
-                            val hiRow = max(selStart.row, selEnd.row)
-                            val loCol: Int
-                            val hiCol: Int
-                            if (selStart.row <= selEnd.row) {
-                                loCol = selStart.col
-                                hiCol = selEnd.col
-                            } else {
-                                loCol = selEnd.col
-                                hiCol = selStart.col
-                            }
+                            // 端点归一化与取文、原生下发共用同一份（[selectionEndpoints]）：
+                            // 手柄位置与反色区域必须来自同一条规则。此处另写一份时，
+                            // 向左上的选区会让手柄停在端点、高亮却按包围盒铺开。
+                            val bounds = selectionEndpoints(selStart, selEnd)
+                            val loRow = bounds.startRow
+                            val loCol = bounds.startCol
+                            val hiRow = bounds.endRow
+                            val hiCol = bounds.endCol
                             val themeAccent =
                                 if (state.selectionAccent != 0) {
                                     Color(state.selectionAccent)
@@ -757,13 +753,8 @@ fun TerminalScreen(
                         if (menuSurface != null && selectionActive && !selection.dragging) {
                             val menuVisible = !selection.menuDismissed
                             if (menuVisible) {
-                                val themeAccentArgb =
-                                    if (state.selectionAccent != 0) {
-                                        Color(state.selectionAccent)
-                                    } else {
-                                        resolvedTerminalTheme.foreground
-                                    }
-                                        .toArgb()
+                                // 高亮色沿用上面同一份：两处各算一遍时，手柄与菜单
+                                // 的强调色会随任一处的改动而分叉。
                                 // 选择菜单走 Surface 侧 PopupWindow 定位与绘制，不用系统 ActionMode。
                                 // surfaceRef 必须在 key 里：PopupWindow 是由**那一个**
                                 // Surface 承载的独立系统窗口，AndroidView 重建 SurfaceView 后

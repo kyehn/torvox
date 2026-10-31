@@ -181,10 +181,8 @@ fun SettingsScreen(
                         onNightThemeSelected = { viewModel.setNightThemeName(it) },
                         onFixedThemeSelected = { viewModel.setThemeName(it) },
                         textColor = textColor,
-                        secondaryText = secondaryText,
                         cardBackground = cardBackground,
                         sectionTitleColor = sectionTitleColor,
-                        isSmallScreen = isSmallScreen,
                     )
                 }
                 item {
@@ -192,12 +190,9 @@ fun SettingsScreen(
                         selectedShell = settings.shell,
                         onShellSaved = { viewModel.setShell(it) },
                         textColor = textColor,
-                        secondaryText = secondaryText,
                         accentColor = accentColor,
                         cardBackground = cardBackground,
-                        backgroundColor = backgroundColor,
                         sectionTitleColor = sectionTitleColor,
-                        isSmallScreen = isSmallScreen,
                     )
                 }
                 item {
@@ -214,7 +209,6 @@ fun SettingsScreen(
                         accentColor = accentColor,
                         cardBackground = cardBackground,
                         sectionTitleColor = sectionTitleColor,
-                        isSmallScreen = isSmallScreen,
                     )
                 }
                 item {
@@ -223,7 +217,6 @@ fun SettingsScreen(
                         textColor = textColor,
                         cardBackground = cardBackground,
                         sectionTitleColor = sectionTitleColor,
-                        isSmallScreen = isSmallScreen,
                     )
                 }
                 item { Spacer(modifier = Modifier.height(24.dp)) }
@@ -365,10 +358,8 @@ private fun TerminalThemeSection(
     onNightThemeSelected: (String) -> Unit,
     onFixedThemeSelected: (String) -> Unit,
     textColor: Color,
-    secondaryText: Color,
     cardBackground: Color,
     sectionTitleColor: Color,
-    isSmallScreen: Boolean,
 ) {
     // 主题单源在 Rust 侧，经仓库取回；自定义主题为禁止实现。取进程内缓存而非
     // `remember`：本组合在 LazyColumn 列表项内，滚出再滚回会重跑整轮 JNI。
@@ -393,7 +384,6 @@ private fun TerminalThemeSection(
                         themes = allThemes,
                         onThemeSelected = { onDayThemeSelected(it) },
                         textColor = textColor,
-                        secondaryText = secondaryText,
                         cardBackground = cardBackground,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -403,7 +393,6 @@ private fun TerminalThemeSection(
                         themes = allThemes,
                         onThemeSelected = { onNightThemeSelected(it) },
                         textColor = textColor,
-                        secondaryText = secondaryText,
                         cardBackground = cardBackground,
                     )
                 }
@@ -414,7 +403,6 @@ private fun TerminalThemeSection(
                     themes = allThemes,
                     onThemeSelected = { onFixedThemeSelected(it) },
                     textColor = textColor,
-                    secondaryText = secondaryText,
                     cardBackground = cardBackground,
                 )
             }
@@ -428,12 +416,9 @@ private fun TerminalConfigSection(
     selectedShell: String,
     onShellSaved: (String) -> Unit,
     textColor: Color,
-    secondaryText: Color,
     accentColor: Color,
     cardBackground: Color,
-    backgroundColor: Color,
     sectionTitleColor: Color,
-    isSmallScreen: Boolean,
 ) {
     Column {
         SectionHeader(stringResource(R.string.terminal), sectionTitleColor)
@@ -463,7 +448,6 @@ private fun BootstrapSectionFromSettings(
     accentColor: Color,
     cardBackground: Color,
     sectionTitleColor: Color,
-    isSmallScreen: Boolean,
 ) {
     Column {
         SectionHeader(stringResource(R.string.bootstrap), sectionTitleColor)
@@ -490,7 +474,6 @@ private fun ClearAppDataSectionItem(
     textColor: Color,
     cardBackground: Color,
     sectionTitleColor: Color,
-    isSmallScreen: Boolean,
 ) {
     Column {
         SectionHeader(stringResource(R.string.clear_app_data), sectionTitleColor)
@@ -610,7 +593,6 @@ private fun SystemFontSelector(
     accentColor: Color,
     fonts: ImmutableList<String> = persistentListOf(),
     defaultFontName: String = "",
-    titleOverride: String? = null,
 ) {
     // 保持传入顺序（fonts.xml 文档顺序在前），只做精确去重。
     val systemFonts = remember(fonts) { fonts.distinct() }
@@ -623,7 +605,7 @@ private fun SystemFontSelector(
     Column {
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = titleOverride ?: stringResource(R.string.font_family),
+            text = stringResource(R.string.font_family),
             style = labelStyle,
             color = textColor,
             maxLines = 1,
@@ -879,7 +861,6 @@ internal fun ThemeSelector(
     themes: ImmutableList<TerminalTheme>,
     onThemeSelected: (String) -> Unit,
     textColor: Color,
-    secondaryText: Color,
     cardBackground: Color,
 ) {
     val isSmallScreen = rememberIsSmallScreen()
@@ -904,7 +885,6 @@ internal fun ThemeSelector(
                     onClick = { onThemeSelected(theme.name) },
                     isSmallScreen = isSmallScreen,
                     textColor = textColor,
-                    secondaryText = secondaryText,
                 )
             }
         }

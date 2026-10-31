@@ -1162,14 +1162,10 @@ constructor(
                         )
                     }
                 }
-                // 运行期按升序发布（契约见 `RuntimeState.sessionIds`）：此处不再排序，
-                // 否则「谁负责排序」有两处答案，标签序号会随任一侧改动而分叉。
+                // 运行期按升序发布（契约见 `RuntimeState.sessionIds`）：合并时保留已取回的
+                // 标题/目录，排序只在 mergeSessions 一处发生——「谁负责排序」只有一个答案。
                 val sortedIds = runtimeState.sessionIds
-                val previousById = _state.value.sessions.associateBy { it.sessionId }
-                val sessions = sortedIds.map { sessionId ->
-                    previousById[sessionId]
-                        ?: SessionInfo(sessionId = sessionId)
-                }
+                val sessions = mergeSessions(_state.value.sessions, sortedIds)
                 val active = runtimeState.activeSessionId
                 // SCROLL 按钮锁是 Compose 状态，每个 SessionEntry 各存一份镜像。
                 // 活动会话一换就把它对齐：新建会话的条目以 scrollActive=false 起步，
@@ -1197,7 +1193,9 @@ constructor(
                             selectionAccent = runtime.accentColor,
                         )
                     }
-                    if (runtime.state.value.sessionIds.isNotEmpty()) {
+                    // 用本轮的快照，不再二次读 runtime.state：两读之间会话可能已全部关闭，
+                    // 那会让已发布的空列表又去应用一次字体。
+                    if (sortedIds.isNotEmpty()) {
                         // 会话启动只应用已存字体（bridge 按会话持有）；列表枚举是
                         // 字体列表 UI 的事，不在此触发。
                         fontManager.applyStoredFontSettings()
@@ -1275,6 +1273,18 @@ constructor(
 
     /** 非强制会话元数据刷新节流窗口；抽屉打开、关闭会话的强制刷新不受此限。 */
     private var lastMetaRefreshMs: Long = 0L
+
+    /**
+     * 按 id 升序合并会话列表：已有条目连同标题与工作目录一起保留。
+     *
+     * 运行期收集器与 [createSession] 做的是同一件事。两处各写一份时，任一处漏掉
+     * `previousById` 就会把其余会话当成新条目、清掉抽屉里已取回的标题与目录；
+     * 排序也只在这里发生，避免「谁负责排序」有两处答案。
+     */
+    private fun mergeSessions(previous: List<SessionInfo>, ids: List<Long>): List<SessionInfo> {
+        val previousById = previous.associateBy { it.sessionId }
+        return ids.distinct().sorted().map { previousById[it] ?: SessionInfo(sessionId = it) }
+    }
 
     /**
      * 回填抽屉列表的终端标题（序号由列表按位置从 1 递增渲染）。 JNI 查询在 IO 线程执行；
@@ -1696,16 +1706,11 @@ constructor(
                 if (newId > 0) {
                     _state.update { current ->
                         // 运行期的 sessionIds 收集器可能已在此更新运行前
-                        // 就并入了 newId（两者都跑在 IO 调度器上）
-                        // ——distinct() 使列表不含重复 id
-                        // （否则 LazyColumn 键冲突："Key N was already used"）。
-                        val sortedIds = (current.sessions.map { it.sessionId } + newId).distinct().sorted()
-                        val displayIndex = sortedIds.indexOf(newId) + 1
-                        val previousById = current.sessions.associateBy { it.sessionId }
-                        val sessions = sortedIds.map { sessionId ->
-                            previousById[sessionId]
-                                ?: SessionInfo(sessionId = sessionId)
-                        }
+                        // 就并入了 newId（两者都跑在 IO 调度器上）——mergeSessions
+                        // 去重使列表不含重复 id（否则 LazyColumn 键冲突：
+                        // "Key N was already used"）。
+                        val sessions = mergeSessions(current.sessions, current.sessions.map { it.sessionId } + newId)
+                        val displayIndex = sessions.indexOfFirst { it.sessionId == newId } + 1
                         current.copy(
                             isRunning = true,
                             title = context.getString(R.string.session_number, displayIndex),
@@ -1879,7 +1884,7 @@ constructor(
             }
             withContext(TerminalDispatchers.main) {
                 _state.update { current ->
-                    val remaining = current.sessions.filter { it.sessionId != sessionId }
+                    val remaining = current.sessions.filter { it.sessionId != sessionId }.sortedBy { it.sessionId }
                     if (remaining.isEmpty()) {
                         current.copy(
                             isRunning = false,
@@ -1888,16 +1893,18 @@ constructor(
                             selection = SelectionState(),
                         )
                     } else {
-                        val renumbered = remaining.sortedBy { it.sessionId }
                         val newActive =
                             if (current.activeSessionId == sessionId) {
+                                // 与运行期同一条规则（`remaining.keys.sorted().last()`）：
+                                // 接替的是最大 id。两侧各选各的会让 UI 高亮的会话与真正
+                                // 接收输入的会话分叉，敲键就发往未显示的会话。
                                 remaining.last().sessionId
                             } else {
                                 current.activeSessionId
                             }
-                        val newActiveIndex = renumbered.indexOfFirst { it.sessionId == newActive }
+                        val newActiveIndex = remaining.indexOfFirst { it.sessionId == newActive }
                         current.copy(
-                            sessions = renumbered,
+                            sessions = remaining,
                             activeSessionId = newActive,
                             title =
                             runtime.state.value.title.ifEmpty {
