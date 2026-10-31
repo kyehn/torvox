@@ -94,7 +94,7 @@
   - 启动目录默认 `/data/data/com.termux/files/home`；可通过 `termux.properties` 的 `default-working-directory` 覆盖，非法值回退默认；不提供 GUI 设置。
 - **Bootstrap**：支持 URL 与本地文件安装。
   - 提供 Termux 预设选项，不提供旧版本如 `apt-android-5 2022.04.28-r6`，从 `termux-app/app/build.gradle` 提取逻辑。
-  - 原子化替换 `/data/data/com.termux/files/usr/` 目录，下载/安装前要求中间目录 `/data/data/com.termux/files/usr-staging` 不存在，如果存在则拒绝执行，原 `usr` 重命名为 `usr.xxxxx`（随机后缀），安装完成后旧目录由用户手动删除，不自动删除。
+  - 原子化替换 `/data/data/com.termux/files/usr/` 目录，安装前清空中间目录 `/data/data/com.termux/files/usr-staging`，清不净即中止安装（不把新引导写进残留的旧树），原 `usr` 重命名为 `usr.xxxxx`（随机后缀），安装完成后旧目录由用户手动删除，不自动删除。
   - 不记录 Bootstrap 状态，不得生成安装标记。
   - 不得特殊化设置权限，按照 Termux 同款流程设置，不额外设置。
   - 禁止对其他 bootstrap 特殊处理，`postinstall` 只在存在时运行，不做无意义检查/校验，出现问题正常报错。
