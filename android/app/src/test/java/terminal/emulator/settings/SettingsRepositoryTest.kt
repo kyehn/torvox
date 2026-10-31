@@ -11,6 +11,8 @@ import app.cash.turbine.test
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -22,6 +24,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import terminal.emulator.ui.theme.ThemeRepository
 import java.io.File
 
 /**
@@ -38,6 +41,12 @@ class SettingsRepositoryTest {
 
     @Before
     fun setUp() {
+        // 缺省主题名来自原生主题目录（JNI），纯 JVM 测试取不到；把它替换成一个
+        // 可辨认的名字，测试才能断言「缺键时走默认」这条 elvis 分支，
+        // 而不是在 UnsatisfiedLinkError 上判红。
+        mockkObject(ThemeRepository)
+        every { ThemeRepository.defaultDarkName() } returns TEST_DARK_THEME
+        every { ThemeRepository.defaultLightName() } returns TEST_LIGHT_THEME
         val context = ApplicationProvider.getApplicationContext<Context>()
         prefsDir = File(context.cacheDir, "settings_test_${System.nanoTime()}")
         prefsDir.mkdirs()
@@ -55,7 +64,13 @@ class SettingsRepositoryTest {
 
     @After
     fun tearDown() {
+        unmockkObject(ThemeRepository)
         prefsDir.deleteRecursively()
+    }
+
+    private companion object {
+        const val TEST_DARK_THEME = "test-default-dark"
+        const val TEST_LIGHT_THEME = "test-default-light"
     }
 
     @Test
@@ -76,6 +91,26 @@ class SettingsRepositoryTest {
             assertEquals(SettingsRepository.DEFAULT_FOLLOW_SYSTEM, awaitItem())
             repository.setAppThemeMode("dark")
             assertEquals("dark", awaitItem())
+        }
+    }
+
+    /**
+     * 主题名的缺省值不在 data class 默认参数里，而在 [SettingsRepository.settings] 的
+     * elvis 右侧：Kotlin 构造时求值默认参数会让**每次读设置**都调一次原生主题目录。
+     * 本用例钉住「缺键时取默认、有键时取存储值」这条真正的行为。
+     */
+    @Test
+    fun `theme names fall back to the catalog defaults only when unset`() = runTest {
+        repository.themeName.test {
+            assertEquals(TEST_DARK_THEME, awaitItem())
+            repository.setThemeName("Solarized Dark")
+            assertEquals("Solarized Dark", awaitItem())
+        }
+        repository.dayThemeName.test {
+            assertEquals(TEST_LIGHT_THEME, awaitItem())
+        }
+        repository.nightThemeName.test {
+            assertEquals(TEST_DARK_THEME, awaitItem())
         }
     }
 

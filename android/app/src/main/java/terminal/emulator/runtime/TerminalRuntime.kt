@@ -2376,19 +2376,16 @@ constructor(
                 SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp),
             )
         if (settingsRepository.fontSizeExplicitlySet.first()) {
-            // fontSize 以 sp 为单位（SettingsRepository 默认 10f），fontSizeTenths 是同一值的
-            // 十分之一 sp 形式（原生字体管线直接消费 sp，光栅缩放会施加密度）。
+            // fontSize 以 sp 为单位，fontSizeTenths 是同一值的十分之一 sp 形式
+            // （原生字体管线直接消费 sp，光栅缩放会施加密度）。
             // 此处再乘密度会双重缩放字号（10sp → 225 tenths = 22.5sp），
             // 使设置滑块与渲染尺寸不一致。
             return (userFontSize * TENTHS_PER_UNIT.toFloat()).toInt()
         }
-        // 全新安装：按屏幕宽度推导合理默认值
-        // （唯一来源：SettingsRepository.defaultFontSizeFor），
-        // 使手机（~360dp）和平板（~600dp）显示相同的列数。
-        return (
-            SettingsRepository.defaultFontSizeFor(screenWidthDp) *
-                TENTHS_PER_UNIT.toFloat()
-            ).toInt()
+        // 全新安装：按屏幕宽度推导合理默认值（唯一来源：SettingsRepository.defaultFontSize），
+        // 使手机（~360dp）和平板（~600dp）显示相同的列数。宽度取自 Repository 的
+        // provider，而非在本类再读一次 configuration——同一条缺省策略只认一个宽度来源。
+        return (settingsRepository.defaultFontSize * TENTHS_PER_UNIT.toFloat()).toInt()
     }
 
     /**
@@ -2465,14 +2462,14 @@ constructor(
      * 原生管线当前渲染的字号（sp），即经 setFontSizeInPlace 最后一次推送的值；
      * 首次应用前回落为按设备自适应的缺省值。
      *
-     * 回落必须走 [SettingsRepository.defaultFontSizeFor] 这唯一一处缺省策略：曾硬编码
+     * 回落必须走 [SettingsRepository.defaultFontSize] 这唯一一处缺省策略：曾硬编码
      * 14sp，于是宽屏设备（真实缺省可达 24sp）的「字体实际大小」恒报 14sp，
      * 与设置页与渲染实际都矛盾。
      */
     fun appliedFontSizeSp(): Float {
         val tenths = appliedFontSizeTenths
         if (tenths > 0) return tenths / TENTHS_PER_UNIT.toFloat()
-        return SettingsRepository.defaultFontSizeFor(screenWidthDp)
+        return settingsRepository.defaultFontSize
     }
 
     internal suspend fun resolveThemeName(): String {

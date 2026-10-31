@@ -16,6 +16,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.ui.theme.AppThemeMode
+import terminal.emulator.ui.theme.TerminalThemeMode
+import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.util.TerminalDispatchers
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -42,15 +45,13 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     companion object {
         /** 默认夜间主题：单源在 Rust 侧，不在 Kotlin 侧另存名字面量。 */
-        private fun defaultTheme(): String = terminal.emulator.ui.theme.ThemeRepository
-            .defaultDarkName()
+        private fun defaultTheme(): String = ThemeRepository.defaultDarkName()
 
         /** 默认日间主题：单源在 Rust 侧。 */
-        private fun defaultDayTheme(): String = terminal.emulator.ui.theme.ThemeRepository
-            .defaultLightName()
+        private fun defaultDayTheme(): String = ThemeRepository.defaultLightName()
 
-        const val DEFAULT_FOLLOW_SYSTEM = terminal.emulator.ui.theme.AppThemeMode.FOLLOW_SYSTEM
-        const val DEFAULT_THEME_MODE = terminal.emulator.ui.theme.TerminalThemeMode.FIXED
+        const val DEFAULT_FOLLOW_SYSTEM = AppThemeMode.FOLLOW_SYSTEM
+        const val DEFAULT_THEME_MODE = TerminalThemeMode.FIXED
 
         /** 自由文本落盘的防抖窗口：每次写入都是完整文件重写。 */
         internal const val DEBOUNCE_MILLIS = 300L
@@ -176,51 +177,37 @@ constructor(private val provider: SettingsDataStoreProvider) {
             ((fontSizeMaxSp(spToPxScale, screenWidthDp) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
     }
 
-    val appThemeMode: Flow<String> =
-        provider.dataStore.data.map { it[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM }
-    private val deviceDefaultFontSize: Float
+    /**
+     * 本机当前的缺省字号（sp）：按 [SettingsDataStoreProvider.screenWidthDp] 自适应。
+     *
+     * 公开而非私有，是为了让「流建立前的初始快照」（`TerminalViewModel.settings` 的
+     * `stateIn` 初值）与「原生尚未应用字号时的回落值」（`TerminalRuntime.appliedFontSizeSp`）
+     * 都取自这里，而不是各自再调一次 [defaultFontSizeFor] 并自带一份屏宽来源。
+     */
+    val defaultFontSize: Float
         get() = defaultFontSizeFor(provider.screenWidthDp)
-
-    val fontSize: Flow<Float> =
-        provider.dataStore.data.map { it[Keys.FONT_SIZE] ?: deviceDefaultFontSize }
-
-    /** 用户是否已显式选定字号；全新安装时为 false。 */
-    val fontSizeExplicitlySet: Flow<Boolean> =
-        provider.dataStore.data.map { it[Keys.FONT_SIZE] != null }
-    val fontFamily: Flow<String> = provider.dataStore.data.map { it[Keys.FONT_FAMILY] ?: "" }
-    val themeName: Flow<String> = provider.dataStore.data.map { it[Keys.THEME_NAME] ?: defaultTheme() }
-    val dayThemeName: Flow<String> =
-        provider.dataStore.data.map { it[Keys.DAY_THEME_NAME] ?: defaultDayTheme() }
-    val nightThemeName: Flow<String> =
-        provider.dataStore.data.map { it[Keys.NIGHT_THEME_NAME] ?: defaultTheme() }
-    val themeMode: Flow<String> =
-        provider.dataStore.data.map {
-            terminal.emulator.ui.theme.TerminalThemeMode
-                .normalize(it[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE)
-        }
-    val shell: Flow<String> = provider.dataStore.data.map { it[Keys.SHELL] ?: DEFAULT_SHELL }
-
-    val bootstrapUrl: Flow<String> = provider.dataStore.data.map { it[Keys.BOOTSTRAP_URL] ?: "" }
 
     /**
      * 全部持久化设置的单一合并快照，由一次 DataStore 读取派生。UI 订阅这一条流，
-     * 而非 13 条并行的按字段管线。字段默认值与上方的按字段流保持一致；
-     * 新增设置时两者都要同步。
+     * 而非 13 条并行的按字段管线。字段流（[appThemeMode] 等）都从它派生。
+     *
+     * 默认参数只放**纯 Kotlin 常量**：[fontSize] 与三个主题名没有默认值，因为它们的
+     * 真实缺省值要么随设备宽度变化（[defaultFontSize]），要么来自原生主题目录（JNI）。
+     * 给它们写常量默认值会让 `SettingsState(...)` 造出的快照谎报（窄屏上把 24sp 报成
+     * 14sp、把未知主题名当成用户选择），而把 `defaultTheme()` 写进默认参数更糟：
+     * Kotlin 在**构造时**求值默认参数，于是每读一次设置都强制加载一次原生库——纯 JVM
+     * 测试直接 UnsatisfiedLinkError，真机上也白调两次 JNI。缺省主题名因而只在
+     * [settings] 的 elvis 右侧求值，即真正缺键时才取。
      */
     data class SettingsState(
         val appThemeMode: String = DEFAULT_FOLLOW_SYSTEM,
-        /**
-         * 无默认值：真实缺省值随屏幕宽度自适应（`deviceDefaultFontSize`），任何常量都会
-         * 与 [settings] 流的实际行为不符。此前这里是 `DEFAULT_FONT_SIZE`（14sp），
-         * 于是 `SettingsState()` 造出的快照在窄屏设备上谎报字号——调用方无从察觉，
-         * 因为它与「用户已设为 14sp」不可区分。改为必须显式传入：
-         * 与真实缺省行为一致的唯一写法就是从 [settings] 流取。
-         */
+        /** 见类注释：无默认值，必须来自 [settings] 流（或 [defaultFontSize]）。 */
         val fontSize: Float,
         val fontFamily: String = "",
-        val themeName: String = defaultTheme(),
-        val dayThemeName: String = defaultDayTheme(),
-        val nightThemeName: String = defaultTheme(),
+        /** 见类注释：缺省值由 [settings] 按需从原生主题目录取。 */
+        val themeName: String,
+        val dayThemeName: String,
+        val nightThemeName: String,
         val themeMode: String = DEFAULT_THEME_MODE,
         val shell: String = DEFAULT_SHELL,
         val bootstrapUrl: String = "",
@@ -230,19 +217,43 @@ constructor(private val provider: SettingsDataStoreProvider) {
         provider.dataStore.data.map { prefs ->
             SettingsState(
                 appThemeMode = prefs[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM,
-                fontSize = prefs[Keys.FONT_SIZE] ?: deviceDefaultFontSize,
+                fontSize = prefs[Keys.FONT_SIZE] ?: defaultFontSize,
                 fontFamily = prefs[Keys.FONT_FAMILY] ?: "",
+                // 只有真正缺键时才查原生主题目录（elvis 右侧惰性求值）。
                 themeName = prefs[Keys.THEME_NAME] ?: defaultTheme(),
                 dayThemeName = prefs[Keys.DAY_THEME_NAME] ?: defaultDayTheme(),
                 nightThemeName = prefs[Keys.NIGHT_THEME_NAME] ?: defaultTheme(),
-                themeMode =
-                terminal.emulator.ui.theme.TerminalThemeMode.normalize(
-                    prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE,
-                ),
+                themeMode = TerminalThemeMode.normalize(prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE),
                 shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
                 bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
             )
         }
+
+    // 逐字段视图都从同一快照派生：字段默认值不再各写一份。
+    val appThemeMode: Flow<String> = settings.map { it.appThemeMode }
+
+    val fontSize: Flow<Float> = settings.map { it.fontSize }
+
+    /**
+     * 用户是否已显式选定字号；全新安装时为 false。
+     *
+     * 不能用「当前字号是否等于默认值」判断：用户完全可能正好选了默认值。
+     */
+    val fontSizeExplicitlySet: Flow<Boolean> = provider.dataStore.data.map { it[Keys.FONT_SIZE] != null }
+
+    val fontFamily: Flow<String> = settings.map { it.fontFamily }
+
+    val themeName: Flow<String> = settings.map { it.themeName }
+
+    val dayThemeName: Flow<String> = settings.map { it.dayThemeName }
+
+    val nightThemeName: Flow<String> = settings.map { it.nightThemeName }
+
+    val themeMode: Flow<String> = settings.map { it.themeMode }
+
+    val shell: Flow<String> = settings.map { it.shell }
+
+    val bootstrapUrl: Flow<String> = settings.map { it.bootstrapUrl }
 
     suspend fun setFontSize(size: Float) = put(Keys.FONT_SIZE, size)
 

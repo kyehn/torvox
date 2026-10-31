@@ -2,6 +2,7 @@ package terminal.emulator
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyCharacterMap
@@ -11,6 +12,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -31,6 +33,14 @@ import terminal.emulator.input.DeadKeyState
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.toggled
+import terminal.emulator.installer.BootstrapDownloader
+import terminal.emulator.installer.BootstrapInstaller
+import terminal.emulator.installer.BootstrapOrchestrator
+import terminal.emulator.installer.BootstrapProgress
+import terminal.emulator.installer.BootstrapProgressCallback
+import terminal.emulator.installer.SecondStageRunner
+import terminal.emulator.installer.bootstrapDirectories
+import terminal.emulator.installer.copyBootstrapArchive
 import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
@@ -46,6 +56,7 @@ import terminal.emulator.ui.normalizeSelectionAnchors
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.formatWorkingDirectory
 import terminal.emulator.util.runCatchingCancellable
+import java.io.File
 import javax.inject.Inject
 
 private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
@@ -1002,7 +1013,7 @@ constructor(
                     LogUtil.error("TerminalViewModel", "Fatal: system fonts.xml unreadable", fatal)
                     throw fatal
                 } catch (exception: Exception) {
-                    if (exception is kotlinx.coroutines.CancellationException) throw exception
+                    if (exception is CancellationException) throw exception
                     LogUtil.error("TerminalViewModel", "Failed to load font list", exception)
                     throw exception
                 }
@@ -1061,7 +1072,7 @@ constructor(
                             .show()
                     }
                 } catch (exception: Exception) {
-                    if (exception is kotlinx.coroutines.CancellationException) throw exception
+                    if (exception is CancellationException) throw exception
                     LogUtil.error("Font", "setFontFamily failed for $family", exception)
                     kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                         android.widget.Toast.makeText(
@@ -1112,12 +1123,14 @@ constructor(
             viewModelScope,
             SharingStarted.WhileSubscribed(TIMEOUT_MILLIS),
             // 与按设备自适应的默认值一致，使流建立前的快照
-            // 不会闪现固定的 10sp 兜底值。
+            // 不会闪现固定的 10sp 兜底值；缺省值只从 Repository 取，不在此重算。
             SettingsRepository.SettingsState(
-                fontSize =
-                SettingsRepository.defaultFontSizeFor(
-                    runtime.screenWidthDp,
-                ),
+                fontSize = settingsRepository.defaultFontSize,
+                // 主题名留空：它们的缺省值来自原生主题目录（JNI），首帧只是占位，
+                // 真值随流到达。不为此在 ViewModel 构造期强行加载原生库。
+                themeName = "",
+                dayThemeName = "",
+                nightThemeName = "",
             ),
         )
 
@@ -1355,11 +1368,11 @@ constructor(
     val bootstrapResult: StateFlow<String?> = _bootstrapResult.asStateFlow()
 
     private val _bootstrapProgress =
-        MutableStateFlow<terminal.emulator.installer.BootstrapProgress?>(null)
-    val bootstrapProgress: StateFlow<terminal.emulator.installer.BootstrapProgress?> =
+        MutableStateFlow<BootstrapProgress?>(null)
+    val bootstrapProgress: StateFlow<BootstrapProgress?> =
         _bootstrapProgress.asStateFlow()
 
-    /** 把引导结果映射为本地化文案；失败负载是机器可读键（见 [terminal.emulator.installer.BootstrapOrchestrator]）。 */
+    /** 把引导结果映射为本地化文案；失败负载是机器可读键（见 [BootstrapOrchestrator]）。 */
     private fun bootstrapOutcomeText(result: Result<String>): String = result.fold(
         onSuccess = { diagnostics ->
             val headline = context.getString(R.string.bootstrap_installed_success)
@@ -1371,17 +1384,14 @@ constructor(
         },
         onFailure = { exception ->
             when (exception.message) {
-                terminal.emulator.installer.BootstrapOrchestrator.ERROR_PRIMARY_USER_REQUIRED ->
+                BootstrapOrchestrator.ERROR_PRIMARY_USER_REQUIRED ->
                     context.getString(R.string.bootstrap_primary_user_required)
 
-                terminal.emulator.installer.BootstrapOrchestrator.ERROR_ALREADY_IN_PROGRESS ->
+                BootstrapOrchestrator.ERROR_ALREADY_IN_PROGRESS ->
                     context.getString(R.string.bootstrap_already_in_progress)
 
-                terminal.emulator.installer.BootstrapOrchestrator.ERROR_NO_URL ->
+                BootstrapOrchestrator.ERROR_NO_URL ->
                     context.getString(R.string.bootstrap_no_url)
-
-                terminal.emulator.installer.BootstrapOrchestrator.ERROR_CANCELLED ->
-                    context.getString(R.string.bootstrap_cancelled)
 
                 // 编排器已把每条失败收敛成只含异常类名的文案（原始消息可能嵌入引导 URL，
                 // 故不外泄），这里再取一次类名会把那层收敛整个抹掉：真机上 `file://`
@@ -1395,20 +1405,20 @@ constructor(
         },
     )
 
-    /** 在线与离线安装路径共用的安装器与二阶段执行器配对；目录取自三处入口共用的 [terminal.emulator.installer.bootstrapDirectories]。 */
+    /** 在线与离线安装路径共用的安装器与二阶段执行器配对；目录取自三处入口共用的 [bootstrapDirectories]。 */
     private fun bootstrapComponents(
-        onProgress: terminal.emulator.installer.BootstrapProgressCallback,
+        onProgress: BootstrapProgressCallback,
     ): Pair<
-        terminal.emulator.installer.BootstrapInstaller,
-        terminal.emulator.installer.SecondStageRunner,
+        BootstrapInstaller,
+        SecondStageRunner,
         > {
-        val directories = terminal.emulator.installer.bootstrapDirectories(context)
-        return terminal.emulator.installer.BootstrapInstaller(
+        val directories = bootstrapDirectories(context)
+        return BootstrapInstaller(
             prefixDir = directories.prefix,
             homeDir = directories.home,
             stagingDir = directories.staging,
             onProgress = onProgress,
-        ) to terminal.emulator.installer.SecondStageRunner(
+        ) to SecondStageRunner(
             prefixDir = directories.prefix,
             homeDir = directories.home,
             onProgress = onProgress,
@@ -1420,7 +1430,7 @@ constructor(
      * 重置进度状态，并把失败映射为同一条错误消息。
      * 调用方提供安装主体，它会收到共享的进度回调。
      */
-    private fun startBootstrapJob(block: suspend (terminal.emulator.installer.BootstrapProgressCallback) -> Unit) {
+    private fun startBootstrapJob(block: suspend (BootstrapProgressCallback) -> Unit) {
         // CAS 使快速连点安装按钮无法启动两个并发安装。
         if (!_bootstrapRunning.compareAndSet(false, true)) return
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
@@ -1428,12 +1438,12 @@ constructor(
             _bootstrapProgress.value = null
             try {
                 val onProgress =
-                    terminal.emulator.installer.BootstrapProgressCallback { progress ->
+                    BootstrapProgressCallback { progress ->
                         _bootstrapProgress.value = progress
                     }
                 block(onProgress)
             } catch (exception: Exception) {
-                if (exception is kotlinx.coroutines.CancellationException) throw exception
+                if (exception is CancellationException) throw exception
                 LogUtil.error("TerminalViewModel", "Bootstrap failed", exception)
                 _bootstrapResult.value =
                     context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
@@ -1446,13 +1456,13 @@ constructor(
     fun runBootstrap() {
         startBootstrapJob { onProgress ->
             val downloader =
-                terminal.emulator.installer.BootstrapDownloader(
+                BootstrapDownloader(
                     context,
                     onProgress = onProgress,
                 )
             val (installer, secondStage) = bootstrapComponents(onProgress)
             val orchestrator =
-                terminal.emulator.installer.BootstrapOrchestrator(
+                BootstrapOrchestrator(
                     downloader,
                     installer,
                     secondStage,
@@ -1480,23 +1490,23 @@ constructor(
      * 其内容被复制到缓存文件，再送入与在线路径相同的安装器管线
      * （installer.install → secondStage.run）。无需网络；已下载的引导 URL 被忽略。
      */
-    fun installOffline(uri: android.net.Uri) {
+    fun installOffline(uri: Uri) {
         startBootstrapJob { onProgress ->
             val (installer, secondStage) = bootstrapComponents(onProgress)
             // 把 SAF URI 内容复制到临时缓存文件——安装器需要一个 File
             // （它会对 zip 做哈希与流式读取）。缓存目录总是可写，
             // 且会在系统压力下被清理。
-            _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Downloading(0, 0)
-            val cacheFile = java.io.File(context.cacheDir, "offline-bootstrap.zip")
+            _bootstrapProgress.value = BootstrapProgress.Downloading(0, 0)
+            val cacheFile = File(context.cacheDir, "offline-bootstrap.zip")
             try {
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     cacheFile.outputStream().use { output ->
-                        terminal.emulator.installer.copyBootstrapArchive(
+                        copyBootstrapArchive(
                             input = input,
                             output = output,
                             onCopied = { copied ->
                                 _bootstrapProgress.value =
-                                    terminal.emulator.installer.BootstrapProgress.Downloading(copied, 0)
+                                    BootstrapProgress.Downloading(copied, 0)
                             },
                         )
                     }
@@ -1517,7 +1527,7 @@ constructor(
                             failureDiagnostics.ifEmpty { "Postinst failed" },
                         )
                 } else {
-                    _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Complete
+                    _bootstrapProgress.value = BootstrapProgress.Complete
                     val headline = context.getString(R.string.bootstrap_installed_from_file)
                     _bootstrapResult.value = headline
                 }
@@ -1727,7 +1737,7 @@ constructor(
                     )
                 }
             } catch (exception: Exception) {
-                if (exception is kotlinx.coroutines.CancellationException) throw exception
+                if (exception is CancellationException) throw exception
                 LogUtil.error("TerminalViewModel", "createSession failed", exception)
             }
         }
@@ -1758,7 +1768,7 @@ constructor(
                 try {
                     runtime.switchSession(sessionId, surface, surfaceWidthPixels, surfaceHeightPixels)
                 } catch (exception: Exception) {
-                    if (exception is kotlinx.coroutines.CancellationException) throw exception
+                    if (exception is CancellationException) throw exception
                     LogUtil.error("TerminalViewModel", "switchSession failed for id=$sessionId", exception)
                     return@launch
                 }
@@ -1878,7 +1888,7 @@ constructor(
                 // closeSession 绝不能逃逸到主线程的未捕获处理器：
                 // 崩溃会让整个会话进程不可用。
                 // 原生侧能容忍未知/已死的会话。
-                if (exception is kotlinx.coroutines.CancellationException) throw exception
+                if (exception is CancellationException) throw exception
                 LogUtil.error("TerminalViewModel", "closeSession failed for id=$sessionId", exception)
                 return@launch
             }
@@ -1935,7 +1945,7 @@ constructor(
             try {
                 NativeBridge.resetTerminal(sessionId)
             } catch (exception: Exception) {
-                if (exception is kotlinx.coroutines.CancellationException) throw exception
+                if (exception is CancellationException) throw exception
                 LogUtil.error("TerminalViewModel", "resetTerminal failed for id=$sessionId", exception)
                 return@launch
             }
