@@ -1283,7 +1283,7 @@ MUST NOT 攒批后一次补写。整批研究收敛为 105 个键、187 行，�
 | `01-sylirre-ghostty-android-terminal.md` | 禁止项「CPU/OpenGL 回退」 | 已明禁：DESIGN.md 架构节的「GPU Vulkan 渲染（无 CPU/OpenGL 回退）」「GPU Vulkan 渲染（无 CPU/OpenGL 回退）」 |
 | `02-termux-termux-app.md` | P0「PTY 双线程加队列加主线程泵模型」 | 仅参照：本仓形态为读线程 → 有界输出通道 → 渲染线程轮询（`native/src/terminal/session/mod.rs`、`NativeBridge.pollEvent`），事件靠拉取而非主线程泵，语义已等价 |
 | `02-termux-termux-app.md` | P0「回滚默认 2000」 | 已实现：`DEFAULT_SCROLLBACK_LINES = 2000`（`native/src/terminal/session/mod.rs`），并解除上游默认字节上限使行数成为唯一约束（`native/src/terminal/ghostty_terminal/internal/mod.rs`） |
-| `02-termux-termux-app.md` | P0「会话事件最小集」 | 已实现（形态不同）：本仓事件为 `pollEvent` 拉取的最小事件集（退出、剪贴板、标题、bell 等），无客户端回调注册面 |
+| `02-termux-termux-app.md` | P0「会话事件最小集」 | 已实现（形态不同）：本仓事件为 `pollEvent` 拉取的最小事件集（退出、剪贴板、标题等），无客户端回调注册面；响铃按 DESIGN 忽略，不在事件集内 |
 | `02-termux-termux-app.md` | P1「输入连接掩码配置」 | 已实现：`android/app/src/main/java/terminal/emulator/input/TerminalEditorInfo.kt` 按 termux `onCreateInputConnection` 同口径设 `inputType` 与 `IME_FLAG_NO_FULLSCREEN` |
 | `02-termux-termux-app.md` | P1「前台通知与 WakeLock 策略」 | 已实现：常驻通知行已登记（`TerminalForegroundService.kt`），同文件的唤醒锁设单次持有上限并在半程续期 |
 | `02-termux-termux-app.md` | P1「topRow 滚动与缩放字体手势划分」 | 已实现：`android/app/src/main/java/terminal/emulator/ui/TerminalSurface.kt` 以 `ScaleGestureDetector` 划分捏合缩放与滚动手势（含实时缩放预览） |
