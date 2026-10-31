@@ -68,31 +68,58 @@ internal const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
 
 /**
+ * 键栏上一个键「按下时做什么」。
+ *
+ * 四种动作互斥：走原生键编码器的逻辑键、键栏自身的特殊动作、直接写出的字面量文本、
+ * 宏。主键与长按次级键（`popup`）共用这一套动作——上游 termux 的 popup 就是一个
+ * 完整的按键，故两者的语义必须一致，不能一个按键名一个当纯文本。
+ */
+@Immutable
+sealed interface KeyAction {
+    /** 走原生键编码器的逻辑键（方向键、ESC、F1……）。 */
+    data class Code(val keyCode: Int, val name: String) : KeyAction
+
+    /** 键栏自身处理的动作：CTRL/ALT/DRAWER/SCROLL/KEYBOARD/PASTE。 */
+    data class Special(val special: TerminalKeyCatalog.Special) : KeyAction
+
+    /** 直接写出的文本（`/`、`|` 等字面量按键）。 */
+    data class Text(val text: String) : KeyAction
+
+    /** 宏：按顺序发一串键（`{macro: "CTRL f d"}`）。 */
+    data class Macro(val steps: List<MacroStep>) : KeyAction
+}
+
+/**
  * 键栏上的一个按键，由 `extra-keys` 配置解析而来。
  *
- * 三种来源互斥：内置键码（[keyCode]）、特殊动作（[special]）、字面量文本
- * （两者皆空，直接发送 [label] 的原文）。[testTag] 取逻辑键名而非显示字形：
- * `extra-keys-style` 会把 `HOME` 画成 `⇱`，但测试与无障碍定位必须跨样式稳定。
+ * [action] 是这个键按下时执行的动作；[popup] 是长按时执行的次级键（同样是一个
+ * 动作）。[testTag] 取逻辑键名而非显示字形：`extra-keys-style` 会把 `HOME` 画成
+ * `⇱`，但测试与无障碍定位必须跨样式稳定。
  */
 @Immutable
 data class ExtraKeySlot(
+    /** 逻辑键名（测试标签与日志用）；字面量键为其原文。 */
     val name: String,
+    /** 键帽文本。 */
     val label: String,
-    val keyCode: Int? = null,
-    val special: TerminalKeyCatalog.Special? = null,
+    /** 按下时执行的动作。 */
+    val action: KeyAction,
+    /** 按住是否连发（上游 `PRIMARY_REPETITIVE_KEYS`）。 */
     val repeatable: Boolean = false,
-    /** 长按时发送的文本（`{key: '-', popup: '|'}`）。 */
-    val popup: String? = null,
-    /** 宏的步骤序列（`{macro: "CTRL f d"}`）；非宏键为 null。 */
-    val macro: List<MacroStep>? = null,
+    /** 长按时执行的次级键（`popup`）；null 表示长按无动作。 */
+    val popup: KeyAction? = null,
+    /** 测试与无障碍定位用的稳定标签。 */
     val testTag: String,
-)
+) {
+    /** 这个键的特殊动作（CTRL/ALT/DRAWER/…）；不是特殊键时为 null。 */
+    val special: TerminalKeyCatalog.Special? get() = (action as? KeyAction.Special)?.special
+}
 
 /**
  * `extra-keys` 配置 → 可渲染的按键槽位。
  *
  * 不可渲染的键跳过并记警告：把它当字面量渲染会让用户点出一串无意义的字符，静默丢弃
- * 至少留下证据。判据统一走 [unrenderableReason]，与 [isRenderableKey] 同源——两者一旦
+ * 至少留下证据。判据统一走 [resolveKey]，与 [isRenderableKey] 同源——两者一旦
  * 分家，预留高度就会与实际键栏高度不符。
  */
 internal fun buildExtraKeySlots(
@@ -102,50 +129,110 @@ internal fun buildExtraKeySlots(
 ): List<List<ExtraKeySlot>> = rows.mapNotNull { row ->
     val slots =
         row.mapNotNull { key ->
-            unrenderableReason(key)?.let { reason ->
-                LogUtil.warn("ModifierBar", "extra-keys: $reason; key hidden")
-                return@mapNotNull null
-            }
-            // 宏键：名字与键码都来自宏本身，键帽默认显示宏串（上游亦然）。
-            val macro = macroStepsOf(key)
-            val normalized = TerminalKeyCatalog.normalizeKeyName(key.name)
-            val keyCode = if (macro != null) null else TerminalKeyCatalog.keyCodeFor(normalized)
-            val special = if (macro != null) null else TerminalKeyCatalog.specialFor(normalized)
+            val resolved =
+                when (val resolution = resolveKey(key)) {
+                    is KeyResolution.Resolved -> resolution
+
+                    is KeyResolution.Unusable -> {
+                        LogUtil.warn("ModifierBar", "extra-keys: ${resolution.reason}; key hidden")
+                        return@mapNotNull null
+                    }
+                }
+            val action = resolved.action
             ExtraKeySlot(
                 // 字面量保留原文的大小写；键帽的全大写只影响 label，不改变发送内容。
                 name =
-                when {
-                    macro != null -> key.macro.orEmpty()
-                    keyCode == null && special == null -> TerminalKeyCatalog.literalText(key.name, normalized)
-                    else -> normalized
+                when (action) {
+                    is KeyAction.Macro -> key.macro.orEmpty()
+                    is KeyAction.Text -> action.text
+                    else -> resolved.normalizedName
                 },
                 label =
                 key.display?.let { display -> if (allCaps) display.uppercase() else display }
-                    ?: if (macro != null) {
+                    ?: if (action is KeyAction.Macro) {
                         if (allCaps) key.macro.orEmpty().uppercase() else key.macro.orEmpty()
                     } else {
                         // 传原名（不是归一名）：`extra-keys-text-all-caps = false` 时
                         // 键帽要保留用户写的大小写（`Tab` → `Tab`）。
                         TerminalKeyCatalog.displayLabel(key.name, style, allCaps)
                     },
-                keyCode = keyCode,
-                special = special,
-                repeatable = if (macro != null) false else TerminalKeyCatalog.isRepetitive(normalized),
-                popup = key.popup,
-                macro = macro,
-                testTag = if (macro != null) macroTestTag(key) else testTagFor(normalized),
+                action = action,
+                repeatable = action !is KeyAction.Macro && TerminalKeyCatalog.isRepetitive(resolved.normalizedName),
+                popup = key.popup?.let { popupKey -> resolvePopup(popupKey) },
+                testTag = if (action is KeyAction.Macro) macroTestTag(key) else testTagFor(resolved.normalizedName),
             )
         }
     slots.takeIf { it.isNotEmpty() }
 }
 
 /**
- * 该键的宏步骤；非宏键或宏不可用时为 null。
+ * 一个 `extra-keys` 项的解析结果。
  *
- * 解析只有这一处入口：[unrenderableReason] 判定「能不能渲染」与这里判定「渲染成什么」
- * 必须同源，两处各解析一次会让「判为可用却拿不到步骤」的空档出现。
+ * 「能不能渲染」与「渲染成什么」必须同源：两处各判一次就会出现「判为可用却拿不到
+ * 动作」的空档，键帽画出来却点了没反应。
  */
-private fun macroStepsOf(key: ExtraKey): List<MacroStep>? = key.macro?.let { MacroParser.parse(it) }
+private sealed interface KeyResolution {
+    /** 可渲染：动作与归一键名（测试标签、连发判据都用它）。 */
+    data class Resolved(val action: KeyAction, val normalizedName: String) : KeyResolution
+
+    /** 不可渲染：原因（写进日志，让用户知道这个键去哪了）。 */
+    data class Unusable(val reason: String) : KeyResolution
+}
+
+/**
+ * `extra-keys` 一项 → 它的动作。
+ *
+ * 单一判据：宏没有播放器、FN 需要一整套二次映射（未实现）、未知键名按字面量渲染
+ * 会点出无意义字符，三者都不渲染。SHIFT 需要一整套粘滞修饰态（本应用只有
+ * CTRL/ALT），同样不渲染。
+ */
+private fun resolveKey(key: ExtraKey): KeyResolution {
+    val macro = key.macro
+    if (macro != null) {
+        val steps = MacroParser.parse(macro)
+        return if (steps == null) {
+            KeyResolution.Unusable("macro '$macro' is not supported")
+        } else {
+            KeyResolution.Resolved(KeyAction.Macro(steps), TerminalKeyCatalog.normalizeKeyName(key.name))
+        }
+    }
+    val normalized = TerminalKeyCatalog.normalizeKeyName(key.name)
+    val special = TerminalKeyCatalog.specialFor(normalized)
+    val keyCode = TerminalKeyCatalog.keyCodeFor(normalized)
+    return when {
+        special == TerminalKeyCatalog.Special.FN -> KeyResolution.Unusable("FN is not supported")
+
+        special != null -> KeyResolution.Resolved(KeyAction.Special(special), normalized)
+
+        normalized == "SHIFT" -> KeyResolution.Unusable("SHIFT is not supported")
+
+        keyCode != null -> KeyResolution.Resolved(KeyAction.Code(keyCode, normalized), normalized)
+
+        normalized.length == 1 ->
+            KeyResolution.Resolved(
+                KeyAction.Text(TerminalKeyCatalog.literalText(key.name, normalized)),
+                normalized,
+            )
+
+        else -> KeyResolution.Unusable("unknown key '$normalized'")
+    }
+}
+
+/**
+ * `popup`（长按次级键）→ 它的动作；不可用时为 null（长按无动作）。
+ *
+ * popup 与主键同构：键名走编码器、特殊键走键栏回调、宏走播放器。上游 termux 的
+ * popup 就是完整的按键（`ExtraKeysInfo.normalizeKeyConfig`），故这里复用
+ * [resolveKey] 而不是另写一套判定。
+ */
+private fun resolvePopup(popup: ExtraKey): KeyAction? = when (val resolution = resolveKey(popup)) {
+    is KeyResolution.Resolved -> resolution.action
+
+    is KeyResolution.Unusable -> {
+        LogUtil.warn("ModifierBar", "extra-keys: popup ${resolution.reason}; long-press action dropped")
+        null
+    }
+}
 
 /**
  * 测试标签：方向键沿用字形（`Key_↑`，与既有 UI 测试一致），其余用逻辑键名。
@@ -177,36 +264,12 @@ internal fun defaultExtraKeySlots(
 ): List<List<ExtraKeySlot>> = buildExtraKeySlots(TermuxProperties.DEFAULT_EXTRA_KEYS, style, allCaps)
 
 /**
- * 这个按键不可渲染的原因；null 表示可渲染。
+ * 这个按键是否会被渲染。
  *
- * 单一判据：宏没有播放器、FN 需要一整套二次映射（未实现）、未知键名按字面量渲染
- * 会点出无意义字符，三者都不渲染。[buildExtraKeySlots] 与 [extraKeyRowCount] 都经
- * 此处，任何一侧单独写一份判定都会让「预留的行数」与「实际画出的行数」分家。
+ * 与 [buildExtraKeySlots] 同一判据（[resolveKey]）：任何一侧单独写一份判定都会让
+ * 「预留的行数」与「实际画出的行数」分家。
  */
-private fun unrenderableReason(key: ExtraKey): String? {
-    if (key.macro != null) {
-        return if (macroStepsOf(key) == null) "macro '${key.macro}' is not supported" else null
-    }
-    val normalized = TerminalKeyCatalog.normalizeKeyName(key.name)
-    val special = TerminalKeyCatalog.specialFor(normalized)
-    return when {
-        special == TerminalKeyCatalog.Special.FN -> "FN is not supported"
-
-        special != null -> null
-
-        // SHIFT 需要一整套粘滞修饰态（本应用只有 CTRL/ALT），不渲染。
-        normalized == "SHIFT" -> "SHIFT is not supported"
-
-        TerminalKeyCatalog.keyCodeFor(normalized) != null -> null
-
-        normalized.length == 1 -> null
-
-        else -> "unknown key '$normalized'"
-    }
-}
-
-/** 这个按键是否会被渲染。 */
-internal fun isRenderableKey(key: ExtraKey): Boolean = unrenderableReason(key) == null
+internal fun isRenderableKey(key: ExtraKey): Boolean = resolveKey(key) is KeyResolution.Resolved
 
 /**
  * 键栏实际渲染的行数，供网格预留高度使用。
@@ -440,20 +503,26 @@ private data class ModifierBarStates(
     val scrollActive: Boolean,
 )
 
-/** 长按动作：CTRL/ALT 锁定、DRAWER 粘贴；配置了 popup 的按键发送 popup 文本。 */
-private fun secondaryLongPressAction(slot: ExtraKeySlot, actions: ModifierBarActions): (() -> Unit)? =
-    when (slot.special) {
-        TerminalKeyCatalog.Special.CTRL -> actions.onLockCtrl
+/**
+ * 长按动作：CTRL/ALT 锁定，或执行 `popup` 次级键。
+ *
+ * 上游 termux 的 popup 由「上滑」触发并弹出一个浮层；本应用没有浮层，长按直接执行
+ * 次级键——语义一致（长按 = 次级键），只是少了中间那层浮层。
+ */
+private fun secondaryLongPressAction(
+    slot: ExtraKeySlot,
+    actions: ModifierBarActions,
+    modifierStates: ModifierBarStates,
+): (() -> Unit)? = when (slot.special) {
+    TerminalKeyCatalog.Special.CTRL -> actions.onLockCtrl
 
-        TerminalKeyCatalog.Special.ALT -> actions.onLockAlt
+    TerminalKeyCatalog.Special.ALT -> actions.onLockAlt
 
-        TerminalKeyCatalog.Special.DRAWER -> actions.onPasteClick
-
-        else ->
-            slot.popup?.let { popup ->
-                { actions.onSubmit(popup) }
-            }
-    }
+    else ->
+        slot.popup?.let { popup ->
+            { performAction(popup, actions, modifierStates) }
+        }
+}
 
 /** 单个按键的实时切换状态；非切换类按键为 `null`。 */
 private fun modifierStateFor(slot: ExtraKeySlot, states: ModifierBarStates): ModifierState? = when (slot.special) {
@@ -472,38 +541,71 @@ private fun toolbarKeyPresentation(
     val onRepeat =
         if (slot.repeatable) {
             {
-                sendKeyThroughEncoder(slot, actions, modifierStates)
+                performAction(slot.action, actions, modifierStates)
             }
         } else {
             null
         }
     return ToolbarKeyPresentation(
         label = slot.label,
-        onClick = toolbarKeyClickHandler(slot, actions, modifierStates),
+        onClick = { performAction(slot.action, actions, modifierStates) },
         modifierState = modifierStateFor(slot, modifierStates),
         testTag = slot.testTag,
         // DRAWER 的键帽是 ☰；无障碍与 UI 测试需要稳定的动作说明，不能读字形。
         contentDescription = if (slot.special == TerminalKeyCatalog.Special.DRAWER) drawerDescription else slot.label,
         onRepeat = onRepeat,
-        secondaryAction = secondaryLongPressAction(slot, actions),
+        secondaryAction = secondaryLongPressAction(slot, actions, modifierStates),
     )
 }
 
 /**
+ * 执行一个键的动作。
+ *
+ * 主键与长按次级键（`popup`）走同一条路：键名走编码器、特殊键走键栏自己的回调、
+ * 字面量直接写出、宏按顺序播放。
+ */
+private fun performAction(action: KeyAction, actions: ModifierBarActions, modifierStates: ModifierBarStates) {
+    when (action) {
+        is KeyAction.Macro -> actions.onMacro(action.steps)
+
+        is KeyAction.Special ->
+            when (action.special) {
+                TerminalKeyCatalog.Special.CTRL -> actions.onToggleCtrl()
+
+                TerminalKeyCatalog.Special.ALT -> actions.onToggleAlt()
+
+                TerminalKeyCatalog.Special.DRAWER -> actions.onDrawerClick()
+
+                TerminalKeyCatalog.Special.SCROLL -> actions.onScrollClick()
+
+                TerminalKeyCatalog.Special.KEYBOARD -> actions.onKeyboardClick()
+
+                TerminalKeyCatalog.Special.PASTE -> actions.onPasteClick()
+
+                // FN 不渲染（见 resolveKey），走不到这里。
+                TerminalKeyCatalog.Special.FN -> {}
+            }
+
+        is KeyAction.Code -> sendKeyThroughEncoder(action, actions, modifierStates)
+
+        is KeyAction.Text -> actions.onSubmit(action.text)
+    }
+}
+
+/**
  * 按键发送：键码一律经上游键编码器（`onKey` → `Bridge.processKeyEvent` → 原生
- * `key::Encoder`），修饰键由编码器与终端状态共同决定形态；字面量（`/`、`|` 等）
- * 直接作为文本写出——它们没有可编码的逻辑键。
+ * `key::Encoder`），修饰键由编码器与终端状态共同决定形态。
  *
  * 键栏不再自带转义序列字面量：方向键在 DECCKM 下须走 SS3、Ctrl 组合在
  * modifyOtherKeys 下须走 `CSI 27;mod;code~`，这些形态只有编码器知道，写死在
  * Kotlin 的串在对应模式下就是错的。
  */
-private fun sendKeyThroughEncoder(slot: ExtraKeySlot, actions: ModifierBarActions, modifierStates: ModifierBarStates) {
-    val keyCode = slot.keyCode
-    if (keyCode == null) {
-        actions.onSubmit(slot.name)
-        return
-    }
+private fun sendKeyThroughEncoder(
+    action: KeyAction.Code,
+    actions: ModifierBarActions,
+    modifierStates: ModifierBarStates,
+) {
+    val keyCode = action.keyCode
     val modifiers = KeyModifiers.fromStickyStates(modifierStates.ctrlState, modifierStates.altState)
     if (actions.onKey(keyCode, modifiers)) {
         actions.onConsumeModifiers()
@@ -513,40 +615,8 @@ private fun sendKeyThroughEncoder(slot: ExtraKeySlot, actions: ModifierBarAction
     // 键栏的每个键都应可编码，故这是编码缺口，须留证据（键码 + 修饰态）。
     LogUtil.warn(
         "ModifierBar",
-        "no encoding for ${slot.name} (keyCode=$keyCode modifiers=$modifiers); keystroke dropped",
+        "no encoding for ${action.name} (keyCode=$keyCode modifiers=$modifiers); keystroke dropped",
     )
-}
-
-private fun toolbarKeyClickHandler(
-    slot: ExtraKeySlot,
-    actions: ModifierBarActions,
-    modifierStates: ModifierBarStates,
-): () -> Unit {
-    // 宏键先于特殊键判定：宏没有单一逻辑键，走的是「按顺序发一串键」这条路。
-    val macro = slot.macro
-    if (macro != null) return { actions.onMacro(macro) }
-    return when (slot.special) {
-        TerminalKeyCatalog.Special.CTRL -> actions.onToggleCtrl
-
-        TerminalKeyCatalog.Special.ALT -> actions.onToggleAlt
-
-        TerminalKeyCatalog.Special.DRAWER -> actions.onDrawerClick
-
-        TerminalKeyCatalog.Special.SCROLL -> actions.onScrollClick
-
-        TerminalKeyCatalog.Special.KEYBOARD -> actions.onKeyboardClick
-
-        TerminalKeyCatalog.Special.PASTE -> actions.onPasteClick
-
-        TerminalKeyCatalog.Special.FN, null -> {
-            if (slot.keyCode == null && slot.popup == null) {
-                // 字面量：没有键码，直接写文本。
-                { actions.onSubmit(slot.name) }
-            } else {
-                { sendKeyThroughEncoder(slot, actions, modifierStates) }
-            }
-        }
-    }
 }
 
 /** 由预计算的呈现结果组成的一整行附加键按钮。 */

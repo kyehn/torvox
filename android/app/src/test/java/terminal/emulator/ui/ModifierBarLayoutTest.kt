@@ -59,7 +59,7 @@ class ModifierBarLayoutTest {
     @Test
     fun `single character keys are literals`() {
         val slot = buildExtraKeySlots(listOf(listOf(ExtraKey("/"))), ExtraKeysStyle.DEFAULT, true)[0][0]
-        assertNull(slot.keyCode)
+        assertEquals(KeyAction.Text("/"), slot.action)
         assertNull(slot.special)
         assertEquals("/", slot.name)
     }
@@ -69,7 +69,7 @@ class ModifierBarLayoutTest {
     fun `all caps does not change the text sent by a literal key`() {
         val slot = buildExtraKeySlots(listOf(listOf(ExtraKey("a"))), ExtraKeysStyle.DEFAULT, true)[0][0]
         assertEquals("A", slot.label)
-        assertEquals("a", slot.name)
+        assertEquals(KeyAction.Text("a"), slot.action)
     }
 
     /** 有键名的键取键码，且方向键标为可重复（按住连发）。 */
@@ -82,9 +82,9 @@ class ModifierBarLayoutTest {
 
     /** 特殊键（CTRL/ALT/…）不产生键码，交给键栏自身处理。 */
     @Test
-    fun `special keys have no key code`() {
+    fun `special keys are handled by the bar itself`() {
         val slot = buildExtraKeySlots(listOf(listOf(ExtraKey("CTRL"))), ExtraKeysStyle.DEFAULT, true)[0][0]
-        assertNull(slot.keyCode)
+        assertEquals(KeyAction.Special(TerminalKeyCatalog.Special.CTRL), slot.action)
         assertEquals(TerminalKeyCatalog.Special.CTRL, slot.special)
     }
 
@@ -153,8 +153,9 @@ class ModifierBarLayoutTest {
         val macro = slots[0][1]
         // `extra-keys-text-all-caps` 照常作用于显式 display。
         assertEquals("TMUX", macro.label)
-        assertNull(macro.keyCode)
-        assertEquals(3, macro.macro?.size)
+        val action = macro.action
+        assertTrue("宏键必须是宏动作: $action", action is KeyAction.Macro)
+        assertEquals(3, (action as KeyAction.Macro).steps.size)
         assertEquals(1, extraKeyRowCount(layout))
     }
 
@@ -195,7 +196,7 @@ class ModifierBarLayoutTest {
     @Test
     fun `upstream key aliases resolve to the same key`() {
         val escape = buildExtraKeySlots(listOf(listOf(ExtraKey("ESCAPE"))), ExtraKeysStyle.DEFAULT, true)[0][0]
-        assertEquals(android.view.KeyEvent.KEYCODE_ESCAPE, escape.keyCode)
+        assertEquals(KeyAction.Code(android.view.KeyEvent.KEYCODE_ESCAPE, "ESC"), escape.action)
         assertEquals("ESC", escape.name)
 
         val control = buildExtraKeySlots(listOf(listOf(ExtraKey("CONTROL"))), ExtraKeysStyle.DEFAULT, true)[0][0]
@@ -203,15 +204,57 @@ class ModifierBarLayoutTest {
 
         // 别名指向单字符时按字面量发送（上游：BACKSLASH → `\`）。
         val backslash = buildExtraKeySlots(listOf(listOf(ExtraKey("BACKSLASH"))), ExtraKeysStyle.DEFAULT, true)[0][0]
-        assertNull(backslash.keyCode)
+        assertEquals(KeyAction.Text("\\"), backslash.action)
         assertEquals("\\", backslash.name)
     }
 
-    /** popup 随槽位带下去，供长按发送。 */
+    /**
+     * popup 是完整的按键（上游 termux 的 `ExtraKeysInfo`）：字面量按键名走文本，
+     * 键名走编码器，特殊键走键栏回调，宏走播放器。
+     */
     @Test
-    fun `popup text survives the conversion`() {
-        val slot = buildExtraKeySlots(listOf(listOf(ExtraKey("-", popup = "|"))), ExtraKeysStyle.DEFAULT, true)[0][0]
-        assertEquals("|", slot.popup)
+    fun `popup survives the conversion as a key`() {
+        val literal = buildExtraKeySlots(
+            listOf(listOf(ExtraKey("-", popup = ExtraKey("|")))),
+            ExtraKeysStyle.DEFAULT,
+            true,
+        )[0][0]
+        assertEquals(KeyAction.Text("|"), literal.popup)
+
+        val code = buildExtraKeySlots(
+            listOf(listOf(ExtraKey("-", popup = ExtraKey("ESC")))),
+            ExtraKeysStyle.DEFAULT,
+            true,
+        )[0][0]
+        assertEquals(KeyAction.Code(android.view.KeyEvent.KEYCODE_ESCAPE, "ESC"), code.popup)
+
+        val special = buildExtraKeySlots(
+            listOf(listOf(ExtraKey("-", popup = ExtraKey("PASTE")))),
+            ExtraKeysStyle.DEFAULT,
+            true,
+        )[0][0]
+        assertEquals(KeyAction.Special(TerminalKeyCatalog.Special.PASTE), special.popup)
+
+        val macro = buildExtraKeySlots(
+            listOf(listOf(ExtraKey("-", popup = ExtraKey(name = "", macro = "CTRL f d")))),
+            ExtraKeysStyle.DEFAULT,
+            true,
+        )[0][0]
+        val action = macro.popup
+        assertTrue("popup 宏必须是宏动作: $action", action is KeyAction.Macro)
+        assertEquals(3, (action as KeyAction.Macro).steps.size)
+    }
+
+    /** 不可用的 popup（未知键名）不产生长按动作，但主键照常渲染。 */
+    @Test
+    fun `an unusable popup leaves the key without a long press action`() {
+        val slot = buildExtraKeySlots(
+            listOf(listOf(ExtraKey("-", popup = ExtraKey("NOT_A_KEY")))),
+            ExtraKeysStyle.DEFAULT,
+            true,
+        )[0][0]
+        assertNull(slot.popup)
+        assertEquals(KeyAction.Text("-"), slot.action)
     }
 
     /** `display` 覆盖键帽文本，且只看它、不改键码/特殊动作。 */
@@ -224,7 +267,7 @@ class ModifierBarLayoutTest {
                 allCaps = false,
             )[0][0]
         assertEquals("退出", slot.label)
-        assertEquals(android.view.KeyEvent.KEYCODE_ESCAPE, slot.keyCode)
+        assertEquals(KeyAction.Code(android.view.KeyEvent.KEYCODE_ESCAPE, "ESC"), slot.action)
     }
 
     /** `extra-keys-text-all-caps` 对显式 display 同样生效（termux 的按钮样式就是全大写）。 */

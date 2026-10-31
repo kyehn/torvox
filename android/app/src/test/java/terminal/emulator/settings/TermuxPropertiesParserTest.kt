@@ -203,12 +203,17 @@ class TermuxPropertiesParserTest {
         assertTrue(loaded.errors.any { it.contains("extra-keys") })
     }
 
-    /** `extra-keys` 的 popup 语法：`{key: '-', popup: '|'}`。 */
+    /**
+     * `extra-keys` 的 popup 语法：`{key: '-', popup: '|'}`。
+     *
+     * popup 是一个完整的按键（上游 termux 的 `ExtraKeysInfo.normalizeKeyConfig` 把
+     * 字符串包成 `{key: 'X'}`），故解析结果是嵌套的按键，不是裸字符串。
+     */
     @Test
     fun `extra-keys popup is parsed`() {
         val loaded = parse("""extra-keys = [['/',{key:'-',popup:'|'}]]""")
         assertEquals(
-            listOf(listOf(ExtraKey("/"), ExtraKey("-", popup = "|"))),
+            listOf(listOf(ExtraKey("/"), ExtraKey("-", popup = ExtraKey("|")))),
             loaded.properties.extraKeys,
         )
     }
@@ -228,14 +233,39 @@ class TermuxPropertiesParserTest {
         assertTrue("宏本身不是错误: ${loaded.errors}", loaded.errors.isEmpty())
     }
 
-    /** 对象形式的 popup（宏）被跳过并留证，主键本身照常保留。 */
+    /**
+     * 对象形式的 popup 是上游的正式语法（`{key: 'X', popup: {macro: '...'}}`），
+     * 解析出次级按键，主键本身照常保留。
+     */
     @Test
-    fun `an object popup is dropped without losing the key`() {
+    fun `an object popup is parsed as a nested key`() {
         val loaded = parse("""extra-keys = [[{key:'TAB',popup:{macro:'SHIFT TAB'}}]]""")
+        assertEquals(
+            listOf(listOf(ExtraKey("TAB", popup = ExtraKey(name = "", macro = "SHIFT TAB")))),
+            loaded.properties.extraKeys,
+        )
+        assertTrue("对象形式的 popup 不是错误: ${loaded.errors}", loaded.errors.isEmpty())
+    }
+
+    /** popup 对象里没有 `key` 也没有 `macro`：只丢这个 popup，主键照常保留。 */
+    @Test
+    fun `an unusable object popup is dropped without losing the key`() {
+        val loaded = parse("""extra-keys = [[{key:'TAB',popup:{display:'x'}}]]""")
         assertEquals(listOf(listOf(ExtraKey("TAB"))), loaded.properties.extraKeys)
         assertTrue(
             "丢掉 popup 必须留下可读的说明: ${loaded.errors}",
             loaded.errors.any { it.contains("popup") },
+        )
+    }
+
+    /** 同时写 `key` 与 `macro` 是上游明确禁止的：只丢这一项，其余键位照常。 */
+    @Test
+    fun `a key with both key and macro drops only itself`() {
+        val loaded = parse("""extra-keys = [['ESC',{key:'TAB',macro:'CTRL f'}]]""")
+        assertEquals(listOf(listOf(ExtraKey("ESC"))), loaded.properties.extraKeys)
+        assertTrue(
+            "同时写 key 与 macro 必须留下可读的说明: ${loaded.errors}",
+            loaded.errors.any { it.contains("macro") },
         )
     }
 

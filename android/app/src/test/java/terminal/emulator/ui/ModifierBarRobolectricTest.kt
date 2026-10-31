@@ -23,6 +23,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.toggled
+import terminal.emulator.settings.ExtraKey
+import terminal.emulator.settings.ExtraKeysStyle
+import terminal.emulator.settings.MacroStep
 
 /**
  * JVM (Robolectric) Compose tests for [ModifierBar] — proof that pure-UI semantics run WITHOUT an
@@ -271,6 +274,98 @@ class ModifierBarRobolectricTest {
         composeRule.waitForIdle()
         org.junit.Assert.assertEquals("轻点必须打开抽屉", 1, drawerOpens)
         org.junit.Assert.assertEquals("轻点不得粘贴", 0, pastes)
+    }
+
+    /**
+     * 长按执行 popup 次级键（上游 termux 的 popup 是一个完整的按键）。
+     *
+     * 键名走编码器、字面量直接写出、宏走播放器——popup 与主键同构。
+     */
+    @Test
+    fun `long press runs the popup key`() {
+        val sent = mutableListOf<Pair<Int, Int>>()
+        val submitted = mutableListOf<String>()
+        val macros = mutableListOf<List<MacroStep>>()
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onSubmit = { submitted.add(it) },
+                    onKey = { keyCode, modifiers ->
+                        sent.add(keyCode to modifiers)
+                        true
+                    },
+                    onMacro = { macros.add(it) },
+                    layout =
+                    buildExtraKeySlots(
+                        listOf(
+                            listOf(
+                                ExtraKey("-", popup = ExtraKey("ESC")),
+                                ExtraKey("_", popup = ExtraKey("|")),
+                                ExtraKey("+", popup = ExtraKey(name = "", macro = "CTRL f d")),
+                            ),
+                        ),
+                        ExtraKeysStyle.DEFAULT,
+                        true,
+                    ),
+                )
+            }
+        }
+        composeRule.onNodeWithTag("Key_-").performTouchInput {
+            down(center)
+            advanceEventTime(LONG_PRESS_HOLD_MS)
+            up()
+        }
+        composeRule.onNodeWithTag("Key__").performTouchInput {
+            down(center)
+            advanceEventTime(LONG_PRESS_HOLD_MS)
+            up()
+        }
+        composeRule.onNodeWithTag("Key_+").performTouchInput {
+            down(center)
+            advanceEventTime(LONG_PRESS_HOLD_MS)
+            up()
+        }
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(
+            listOf(android.view.KeyEvent.KEYCODE_ESCAPE to 0),
+            sent,
+        )
+        org.junit.Assert.assertEquals(listOf("|"), submitted)
+        org.junit.Assert.assertEquals(1, macros.size)
+        org.junit.Assert.assertEquals(3, macros[0].size)
+    }
+
+    /** 长按执行 popup 的主键不得被连带触发（否则一次长按发两串内容）。 */
+    @Test
+    fun `long press does not also fire the main key`() {
+        val sent = mutableListOf<Pair<Int, Int>>()
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onSubmit = {},
+                    onKey = { keyCode, modifiers ->
+                        sent.add(keyCode to modifiers)
+                        true
+                    },
+                    layout =
+                    buildExtraKeySlots(
+                        listOf(listOf(ExtraKey("-", popup = ExtraKey("ESC")))),
+                        ExtraKeysStyle.DEFAULT,
+                        true,
+                    ),
+                )
+            }
+        }
+        composeRule.onNodeWithTag("Key_-").performTouchInput {
+            down(center)
+            advanceEventTime(LONG_PRESS_HOLD_MS)
+            up()
+        }
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(
+            listOf(android.view.KeyEvent.KEYCODE_ESCAPE to 0),
+            sent,
+        )
     }
 
     private companion object {

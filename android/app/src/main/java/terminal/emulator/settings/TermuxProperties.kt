@@ -58,7 +58,7 @@ data class TermuxProperties(
          * 与 termux 上游的 `DEFAULT_IVALUE_EXTRA_KEYS` 一致（上游同样含 DRAWER 与
          * SCROLL），只差一处细节：上游把 DRAWER 写成 `{key: 'DRAWER', popup: 'PASTE'}`，
          * 即长按抽屉键粘贴剪贴板。本应用把 DRAWER 做成会话抽屉入口，长按同样是粘贴
-         * （见 `ModifierBar` 的 DRAWER 长按动作），语义一致。
+         * （popup 是完整的按键，见 [ExtraKey]），语义一致。
          *
          * 默认列数仍守 DESIGN.md 修饰键栏节的「默认 2 行 7 列」。用户一旦写了 `extra-keys`，
          * 布局、列数与键位完全以配置为准（见 [TermuxPropertiesParser]），本默认值不再参与。
@@ -67,7 +67,7 @@ data class TermuxProperties(
             listOf(
                 listOf(
                     ExtraKey("ESC"),
-                    ExtraKey("DRAWER", popup = "PASTE"),
+                    ExtraKey("DRAWER", popup = ExtraKey("PASTE")),
                     ExtraKey("SCROLL"),
                     ExtraKey("HOME"),
                     ExtraKey("UP"),
@@ -113,14 +113,16 @@ enum class ExtraKeysStyle { DEFAULT, ARROWS_ONLY, ARROWS_ALL, ALL, NONE }
  * `extra-keys` 的一个按键。
  *
  * [name] 是 termux 的键名（`ESC`、`F1`、`UP`、`CTRL`……）或单字符字面量；
- * [popup] 是长按/上档显示的次级字符，本应用把它作为长按发送的文本；
+ * [popup] 是长按触发的次级按键——它本身就是一个按键，故与主键同构：可以是键名、
+ * 字面量，也可以是宏（上游 termux 的 `popup` 就是完整的按键，见
+ * `ExtraKeysInfo.normalizeKeyConfig`）；
  * [display] 是键帽上显示的文本（`{key: 'X', display: 'Y'}`），为空时按 `extra-keys-style`
  * 取字形；[macro] 是 termux 的宏（`{macro: "CTRL f d"}`），按下时按顺序发一串键
  * （见 `MacroParser` 与 `ModifierBar.buildExtraKeySlots`）。
  */
 data class ExtraKey(
     val name: String,
-    val popup: String? = null,
+    val popup: ExtraKey? = null,
     val macro: String? = null,
     val display: String? = null,
 )
@@ -408,9 +410,11 @@ internal object TermuxPropertiesParser {
  * 记号（数组、对象、字符串），而且 termux 允许单引号与裸键名，标准 JSON 解析器反而
  * 不接收。
  *
- * 本应用不支持的字段（对象形式的 `popup`、只有 `display` 没有按键的对象）MUST 只丢
- * 自己那一项：整份布局因为一个不认识的字段回到默认，等于用户精心配的两行键位被一个
- * 对象整体作废。
+ * `popup` 是**完整的按键**（上游 `ExtraKeysInfo.normalizeKeyConfig` 把字符串包成
+ * `{key: 'X'}`，对象原样成为次级按键），故对象形式必须解析出键名与宏。
+ *
+ * 写坏的项 MUST 只丢自己那一项：整份布局因为一个不认识的字段回到默认，等于用户
+ * 精心配的两行键位被一个对象整体作废。
  */
 internal object ExtraKeysParser {
     sealed interface Result {
@@ -588,50 +592,91 @@ internal object ExtraKeysParser {
     private fun parseKey(cursor: Cursor): ExtraKey? {
         if (cursor.peek() == '{') {
             cursor.consume('{')
-            var key: String? = null
-            var popup: String? = null
-            var macro: String? = null
-            var display: String? = null
-            while (true) {
-                val name = cursor.readBare()
-                cursor.consume(':')
-                when (name) {
-                    "key" -> key = cursor.readValueOrNull()
-
-                    "popup" -> {
-                        popup = cursor.readValueOrNull()
-                        if (popup == null) {
-                            cursor.warnings +=
-                                "extra-keys: object popups are not supported; long-press action dropped"
-                        }
-                    }
-
-                    "macro" -> macro = cursor.readValueOrNull()
-
-                    "display" -> display = cursor.readValueOrNull()
-
-                    // 未知字段：吃掉值（可能是嵌套对象），别让它拖垮整份布局。
-                    else -> cursor.readValueOrNull()
-                }
-                when (cursor.peek()) {
-                    ',' -> cursor.consume(',')
-                    '}' -> break
-                    else -> error("expected ',' or '}' inside a key object")
-                }
-            }
-            cursor.consume('}')
-            if (key == null && macro == null) {
-                // `display` 只是键帽文字，没有可执行内容：丢掉这一项，其余按键照常保留。
-                cursor.warnings += "extra-keys: object without 'key' or 'macro' dropped (display is only a label)"
-                return null
-            }
-            return ExtraKey(
-                name = key ?: display.orEmpty(),
-                popup = popup,
-                macro = macro,
-                display = display,
-            )
+            return parseKeyObject(cursor, "key object", allowPopup = true)
         }
         return ExtraKey(cursor.readString())
+    }
+
+    /**
+     * 解析一个按键对象的内容（`{` 已由调用方消费，`}` 在此消费）。
+     *
+     * @param context 警告里的称呼（`key object` / `popup object`）。
+     * @param allowPopup 是否接受嵌套的 `popup`。上游的 popup 对象不再带 popup
+     *   （`ExtraKeysInfo` 只取它的 `key`/`macro`/`display`），故为 false。
+     *
+     * 返回 null 表示这一项不可用：调用方按上下文决定是丢掉整项（顶层按键）还是只
+     * 丢掉这个 popup（次级按键），两种情况下其余键位都照常保留。
+     */
+    private fun parseKeyObject(cursor: Cursor, context: String, allowPopup: Boolean): ExtraKey? {
+        var key: String? = null
+        var popup: ExtraKey? = null
+        var macro: String? = null
+        var display: String? = null
+        while (true) {
+            val name = cursor.readBare()
+            cursor.consume(':')
+            when (name) {
+                "key" -> key = cursor.readValueOrNull()
+
+                "popup" ->
+                    if (allowPopup) {
+                        popup = parsePopup(cursor)
+                    } else {
+                        cursor.readValueOrNull()
+                        cursor.warnings += "extra-keys: nested popup inside a popup object is ignored"
+                    }
+
+                "macro" -> macro = cursor.readValueOrNull()
+
+                "display" -> display = cursor.readValueOrNull()
+
+                // 未知字段：吃掉值（可能是嵌套对象），别让它拖垮整份布局。
+                else -> cursor.readValueOrNull()
+            }
+            when (cursor.peek()) {
+                ',' -> cursor.consume(',')
+                '}' -> break
+                else -> error("expected ',' or '}' inside a key object")
+            }
+        }
+        cursor.consume('}')
+        if (key != null && macro != null) {
+            // 上游直接抛错（`ExtraKeyButton` 构造函数的检查），本应用只丢这一项。
+            cursor.warnings += "extra-keys: $context sets both 'key' and 'macro'; dropped"
+            return null
+        }
+        if (key == null && macro == null) {
+            // `display` 只是键帽文字，没有可执行内容：丢掉这一项，其余按键照常保留。
+            cursor.warnings += "extra-keys: $context without 'key' or 'macro' dropped (display is only a label)"
+            return null
+        }
+        return ExtraKey(
+            // 只有宏的对象没有键名，用 display 顶上（宏本身才是它的可执行内容）。
+            name = key ?: display.orEmpty(),
+            popup = popup,
+            macro = macro,
+            display = display,
+        )
+    }
+
+    /**
+     * `popup` 的值：键名字符串，或按键对象（可含 `macro`）。
+     *
+     * 上游的 popup 是一个完整的按键：字符串被包成 `{key: 'X'}`，对象原样成为次级
+     * 按键。故对象形式必须解析，不能当作「不认识的字段」丢掉。
+     */
+    private fun parsePopup(cursor: Cursor): ExtraKey? = when (cursor.peek()) {
+        '{' -> {
+            cursor.consume('{')
+            parseKeyObject(cursor, "popup object", allowPopup = false)
+        }
+
+        '[' -> {
+            cursor.skipComposite()
+            cursor.warnings += "extra-keys: popup must be a key or a key object; dropped"
+            null
+        }
+
+        else -> ExtraKey(name = cursor.readString())
     }
 }
