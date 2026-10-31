@@ -36,6 +36,22 @@ class InputBatchBuffer(
     private var bufferedSessionId = 0L
     private val fallbackHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val fallbackFlush = Runnable { flush() }
+
+    /**
+     * 把帧回调投递到主 Looper。
+     *
+     * `Choreographer` 依附**调用线程**的 Looper，而批缓冲的写入方不只有输入法主线程：
+     * 粘贴分块经 `pasteSink` 从 IO 调度器进来，那里 `Choreographer.getInstance()` 会抛
+     * `IllegalStateException`（"The current thread must have a looper!"），把整条粘贴
+     * 协程炸掉——用户看到的是「粘贴导致闪退」。经主 Handler 中转一次，帧调度与
+     * 写入线程无关；主 Handler 本身可在任意线程 `post`。
+     */
+    private val postFrameOnMain =
+        Runnable {
+            val callback =
+                frameCallback ?: Choreographer.FrameCallback { _ -> flush() }.also { frameCallback = it }
+            Choreographer.getInstance().postFrameCallback(callback)
+        }
     private val sender: ExecutorService =
         Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "PtyWriter").apply { isDaemon = true }
@@ -143,6 +159,7 @@ class InputBatchBuffer(
         // 经本处 `RejectedExecutionException` 记日志的）。
         synchronized(lock) {
             fallbackHandler.removeCallbacks(fallbackFlush)
+            fallbackHandler.removeCallbacks(postFrameOnMain)
             if (useChoreographer) {
                 frameCallback?.let { Choreographer.getInstance().removeFrameCallback(it) }
             }
@@ -159,13 +176,9 @@ class InputBatchBuffer(
         scheduled = true
         fallbackHandler.removeCallbacks(fallbackFlush)
         fallbackHandler.postDelayed(fallbackFlush, FALLBACK_FLUSH_TIMEOUT_MS)
-        if (frameCallback == null) {
-            frameCallback = Choreographer.FrameCallback { _ -> flush() }
-        }
-        Choreographer.getInstance().postFrameCallback(
-            frameCallback
-                ?: error("frameCallback must be initialized before use"),
-        )
+        // 摘掉上一轮尚未执行的投递，避免同一回调在主队列里排两份。
+        fallbackHandler.removeCallbacks(postFrameOnMain)
+        fallbackHandler.post(postFrameOnMain)
     }
 
     companion object {
