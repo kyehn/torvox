@@ -10,6 +10,8 @@ import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.LinkOption
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -91,10 +93,7 @@ constructor(@ApplicationContext private val context: Context) {
     private fun isReadableRegularFile(file: File): Boolean {
         if (!file.exists() || !file.canRead()) return false
         return try {
-            java.nio.file.Files.isRegularFile(
-                file.toPath(),
-                java.nio.file.LinkOption.NOFOLLOW_LINKS,
-            )
+            Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)
         } catch (error: Exception) {
             false
         }

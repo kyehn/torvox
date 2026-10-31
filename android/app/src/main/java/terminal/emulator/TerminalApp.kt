@@ -57,15 +57,15 @@ open class TerminalApp : Application() {
 
     private fun installCrashHandler() {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
-        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+        Thread.setDefaultUncaughtExceptionHandler { crashedThread, throwable ->
             try {
-                logCrash(thread, throwable)
+                logCrash(crashedThread, throwable)
             } catch (exception: Exception) {
                 LogUtil.error("App", "Failed to log crash", exception)
             }
             // 不自行杀进程：下方平台处理器会终止进程并把 FATAL EXCEPTION
             // 堆栈写入 logcat/dropbox（远程崩溃上报），自行 kill 会让堆栈全丢。
-            defaultHandler?.uncaughtException(thread, throwable)
+            defaultHandler?.uncaughtException(crashedThread, throwable)
         }
     }
 

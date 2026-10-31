@@ -2,6 +2,7 @@ package terminal.emulator
 
 import android.content.Context
 import android.provider.DocumentsContract
+import android.webkit.MimeTypeMap
 import terminal.emulator.util.runCatchingCancellable
 import java.io.File
 import java.io.FileNotFoundException
@@ -527,7 +528,7 @@ internal class DocumentMutations(private val context: Context, private val rootD
             return DEFAULT_DIRECTORY_NAME
         }
         val extension =
-            android.webkit.MimeTypeMap
+            MimeTypeMap
                 .getSingleton()
                 .getExtensionFromMimeType(mimeType)
         return if (extension.isNullOrEmpty()) DEFAULT_FILE_NAME else "$DEFAULT_FILE_NAME.$extension"

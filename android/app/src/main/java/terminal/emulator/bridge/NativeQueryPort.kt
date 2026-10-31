@@ -13,6 +13,11 @@ data class SearchSelection(val index: Int, val total: Int, val matched: SearchMa
  * 单行/字体查询开销小，批量查询（[getTerminalText]、[searchSetNeedle]）由 UI 负责防抖。
  */
 class NativeQueryPort(private val sessionIdProvider: () -> Long) {
+    private companion object {
+        /** `searchSelect` 打包数组的字段数：[index, total, row, startCol, endCol]。 */
+        const val SEARCH_SELECTION_FIELDS = 5
+    }
+
     fun getTitle(): String? = NativeBridge.getTitle(sessionIdProvider())
 
     /**
@@ -67,6 +72,11 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) {
 
     fun searchSelect(forward: Boolean): SearchSelection? =
         NativeBridge.searchSelect(sessionIdProvider(), forward)?.let { flat ->
+            // 长度不符即原生与 Kotlin 的打包契约已不一致：在此明确报出，
+            // 不让取值落在一次无来由的 ArrayIndexOutOfBounds 上。
+            require(flat.size == SEARCH_SELECTION_FIELDS) {
+                "searchSelect packed ${flat.size} fields, expected $SEARCH_SELECTION_FIELDS"
+            }
             SearchSelection(
                 index = flat[0],
                 total = flat[1],

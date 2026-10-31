@@ -7,8 +7,8 @@ import kotlinx.serialization.json.Json
 
 /**
  * Rust 原生侧推送的事件，以 internal tagging 序列化，Kotlin 侧匹配 `event` 判别字段。
- * 所有字段均带默认值，缺失或未知字段退化为合理值（coerceInputValues + ignoreUnknownKeys）。
- * Rust 与 Kotlin 的 schema 必须保持一致。
+ * 字段带默认值，缺失或未知字段退化为合理值（coerceInputValues + ignoreUnknownKeys）；
+ * 唯独退出码刻意没有默认值（见 [Exit.code]）。Rust 与 Kotlin 的 schema 必须保持一致。
  */
 @Serializable
 sealed class PollEvent {

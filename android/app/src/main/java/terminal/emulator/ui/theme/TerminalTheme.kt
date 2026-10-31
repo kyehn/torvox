@@ -52,8 +52,8 @@ data class TerminalTheme(val name: String, val background: Color, val foreground
             val base = index * COLOR_BYTES
             return Color(
                 0xFF000000L or
-                    (this[base].toLong() and 0xFF shl 16) or
-                    (this[base + 1].toLong() and 0xFF shl 8) or
+                    ((this[base].toLong() and 0xFF) shl 16) or
+                    ((this[base + 1].toLong() and 0xFF) shl 8) or
                     (this[base + 2].toLong() and 0xFF),
             )
         }
@@ -126,18 +126,20 @@ fun resolveAppDarkMode(appThemeMode: String, systemDark: Boolean): Boolean = whe
 
 /**
  * 由应用主题模式设置解析 Material 3 配色方案。
- * 动态取色仅在 Android 12+ 且跟随系统时生效。
+ *
+ * 动态取色仅在跟随系统时生效（平台只在系统深浅色下给出动态色板）。
+ * 深色裁决复用 [resolveAppDarkMode]，调用方不必自己算一遍再传进来。
  */
 @Composable
 @ReadOnlyComposable
-fun resolveMaterialColorScheme(appThemeMode: String, forceDark: Boolean, isDarkTheme: Boolean): ColorScheme {
+fun resolveMaterialColorScheme(appThemeMode: String, systemDark: Boolean): ColorScheme {
     val context = LocalContext.current
+    val dark = resolveAppDarkMode(appThemeMode, systemDark)
     return when {
-        appThemeMode == AppThemeMode.FOLLOW_SYSTEM -> {
-            if (isDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
+        appThemeMode == AppThemeMode.FOLLOW_SYSTEM ->
+            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
 
-        forceDark -> darkColorScheme()
+        dark -> darkColorScheme()
 
         else -> lightColorScheme()
     }

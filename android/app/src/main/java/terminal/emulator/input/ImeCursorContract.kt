@@ -1,5 +1,7 @@
 package terminal.emulator.input
 
+import android.view.inputmethod.InputConnection
+
 /**
  * `beginBatchEdit` / `endBatchEdit` 的嵌套计数。
  *
@@ -96,6 +98,6 @@ class CursorUpdateMonitor {
 
     companion object {
         /** `CURSOR_UPDATE_MONITOR`：光标或锚点变化即回报。 */
-        const val MONITOR = android.view.inputmethod.InputConnection.CURSOR_UPDATE_MONITOR
+        const val MONITOR = InputConnection.CURSOR_UPDATE_MONITOR
     }
 }

@@ -1,7 +1,10 @@
 package terminal.emulator
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.ColorDrawable
@@ -10,8 +13,11 @@ import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -26,21 +32,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.WindowCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.afterVirtualCtrlKey
+import terminal.emulator.installer.BootstrapInstallService
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.BackKeyBehaviour
 import terminal.emulator.settings.VolumeKeysBehaviour
 import terminal.emulator.ui.SettingsScreen
 import terminal.emulator.ui.TerminalScreen
-import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveMaterialColorScheme
+import terminal.emulator.util.TerminalDispatchers
 import javax.inject.Inject
 
 /** 冷启动后，设置覆盖层的暂停逻辑为等待 bridge 出现而放弃的时长（50ms × 50 = 2.5s）。 */
@@ -83,14 +92,13 @@ class MainActivity : ComponentActivity() {
      */
     private val notificationPermissionLauncher =
         registerForActivityResult(
-            androidx.activity.result.contract.ActivityResultContracts
-                .RequestPermission(),
+            ActivityResultContracts.RequestPermission(),
         ) { _ -> }
 
     private var previousNightMode: Int? = null
     private var previousFontScale: Float = 0f
 
-    internal val terminalViewModel: terminal.emulator.TerminalViewModel by viewModels()
+    internal val terminalViewModel: TerminalViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // 系统启动屏：冷启动首帧前显示主题背景，与 windowBackground 同色，
@@ -111,10 +119,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // activity 1.14.0-alpha03 弃用 ComponentActivity.enableEdgeToEdge()，
         // 改用 core 的 WindowCompat.enableEdgeToEdge(window)。
-        androidx.core.view.WindowCompat
+        WindowCompat
             .enableEdgeToEdge(window)
         previousNightMode =
-            resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+            resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
         previousFontScale = resources.configuration.fontScale
         // Color.TRANSPARENT 是 ARGB 整数而非资源 id —— lint 建议的 KTX
         // Int.toDrawable() 会把它当作资源 id (0) 并解析到错误的 drawable。
@@ -128,10 +136,10 @@ class MainActivity : ComponentActivity() {
         // Android 13+ 需要 POST_NOTIFICATIONS 运行时权限，缺失时每次 notify() 都抛
         // SecurityException 且会话通知不再出现。启动时申请一次；拒绝不影响终端功能。
         if (
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
         ) {
-            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         handleLaunchIntent(intent)
         registerBackKeyMapping()
@@ -166,7 +174,7 @@ class MainActivity : ComponentActivity() {
     private fun registerBackKeyMapping() {
         onBackPressedDispatcher.addCallback(
             this,
-            object : androidx.activity.OnBackPressedCallback(true) {
+            object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     val properties = terminalViewModel.termuxConfiguration.value.properties
                     if (
@@ -240,7 +248,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 从本地路径安装引导程序 zip。委托给 [terminal.emulator.installer.BootstrapInstallService]，
+     * 从本地路径安装引导程序 zip。委托给 [BootstrapInstallService]，
      * 该服务运行在独立的 `:install` 进程：主进程为 instrumentation 目标时携带的是测试包的
      * SELinux 分类，无法写入 filesDir（已在模拟器验证）。安装状态一律从已安装的条目
      * （usr/bin/login）读回，不读标记文件。
@@ -248,8 +256,8 @@ class MainActivity : ComponentActivity() {
     private fun installBootstrapFromPath(zipPath: String) {
         LogUtil.debug("MainActivity", "delegating bootstrap install to :install process")
         startService(
-            Intent(this, terminal.emulator.installer.BootstrapInstallService::class.java)
-                .putExtra(terminal.emulator.installer.BootstrapInstallService.EXTRA_ZIP_PATH, zipPath),
+            Intent(this, BootstrapInstallService::class.java)
+                .putExtra(BootstrapInstallService.EXTRA_ZIP_PATH, zipPath),
         )
     }
 
@@ -262,9 +270,9 @@ class MainActivity : ComponentActivity() {
         runtime.stopForegroundServiceIfIdle()
     }
 
-    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+    override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        val currentNightMode = newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        val currentNightMode = newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK
         // 系统「字体大小」变化必须一并响应：它改变 sp→px 系数，而原生
         // setRasterScale 只在建会话与本回调里下发一次。系数漂移后 Kotlin 按新系数
         // 算字号与网格、原生仍按旧值光栅，字形被拉伸、度量与网格整体偏掉。
@@ -272,7 +280,7 @@ class MainActivity : ComponentActivity() {
         // 而 TerminalRuntime 作为 @Singleton 仍会活下来）。
         val currentFontScale = newConfig.fontScale
         if (currentNightMode != previousNightMode || currentFontScale != previousFontScale) {
-            lifecycleScope.launch(terminal.emulator.util.TerminalDispatchers.inputOutput) {
+            lifecycleScope.launch(TerminalDispatchers.inputOutput) {
                 runtime.applySettings()
             }
         }
@@ -373,7 +381,7 @@ private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalVi
         // 只在带 `openSettingsOnLaunch` 的冷启动才真正等待）。
         var attempts = 0
         while (viewModel.runtime.bridge() == null && attempts < BRIDGE_READY_POLL_ATTEMPTS) {
-            kotlinx.coroutines.delay(BRIDGE_READY_POLL_INTERVAL_MS)
+            delay(BRIDGE_READY_POLL_INTERVAL_MS)
             attempts++
         }
         settingsPauseToken = viewModel.runtime.acquireRenderPause()
@@ -393,11 +401,11 @@ private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalVi
     }
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val appThemeMode = settings.appThemeMode
-    val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+    val isDarkTheme = isSystemInDarkTheme()
 
-    val forceDark = resolveAppDarkMode(appThemeMode, isDarkTheme)
-
-    val colorScheme = resolveMaterialColorScheme(appThemeMode, forceDark, isDarkTheme)
+    // 深色与否只由 resolveAppDarkMode 裁决一次：配色方案内部复用它，
+    // 调用方不再自己算一份 forceDark 传进去（两份判断迟早会分家）。
+    val colorScheme = resolveMaterialColorScheme(appThemeMode, isDarkTheme)
 
     Box(Modifier.semantics { testTagsAsResourceId = true }) {
         MaterialTheme(colorScheme = colorScheme) {

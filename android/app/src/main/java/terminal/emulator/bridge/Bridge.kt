@@ -1,8 +1,14 @@
 package terminal.emulator.bridge
 
+import android.view.KeyCharacterMap
+import android.view.KeyEvent
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.termuxDefaultFontFile
+import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
 import java.util.concurrent.atomic.AtomicReference
 
@@ -33,7 +39,6 @@ data class TerminalConfig(
  * 使调用方不直接接触会话 ID；所有按会话的 JNI 调用都经 [onSession]，集中处理「拿不到结果」的情况。
  * 函数数量对应 JNI 表面而非接口异味。
  */
-// 对 PollEvent 密封类做 when 分派，每个变体一个分支。
 class Bridge(private val config: TerminalConfig) {
     /** 原生查询路径：所有查询委托给 [NativeQueryPort]，它与 ffi.rs 的 JNI 查询导出 1:1 对应。 */
     private val queryPort = NativeQueryPort { sessionId }
@@ -157,10 +162,13 @@ class Bridge(private val config: TerminalConfig) {
      * 下方 `catch` 只接得住 JNI 层抛回的 `RuntimeException`；字体库无任何可用面时
      * `font_db::fatal` 走 `process::abort`，是进程级终止，此处接不到。
      */
-    fun prefetchRenderStateAsync(scope: kotlinx.coroutines.CoroutineScope) {
-        scope.launch(terminal.emulator.util.TerminalDispatchers.inputOutput) {
+    fun prefetchRenderStateAsync(scope: CoroutineScope) {
+        scope.launch(TerminalDispatchers.inputOutput) {
             try {
                 NativeBridge.prefetchRenderState()
+            } catch (exception: CancellationException) {
+                // 作用域取消不是预热失败。
+                throw exception
             } catch (exception: Exception) {
                 LogUtil.warn("Bridge", "prefetchRenderState failed", exception)
             }
@@ -429,11 +437,11 @@ class Bridge(private val config: TerminalConfig) {
     private val defaultFontProbe = AtomicReference<Pair<String?, String?>?>(null)
 
     private fun probeDefaultFontFile(): String? {
-        val file =
-            terminal.emulator.termuxDefaultFontFile(config.home) ?: run {
-                defaultFontProbe.set(null)
-                return null
-            }
+        val file = termuxDefaultFontFile(config.home)
+        if (file == null) {
+            defaultFontProbe.set(null)
+            return null
+        }
         val key = "${file.absolutePath}:${file.lastModified()}:${file.length()}"
         val cached = defaultFontProbe.get()
         if (cached != null && cached.first == key) return cached.second
@@ -591,7 +599,7 @@ class Bridge(private val config: TerminalConfig) {
         // 仅 ACTION_DOWN 产生输出：onKeyDown 与 onKeyUp 都走这里，若在 UP 也写入
         // 会把每次击键写两遍（"llss"、双击 Enter、双击 Ctrl+C）。ACTION_UP 返回
         // false，交由平台默认实现（空操作）处理。
-        if (action != android.view.KeyEvent.ACTION_DOWN) return false
+        if (action != KeyEvent.ACTION_DOWN) return false
         // 修饰位取上游 `key.Mods` 原始位（1=shift，2=ctrl，4=alt，8=super），
         // 由编码器直接消费，应用不再自行解读。
         val ctrlActive = modifiers and KeyModifiers.CTRL != 0
@@ -756,8 +764,8 @@ class Bridge(private val config: TerminalConfig) {
          * `KeyCharacterMap.load` 每次都新建对象并走一次 `nativeLoad`，平台不缓存——
          * 原先在每次击键的回退路径上调，等于每次按键都重新加载整张映射表。
          */
-        private val virtualKeyboardMap: android.view.KeyCharacterMap by lazy {
-            android.view.KeyCharacterMap.load(android.view.KeyCharacterMap.VIRTUAL_KEYBOARD)
+        private val virtualKeyboardMap: KeyCharacterMap by lazy {
+            KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD)
         }
 
         /** renderWithNewOutput 打包：内容下沿行占 bit 43..52，该值表示视口全空。 */

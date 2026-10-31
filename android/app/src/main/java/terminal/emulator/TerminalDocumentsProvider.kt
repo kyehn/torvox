@@ -5,6 +5,8 @@ import android.database.Cursor
 import android.database.MatrixCursor
 import android.graphics.Point
 import android.os.CancellationSignal
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.provider.DocumentsContract
@@ -261,18 +263,18 @@ class TerminalDocumentsProvider : DocumentsProvider() {
      * 专用线程只做这一次 I/O，不与渲染争主线程；provider 的生命周期等于进程，
      * 线程随进程消亡，无需单独回收（`ContentProvider` 也没有可覆写的销毁钩子）。
      */
-    private var closeNotifyThread: android.os.HandlerThread? = null
-    private var closeNotifyHandler: android.os.Handler? = null
+    private var closeNotifyThread: HandlerThread? = null
+    private var closeNotifyHandler: Handler? = null
 
     /** 取写回通知的 Handler；线程已退出时重建。 */
-    private fun closeNotifyHandler(): android.os.Handler {
+    private fun closeNotifyHandler(): Handler {
         synchronized(this) {
             val thread = closeNotifyThread
             val handler = closeNotifyHandler
             if (thread != null && handler != null && thread.isAlive) return handler
-            val newThread = android.os.HandlerThread("terminal-documents-writeback").apply { start() }
+            val newThread = HandlerThread("terminal-documents-writeback").apply { start() }
             closeNotifyThread = newThread
-            return android.os.Handler(newThread.looper).also { closeNotifyHandler = it }
+            return Handler(newThread.looper).also { closeNotifyHandler = it }
         }
     }
 

@@ -125,6 +125,13 @@ object TerminalKeyCatalog {
     private val nicer = mapOf("-" to "―")
     private val notKnownIso = mapOf("CTRL" to "⎈", "ALT" to "⎇", "ESC" to "⎋")
 
+    // 四种样式各自的字形表在 object 初始化时合成一次：键栏每次重组都会对每个键
+    // 调 displayLabel，现场做 map 合并等于每帧重建四张表。
+    private val defaultGlyphs = arrows + wellKnown + nicer
+    private val arrowsOnlyGlyphs = arrows + nicer
+    private val arrowsAllGlyphs = arrows + wellKnown + lessKnown + nicer
+    private val allGlyphs = arrowsAllGlyphs + notKnownIso
+
     /**
      * 按键的显示文本。
      *
@@ -136,10 +143,10 @@ object TerminalKeyCatalog {
     fun displayLabel(name: String, style: ExtraKeysStyle, allCaps: Boolean): String {
         val glyphs =
             when (style) {
-                ExtraKeysStyle.DEFAULT -> arrows + wellKnown + nicer
-                ExtraKeysStyle.ARROWS_ONLY -> arrows + nicer
-                ExtraKeysStyle.ARROWS_ALL -> arrows + wellKnown + lessKnown + nicer
-                ExtraKeysStyle.ALL -> arrows + wellKnown + lessKnown + nicer + notKnownIso
+                ExtraKeysStyle.DEFAULT -> defaultGlyphs
+                ExtraKeysStyle.ARROWS_ONLY -> arrowsOnlyGlyphs
+                ExtraKeysStyle.ARROWS_ALL -> arrowsAllGlyphs
+                ExtraKeysStyle.ALL -> allGlyphs
                 ExtraKeysStyle.NONE -> emptyMap()
             }
         // 别名先归一：上游的字形表查的是**归一后**的名字（`ExtraKeyButton` 先

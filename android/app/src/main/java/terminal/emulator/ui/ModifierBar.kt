@@ -1,5 +1,7 @@
 package terminal.emulator.ui
 
+import android.os.SystemClock
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -43,6 +45,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -238,16 +241,16 @@ private fun resolvePopup(popup: ExtraKey): KeyAction? = when (val resolution = r
  * 测试标签：方向键沿用字形（`Key_↑`，与既有 UI 测试一致），其余用逻辑键名。
  * 字面量按键用其字符本身。
  */
-private fun testTagFor(name: String): String {
-    val arrow =
-        mapOf(
-            "UP" to "↑",
-            "DOWN" to "↓",
-            "LEFT" to "←",
-            "RIGHT" to "→",
-        )[name.uppercase()]
-    return "Key_" + (arrow ?: name)
-}
+private val ARROW_TEST_TAGS =
+    mapOf(
+        "UP" to "↑",
+        "DOWN" to "↓",
+        "LEFT" to "←",
+        "RIGHT" to "→",
+    )
+
+/** 方向键的字形标签（与既有 UI 测试一致），其余键用逻辑名。 */
+private fun testTagFor(name: String): String = "Key_" + (ARROW_TEST_TAGS[name.uppercase()] ?: name)
 
 /**
  * 宏键的测试标签。
@@ -329,7 +332,7 @@ private fun ModifierBarTextInputPage(
         label = { Text(stringResource(R.string.text_input_box)) },
         singleLine = true,
         textStyle =
-        androidx.compose.ui.text.TextStyle(
+        TextStyle(
             color = textColor,
             fontSize = BUTTON_FONT_SIZE_SP.sp,
         ),
@@ -647,7 +650,7 @@ private fun ModifierBarButtonRow(items: ImmutableList<ToolbarKeyPresentation>, b
 private fun RowScope.ExtraKeyButton(
     text: String,
     onClick: () -> Unit,
-    textColor: androidx.compose.ui.graphics.Color,
+    textColor: Color,
     modifierState: ModifierState? = null,
     testTag: String = "",
     contentDescription: String? = null,
@@ -764,7 +767,7 @@ private fun RowScope.ExtraKeyButton(
                             ) {
                                 longPressTriggered = true
                                 view.performHapticFeedback(
-                                    android.view.HapticFeedbackConstants.LONG_PRESS,
+                                    HapticFeedbackConstants.LONG_PRESS,
                                 )
                                 currentSecondaryAction?.invoke()
                             }
@@ -790,7 +793,7 @@ private fun RowScope.ExtraKeyButton(
                         }
                         if (!longPressTriggered && gestureValid) {
                             view.performHapticFeedback(
-                                android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                                HapticFeedbackConstants.KEYBOARD_TAP,
                             )
                             currentOnClick()
                         }
@@ -814,7 +817,7 @@ private fun RowScope.ExtraKeyButton(
                             }
                             if (tapValid) {
                                 view.performHapticFeedback(
-                                    android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                                    HapticFeedbackConstants.KEYBOARD_TAP,
                                 )
                                 currentOnClick()
                             } else if (currentEvent.changes.any { it.pressed }) {
@@ -828,11 +831,11 @@ private fun RowScope.ExtraKeyButton(
                             // 单调 uptime，与上方长按阈值同一时间线：墙钟前跳会让
                             // remaining 变负，循环再不 await 事件而是空转连发。
                             var nextRepeatAt =
-                                android.os.SystemClock.uptimeMillis() + longPressMs
+                                SystemClock.uptimeMillis() + longPressMs
                             var repeatFired = false
                             var repeatValid = true
                             while (currentOnRepeat != null) {
-                                val remaining = nextRepeatAt - android.os.SystemClock.uptimeMillis()
+                                val remaining = nextRepeatAt - SystemClock.uptimeMillis()
                                 // withTimeout(0) 在 PointerEventHandlerCoroutine 内与事件送达竞态，
                                 // 触发重复恢复崩溃（Already resumed）；期限已过直接按超时走。
                                 val pointerEvent =
@@ -847,7 +850,7 @@ private fun RowScope.ExtraKeyButton(
                                     if (repeatValid) {
                                         if (!repeatFired) {
                                             view.performHapticFeedback(
-                                                android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                                                HapticFeedbackConstants.KEYBOARD_TAP,
                                             )
                                             currentOnClick()
                                             repeatFired = true
@@ -871,7 +874,7 @@ private fun RowScope.ExtraKeyButton(
                             }
                             if (!repeatFired && repeatValid) {
                                 view.performHapticFeedback(
-                                    android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                                    HapticFeedbackConstants.KEYBOARD_TAP,
                                 )
                                 currentOnClick()
                             }
