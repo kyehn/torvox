@@ -2,12 +2,9 @@ package terminal.emulator.settings
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
@@ -30,9 +27,10 @@ data class TermuxConfiguration(
 /**
  * `~/.termux/{termux.properties,colors.properties}` 的读取与缓存。
  *
- * 读取时机是显式的 [reload]：应用回到前台、退出设置页、安装完成后各一次。不用
- * `FileObserver`——它只覆盖 inotify 可达的路径，用户用 SAF 或 `adb push` 改写时
- * 事件未必到达，而「回到前台重读」对所有写入方式都成立，代价是两次 stat。
+ * 读取时机是显式的 [reloadNow]：首帧前（`TerminalRuntime.start`）与每次设置重下发
+ * （`TerminalRuntime.applySettings`）各一次。不用 `FileObserver`——它只覆盖 inotify
+ * 可达的路径，用户用 SAF 或 `adb push` 改写时事件未必到达，而重读对所有写入方式都
+ * 成立，代价是两次 stat。
  *
  * 文件不存在是正常状态（等价于全部默认值），不是错误；只有「存在但读不出」才记错误，
  * 且保留上一次成功的结果，不把用户的配置因为一次 IO 失败清空。
@@ -44,15 +42,8 @@ constructor(@ApplicationContext private val context: Context) {
     private val _configuration = MutableStateFlow(TermuxConfiguration())
     val configuration: StateFlow<TermuxConfiguration> = _configuration.asStateFlow()
 
-    private val scope = CoroutineScope(SupervisorJob() + TerminalDispatchers.inputOutput)
-
     /** 最近一次成功读取的配置：读失败时继续用它，避免界面闪回默认值。 */
     @Volatile private var lastGood: TermuxConfiguration = TermuxConfiguration()
-
-    /** 非阻塞重读；同一时刻只保留最后一次请求（重读是幂等的）。 */
-    fun reload() {
-        scope.launch { reloadNow() }
-    }
 
     /** 同步重读；调用方已在线程池上时使用。 */
     suspend fun reloadNow() {
