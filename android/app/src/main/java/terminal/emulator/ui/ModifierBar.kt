@@ -56,6 +56,7 @@ import terminal.emulator.R
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.settings.ExtraKey
 import terminal.emulator.settings.ExtraKeysStyle
 import terminal.emulator.settings.TerminalKeyCatalog
 import terminal.emulator.settings.TermuxProperties
@@ -65,7 +66,7 @@ internal const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
 
 /**
- * 键栏上的一个按键，由固定布局构建。
+ * 键栏上的一个按键，由 `extra-keys` 配置解析而来。
  *
  * 三种来源互斥：内置键码（[keyCode]）、特殊动作（[special]）、字面量文本
  * （两者皆空，直接发送 [label] 的原文）。[testTag] 取逻辑键名而非显示字形：
@@ -78,32 +79,38 @@ data class ExtraKeySlot(
     val keyCode: Int? = null,
     val special: TerminalKeyCatalog.Special? = null,
     val repeatable: Boolean = false,
+    /** 长按时发送的文本（`{key: '-', popup: '|'}`）。 */
+    val popup: String? = null,
     val testTag: String,
 )
 
 /**
- * 固定布局 → 可渲染的按键槽位。
+ * `extra-keys` 配置 → 可渲染的按键槽位。
  *
- * 不可渲染的键跳过并记警告：未知键名按字面量渲染会点出一串无意义的键名。
+ * 不可渲染的键跳过并记警告：把它当字面量渲染会让用户点出一串无意义的字符，静默丢弃
+ * 至少留下证据。判据统一走 [unrenderableReason]，与 [isRenderableKey] 同源——两者一旦
+ * 分家，预留高度就会与实际键栏高度不符。
  */
 internal fun buildExtraKeySlots(
-    rows: List<List<String>>,
+    rows: List<List<ExtraKey>>,
     style: ExtraKeysStyle,
     allCaps: Boolean,
 ): List<List<ExtraKeySlot>> = rows.mapNotNull { row ->
     val slots =
-        row.mapNotNull { name ->
-            unrenderableReason(name)?.let { reason ->
+        row.mapNotNull { key ->
+            unrenderableReason(key)?.let { reason ->
                 LogUtil.warn("ModifierBar", "extra-keys: $reason; key hidden")
                 return@mapNotNull null
             }
             ExtraKeySlot(
-                name = name,
-                label = TerminalKeyCatalog.displayLabel(name, style, allCaps),
-                keyCode = TerminalKeyCatalog.keyCodeFor(name),
-                special = TerminalKeyCatalog.specialFor(name),
-                repeatable = TerminalKeyCatalog.isRepetitive(name),
-                testTag = testTagFor(name),
+                name = key.name,
+                label = key.display?.let { display -> if (allCaps) display.uppercase() else display }
+                    ?: TerminalKeyCatalog.displayLabel(key.name, style, allCaps),
+                keyCode = TerminalKeyCatalog.keyCodeFor(key.name),
+                special = TerminalKeyCatalog.specialFor(key.name),
+                repeatable = TerminalKeyCatalog.isRepetitive(key.name),
+                popup = key.popup,
+                testTag = testTagFor(key.name),
             )
         }
     slots.takeIf { it.isNotEmpty() }
@@ -124,7 +131,7 @@ private fun testTagFor(name: String): String {
     return "Key_" + (arrow ?: name)
 }
 
-/** 固定的两行默认布局。 */
+/** 默认布局（termux 默认值），供未配置 `extra-keys` 时使用。 */
 internal fun defaultExtraKeySlots(
     style: ExtraKeysStyle = ExtraKeysStyle.DEFAULT,
     allCaps: Boolean = true,
@@ -133,19 +140,33 @@ internal fun defaultExtraKeySlots(
 /**
  * 这个按键不可渲染的原因；null 表示可渲染。
  *
- * FN 需要一整套二次映射（未实现），未知键名按字面量渲染会点出无意义的键名，两者都
- * 不渲染。固定布局里所有键都已知，此判据只防御未来改表时写错。
+ * 单一判据：宏没有播放器、FN 需要一整套二次映射（未实现）、未知键名按字面量渲染
+ * 会点出无意义字符，三者都不渲染。[buildExtraKeySlots] 与 [extraKeyRowCount] 都经
+ * 此处，任何一侧单独写一份判定都会让「预留的行数」与「实际画出的行数」分家。
  */
-private fun unrenderableReason(name: String): String? {
-    val special = TerminalKeyCatalog.specialFor(name)
+private fun unrenderableReason(key: ExtraKey): String? {
+    if (key.macro != null) return "macro '${key.macro}' is not supported"
+    val special = TerminalKeyCatalog.specialFor(key.name)
     return when {
         special == TerminalKeyCatalog.Special.FN -> "FN is not supported"
         special != null -> null
-        TerminalKeyCatalog.keyCodeFor(name) != null -> null
-        name.length == 1 -> null
-        else -> "unknown key '$name'"
+        TerminalKeyCatalog.keyCodeFor(key.name) != null -> null
+        key.name.length == 1 -> null
+        else -> "unknown key '${key.name}'"
     }
 }
+
+/** 这个按键是否会被渲染。 */
+internal fun isRenderableKey(key: ExtraKey): Boolean = unrenderableReason(key) == null
+
+/**
+ * 键栏实际渲染的行数，供网格预留高度使用。
+ *
+ * 必须与 [buildExtraKeySlots] 给出同一个数：预留高度与实际键栏高度一旦分家，键栏就会
+ * 盖住终端底部若干行——它盖在 Surface 之上，被盖的行既看不见也点不到。空行与整行都
+ * 被过滤掉的行（例如只写了 `FN`）不算行。
+ */
+internal fun extraKeyRowCount(rows: List<List<ExtraKey>>): Int = rows.count { row -> row.any { isRenderableKey(it) } }
 
 /** 单键高度（dp）：`terminal-toolbar-height` 是相对默认值的缩放系数。 */
 internal fun buttonHeightDp(scale: Float): Float = BUTTON_HEIGHT_DP * scale
@@ -258,7 +279,7 @@ fun ModifierBar(
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
     /** 发送带修饰键的按键后，消耗一次性（`Once`）粘滞修饰键。 */
     onConsumeModifiers: () -> Unit = {},
-    /** 键栏布局；null 表示固定两行布局。 */
+    /** 键栏布局；null 表示 termux 默认两行。 */
     layout: List<List<ExtraKeySlot>>? = null,
     /** 单键高度相对默认值的缩放（`terminal-toolbar-height`）。 */
     buttonHeightScale: Float = 1f,
@@ -363,7 +384,7 @@ private data class ModifierBarStates(
     val scrollActive: Boolean,
 )
 
-/** 长按动作：CTRL/ALT 锁定、DRAWER 粘贴。 */
+/** 长按动作：CTRL/ALT 锁定、DRAWER 粘贴；配置了 popup 的按键发送 popup 文本。 */
 private fun secondaryLongPressAction(slot: ExtraKeySlot, actions: ModifierBarActions): (() -> Unit)? =
     when (slot.special) {
         TerminalKeyCatalog.Special.CTRL -> actions.onLockCtrl
@@ -372,7 +393,10 @@ private fun secondaryLongPressAction(slot: ExtraKeySlot, actions: ModifierBarAct
 
         TerminalKeyCatalog.Special.DRAWER -> actions.onPasteClick
 
-        else -> null
+        else ->
+            slot.popup?.let { popup ->
+                { actions.onSubmit(popup) }
+            }
     }
 
 /** 单个按键的实时切换状态；非切换类按键为 `null`。 */
@@ -453,7 +477,7 @@ private fun toolbarKeyClickHandler(
     TerminalKeyCatalog.Special.PASTE -> actions.onPasteClick
 
     TerminalKeyCatalog.Special.FN, null -> {
-        if (slot.keyCode == null) {
+        if (slot.keyCode == null && slot.popup == null) {
             // 字面量：没有键码，直接写文本。
             { actions.onSubmit(slot.name) }
         } else {

@@ -6,8 +6,8 @@
 
 ## 结论
 
-- 配置面已按本轮处置收敛：`termux.properties` 当前仍解析 14 个键，其中 3 个为规范允许，
-  11 个为兼容保留；`colors.properties` 解析已移除。
+- 差异集中在配置面：`termux.properties` 实解析 20 个键，规范只允许 3 个；既然这些键
+  已有消费方，就不是死代码，而是规范未收录的能力。
 - `colors.properties` 解析已按用户指令移除，实现与 `config.md`、`PROHIBITED.md` 一致。
 - 修饰键栏默认布局与 Termux 上游不一致：规范要求「布局/按键和 Termux 完全相同」，
   代码把首行的 `/` 与 `-` 换成了 `DRAWER` 与 `SCROLL`。
@@ -21,10 +21,11 @@
 - 本轮清掉了 `openspec/specs` 里已删除功能的残留条款（响铃、光标闪烁、会话切换提示），
   使次级规范重新与实现对齐；其余差异按现状登记，未擅自删除功能。
 
-## 配置键面：当前仍解析 14 个键
+## 配置键面：20 个键，规范只允许 3 个
 
-`config.md` 现按当前实现列出 14 个键；`PROHIBITED.md` 仍只允许其中 3 个，其余为兼容保留。
-`TermuxPropertiesParser.parse` 当前解析下表 14 个键，`TermuxProperties` 为每个键保留字段，
+`config.md` 规定只读取 `default-working-directory`、`terminal-transcript-rows`、
+`terminal-cursor-style`，其余键与 `colors.properties` 一律不解析；`PROHIBITED.md` 重申。
+`TermuxPropertiesParser.parse` 实际解析下表 20 个键，`TermuxProperties` 为每个键保留字段，
 并各有消费方。
 
 | 键 | 实际作用 | 与规范的关系 |
@@ -32,34 +33,40 @@
 | `default-working-directory` | 会话工作目录 | 允许 |
 | `terminal-transcript-rows` | 回滚行数 | 允许 |
 | `terminal-cursor-style` | 光标默认样式 | 允许 |
+| `disable-hardware-keyboard-shortcuts` | 关掉实体键盘快捷键 | 三键限制 |
+| `use-fullscreen-workaround` | 全屏时系统栏改为滑动临时唤出 | 三键限制 |
 | `fullscreen` | 隐藏系统栏 | 三键限制 |
 | `ctrl-space-workaround` | 补发 Ctrl+空格 | 三键限制 |
 | `hide-soft-keyboard-on-startup` | 启动时是否请求输入法 | 三键限制 |
 | `extra-keys-text-all-caps` | 键帽大小写 | 三键限制 |
 | `terminal-margin-horizontal` | 终端左右边距 | 三键限制 |
 | `terminal-margin-vertical` | 终端上下边距 | 三键限制 |
+| `shortcut.create-session` | 实体键盘新建会话 | 三键限制；`PROHIBITED.md` 禁止实体键盘快捷键设置 |
+| `shortcut.next-session` | 实体键盘下一会话 | 同上 |
+| `shortcut.previous-session` | 实体键盘上一会话 | 同上 |
 | `terminal-toolbar-height` | 修饰键栏高度倍率 | 三键限制 |
 | `extra-keys-style` | 键帽字形档位 | 三键限制 |
+| `extra-keys` | 键栏布局（行、键位、字形、`display` 覆盖） | 三键限制；`DESIGN.md` 要求固定 2 行 7 列；`PROHIBITED.md` 禁止修改键栏布局 |
 | `back-key` | 返回键改发 ESC | 三键限制 |
 | `volume-keys` | 音量减改为虚拟 Ctrl | 三键限制 |
 | `soft-keyboard-toggle-behaviour` | 键盘键改为启用/禁用输入法 | 三键限制 |
 
 证据：`TermuxPropertiesParser.parse` 的 `boolean`、`integer`、`float`、`choice`、`shortcut`
-与 `extraKeys` 分支；`TermuxProperties` 的字段与默认值；消费方分别是 `MainActivity`（`ctrlSpaceWorkaround`、`backKey`、`volumeKeys`）、
-`TerminalScreen`（`fullscreen`、`hideSoftKeyboardOnStartup`、`extraKeysTextAllCaps`、
-`terminalMargin*Dp`、`softKeyboardToggleBehaviour`、`extraKeysStyle`、`terminalToolbarHeightScale`）、
-`SystemBars`（`fullscreen`）、`TerminalRuntime`（`terminalToolbarHeightScale`、`defaultWorkingDirectory`、
-`terminalTranscriptRows`、`terminalCursorStyle`）。
+与 `extraKeys` 分支；`TermuxProperties` 的字段与默认值；消费方分别是 `MainActivity`
+（`disableHardwareKeyboardShortcuts`、`ctrlSpaceWorkaround`、`shortcutCreateSession`、
+`shortcutNextSession`、`shortcutPreviousSession`、`backKey`、`volumeKeys`）、
+`TerminalScreen`（`useFullscreenWorkaround`、`fullscreen`、`hideSoftKeyboardOnStartup`、
+`extraKeys*`、`terminalMargin*Dp`、`softKeyboardToggleBehaviour`）、`SystemBars`
+（`fullscreen`）、`TerminalRuntime`（`terminalToolbarHeightScale`、`extraKeys`）。
 
 其中默认值本身改变行为：
 
-- `extra-keys` 解析已移除，键栏固定为 `ESC DRAWER SCROLL HOME ↑ END PGUP` /
-  `TAB CTRL ALT ← ↓ → PGDN`；`extra-keys-style` 与 `extra-keys-text-all-caps` 只改字形。
-- `volume-keys` 默认 `virtual`，`MainActivity` 在终端页位于前台时把音量减拦截为一次性 Ctrl；
-  音量加不拦截。
+- `extra-keys` 默认把第一行的 `/` 与 `-` 换成 `DRAWER` 与 `SCROLL`，与 `DESIGN.md`
+  「布局/按键和 Termux 完全相同」冲突（详见下节）。
+- `volume-keys` 默认 `virtual`，`MainActivity` 默认把音量减拦截为一次性 Ctrl；
+  `DESIGN.md` 未声明该行为。
 - `terminal-margin-horizontal` 默认 3dp、`terminal-margin-vertical` 默认 0dp、
-  `terminal-toolbar-height` 默认 1 倍：默认视觉与 Termux 接近。
-- `back-key`、`ctrl-space-workaround`、`soft-keyboard-toggle-behaviour` 的拦截仅在终端页位于前台时生效。
+  `terminal-toolbar-height` 默认 1 倍：默认视觉与 Termux 接近，但键面本身违规。
 
 其余键默认值不改变现有行为，非默认值会启用未声明能力。
 
@@ -99,8 +106,8 @@
 - 超大文件口径：`config.md` 写「单文件超过 64 KiB 视为无效并跳过」；实现把超限当作
   读失败（`TermuxPropertiesRepository.readFile`），保留上一次成功的结果。首次加载时
   「上一次成功的结果」就是默认值，两者一致；重载时才会分叉。
-- `terminal-cursor-style` 的 `beam`：`config.md` 与实现一致，接受 `block`/`bar`/`beam`/`underline`；
-  `DESIGN.md` 仍只列 `block`/`bar`/`underline`，需同步。
+- `terminal-cursor-style` 的 `beam`：`config.md` 允许 `block`/`bar`/`beam`/`underline`，
+  `DESIGN.md` 只列 `block`/`bar`/`underline`。实现接受 `beam`，落成竖线（与 `bar` 同形）。
 
 ## 字体：仅扫描 `.termux`，遗漏 `.config/termux`
 
@@ -137,8 +144,9 @@
 
 - `docs/specification/DESIGN.md` 与 `docs/specification/config.md` 对
   `terminal-cursor-style` 的取值集合不一致（见上节）。
-- `openspec/specs/termux-configuration` 中 `colors.properties` 覆盖已随功能移除；
-  `extra-keys` 布局的 MUST 要求与当前固定布局实现不一致，需同步。
+- `openspec/specs/termux-configuration` 中 `colors.properties` 覆盖与 `extra-keys`
+  布局的 MUST 要求与 `docs/specification` 的禁令相反。`colors.properties` 要求已随
+  功能移除；`extra-keys` 仍是两套规范相左，本审计按 `docs/specification` 记为违规。
 
 ## 规范文档与实现的漂移
 

@@ -273,21 +273,6 @@ constructor(
      * 设置变化）统一由运行期裁定，视图多处各自读会出现「键栏用新布局、边距还是旧的」。
      */
     val termuxConfiguration: StateFlow<TermuxConfiguration> = termuxProperties.configuration
-
-    /**
-     * 终端页是否在前台。
-     *
-     * `termux.properties` 的音量键 / Ctrl+Space / back-key 改写挂在 Activity 的分发上，
-     * 设置页遮住终端时必须停用；否则在输入框里按音量键或 Ctrl+Space 也会写进终端。
-     */
-    @Volatile
-    var terminalScreenActive: Boolean = false
-        private set
-
-    fun setTerminalScreenActive(active: Boolean) {
-        terminalScreenActive = active
-    }
-
     private val clipboardAccess = ClipboardAccess(context, tag = "TerminalViewModel")
 
     private val selectionManager = SelectionManager()

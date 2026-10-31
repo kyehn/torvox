@@ -35,7 +35,6 @@ import terminal.emulator.monitor.FrameMarks
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.settings.TerminalCursorStyle
-import terminal.emulator.settings.TermuxProperties
 import terminal.emulator.settings.TermuxPropertiesRepository
 import terminal.emulator.ui.RenderPauseLedger
 import terminal.emulator.ui.SurfaceAttachGate
@@ -641,14 +640,17 @@ constructor(
      * （recomputeGridFromFontMetrics 与 TerminalSurface.applyGridResize）与输入法跟随滚动
      * 都减去同一值，故行数与滚动永远不会对工具栏遮盖哪些行产生分歧。
      *
-     * 键栏固定两行（`extra-keys` 不解析），单键高度随 `terminal-toolbar-height` 缩放。
-     * 高度必须与实际画出的键栏同源：键栏盖在 Surface 之上，预留少了会盖住终端底部
-     * 几行，被盖的行既看不见也点不到。
+     * 行数随 `extra-keys` 变、单键高度随 `terminal-toolbar-height` 变，两者都取自
+     * `termux.properties`。写死两行会让键栏在自定义布局下盖住终端底部几行——键栏
+     * 盖在 Surface 之上，被盖的行既看不见也点不到。
      */
     internal val modifierBarHeightPx: Int
         get() {
             val properties = termuxProperties.configuration.value.properties
-            val rows = TermuxProperties.DEFAULT_EXTRA_KEYS.size
+            // 零行（`extra-keys = []`）返回 0：此时键栏整条不画，网格也不该为它留高度，
+            // 否则终端底部会挂着一条点不出东西、也看不见内容的空白带。
+            val rows = terminal.emulator.ui.extraKeyRowCount(properties.extraKeys)
+            if (rows == 0) return 0
             val buttonHeightDp = terminal.emulator.ui.buttonHeightDp(properties.terminalToolbarHeightScale)
             return (rows * buttonHeightDp * context.resources.displayMetrics.density + 0.5f).toInt()
         }
@@ -1242,7 +1244,7 @@ constructor(
                 }
                 .absolutePath
         // `default-working-directory`：termux 语义是「空值 = 家目录，相对路径相对家目录，
-        // `~` 展开为家目录」。不存在或不可读时由 resolveWorkingDirectory 回退家目录。
+        // `~` 展开为家目录」。写错的路径原样交给 PTY 层报错，不在这里静默改回家目录。
         val workingDirectory =
             resolveWorkingDirectory(
                 termuxProperties.configuration.value.properties.defaultWorkingDirectory,
@@ -4680,9 +4682,9 @@ internal fun coerceSpToPxScale(density: Float, fontScale: Float, range: ClosedFl
  *
  * 空值 → 家目录；`~` 或 `~/x` → 家目录下；相对路径 → 相对家目录；绝对路径 → 原样。
  *
- * 解析结果必须落在真实存在且可读的目录上，否则回退家目录（termux 的
- * `getDefaultWorkingDirectoryInternalPropertyValueFromValue` 同样回退）：目录不存在或
- * 不可读时 PTY 会直接失败，会话根本起不来——配置里的一个笔误不该让应用「打不开终端」。
+ * 解析结果必须落在真实存在的目录上，否则回退家目录（termux 的
+ * `getDefaultWorkingDirectoryInternalPropertyValueFromValue` 同样回退）：目录不存在时
+ * PTY 会直接失败，会话根本起不来——配置里的一个笔误不该让应用「打不开终端」。
  *
  * 尾部的 `/` 一律去掉（`/` 自身除外）：shell 启动后经 OSC 7 回报的是规范化路径，若配置里
  * 写成 `~/src/`，会话抽屉会先显示 `src/`、第一条提示符后翻成 `src`——同一个会话在两帧之间
@@ -4699,8 +4701,7 @@ internal fun resolveWorkingDirectory(configured: String, homeDir: String): Strin
         }
     val absolute = if (expanded.startsWith("/")) expanded else "$homeDir/$expanded"
     val normalized = absolute.trimEnd('/').ifEmpty { "/" }
-    val directory = java.io.File(normalized)
-    return if (directory.isDirectory && directory.canRead()) normalized else homeDir
+    return if (java.io.File(normalized).isDirectory) normalized else homeDir
 }
 
 /**

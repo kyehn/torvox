@@ -1,6 +1,7 @@
 package terminal.emulator.settings
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -33,10 +34,12 @@ class TermuxPropertiesParserTest {
         val loaded = parse(
             """
             fullscreen = TRUE
+            disable-hardware-keyboard-shortcuts = True
             ctrl-space-workaround=true
             """.trimIndent(),
         )
         assertTrue(loaded.properties.fullscreen)
+        assertTrue(loaded.properties.disableHardwareKeyboardShortcuts)
         assertTrue(loaded.properties.ctrlSpaceWorkaround)
     }
 
@@ -150,6 +153,29 @@ class TermuxPropertiesParserTest {
     }
 
     @Test
+    fun `shortcuts are single characters and normalised to lower case`() {
+        val loaded = parse("shortcut.next-session = N")
+        assertEquals('n', loaded.properties.shortcutNextSession)
+    }
+
+    /** 多字符的快捷键值只禁用该快捷键，不影响其余解析。 */
+    @Test
+    fun `a multi-character shortcut is disabled and reported`() {
+        val loaded = parse("shortcut.create-session = ctrl+c")
+        assertNull(loaded.properties.shortcutCreateSession)
+        assertTrue(loaded.errors.any { it.contains("shortcut.create-session") })
+    }
+
+    /** 未写 `shortcut.*` 时必须是 null 而不是某个默认字符：默认值由应用决定，不由解析器猜。 */
+    @Test
+    fun `absent shortcuts stay null`() {
+        val loaded = parse("fullscreen = true")
+        assertNull(loaded.properties.shortcutCreateSession)
+        assertNull(loaded.properties.shortcutNextSession)
+        assertNull(loaded.properties.shortcutPreviousSession)
+    }
+
+    @Test
     fun `default working directory is trimmed`() {
         assertEquals(
             "/sdcard/projects",
@@ -183,5 +209,105 @@ class TermuxPropertiesParserTest {
         )
         assertTrue(loaded.properties.fullscreen)
         assertTrue(loaded.errors.any { it.contains("duplicate") })
+    }
+
+    @Test
+    fun `extra-keys overrides the default layout`() {
+        val loaded = parse("""extra-keys = [['A','B'],['C']]""")
+        assertEquals(
+            listOf(listOf(ExtraKey("A"), ExtraKey("B")), listOf(ExtraKey("C"))),
+            loaded.properties.extraKeys,
+        )
+        assertTrue(loaded.errors.isEmpty())
+    }
+
+    /** 写坏的 `extra-keys` 退回默认布局，而不是让整份配置作废。 */
+    @Test
+    fun `a malformed extra-keys keeps the default layout`() {
+        val loaded = parse("extra-keys = [[`")
+        assertEquals(TermuxProperties.DEFAULT_EXTRA_KEYS, loaded.properties.extraKeys)
+        assertTrue(loaded.errors.any { it.contains("extra-keys") })
+    }
+
+    /** `extra-keys` 的 popup 语法：`{key: '-', popup: '|'}`。 */
+    @Test
+    fun `extra-keys popup is parsed`() {
+        val loaded = parse("""extra-keys = [['/',{key:'-',popup:'|'}]]""")
+        assertEquals(
+            listOf(listOf(ExtraKey("/"), ExtraKey("-", popup = "|"))),
+            loaded.properties.extraKeys,
+        )
+    }
+
+    /**
+     * 宏是 termux 的正式语法（`{macro: "CTRL f d"}`），本应用只解析、不播放。
+     * 它 MUST 只丢自己那一项：整份布局因为一个宏回到默认，等于用户配好的键位被
+     * 一个不认识的对象整体作废。
+     */
+    @Test
+    fun `a macro key does not void the whole layout`() {
+        val loaded = parse("""extra-keys = [['ESC',{macro:'CTRL f d',display:'tmux'}]]""")
+        assertEquals(
+            listOf(listOf(ExtraKey("ESC"), ExtraKey("tmux", macro = "CTRL f d"))),
+            loaded.properties.extraKeys,
+        )
+        assertTrue("宏本身不是错误: ${loaded.errors}", loaded.errors.isEmpty())
+    }
+
+    /** 对象形式的 popup（宏）被跳过并留证，主键本身照常保留。 */
+    @Test
+    fun `an object popup is dropped without losing the key`() {
+        val loaded = parse("""extra-keys = [[{key:'TAB',popup:{macro:'SHIFT TAB'}}]]""")
+        assertEquals(listOf(listOf(ExtraKey("TAB"))), loaded.properties.extraKeys)
+        assertTrue(
+            "丢掉 popup 必须留下可读的说明: ${loaded.errors}",
+            loaded.errors.any { it.contains("popup") },
+        )
+    }
+
+    /**
+     * 既没有 `key` 也没有 `macro` 的对象只丢自己那一项。
+     *
+     * 整份布局因为一个空对象回到默认，等于用户配好的其余键位被一个无内容的对象
+     * 整体作废——这正是「只丢一项」约定要防的情形。
+     */
+    @Test
+    fun `an empty object drops only itself`() {
+        val loaded = parse("""extra-keys = [['ESC',{popup:'|'},'TAB']]""")
+        assertEquals(listOf(listOf(ExtraKey("ESC"), ExtraKey("TAB"))), loaded.properties.extraKeys)
+        assertTrue(
+            "丢掉坏项必须留下可读的说明: ${loaded.errors}",
+            loaded.errors.any { it.contains("dropped") },
+        )
+    }
+
+    /** 整行都是坏项时整行消失，其余行照常保留。 */
+    @Test
+    fun `a row of dropped objects disappears without voiding the layout`() {
+        val loaded = parse("""extra-keys = [[{popup:'|'}],['ESC']]""")
+        assertEquals(listOf(listOf(ExtraKey("ESC"))), loaded.properties.extraKeys)
+    }
+
+    /** `display` 与该键同时存在时保留下来，供键帽覆盖字形。 */
+    @Test
+    fun `a display label is kept for a normal key`() {
+        val loaded = parse("""extra-keys = [[{key:'ESC',display:'quit'}]]""")
+        assertEquals(listOf(listOf(ExtraKey("ESC", display = "quit"))), loaded.properties.extraKeys)
+    }
+
+    /** 显式空布局是「不要键栏」，不是写坏：MUST 保留零行。 */
+    @Test
+    fun `an explicitly empty layout stays empty`() {
+        val loaded = parse("extra-keys = []")
+        assertEquals(emptyList<List<ExtraKey>>(), loaded.properties.extraKeys)
+        assertTrue("显式清空不是错误: ${loaded.errors}", loaded.errors.isEmpty())
+    }
+
+    /** 一个键都不剩的布局视为写坏：键栏是抽屉与滚动锁定的唯一入口。 */
+    @Test
+    fun `a layout with no usable keys falls back to the default`() {
+        val loaded = parse("""extra-keys = [[{popup:'|'}]]""")
+        assertEquals(TermuxProperties.DEFAULT_EXTRA_KEYS, loaded.properties.extraKeys)
+        assertTrue(loaded.errors.any { it.contains("extra-keys") })
     }
 }

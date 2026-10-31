@@ -70,19 +70,23 @@ MUST NOT 使整份文件解析失败。
 - **WHEN** `terminal-transcript-rows` 写成 99999（有效区间 100–50000）
 - **THEN** 回滚行数取默认 2000，日志里有一条越界说明
 
-### Requirement: 键栏布局固定
+### Requirement: 键栏布局由 extra-keys 决定
 
-`extra-keys` MUST NOT 被读取或解析；键栏固定为 2 行 7 列：
-`ESC DRAWER SCROLL HOME ↑ END PGUP` / `TAB CTRL ALT ← ↓ → PGDN`。
-`DRAWER` 与 `SCROLL` 是本应用的固定入口，分别打开会话抽屉与锁定滚动位置。
+键栏的行数、键位与字形 MUST 完全由 `extra-keys` / `extra-keys-style` /
+`extra-keys-text-all-caps` 决定，MUST NOT 另有写死的键位表。
 
-字形 MUST 由 `extra-keys-style` 与 `extra-keys-text-all-caps` 决定；两者只改变键帽文本，
-MUST NOT 改变键位或键码。
+`extra-keys` 解析出零行时 MUST NOT 画键栏，且网格 MUST NOT 为它预留高度：留着一条
+点不出东西、也看不见内容的空白带，比没有键栏更糟。
 
-#### Scenario: 固定布局
+#### Scenario: 自定义三行布局
 
-- **WHEN** 解析任意 `termux.properties`
-- **THEN** 键栏仍为固定 2 行 7 列，`extra-keys` 不影响布局
+- **WHEN** `extra-keys` 给出三行
+- **THEN** 键栏画三行，网格恰好预留三行的高度，终端内容不被遮挡
+
+#### Scenario: 显式清空
+
+- **WHEN** `extra-keys = []`
+- **THEN** 键栏整条不出现，终端占满可用高度
 
 ### Requirement: extra-keys-style 的字形档位
 
@@ -97,6 +101,42 @@ MUST NOT 改变键位或键码。
 
 - **WHEN** `extra-keys-style` 从 `none` 逐档改到 `all`
 - **THEN** 每一档都在上一档基础上多出一组字形，`all` 一档含 ESC/CTRL/ALT 的 ISO 符号
+
+### Requirement: 键栏中不可渲染的项
+
+未知键名 MUST 被跳过并记警告，MUST NOT 当作字面量渲染——那会让用户点出一串无意义的
+字符。`FN` 未实现，MUST NOT 渲染。
+
+`{macro: ...}` MUST 被解析但 MUST NOT 渲染成按键：没有播放器时，渲染一个点了没反应的
+键比不渲染更糟。对象形式的 `popup` MUST 被丢弃并记一条说明。既没有 `key` 也没有
+`macro`、`display` 的对象 MUST 只丢自己那一项，MUST NOT 作废整行或整份布局。
+
+`display` MUST 覆盖键帽文本（`extra-keys-text-all-caps` 照常作用于它），MUST NOT 改变
+键码、特殊动作或长按内容。
+
+上述情形 MUST NOT 让整份布局回落到默认：一个不认识的键不该作废用户配好的其余键位。
+唯一的例外是「写了行、但每一行都被坏项掏空」——此时退回默认布局并记错误，因为键栏是
+抽屉与滚动锁定的唯一入口，空键栏会把它们一起藏起来。显式写 `[]` 仍按「不要键栏」处理。
+
+#### Scenario: 未知键名不落到键栏
+
+- **WHEN** `extra-keys` 里出现本应用不认识的键名
+- **THEN** 该键不出现在键栏上，日志里有一条警告，同行其余按键照常渲染
+
+#### Scenario: 宏被解析但不渲染
+
+- **WHEN** `extra-keys` 里有一项 `{macro: "CTRL f d"}`
+- **THEN** 该项不占位置也不可点，其余键位照常生效
+
+#### Scenario: 空对象只丢自己
+
+- **WHEN** `extra-keys = [['ESC',{popup:'|'},'TAB']]`
+- **THEN** 键栏只有 ESC 与 TAB，日志里说明那一项被丢弃
+
+#### Scenario: display 覆盖键帽
+
+- **WHEN** `extra-keys = [[{key:'ESC',display:'quit'}]]` 且 `extra-keys-text-all-caps = false`
+- **THEN** 键帽显示 `quit`，按下仍发出 ESC
 
 ### Requirement: default-working-directory 的解析
 
@@ -158,9 +198,9 @@ OSC 7 上报在同一次会话里换名字。
 `hide-soft-keyboard-on-startup = true`（本应用默认）MUST 表示启动时不主动请求输入法，
 且平台按 `onCheckIsTextEditor` 自动弹键盘那条路径也不得在启动时把键盘带出来。
 
-`false` MUST 在首帧后请求输入法，并把「本视图可接收文本输入」的答案置真——
-否则焦点早已就位，平台不会再问，键盘永远不出现。请求 MUST 等窗口取得焦点后再执行；
-窗口尚未取得焦点时 MUST 重试，最多 2 秒；成功或超时后 MUST 不再重试。
+`false` MUST 在首帧后主动请求一次输入法，并把「本视图可接收文本输入」的答案置真——
+否则焦点早已就位，平台不会再问，键盘永远不出现。请求 MUST 只执行一次：这是启动策略，
+不是运行期开关；平台拒绝（窗口尚未取得焦点）时 MUST NOT 重试。
 
 默认取 `true` 而非上游的 `false`，因为本应用启动时从不请求输入法，默认值必须反映
 既有外观。
