@@ -797,11 +797,18 @@ fn all_chars_share_same_baseline_y() {
 }
 
 /// Verify CJK bearing_y is not centered.
-/// build_cell_instances_from_flat uses raw bearing_y = ascent_pixels - placement.top.
+///
+/// 位图不高于单元格时 MUST 按基线摆放（`ascent − placement.top`），MUST NOT 居中：
+/// CJK 面的 `top` 常常大于 ascent（汉字墨迹接近整个 em），居中会把整行压低半个格子。
+///
+/// 位图**高过**单元格时不再适用该判据——此时按 [`glyph_bearing_y`] 的居中回退：让上下
+/// 各溢出一半，而不是全压在上边把下一行挤出去。故这里把两条性质钉在同一处：低于格子
+/// 不居中、高于格子按契约回退，且两者都要求实例取值等于那个纯函数的结果。
 #[test]
 fn cjk_bearing_y_not_centered() {
     let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
     let ascent_pixels = font_pipeline.ascent_pixels();
+    let raster_scale = font_pipeline.get_raster_scale();
 
     let cjk_chars = ['中', '文', '好'];
     for ch in cjk_chars {
@@ -809,7 +816,16 @@ fn cjk_bearing_y_not_centered() {
         let info = font_pipeline
             .glyph_information(ch)
             .expect("宿主须装入覆盖该汉字的面（nix develop 的 Noto CJK）");
-        let expected = ascent_pixels - info.placement.top as f32;
+        let glyph_height_px = info.height as f32;
+        let (_cell_width, cell_height) = font_pipeline.cell_metrics();
+        let raw_bearing = ascent_pixels * raster_scale - info.placement.top as f32;
+        let (contract_bearing, _) = crate::render::font::pipeline::glyph_bearing_y(
+            ascent_pixels,
+            raster_scale,
+            info.placement.top as f32,
+            glyph_height_px,
+            cell_height,
+        );
 
         let cell_data = vec![crate::terminal::ghostty_terminal::CellData {
             width: 2,
@@ -825,11 +841,19 @@ fn cjk_bearing_y_not_centered() {
         let cell = &instances[0];
 
         assert!(
-            (cell.bearing[1] - expected).abs() < 1.0,
-            "'{ch}' bearing_y={} should be font baseline {} (not centered)",
+            (cell.bearing[1] - contract_bearing).abs() < 1.0,
+            "'{ch}' bearing_y={} should follow the bearing contract {} (glyph height {glyph_height_px}, cell height {cell_height})",
             cell.bearing[1],
-            expected
+            contract_bearing,
         );
+        // 用例名的那条性质：位图不高于单元格时 MUST NOT 居中。
+        if glyph_height_px <= cell_height {
+            assert!(
+                (cell.bearing[1] - raw_bearing).abs() < 1.0,
+                "'{ch}' bearing_y={} should be font baseline {raw_bearing} (not centered)",
+                cell.bearing[1],
+            );
+        }
     }
 }
 

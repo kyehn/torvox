@@ -34,32 +34,82 @@ fn font_pipeline_has_system_fonts() {
     );
 }
 
-/// 上报的 `CjkFallbackState` 与渲染器实际取舍必须同源：报 `Skipped`
-/// （主字体已覆盖、无需回退层）的唯一正当理由是 charmap 探测确认主字体
-/// 覆盖本 locale 的 CJK，否则应报 `None`。
-///
 /// 一屏之内的不同码位必须都留在样式面字形号缓存里。
+///
+/// 取证对象直接是那块缓存本身，而不是 `glyph_information_styled`。
 ///
 /// 该缓存的键是 (面, 码位)，规模随屏幕上出现过的**不同字符**增长，与同族的
 /// (字体, 粗, 斜) 三元组缓存不同源。容量若按三元组那种「组合数天然很小」来取，
 /// 一屏 40×20 就把它穿透，每次未命中都要重入 `with_face_data` 重建 charmap
 /// （字体解压）——粗体/斜体文本越常见越慢。
+///
+/// 不经 `glyph_information_styled` 取证是刻意：**主字体就覆盖汉字**的环境里（开发
+/// shell 的 Maple Mono NF CN 即如此）该函数在「主字体 glyph_id 命中 → 查已光栅化字形」
+/// 这条更早的分支上返回，`(面, 码位)` 查表一步都不走，断言会退化为「等于 0 也就是
+/// 通过」。真机上主字体多半是不带 CN 的那版，汉字全靠 CJK 回退链，每个码位都要查一次。
 #[test]
 fn styled_screenful_of_codepoints_stays_cached() {
-    const SCREENFUL: u32 = 200;
+    const SCREENFUL: usize = 200;
     let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
     pipeline.set_system_locale("zh-CN");
-    let sample: Vec<char> = (0x4E00..0x4E00 + SCREENFUL)
+    let face = pipeline
+        .font_id
+        .expect("默认主字体必须已选定，否则取样没有落点");
+    let sample: Vec<char> = (0x4E00..0x4E00 + SCREENFUL as u32)
         .filter_map(char::from_u32)
         .collect();
     for codepoint in &sample {
-        pipeline.glyph_information_styled(*codepoint, true, false);
+        pipeline.face_glyph_id(face, *codepoint);
     }
     assert_eq!(
         pipeline.caches.face_glyph_id_cache.len(),
         sample.len(),
         "样式面字形号缓存必须容得下一屏之内的不同码位"
     );
+}
+
+/// 上报的 `CjkFallbackState` 与渲染器实际取舍必须同源。
+///
+/// 设置页据此显示「已有回退字体」还是「缺 CJK 字体」，它与渲染器应当读的是同一个结论：
+/// 报 `Skipped`（主字体已覆盖、无需回退层）的唯一正当理由是 charmap 探测确认主字体
+/// 覆盖本 locale 的 CJK，否则 MUST 报 [`CjkFallbackState::Fallback`]（有回退族）或
+/// [`CjkFallbackState::None`]（连回退族都没找到）。两处分叉时，用户会在「汉字能正常
+/// 显示」的同时看到「未装 CJK 字体」的提示。
+#[test]
+fn cjk_fallback_state_matches_the_primary_coverage() {
+    let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+    pipeline.set_system_locale("zh-CN");
+    let probe = font_db::cjk_coverage_probe_char("zh-CN");
+    // 同一次 `font_info()` 里取状态与名字：分开两次调用会让两问的回答来自不同的重组。
+    let info = pipeline.font_info();
+    let primary = pipeline.font_id.expect("默认主字体必须已选定");
+    let primary_covers =
+        font_db::face_covers(pipeline.font_system.db(), primary, probe);
+    match info.cjk_state {
+        crate::render::font::pipeline::CjkFallbackState::SkippedPrimaryCovers => assert!(
+            primary_covers,
+            "报『主字体已覆盖 {probe:?}』时主字体必须真的覆盖它"
+        ),
+        crate::render::font::pipeline::CjkFallbackState::Fallback => {
+            assert!(
+                !primary_covers,
+                "主字体已覆盖 {probe:?} 时不得报需要语言回退族"
+            );
+            assert!(
+                !info.cjk_families.is_empty(),
+                "报回退时 `cjk_families` MUST 列出至少一个族名"
+            );
+        }
+        crate::render::font::pipeline::CjkFallbackState::None => assert!(
+            !primary_covers && info.cjk_families.is_empty(),
+            "既无主字体覆盖又无回退族才得报 None"
+        ),
+        crate::render::font::pipeline::CjkFallbackState::SkippedNonCjkLocale
+        | crate::render::font::pipeline::CjkFallbackState::SkippedLocaleUnknown => panic!(
+            "zh-CN 是 CJK locale 且已显式设置，不得因 locale 跳过回退层：{:?}",
+            info.cjk_state
+        ),
+    }
 }
 
 /// 上报的单元格尺寸必须是**物理**像素，即布局实际使用的那个尺度。
