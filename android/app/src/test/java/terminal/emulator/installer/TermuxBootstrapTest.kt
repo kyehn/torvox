@@ -41,7 +41,26 @@ class TermuxBootstrapTest {
 
     @Test
     fun `variant is the one design mandates`() {
-        // DESIGN：只用 apt-android-7，不提供其它变体。
+        // DESIGN：只用 apt.android-7，不提供其它变体。
         assertEquals("apt.android-7", TermuxBootstrap.VARIANT)
+    }
+
+    /**
+     * 两个受支持架构都必须钉住归档摘要。
+     *
+     * 归档解压后会执行其中的 postinst，摘要是唯一的信任根（https 只防链路篡改）。
+     * 漏钉一个架构＝该架构的安装退化成「只查 https」，正是本能力要堵的口子。
+     */
+    @Test
+    fun `every supported abi has a pinned sha256`() {
+        listOf("aarch64", "x86_64").forEach { arch ->
+            val digest = TermuxBootstrap.sha256(arch)
+            assertTrue("arch=$arch 未钉住摘要", digest != null)
+            assertTrue(
+                "arch=$arch 的摘要不是 64 位十六进制：$digest",
+                digest!!.matches(Regex("[0-9a-f]{64}")),
+            )
+        }
+        assertEquals("未受支持的架构不得有摘要", null, TermuxBootstrap.sha256("arm"))
     }
 }
