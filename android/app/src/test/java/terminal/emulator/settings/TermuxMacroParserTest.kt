@@ -42,10 +42,11 @@ class TermuxMacroParserTest {
     }
 
     @Test
-    fun `upper case letters and digits resolve to key codes`() {
+    fun `upper case letters carry shift and digits resolve to key codes`() {
         val steps = MacroParser.parse("A 1")
         assertEquals(
             listOf(
+                MacroStep.Modifier(KeyModifiers.SHIFT),
                 MacroStep.Key(KeyEvent.KEYCODE_A, "A"),
                 MacroStep.Key(KeyEvent.KEYCODE_1, "1"),
             ),

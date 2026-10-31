@@ -269,6 +269,17 @@ class TermuxPropertiesParserTest {
         assertEquals(listOf(listOf(ExtraKey("ESC", display = "quit"))), loaded.properties.extraKeys)
     }
 
+    /** 只有 `display` 的对象没有可执行内容，只丢自己那一项。 */
+    @Test
+    fun `a display-only object drops only itself`() {
+        val loaded = parse("""extra-keys = [['ESC',{display:'quit'}]]""")
+        assertEquals(listOf(listOf(ExtraKey("ESC"))), loaded.properties.extraKeys)
+        assertTrue(
+            "丢掉 display-only 项必须留下可读的说明: ${loaded.errors}",
+            loaded.errors.any { it.contains("dropped") },
+        )
+    }
+
     /** 显式空布局是「不要键栏」，不是写坏：MUST 保留零行。 */
     @Test
     fun `an explicitly empty layout stays empty`() {

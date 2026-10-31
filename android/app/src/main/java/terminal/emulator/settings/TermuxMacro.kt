@@ -86,6 +86,11 @@ object MacroParser {
             if (normalized == "FN") return null
             val keyCode = TerminalKeyCatalog.keyCodeFor(normalized) ?: characterKeyCode(normalized)
             if (keyCode == null) return null
+            // 大写字母是字面量（上游按 code point 发送），键码本身不区分大小写；
+            // 补一个 SHIFT 才能让编码器产出大写，否则 `{macro: "A"}` 发的是 `a`。
+            if (token.length == 1 && token[0] in 'A'..'Z') {
+                steps += MacroStep.Modifier(KeyModifiers.SHIFT)
+            }
             steps += MacroStep.Key(keyCode, token)
         }
         return steps.takeIf { steps -> steps.any { it is MacroStep.Key } }
