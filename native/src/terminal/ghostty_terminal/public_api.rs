@@ -8,7 +8,7 @@ use libghostty_vt::key;
 use super::commands::{Command, Query, RunConfig};
 use super::frame_mailbox::FrameMailbox;
 #[cfg(test)]
-use super::internal::CacheStats;
+use super::internal::{BatchStats, CacheStats};
 use super::types::*;
 
 impl super::GhosttyTerminal {
@@ -90,6 +90,11 @@ impl super::GhosttyTerminal {
             let shared = CacheStats::default();
             (shared.clone(), shared)
         };
+        #[cfg(test)]
+        let (batch_stats_for_run, batch_stats_for_self) = {
+            let shared = BatchStats::default();
+            (shared.clone(), shared)
+        };
         // 就绪握手：`thread::spawn` 返回时新线程可能尚未被调度，此时构造完成、
         // 调用方立刻发查询，查询会在 QUERY_TIMEOUT_MS 内无人应答而回退到
         // DISCONNECTED_*（表现为「spawn 完马上 resize 却拿到旧网格」的竞态）。
@@ -121,6 +126,8 @@ impl super::GhosttyTerminal {
                         cache_stats: cache_stats_for_run.clone(),
                         #[cfg(test)]
                         kitty_stats: kitty_stats_for_run.clone(),
+                        #[cfg(test)]
+                        batch_stats: batch_stats_for_run.clone(),
                     })
                 }));
                 if let Err(panic) = result {
@@ -161,6 +168,8 @@ impl super::GhosttyTerminal {
             cache_stats: cache_stats_for_self,
             #[cfg(test)]
             kitty_stats: kitty_stats_for_self,
+            #[cfg(test)]
+            batch_stats: batch_stats_for_self,
         })
     }
 
@@ -174,6 +183,12 @@ impl super::GhosttyTerminal {
     #[cfg(test)]
     pub(crate) fn take_kitty_scan_stats(&self) -> (u64, u64) {
         self.kitty_stats.take()
+    }
+
+    /// 本终端的批大小计数：取出并清零，返回（批数，最大批条数）。
+    #[cfg(test)]
+    pub(crate) fn take_batch_stats(&self) -> (u64, u64) {
+        self.batch_stats.take()
     }
 
     pub fn drain_pty_write_responses(&self) -> Vec<Vec<u8>> {

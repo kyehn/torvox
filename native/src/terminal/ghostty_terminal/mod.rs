@@ -91,6 +91,9 @@ pub struct GhosttyTerminal {
     /// Kitty 占位符扫描计数（复用行 / 扫描行），仅测试使用。
     #[cfg(test)]
     pub(crate) kitty_stats: internal::CacheStats,
+    /// 批大小计数（批数 / 最大批条数），仅测试使用。
+    #[cfg(test)]
+    pub(crate) batch_stats: internal::BatchStats,
 }
 
 /// Terminate 投递的短时等待：try_send 在队列满时失败，但 VT 线程按批排空

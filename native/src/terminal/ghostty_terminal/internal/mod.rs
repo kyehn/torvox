@@ -21,6 +21,22 @@ use super::frame_mailbox::FrameMailbox;
 use super::types::*;
 use flume::Sender;
 
+/// 命令批的时长上限。
+///
+/// 批尾是 VT 线程唯一的帧发布点与查询应答点。批若无界（只等命令通道排空），
+/// 持续输出下通道恒非空：帧与查询被无限期推迟——屏幕停在旧帧（剩余输出不可见），
+/// 查询逐个超时（kitty 放置查询、标题查询各等满 `QUERY_TIMEOUT_MS`）。
+///
+/// 上限按「一帧的等待」取：4ms 远小于一帧周期（16.7ms），故持续输出时画面
+/// 仍按帧节奏更新，而解析吞吐不被帧构建拖累（每批至多构建一帧）。
+pub(crate) const COMMAND_BATCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(4);
+
+/// 命令批的条数上限。
+///
+/// 时长上限只约束「批跑了多久」，约束不住「一条命令有多贵」：单条超大写入可独占
+/// 整个时长预算。故再设条数上限，两道界各覆盖一类无界来源。
+pub(crate) const MAX_COMMANDS_PER_BATCH: u64 = 64;
+
 /// 经通道发送值，失败时记日志。
 fn try_send<T>(sender: &Sender<T>, value: T, context: &str) {
     if let Err(error) = sender.send(value) {
@@ -403,6 +419,31 @@ impl CacheStats {
     }
 
     /// 取出并清零：返回自上次取出以来本终端的复用行数与逐格行数。
+    pub(crate) fn take(&self) -> (u64, u64) {
+        (
+            self.0.0.swap(0, Ordering::Relaxed),
+            self.0.1.swap(0, Ordering::Relaxed),
+        )
+    }
+}
+
+/// 批大小计数，仅测试使用：按终端实例隔离，避免并行测试互相污染。
+///
+/// 批条数是「帧与查询会不会被饿死」的唯一可判别来源：持续输出下命令通道恒非空，
+/// 批无界时整条积压被一次吞掉，帧发布与查询应答都被推迟到通道排空为止。
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct BatchStats(Arc<(AtomicU64, AtomicU64)>);
+
+#[cfg(test)]
+impl BatchStats {
+    /// 记录一批：累计批数与最大批条数。
+    pub(crate) fn record(&self, batch_size: u64) {
+        self.0.0.fetch_add(1, Ordering::Relaxed);
+        self.0.1.fetch_max(batch_size, Ordering::Relaxed);
+    }
+
+    /// 取出并清零：返回（批数，最大批条数）。
     pub(crate) fn take(&self) -> (u64, u64) {
         (
             self.0.0.swap(0, Ordering::Relaxed),
