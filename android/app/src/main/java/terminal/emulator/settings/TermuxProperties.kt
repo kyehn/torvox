@@ -60,7 +60,7 @@ data class TermuxProperties(
          * 即长按抽屉键粘贴剪贴板。本应用把 DRAWER 做成会话抽屉入口，长按同样是粘贴
          * （见 `ModifierBar` 的 DRAWER 长按动作），语义一致。
          *
-         * 列数仍守 DESIGN.md 修饰键栏节的「固定 2 行 7 列」。用户一旦写了 `extra-keys`，
+         * 默认列数仍守 DESIGN.md 修饰键栏节的「默认 2 行 7 列」。用户一旦写了 `extra-keys`，
          * 布局、列数与键位完全以配置为准（见 [TermuxPropertiesParser]），本默认值不再参与。
          */
         val DEFAULT_EXTRA_KEYS: List<List<ExtraKey>> =
@@ -125,8 +125,8 @@ data class ExtraKey(
     val display: String? = null,
 )
 
-/** 一份配置的来源文件与解析错误，供日志与诊断使用。 */
-data class TermuxPropertiesLoad(val properties: TermuxProperties, val sourcePath: String?, val errors: List<String>)
+/** 一份配置的解析结果与错误，供日志与诊断使用。 */
+data class TermuxPropertiesLoad(val properties: TermuxProperties, val errors: List<String>)
 
 /**
  * Java Properties 风格的读取器：`key = value` / `key: value`，`#` 与 `!` 起注释，
@@ -295,11 +295,6 @@ internal object TermuxPropertiesParser {
             return parsed
         }
 
-        fun choice(key: String, default: String): String {
-            val raw = values[key] ?: return default
-            return raw
-        }
-
         val extraKeys =
             values["extra-keys"]?.let { raw ->
                 when (val parsed = ExtraKeysParser.parse(raw)) {
@@ -325,7 +320,7 @@ internal object TermuxPropertiesParser {
                 terminalMarginHorizontalDp = integer("terminal-margin-horizontal", 3, 0..100),
                 terminalMarginVerticalDp = integer("terminal-margin-vertical", 0, 0..100),
                 terminalCursorStyle =
-                when (choice("terminal-cursor-style", "block").lowercase()) {
+                when ((values["terminal-cursor-style"] ?: "block").lowercase()) {
                     "block" -> TerminalCursorStyle.BLOCK
 
                     // `beam` 是竖线的另一种叫法（`config.md` 允许的取值）：
@@ -348,7 +343,7 @@ internal object TermuxPropertiesParser {
                 ),
                 terminalToolbarHeightScale = float("terminal-toolbar-height", 1f, 0.4f..3f),
                 extraKeysStyle =
-                when (choice("extra-keys-style", "default").lowercase()) {
+                when ((values["extra-keys-style"] ?: "default").lowercase()) {
                     "default" -> ExtraKeysStyle.DEFAULT
 
                     "arrows-only" -> ExtraKeysStyle.ARROWS_ONLY
@@ -367,7 +362,7 @@ internal object TermuxPropertiesParser {
                 extraKeys = extraKeys,
                 defaultWorkingDirectory = values["default-working-directory"]?.trim().orEmpty(),
                 backKey =
-                when (choice("back-key", "back").lowercase()) {
+                when ((values["back-key"] ?: "back").lowercase()) {
                     "back" -> BackKeyBehaviour.BACK
 
                     "escape" -> BackKeyBehaviour.ESCAPE
@@ -378,7 +373,7 @@ internal object TermuxPropertiesParser {
                     }
                 },
                 volumeKeys =
-                when (choice("volume-keys", "virtual").lowercase()) {
+                when ((values["volume-keys"] ?: "virtual").lowercase()) {
                     "virtual" -> VolumeKeysBehaviour.VIRTUAL
 
                     "volume" -> VolumeKeysBehaviour.VOLUME
@@ -389,7 +384,7 @@ internal object TermuxPropertiesParser {
                     }
                 },
                 softKeyboardToggleBehaviour =
-                when (choice("soft-keyboard-toggle-behaviour", "show/hide").lowercase()) {
+                when ((values["soft-keyboard-toggle-behaviour"] ?: "show/hide").lowercase()) {
                     "show/hide" -> SoftKeyboardToggleBehaviour.SHOW_HIDE
 
                     "enable/disable" -> SoftKeyboardToggleBehaviour.ENABLE_DISABLE
@@ -401,7 +396,7 @@ internal object TermuxPropertiesParser {
                     }
                 },
             )
-        return TermuxPropertiesLoad(properties, null, errors)
+        return TermuxPropertiesLoad(properties, errors)
     }
 }
 
@@ -413,8 +408,9 @@ internal object TermuxPropertiesParser {
  * 记号（数组、对象、字符串），而且 termux 允许单引号与裸键名，标准 JSON 解析器反而
  * 不接收。
  *
- * 本应用不支持的字段（`macro`、对象形式的 `popup`）MUST 只丢自己那一项：整份布局
- * 因为一个宏回到默认，等于用户精心配的两行键位被一个不认识的对象整体作废。
+ * 本应用不支持的字段（对象形式的 `popup`、只有 `display` 没有按键的对象）MUST 只丢
+ * 自己那一项：整份布局因为一个不认识的字段回到默认，等于用户精心配的两行键位被一个
+ * 对象整体作废。
  */
 internal object ExtraKeysParser {
     sealed interface Result {
@@ -624,9 +620,9 @@ internal object ExtraKeysParser {
                 }
             }
             cursor.consume('}')
-            if (key == null && macro == null && display == null) {
-                // 没有任何可执行内容：丢掉这一项，其余按键照常保留。
-                cursor.warnings += "extra-keys: object without 'key' or 'macro' dropped"
+            if (key == null && macro == null) {
+                // `display` 只是键帽文字，没有可执行内容：丢掉这一项，其余按键照常保留。
+                cursor.warnings += "extra-keys: object without 'key' or 'macro' dropped (display is only a label)"
                 return null
             }
             return ExtraKey(

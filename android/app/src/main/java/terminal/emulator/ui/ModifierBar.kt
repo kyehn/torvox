@@ -109,8 +109,16 @@ internal fun buildExtraKeySlots(
             // 宏键：名字与键码都来自宏本身，键帽默认显示宏串（上游亦然）。
             val macro = macroStepsOf(key)
             val normalized = TerminalKeyCatalog.normalizeKeyName(key.name)
+            val keyCode = if (macro != null) null else TerminalKeyCatalog.keyCodeFor(normalized)
+            val special = if (macro != null) null else TerminalKeyCatalog.specialFor(normalized)
             ExtraKeySlot(
-                name = if (macro != null) key.macro.orEmpty() else normalized,
+                // 字面量保留原文的大小写；键帽的全大写只影响 label，不改变发送内容。
+                name =
+                when {
+                    macro != null -> key.macro.orEmpty()
+                    keyCode == null && special == null -> TerminalKeyCatalog.literalText(key.name, normalized)
+                    else -> normalized
+                },
                 label =
                 key.display?.let { display -> if (allCaps) display.uppercase() else display }
                     ?: if (macro != null) {
@@ -120,8 +128,8 @@ internal fun buildExtraKeySlots(
                         // 键帽要保留用户写的大小写（`Tab` → `Tab`）。
                         TerminalKeyCatalog.displayLabel(key.name, style, allCaps)
                     },
-                keyCode = if (macro != null) null else TerminalKeyCatalog.keyCodeFor(normalized),
-                special = if (macro != null) null else TerminalKeyCatalog.specialFor(normalized),
+                keyCode = keyCode,
+                special = special,
                 repeatable = if (macro != null) false else TerminalKeyCatalog.isRepetitive(normalized),
                 popup = key.popup,
                 macro = macro,
@@ -329,6 +337,7 @@ fun ModifierBar(
 ) {
     val buttonHeight = buttonHeightDp(buttonHeightScale).dp
     val rows = layout ?: remember { defaultExtraKeySlots() }
+    val drawerDescription = stringResource(R.string.open_session_drawer)
     // 第 0 页是按键页，第 1 页是文本输入页（DESIGN：左滑进入文本输入框）。
     val pagerState = rememberPagerState(pageCount = { KEY_PAGE_COUNT })
     val actions =
@@ -357,6 +366,7 @@ fun ModifierBar(
             slot = slot,
             actions = actions,
             modifierStates = modifierStates,
+            drawerDescription = drawerDescription,
         )
     }
 
@@ -457,6 +467,7 @@ private fun toolbarKeyPresentation(
     slot: ExtraKeySlot,
     actions: ModifierBarActions,
     modifierStates: ModifierBarStates,
+    drawerDescription: String,
 ): ToolbarKeyPresentation {
     val onRepeat =
         if (slot.repeatable) {
@@ -471,7 +482,8 @@ private fun toolbarKeyPresentation(
         onClick = toolbarKeyClickHandler(slot, actions, modifierStates),
         modifierState = modifierStateFor(slot, modifierStates),
         testTag = slot.testTag,
-        contentDescription = slot.label,
+        // DRAWER 的键帽是 ☰；无障碍与 UI 测试需要稳定的动作说明，不能读字形。
+        contentDescription = if (slot.special == TerminalKeyCatalog.Special.DRAWER) drawerDescription else slot.label,
         onRepeat = onRepeat,
         secondaryAction = secondaryLongPressAction(slot, actions),
     )

@@ -18,7 +18,7 @@ import terminal.emulator.settings.TermuxProperties
  */
 class ModifierBarLayoutTest {
 
-    /** DESIGN.md 修饰键栏节定死「固定 2 行 7 列」；默认布局就是这 14 个键，全部可渲染。 */
+    /** DESIGN.md 修饰键栏节的默认布局是 2 行 7 列，共这 14 个键，全部可渲染。 */
     @Test
     fun `the default layout is two rows of seven`() {
         val slots = defaultExtraKeySlots()
@@ -62,6 +62,14 @@ class ModifierBarLayoutTest {
         assertNull(slot.keyCode)
         assertNull(slot.special)
         assertEquals("/", slot.name)
+    }
+
+    /** `extra-keys-text-all-caps` 只改键帽；小写字面量仍按小写发送。 */
+    @Test
+    fun `all caps does not change the text sent by a literal key`() {
+        val slot = buildExtraKeySlots(listOf(listOf(ExtraKey("a"))), ExtraKeysStyle.DEFAULT, true)[0][0]
+        assertEquals("A", slot.label)
+        assertEquals("a", slot.name)
     }
 
     /** 有键名的键取键码，且方向键标为可重复（按住连发）。 */

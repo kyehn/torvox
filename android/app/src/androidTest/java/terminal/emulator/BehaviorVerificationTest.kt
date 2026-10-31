@@ -152,18 +152,19 @@ class BehaviorVerificationTest : ComposeTerminalLogcatTest() {
     }
 
     @Test
-    fun keyboard_icon_displays_on_modifier_bar() {
+    fun esc_key_displays_on_modifier_bar() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
-        composeTestRule.onNodeWithText("ESC").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("Key_ESC").assertIsDisplayed()
     }
 
     @Test
     fun all_modifier_bar_keys_displayed() {
         composeTestRule.waitForSession()
+        // 按逻辑键名定位，不用键帽文字：`extra-keys-style` 默认会把 TAB 画成 ↹。
         val expectedKeys = listOf("ESC", "TAB", "CTRL", "ALT", "HOME", "END", "PGUP", "PGDN")
         for (key in expectedKeys) {
-            composeTestRule.onNodeWithText(key).assertIsDisplayed()
+            composeTestRule.onNodeWithTag("Key_$key").assertIsDisplayed()
         }
     }
 }

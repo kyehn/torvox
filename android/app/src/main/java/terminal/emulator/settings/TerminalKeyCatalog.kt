@@ -108,11 +108,6 @@ object TerminalKeyCatalog {
 
     fun isRepetitive(name: String): Boolean = normalizeKeyName(name) in repetitive
 
-    fun isKnown(name: String): Boolean {
-        val normalized = normalizeKeyName(name)
-        return keyCodes[normalized] != null || specials[normalized] != null || normalized.length == 1
-    }
-
     /** 各样式下 termux 使用的显示字符。样式只改外观，不改按键本身。 */
     private val arrows = mapOf("LEFT" to "←", "RIGHT" to "→", "UP" to "↑", "DOWN" to "↓")
     private val wellKnown =
@@ -154,7 +149,13 @@ object TerminalKeyCatalog {
         if (glyph != null) return glyph
         // 没有字形：显示键名本身。别名改过名字时用归一后的名字（上游亦然：
         // `BACKSLASH` 显示 `\`），没改过时保留用户写的大小写。
-        val text = if (normalized == name.uppercase()) name else normalized
-        return if (allCaps) normalized else text
+        return if (allCaps) normalized else literalText(name, normalized)
     }
+
+    /**
+     * 字面量键真正发送的文本：别名改过名字时用归一名（`BACKSLASH` → `\`），
+     * 否则保留用户写的大小写（`a` 仍发 `a`，不因键帽全大写而变成 `A`）。
+     */
+    fun literalText(name: String, normalized: String = normalizeKeyName(name)): String =
+        if (normalized == name.uppercase()) name else normalized
 }
