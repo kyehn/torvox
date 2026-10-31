@@ -1127,8 +1127,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         if (System.nanoTime() < suppressUntilNanos) return false
                         // beforeLength/afterLength 来自输入法（不可信）：
                         // 负值或巨大值会在主线程上以 NegativeArraySizeException /
-                        // OutOfMemoryError 崩溃。组字时钳位到组字缓冲区长度，
-                        // 否则钳位到合理的单行上限。
+                        // OutOfMemoryError 崩溃，故两侧都先钳到上界。
+                        //
+                        // 上界取「组字长度与单行上限中的**较大**者」（coerceAtLeast，
+                        // 不是 coerceAtMost）：组字本身长于单行上限时（粘贴进来的一大
+                        // 段组字）仍要能整段删掉，而组字为空时也不该把上界钳成 0。
+                        // 它只是防崩溃的天花板——实际删多少仍由输入法请求的数值决定。
                         // 注意：beforeLength 按码点计数，退格按码点 1:1 发送
                         // （shell 行编辑按字符删除，一个 0x08 删掉整个汉字，
                         // 真机实测锁定：见 CjkBackspaceSemanticsTest）。
@@ -1764,9 +1768,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val FALLBACK_CELL_HEIGHT = 16f
         private const val BACKSPACE_BYTE = 0x08.toByte()
 
-        // deleteSurroundingText 参数的上界（输入法输入不可信）。
-        // 4096 足以覆盖「全选删除大块已提交内容」：256 左 > 256 字符的选区
-        // （半删除），同时仍限定了 PTY 写入大小。
+        // deleteSurroundingText 参数的天花板（输入法输入不可信）：它只为防崩溃
+        // 并把单次 PTY 写入的字节数钉在有界范围内，**不是**「允许删这么多」——
+        // 实际删多少由输入法请求的数值决定，一次普通退格要的是 1。
         private const val MAX_SURROUNDING_DELETES = 4096
 
         /**
