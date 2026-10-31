@@ -419,20 +419,6 @@ object NativeBridge {
     external fun setCursorStyle(sessionId: Long, style: Int)
 
     /**
-     * 用 `~/.termux/colors.properties` 覆盖当前主题的调色板。
-     *
-     * `colors` 为 19 个 `0x00RRGGBB`：背景、前景、光标，随后 16 个 ANSI 色
-     * （0..15）；**`-1` 表示该槽位不覆盖**，取当前主题原色。`colors.properties`
-     * 通常只写其中几个键，未写的槽位由原生按主题补齐——Kotlin 侧不持有主题色
-     * 副本（光标色尤其不在主题目录的打包里）。
-     *
-     * 长度不符抛 `IllegalArgumentException`——错位一格表现为「某些颜色不对」，
-     * 无从定位。覆盖是压在主题之上的一层，撤销覆盖请重发 [setTheme]。
-     */
-    @JvmStatic
-    external fun setPaletteOverride(sessionId: Long, colors: IntArray)
-
-    /**
      * 用上游 `paste::encode` 把剪贴板字节编码为 PTY 写入字节（bracketed 包裹与否
      * 取自终端模式 2004 的活体状态）。会话未知或编码失败返回空数组（本次粘贴
      * 被丢弃）；JVM 拷贝失败抛异常并返回 null。

@@ -400,17 +400,6 @@ class Bridge(private val config: TerminalConfig) {
         onSession("setTheme", Unit) { NativeBridge.setTheme(it, themeName) }
     }
 
-    /**
-     * 用 `colors.properties` 覆盖当前主题调色板（19 槽，`-1` = 沿用主题原色）。
-     *
-     * 必须在 [setTheme] 之后调用：原生把覆盖压在「基底主题」之上，换主题会先重置
-     * 基底，覆盖需要重下一遍。
-     */
-    fun setPaletteOverride(colors: IntArray) {
-        LogUtil.debug(TAG, "setPaletteOverride: ${colors.size} slots")
-        onSession("setPaletteOverride", Unit) { NativeBridge.setPaletteOverride(it, colors) }
-    }
-
     /** 默认光标样式（`terminal-cursor-style`）；程序用 DECSCUSR 覆盖时以程序为准。 */
     fun setCursorStyle(nativeValue: Int) {
         onSession("setCursorStyle", Unit) { NativeBridge.setCursorStyle(it, nativeValue) }

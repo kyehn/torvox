@@ -496,37 +496,19 @@ class NativeBridgeSmokeTest {
     }
 
     /**
-     * `setPaletteOverride` / `setCursorStyle` 的入参校验在 JNI 边界上完成。
+     * `setCursorStyle` 的入参校验在 JNI 边界上完成。
      *
      * 越界值若被静默接受，会一路走到 `CursorStyle` 映射处才落空，表现为「设置了
      * 光标样式但外观不变」——而日志里只有一行来自渲染线程的警告。
-     *
-     * 调色板**成功**路径需要 GPU（它要写渲染态的调色板与清屏色），本机没有
-     * 适配器，故只用未知会话验证「长度与拷贝校验通过」这一步。
      */
     @Test
-    fun `palette override and cursor style validate their arguments`() {
+    fun `cursor style validates its arguments`() {
         withSession { sessionId ->
             NativeBridge.setCursorStyle(sessionId, 2)
             try {
                 NativeBridge.setCursorStyle(sessionId, 3)
                 org.junit.Assert.fail("style 3 is out of range")
             } catch (expected: IllegalArgumentException) {
-                assertNotNull(expected.message)
-            }
-            // 长度必须正好 19：少一位会把 16 个 ANSI 色整体错位，而错位后的颜色
-            // 依旧「看起来正常」，谁也不会发现。
-            try {
-                NativeBridge.setPaletteOverride(sessionId, IntArray(18) { -1 })
-                org.junit.Assert.fail("18 slots must be rejected")
-            } catch (expected: IllegalArgumentException) {
-                assertNotNull(expected.message)
-            }
-            // 19 槽走到的是「会话不存在」——说明长度与 region 拷贝都过了。
-            try {
-                NativeBridge.setPaletteOverride(999_999L, IntArray(19) { -1 })
-                org.junit.Assert.fail("unknown session must throw")
-            } catch (expected: IllegalStateException) {
                 assertNotNull(expected.message)
             }
         }

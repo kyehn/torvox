@@ -133,50 +133,6 @@ data class ExtraKey(
 /** 一份配置的来源文件与解析错误，供日志与诊断使用。 */
 data class TermuxPropertiesLoad(val properties: TermuxProperties, val sourcePath: String?, val errors: List<String>)
 
-/** `~/.termux/colors.properties` 的解析结果；null 字段表示「沿用主题」。 */
-data class ColorsProperties(
-    val foreground: Int? = null,
-    val background: Int? = null,
-    val cursor: Int? = null,
-    /** ANSI 槽位 0..15 的覆盖值。 */
-    val ansi: Map<Int, Int> = emptyMap(),
-) {
-    val isEmpty: Boolean
-        get() = foreground == null && background == null && cursor == null && ansi.isEmpty()
-
-    /**
-     * 转成原生覆盖通道的 19 槽数组：背景、前景、光标，随后 16 个 ANSI 色。
-     *
-     * 未写的槽位填 [NO_OVERRIDE]（`-1`），由原生按当前主题补齐——Kotlin 侧不持有
-     * 主题色副本，光标色尤其不在主题目录的打包里，替它猜一个值就是「改了背景，
-     * 光标跟着变白」。槽位顺序是跨语言契约，与原生 `theme::OVERRIDE_SLOTS` 对齐。
-     */
-    fun toPaletteOverride(): IntArray {
-        val slots = IntArray(PALETTE_OVERRIDE_SLOTS) { NO_OVERRIDE }
-        background?.let { slots[SLOT_BACKGROUND] = it }
-        foreground?.let { slots[SLOT_FOREGROUND] = it }
-        cursor?.let { slots[SLOT_CURSOR] = it }
-        for ((index, color) in ansi) {
-            if (index in ANSI_SLOTS) slots[SLOT_ANSI_FIRST + index] = color
-        }
-        return slots
-    }
-
-    companion object {
-        /** 覆盖槽位数：背景、前景、光标 + 16 ANSI。与原生 `theme::OVERRIDE_SLOTS` 一致。 */
-        const val PALETTE_OVERRIDE_SLOTS = 19
-
-        /** 该槽位不覆盖，由原生取主题原色。与原生 `setPaletteOverride` 的 `NO_OVERRIDE` 一致。 */
-        const val NO_OVERRIDE = -1
-
-        private const val SLOT_BACKGROUND = 0
-        private const val SLOT_FOREGROUND = 1
-        private const val SLOT_CURSOR = 2
-        private const val SLOT_ANSI_FIRST = 3
-        private val ANSI_SLOTS = 0 until 16
-    }
-}
-
 /**
  * Java Properties 风格的读取器：`key = value` / `key: value`，`#` 与 `!` 起注释，
  * 行尾反斜杠续行，支持 `\n` `\t` `\\` `\ ` `\uXXXX` 转义。
@@ -700,66 +656,5 @@ internal object ExtraKeysParser {
             )
         }
         return ExtraKey(cursor.readString())
-    }
-}
-
-/** `colors.properties` 的解析器：`foreground/background/cursor/color0..15`。 */
-internal object ColorsPropertiesParser {
-    fun parse(text: String): Pair<ColorsProperties, List<String>> {
-        val errors = mutableListOf<String>()
-        var foreground: Int? = null
-        var background: Int? = null
-        var cursor: Int? = null
-        val ansi = mutableMapOf<Int, Int>()
-
-        fun color(key: String, raw: String): Int? {
-            val parsed = parseHexColor(raw)
-            if (parsed == null) {
-                errors += "$key: '$raw' is not #RRGGBB; ignored"
-            }
-            return parsed
-        }
-
-        for ((key, value) in PropertiesFile.parse(text)) {
-            when (key) {
-                "foreground" -> foreground = color(key, value)
-
-                "background" -> background = color(key, value)
-
-                "cursor" -> cursor = color(key, value)
-
-                else -> {
-                    if (key.startsWith("color")) {
-                        val index = key.removePrefix("color").toIntOrNull()
-                        if (index == null || index !in 0..15) {
-                            errors += "$key: ANSI slot must be color0..color15; ignored"
-                        } else {
-                            color(key, value)?.let { ansi[index] = it }
-                        }
-                    }
-                    // 其余键（termux 未来扩展）静默忽略。
-                }
-            }
-        }
-        return ColorsProperties(foreground, background, cursor, ansi) to errors
-    }
-
-    /** `#RGB`、`#RRGGBB`、`#AARRGGBB`（取 RGB） → 0x00RRGGBB；非法返回 null。 */
-    fun parseHexColor(raw: String): Int? {
-        val text = raw.trim().removePrefix("#")
-        if (text.length !in setOf(3, 6, 8)) return null
-        if (!text.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) return null
-        return when (text.length) {
-            3 -> {
-                val r = text[0].digitToInt(16) * 17
-                val g = text[1].digitToInt(16) * 17
-                val b = text[2].digitToInt(16) * 17
-                (r shl 16) or (g shl 8) or b
-            }
-
-            6 -> text.toInt(16)
-
-            else -> text.substring(2).toInt(16)
-        }
     }
 }

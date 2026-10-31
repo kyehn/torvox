@@ -267,9 +267,9 @@ constructor(
     val runtime: TerminalRuntime,
 ) : ViewModel() {
     /**
-     * `~/.termux/{termux.properties,colors.properties}` 的最新解析结果。
+     * `~/.termux/termux.properties` 的最新解析结果。
      *
-     * 视图只读这里，不自己读文件：两份文件是外部输入，读取时机（启动、回前台、
+     * 视图只读这里，不自己读文件：该文件是外部输入，读取时机（启动、回前台、
      * 设置变化）统一由运行期裁定，视图多处各自读会出现「键栏用新布局、边距还是旧的」。
      */
     val termuxConfiguration: StateFlow<TermuxConfiguration> = termuxProperties.configuration

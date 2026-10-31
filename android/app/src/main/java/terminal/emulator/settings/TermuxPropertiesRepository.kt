@@ -15,22 +15,20 @@ import javax.inject.Singleton
 
 private const val TAG = "TermuxProperties"
 
-/** 一次加载的完整结果：属性、颜色覆盖与来源，供设置页展示与诊断。 */
+/** 一次加载的完整结果：属性与来源，供设置页展示与诊断。 */
 data class TermuxConfiguration(
     val properties: TermuxProperties = TermuxProperties(),
-    val colors: ColorsProperties? = null,
     val propertiesPath: String? = null,
-    val colorsPath: String? = null,
     val errors: List<String> = emptyList(),
 )
 
 /**
- * `~/.termux/{termux.properties,colors.properties}` 的读取与缓存。
+ * `~/.termux/termux.properties` 的读取与缓存。
  *
  * 读取时机是显式的 [reloadNow]：首帧前（`TerminalRuntime.start`）与每次设置重下发
  * （`TerminalRuntime.applySettings`）各一次。不用 `FileObserver`——它只覆盖 inotify
  * 可达的路径，用户用 SAF 或 `adb push` 改写时事件未必到达，而重读对所有写入方式都
- * 成立，代价是两次 stat。
+ * 成立，代价是一次 stat。
  *
  * 文件不存在是正常状态（等价于全部默认值），不是错误；只有「存在但读不出」才记错误，
  * 且保留上一次成功的结果，不把用户的配置因为一次 IO 失败清空。
@@ -51,7 +49,6 @@ constructor(@ApplicationContext private val context: Context) {
             val errors = mutableListOf<String>()
             val home = File(context.filesDir, "home")
             val propertiesFile = locate(home, "termux.properties")
-            val colorsFile = locate(home, "colors.properties")
 
             val properties =
                 if (propertiesFile == null) {
@@ -64,31 +61,11 @@ constructor(@ApplicationContext private val context: Context) {
                     } ?: lastGood.properties
                 }
 
-            val colors =
-                if (colorsFile == null) {
-                    null
-                } else {
-                    when (val text = readFile(colorsFile, errors)) {
-                        // 文件在但读不出：沿用上一次成功的结果，与 `termux.properties`
-                        // 同口径——一次 IO 失败不该把主题覆盖打回全默认。文件被清空
-                        // 走的是下面那条（解析出空），那才是「显式撤销覆盖」。
-                        null -> lastGood.colors
-
-                        else -> {
-                            val (parsed, colorErrors) = ColorsPropertiesParser.parse(text)
-                            errors += colorErrors.map { "colors.properties: $it" }
-                            parsed.takeUnless { it.isEmpty }
-                        }
-                    }
-                }
-
             for (error in errors) LogUtil.warn(TAG, error)
             val configuration =
                 TermuxConfiguration(
                     properties = properties,
-                    colors = colors,
                     propertiesPath = propertiesFile?.absolutePath,
-                    colorsPath = colorsFile?.absolutePath,
                     errors = errors,
                 )
             lastGood = configuration
@@ -100,7 +77,7 @@ constructor(@ApplicationContext private val context: Context) {
      * 主路径优先、次路径兜底（与 termux 相同）：`~/.termux/termux.properties`
      * 存在即用，否则 `~/.config/termux/termux.properties`。
      *
-     * 只认**常规文件**且不跟随符号链接：这两份文件由外部写入（`adb push`、SAF），
+     * 只认**常规文件**且不跟随符号链接：这份文件由外部写入（`adb push`、SAF），
      * 链接可以让读取跑到应用家目录之外，也可能指向一个设备；把它们当配置读进来只会
      * 得到无法解释的行为。非常规文件（管道、目录）同样跳过。
      */

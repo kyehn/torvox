@@ -6,8 +6,9 @@
 
 ## 结论
 
-- 差异集中在配置面：`termux.properties` 实解析 20 个键，规范只允许 3 个；另解析
-  `colors.properties`，规范明禁。两者都是「用户文件一存在即生效」的能力，不是死代码。
+- 差异集中在配置面：`termux.properties` 实解析 20 个键，规范只允许 3 个；既然这些键
+  已有消费方，就不是死代码，而是规范未收录的能力。
+- `colors.properties` 解析已按用户指令移除，实现与 `config.md`、`PROHIBITED.md` 一致。
 - 修饰键栏默认布局与 Termux 上游不一致：规范要求「布局/按键和 Termux 完全相同」，
   代码把首行的 `/` 与 `-` 换成了 `DRAWER` 与 `SCROLL`。
 - 三处边界差异：配置重读时机、超大文件的口径、`beam` 取值在两份规范里的说法不一致。
@@ -69,18 +70,13 @@
 
 其余键默认值不改变现有行为，非默认值会启用未声明能力。
 
-## colors.properties
+## colors.properties（已移除）
 
-`TermuxPropertiesRepository.reloadNow` 用 `locate(home, "colors.properties")` 读取第二个
-文件，`ColorsPropertiesParser.parse` 解析前景、背景、光标与 16 个 ANSI 颜色共 19 个槽位；
-`RenderContract.colors` 经 `Bridge.setPaletteOverride` 下发到原生 `setPaletteOverride`，
-最终压在基底主题之上。
+`TermuxPropertiesRepository` 不再读取第二个文件，`ColorsPropertiesParser`、
+`RenderContract.colors`、`Bridge.setPaletteOverride` 与原生覆盖通道均已删除。
+终端配色只来自内置主题，`colors.properties` 存在也不生效。
 
-冲突：`config.md` 与 `PROHIBITED.md` 明确禁止解析 `colors.properties`；`PROHIBITED.md`
-同时禁止自定义终端主题。该能力不是默认生效，但文件存在即生效。
-
-本轮合入的改动只改了失败口径（读失败保留上一次覆盖，见下节），没有触碰「该不该解析」
-这件事——那属于功能取舍，不在合入范围内。
+此前该能力与 `config.md`、`PROHIBITED.md` 的禁令冲突；移除后实现与规范一致。
 
 ## Bootstrap：清空而非拒绝已存在的 staging
 
@@ -104,10 +100,9 @@
 
 ## 边界差异
 
-- 配置重读时机：`config.md` 写「配置变更在下次启动会话时生效」；实现是启动首帧前读一次
-  （`TerminalRuntime.start`），并在每次设置重下发时读一次（`TerminalRuntime.applySettings`，
-  由主题/字体设置变更与系统深色模式、字体缩放变化触发）。即运行期改文件也会生效，
-  比规范写的更早。
+- 配置重读时机：`config.md` 写「启动首帧前与会话配置重下发时重读」，实现一致
+  （`TerminalRuntime.start` 与 `TerminalRuntime.applySettings`），比上游的「下次启动
+  会话时生效」更早。
 - 超大文件口径：`config.md` 写「单文件超过 64 KiB 视为无效并跳过」；实现把超限当作
   读失败（`TermuxPropertiesRepository.readFile`），保留上一次成功的结果。首次加载时
   「上一次成功的结果」就是默认值，两者一致；重载时才会分叉。
@@ -149,9 +144,9 @@
 
 - `docs/specification/DESIGN.md` 与 `docs/specification/config.md` 对
   `terminal-cursor-style` 的取值集合不一致（见上节）。
-- `openspec/specs/termux-configuration` 把 `colors.properties` 覆盖与 `extra-keys`
-  布局写成 MUST 要求，而 `docs/specification/config.md` 与 `PROHIBITED.md` 禁止这两项。
-  两套规范对同一能力给出相反指令，本审计按 `docs/specification` 记为违规。
+- `openspec/specs/termux-configuration` 中 `colors.properties` 覆盖与 `extra-keys`
+  布局的 MUST 要求与 `docs/specification` 的禁令相反。`colors.properties` 要求已随
+  功能移除；`extra-keys` 仍是两套规范相左，本审计按 `docs/specification` 记为违规。
 
 ## 规范文档与实现的漂移
 

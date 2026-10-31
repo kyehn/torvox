@@ -296,16 +296,6 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 用任意调色板覆盖主题色（`~/.termux/colors.properties`）。
-    ///
-    /// 调色板按值移交给 VT 线程：它是用户文件的一次性解析结果，生命周期
-    /// 与本命令相同，没有可借用的静态源。
-    pub fn set_colors(&self, palette: crate::terminal::theme::Palette) {
-        if let Err(error) = self.cmd_tx.try_send(Command::SetColors(palette)) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
-        }
-    }
-
     /// 设置默认光标样式（`termux.properties` 的 `terminal-cursor-style`）。
     ///
     /// 只是默认值：程序用 DECSCUSR 指定过样式时以程序为准。
