@@ -139,6 +139,12 @@ pub struct Session {
     /// 请求会让本队列无界增长（进一条、从不取），故后台分支同样收割。
     clipboard_read: Arc<Mutex<VecDeque<String>>>,
 
+    /// 剪贴板队列溢出告警的限频闸门（窗口内累计丢弃条数）。
+    ///
+    /// 溢出由程序发送速度决定，逐帧都可能命中；逐帧输出会把 logcat 刷成洪水
+    /// （见 `logcat-hygiene`）。与渲染洪泛、事件队列溢出共用同一实现。
+    clipboard_drop_log: crate::slow_log::CountedLogThrottle,
+
     /// 本帧未写完的 VT 应答（DECRPM/DSR/DA 等），FIFO。
     ///
     /// 独占性来自会话锁而非某个专属线程：`pollEvent` 会逐帧扫描**全部**会话，

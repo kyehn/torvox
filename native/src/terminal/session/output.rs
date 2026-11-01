@@ -175,8 +175,8 @@ impl Session {
     /// 收割 VT 线程经上游回调上报的事件（剪贴板写入）到队列/标志位。
     /// 拉取式：每帧重复调用，VT 线程尚未处理完时取到空、下帧再取（见
     /// `harvest_vt_side_effects` 的说明——本路径不 flush）。
-    fn drain_callback_events(&self) {
-        let mut dropped = 0usize;
+    fn drain_callback_events(&mut self) {
+        let mut dropped = 0u32;
         while let Some((_, text)) = self.terminal.poll_clipboard_event() {
             // FIFO 而非单槽：渲染暂停（pollEvent 停调）期间的连续写入必须全部保留，
             // 单槽会让后一次覆盖前一次，用户丢剪贴板内容。
@@ -191,10 +191,11 @@ impl Session {
             }
         }
         // 逐条记没有任何诊断价值（每条都只是同一个「队列满」），却能让病态程序
-        // 每秒刷出数十条 logcat——与渲染洪泛、事件队列溢出同款限频。
-        if dropped > 0 {
+        // 每秒刷出数十条 logcat——与渲染洪泛、事件队列溢出同款限频：一个窗口一行，
+        // 行里带上窗口内累计的丢弃条数，条数不因限频而丢失。
+        if let Some(dropped_in_window) = self.clipboard_drop_log.record_events(dropped) {
             log::warn!(
-                "clipboard queue overflow (>{} pending); dropped {dropped} oldest writes",
+                "clipboard queue overflow (>{} pending); dropped {dropped_in_window} oldest writes",
                 MAX_CLIPBOARD_TEXT_QUEUE,
             );
         }

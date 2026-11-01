@@ -114,9 +114,26 @@ impl CountedLogThrottle {
         self.record_at(now_ms())
     }
 
-    /// 以给定时刻记账（测试用，免去睡眠）。
+    /// 以给定时刻记一次事件（测试用，免去睡眠）。
     pub(crate) fn record_at(&mut self, now_ms: u64) -> Option<u32> {
-        self.count += 1;
+        self.record_events_at(1, now_ms)
+    }
+
+    /// 一批记 `events` 次事件；窗内计数照常累加，放行时一并交出。
+    ///
+    /// 成批丢弃（队列溢出一次丢掉多条）若逐条走 [`Self::record`]，每条都要判定
+    /// 一次窗口、且被压住的那几条会白跑一遍时钟；批量口径与逐条口径在「窗口内
+    /// 累计了多少次」上完全一致。`events` 为 0 时不推进窗口、不产生输出。
+    pub(crate) fn record_events(&mut self, events: u32) -> Option<u32> {
+        self.record_events_at(events, now_ms())
+    }
+
+    /// [`Self::record_events`] 的定时版（测试用）。
+    pub(crate) fn record_events_at(&mut self, events: u32, now_ms: u64) -> Option<u32> {
+        if events == 0 {
+            return None;
+        }
+        self.count = self.count.saturating_add(events);
         if !self.throttle.should_log_at(now_ms) {
             return None;
         }
@@ -211,6 +228,31 @@ mod tests {
             throttle.record_at(1_000 + SLOW_LOG_INTERVAL_MS),
             Some(4),
             "窗口内累计 4 次（首条 + 3 次压住）必须原样交出"
+        );
+    }
+
+    /// 成批记事件：一批与逐条在窗口计数上同口径，且一批只判定一次窗口。
+    #[test]
+    fn batch_record_counts_every_event_in_one_window() {
+        let mut throttle = CountedLogThrottle::new();
+        assert_eq!(throttle.record_events_at(5, 1_000), Some(5));
+        assert_eq!(throttle.record_events_at(7, 1_100), None);
+        assert_eq!(
+            throttle.record_events_at(1, 1_000 + SLOW_LOG_INTERVAL_MS),
+            Some(8),
+            "窗口内共 5 + 7 + 1 次，被压住的两批必须计入"
+        );
+    }
+
+    /// 一批零次事件不推进窗口、不产生输出：否则「本帧没有丢弃」也会被记成一次。
+    #[test]
+    fn empty_batch_does_not_open_the_window() {
+        let mut throttle = CountedLogThrottle::new();
+        assert_eq!(throttle.record_events_at(0, 1_000), None);
+        assert_eq!(
+            throttle.record_events_at(1, 1_100),
+            Some(1),
+            "零事件不得占用窗口起点"
         );
     }
 
