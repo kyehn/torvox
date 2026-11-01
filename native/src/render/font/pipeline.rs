@@ -258,6 +258,19 @@ impl FontPipeline {
             font_database
         };
 
+        Self::with_database(atlas_width, atlas_height, font_size, font_database)
+    }
+
+    /// 以给定字体库构造管线。
+    ///
+    /// 生产路径用系统字体集（见 [`FontPipeline::new`]）；测试用隔离字体库——
+    /// 宿主字体集随机器变化，「族内有没有斜面」这类前提断言会时真时假。
+    pub(super) fn with_database(
+        atlas_width: i32,
+        atlas_height: i32,
+        font_size: f32,
+        font_database: fontdb::Database,
+    ) -> Self {
         let font_system = FontSystem::new_with_locale_and_db(String::new(), font_database);
 
         let scaler_context = swash::scale::ScaleContext::new();
