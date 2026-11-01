@@ -1,6 +1,6 @@
 # 代码与规范差异审计
 
-审计日期：2026-10-31（第 1–5 轮）、2026-11-01（第 6–7 轮）。范围：`main`（含本轮从 `wb` /
+审计日期：2026-10-31（第 1–5 轮）、2026-11-01（第 6–8 轮）。范围：`main`（含本轮从 `wb` /
 `wb2` 合入的提交）与工作区改动。
 依据：`docs/specification/` 全部文档；`openspec/specs` 作为次级规范一并核对。代码位置用
 文件与符号表示，不写行号。
@@ -300,6 +300,39 @@
 验证：`cargo clippy --all-targets -- --deny warnings` 通过；`cargo test --lib` 782 用例
 通过；`openspec validate --all --strict` 41/41 通过。
 
+## 第 8 轮发现并修复的缺陷（Kotlin 字号区间与原生文本读口）
+
+本轮按 `kotlin-footguns` 的 `footgun-scan` 对 `android/app/src/main/java` 全量扫描：
+10 处命中全部落在 `look`（需人工判断）级别，逐条核对后 8 处判为不适用（两处
+`runBlocking` 都在专用线程上桥接同步原生调用；三处「同名 Job 重启」都带
+`isActive` 单飞闸门；两处 `pointerInput(Unit)` 分别经 `rememberUpdatedState` 读最新
+回调、且只消费空点击；`System.loadLibrary` 之后有装载线程与结果日志）。另两处命中
+引出一处真实缺陷：
+
+1. **字号区间收紧后调节条停在旧值**（`ui/SettingsScreen.kt` 的
+   `AppearanceSectionContent`）。`rememberSaveable` 的初值只在首次组合时按区间钳位，
+   而 `AndroidManifest.xml` 里 `MainActivity` 的 `android:configChanges` 自行处理
+   `orientation|screenSize|fontScale`，组合不重建：
+   宽屏存下的 96sp 旋转到 360dp 竖屏后，上界只剩 30sp，滑块状态仍是 96。Slider 对越界
+   值只钳拇指、不钳读数——拇指停在轨末、读数打印 96sp、原生按 30sp 渲染，三者互不
+   相同；用户按下拇指的那一刻，指针位置换算出的上界被写回，等于「看了一眼设置就被改
+   了值」。现新增 `SettingsRepository.clampFontSize` 作为唯一钳位式，区间一变即就地
+   收敛；`TerminalRuntime.clampFontSizeSp` 改为委托（此前仓库里有两份
+   `coerceIn(MIN, fontSizeMaxSp(...))`）；原生尚未上报度量时的字体信息占位行也改用
+   调节条同值，不再报出一个并未渲染的字号。存量值只收敛显示与生效值，不回写
+   DataStore——回到宽屏时原值仍有效。
+2. **可见文本吞掉空行**（`terminal/ghostty_terminal/internal/dispatch.rs` 的
+   `Query::ReadVisibleText`）。`read_line_text_impl` 对空行返回 `None`，原实现连
+   换行一起跳过：内容行之后每一行都上移一行，调用方按行号取到的是错位内容；同一份
+   终端在 `ReadAllText` 里是保行数的，两条读口对同一屏给出不同行距。现空行也产出
+   换行，行号与网格一一对应。
+
+验证：`cargo clippy --all-targets -- --deny warnings` 通过；`cargo test --lib` 783
+用例通过（新增 `read_visible_text_keeps_blank_rows`）；`openspec validate --all
+--strict` 41/41 通过；`footgun-scan --base origin/main` 对本轮新增行 0 命中。Kotlin
+侧仍无 Android SDK 可执行 `testDebugUnitTest`，字号钳位的新用例
+（`FontSizeRangeTest.clampPullsStoredValuesIntoTheCurrentRange`）只做静态复核。
+
 ## 审计轮次记录
 
 轮次按推进顺序排列；每轮只记当轮新增差异，已订正的旧结论在对应条目里注明更正。
@@ -311,3 +344,4 @@
 - 第 5 轮（2026-10-31）：复核环境变量白名单、Nix 存储路径引用、Cargo/Gradle 版本与 ABI 过滤，与规范一致。无代码修改。
 - 第 6 轮（2026-11-01）：全量通读 Rust 与 Kotlin 源码后复核「规范—文档—实现」三方对应，发现并订正上列三处漂移。无代码修改。
 - 第 7 轮（2026-11-01）：逐文件通读生产代码并用 pedantic 级 clippy 核对截断类告警，发现并修复上列四处实现缺陷（字体斜/粗面判定、剪贴板告警限频、网格尺寸判据去重、字体族基面与空族名匹配）。每处均带回归用例；`cargo test --lib` 782 用例通过、openspec 41/41 通过。
+- 第 8 轮（2026-11-01）：用 `kotlin-footguns` 的扫描器全量扫描 Kotlin 生产代码，10 处命中逐条判定（8 处不适用、2 处引出字号区间缺陷），并修复原生可见文本吞空行的问题；`cargo test --lib` 783 用例通过、openspec 41/41 通过。

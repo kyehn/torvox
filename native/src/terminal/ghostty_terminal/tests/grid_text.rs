@@ -24,6 +24,26 @@ fn read_line_text_empty_returns_none() {
     assert!(text.is_none());
 }
 
+/// 可见文本按网格行逐行产出：空行是空串加换行，不是「跳过」。
+///
+/// 跳过空行时，内容行之后的所有行号整体前移——调用方（或诊断）拿到的第 N 行
+/// 不再是屏幕第 N 行，而 `ReadAllText` 走的是保行数的写法，两条读口对同一屏
+/// 给出不同行距。
+#[test]
+fn read_visible_text_keeps_blank_rows() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 0).expect("terminal");
+    terminal_under_test.vt_write(b"only_first_row");
+    terminal_under_test.flush();
+    let text = terminal_under_test.read_visible_text();
+    assert_eq!(
+        text.lines().count(),
+        5,
+        "5 行网格必须给出 5 行文本：{text:?}"
+    );
+    assert_eq!(text.lines().next(), Some("only_first_row"));
+    assert_eq!(text.lines().skip(1).collect::<Vec<_>>(), vec![""; 4]);
+}
+
 /// 行文本的字符下标恒等于网格列（每列恰好一个字符），宽字符尾格是空格占位。
 /// Kotlin 侧据此按列直取字符，不再用宽度表反推。
 #[test]

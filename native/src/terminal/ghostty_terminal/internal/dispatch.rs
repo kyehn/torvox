@@ -118,10 +118,13 @@ impl super::GhosttyTerminal {
                 let mut text = String::new();
                 for row in 0..rows {
                     // read_line_text_impl 要求绝对行号（回滚 + 视口）。
+                    // 空行也必须产出一个换行：`read_line_text_impl` 对空行返回 None，
+                    // 若连换行一起跳过，其后每一行都会上移一行——调用方按行号定位时
+                    // 看到的是错位的内容（同一份文本在 `ReadAllText` 里是保行数的）。
                     if let Some(line) = Self::read_line_text_impl(terminal, scrollback_rows + row) {
                         text.push_str(&line);
-                        text.push('\n');
                     }
+                    text.push('\n');
                 }
                 try_send(&tx, text, "ghostty_terminal: query channel send failed");
             }
