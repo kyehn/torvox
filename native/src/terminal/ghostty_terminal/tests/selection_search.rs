@@ -768,34 +768,3 @@ fn ed2_at_prompt_scrolls_and_removes_kitty_placements() {
     );
 }
 
-#[test]
-fn tmp_probe_write_cost() {
-    // A: 网格足够高，不发生滚动 —— 纯解析成本。
-    for lines in [50u32, 200, 800, 2000] {
-        let mut terminal = GhosttyTerminal::new(3000, 80, 10).expect("terminal");
-        let payload: Vec<u8> = (0..lines)
-            .flat_map(|i| format!("CAP_{i:04}\r\n").into_bytes())
-            .collect();
-        let started = std::time::Instant::now();
-        terminal.vt_write(&payload);
-        terminal.flush();
-        println!(
-            "PROBE noscroll rows=3000 lines={lines}: total={:?}",
-            started.elapsed()
-        );
-    }
-    // B: 24x80 网格，发生滚动 —— 滚动/回滚成本。
-    for lines in [50u32, 100, 200, 400, 800, 1600] {
-        let mut terminal = GhosttyTerminal::new(24, 80, 20_000).expect("terminal");
-        let payload: Vec<u8> = (0..lines)
-            .flat_map(|i| format!("CAP_{i:04}\r\n").into_bytes())
-            .collect();
-        let started = std::time::Instant::now();
-        terminal.vt_write(&payload);
-        terminal.flush();
-        println!(
-            "PROBE scroll rows=24 lines={lines}: total={:?}",
-            started.elapsed()
-        );
-    }
-}
