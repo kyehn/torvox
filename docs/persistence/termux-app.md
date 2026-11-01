@@ -4,6 +4,8 @@
 
 来源：<https://github.com/termux/termux-app/tree/github-releases/v0.119.0-beta.3>（`DESIGN.md` 指定的参照版本）。文中 `:行号` 指该锚点下的上游源码行号，`文件名:行号` 指上游源文件；本项目的落点另行标注。
 
+复核（2026-11-01）：上游固定标签的 `TERMUX_APP_PROPERTIES_LIST` 仍为 32 个键，与本文键表逐项一致；文中的协议不变量保持不变。
+
 ## 概况
 
 四模块结构：`terminal-emulator`（Java 终端引擎）、`terminal-view`（View 渲染层）、`termux-shared`（修饰键栏、主题、shell 环境、通知）、`app`（Service/Installer/Activity）。applicationId `com.termux`，`sharedUserId` 绑定全部插件。

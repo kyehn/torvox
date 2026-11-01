@@ -4,6 +4,8 @@
 
 来源：<https://github.com/sylirre/ghostty-android-terminal>。本文记录其架构分层与关键实现要点，作为本项目实现细节（`DESIGN.md`「未声明的实现细节」）的参照面。
 
+复核（2026-11-01）：上游在本文上次复核后仅调整 chroot-ng 版本、构建告警与会话临时目录；本文涉及的 Java/JNI/`libghostty-vt` 分层与行为结论未变。
+
 ## 1. 概况
 
 四层架构：Java UI（`TerminalView` Canvas 网格渲染）→ `libterm.so` JNI（`terminal_jni.c` + `pty_jni.c`）→ `libghostty-vt.a`（Zig 预编译 per ABI，pinned commit）→ arm64chroot/arm64emu（自研用户态/全系统模拟器）。无 JVM 单测，全部为 instrumented 集成测试。
@@ -27,4 +29,4 @@ Canvas `drawText` 按同色同属性连续段批量绘制；CJK 宽字符占两�
 
 ### 2.4 其他
 
-OSC 52/9;4 引擎不回调，以 side-scanner 在 PTY 流被动扫描（1 MiB 上限）；修饰键符号用矢量 drawable 而非 font glyph（防 OEM 字形 tofu）；富输入为可选 `TYPE_CLASS_TEXT` + 本地 Editable 镜像（最长公共前缀回退，alt-screen 自动禁用）；`TYPE_NULL` InputConnection 为默认路径。
+OSC 52/9;4 引擎不回调，以 side-scanner 在 PTY 流被动扫描（1 MiB 上限）；修饰键符号用矢量 drawable 而非 font glyph（防 OEM 字形 tofu）；富输入为可选 `TYPE_CLASS_TEXT` + 本地 Editable 镜像（最长公共前缀回退，alt-screen 自动禁用）；`TYPE_NULL` InputConnection 为默认路径；会话以 app 自有的 `files/tmp` 为 `TMPDIR`，每次 spawn 前按 `0700` 准备。

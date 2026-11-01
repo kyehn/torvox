@@ -345,6 +345,51 @@ class TermuxPropertiesParserTest {
         )
     }
 
+    /**
+     * 对象里的尾随逗号（`{key: 'X',}`）照常解析出这个键。
+     *
+     * 上游用的 JSON 解析器同样收这种写法。丢掉整个键位等于让用户为一个逗号白配一次。
+     */
+    @Test
+    fun `a key object with a trailing comma keeps the key`() {
+        val loaded = parse("""extra-keys = [['ESC',{key:'TAB',},'CTRL']]""")
+        assertEquals(
+            listOf(listOf(ExtraKey("ESC"), ExtraKey("TAB"), ExtraKey("CTRL"))),
+            loaded.properties.extraKeys,
+        )
+        assertTrue(
+            "尾随逗号必须留下可读的说明: ${loaded.errors}",
+            loaded.errors.any { it.contains("trailing comma") },
+        )
+    }
+
+    /**
+     * 语法坏掉的对象（缺冒号）只丢自己那一项。
+     *
+     * 丢整份布局等于让用户配好的其余键位因为一个冒号全部消失——与「只丢一项」的
+     * 约定直接冲突。
+     */
+    @Test
+    fun `a key object missing its colon drops only itself`() {
+        val loaded = parse("""extra-keys = [['ESC',{key 'TAB'},'CTRL']]""")
+        assertEquals(listOf(listOf(ExtraKey("ESC"), ExtraKey("CTRL"))), loaded.properties.extraKeys)
+        assertTrue(
+            "丢掉坏项必须留下可读的说明: ${loaded.errors}",
+            loaded.errors.any { it.contains("dropped") },
+        )
+    }
+
+    /** 空对象（`{}`）没有可执行内容：只丢自己那一项，其余键位照常。 */
+    @Test
+    fun `an empty key object drops only itself`() {
+        val loaded = parse("""extra-keys = [['ESC',{},'CTRL']]""")
+        assertEquals(listOf(listOf(ExtraKey("ESC"), ExtraKey("CTRL"))), loaded.properties.extraKeys)
+        assertTrue(
+            "丢掉坏项必须留下可读的说明: ${loaded.errors}",
+            loaded.errors.any { it.contains("dropped") },
+        )
+    }
+
     /** 整行都是坏项时整行消失，其余行照常保留。 */
     @Test
     fun `a row of dropped objects disappears without voiding the layout`() {

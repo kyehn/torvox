@@ -607,6 +607,18 @@ internal object ExtraKeysParser {
             }
             error("unterminated object or array")
         }
+
+        /**
+         * 把光标移到从 [start] 起的那段复合值的闭合符**之后**。
+         *
+         * 用于坏掉的对象只丢自己那一项时的恢复：光标必须跳过这个坏对象，否则后面的
+         * 键位会被错位解析。结构本身不完整（缺闭合符）时抛出——那种配置无从可靠恢复，
+         * 整份布局退回默认。
+         */
+        fun skipPastComposite(start: Int) {
+            index = start
+            skipComposite()
+        }
     }
 
     fun parse(text: String): Result = try {
@@ -673,12 +685,33 @@ internal object ExtraKeysParser {
         return keys
     }
 
+    /**
+     * 解析一个按键项。
+     *
+     * 对象里的语法错误（缺冒号、多余符号）只丢这一项：把光标同步到该对象的闭合符
+     * 之后，其余键位照常解析。整份布局因为一个手误的冒号全部消失，正是「只丢一项」
+     * 约定要防的情形。
+     */
     private fun parseKey(cursor: Cursor): ExtraKey? {
         if (cursor.peek() == '{') {
+            val objectStart = cursor.index
             cursor.consume('{')
-            return parseKeyObject(cursor, "key object", allowPopup = true)
+            return try {
+                parseKeyObject(cursor, "key object", allowPopup = true)
+            } catch (error: IllegalArgumentException) {
+                dropMalformedObject(cursor, objectStart, error)
+            } catch (error: IllegalStateException) {
+                dropMalformedObject(cursor, objectStart, error)
+            }
         }
         return ExtraKey(cursor.readString())
+    }
+
+    /** 坏掉的对象只丢自己：同步光标并留下说明。结构不完整时抛出，整份布局退回默认。 */
+    private fun dropMalformedObject(cursor: Cursor, objectStart: Int, error: RuntimeException): ExtraKey? {
+        cursor.skipPastComposite(objectStart)
+        cursor.warnings += "extra-keys: malformed key object dropped (${error.message})"
+        return null
     }
 
     /**
@@ -696,9 +729,19 @@ internal object ExtraKeysParser {
         var popup: ExtraKey? = null
         var macro: String? = null
         var display: String? = null
+        var fieldCount = 0
         while (true) {
+            // 尾随逗号（`{key: 'X',}`）与空对象（`{}`）都收：上游的 JSON 解析器同样
+            // 收这两种写法，为一个逗号丢掉整个键位没有道理。尾随逗号留一条说明。
+            if (cursor.peek() == '}') {
+                if (fieldCount > 0) {
+                    cursor.warnings += "extra-keys: $context has a trailing comma"
+                }
+                break
+            }
             val name = cursor.readName()
             cursor.consume(':')
+            fieldCount++
             when (name) {
                 "key" -> key = cursor.readValueOrNull()
 

@@ -4,7 +4,7 @@
 
 上游：<https://github.com/Uzaaft/libghostty-rs>，crate `libghostty-vt`（对 C 库 `libghostty-vt-sys` 的安全 Rust 绑定）。本项目经 `native/Cargo.toml` 跟踪其 master 修订，开启 `log` 与 `png` 两个特性，无本地补丁。
 
-`crates/libghostty-vt/src` 对外公开项 718 个，本项目调用 203 个，其余 515 个未使用。
+`crates/libghostty-vt/src` 对外公开项 718 个，本项目调用 221 个，其余 497 个未使用。
 
 - 已使用：本项目源码（含测试）出现具名引用、构造或方法调用。经字段访问隐含使用的返回类型（`PlacementRenderInfo`、`RowSelection`、`CursorViewport`）计入已使用。
 - 枚举变体随父类型计为一项；`pub const` 常量与 `pub use` 再导出别名各计一项。
@@ -14,17 +14,17 @@
 
 | 模块 | 公开项 | 已使用 | 未使用 |
 | --- | --- | --- | --- |
-| `terminal` | 225 | 46 | 179 |
+| `terminal` | 225 | 55 | 170 |
 | `key` | 36 | 13 | 23 |
 | `mouse` | 30 | 14 | 16 |
 | `paste` | 9 | 1 | 8 |
 | `render` | 63 | 26 | 37 |
-| `screen` | 37 | 11 | 26 |
-| `search` | 26 | 15 | 11 |
+| `screen` | 37 | 14 | 23 |
+| `search` | 26 | 17 | 9 |
 | `selection` | 38 | 12 | 26 |
 | `style` | 45 | 27 | 18 |
 | `fmt` | 26 | 8 | 18 |
-| `kitty::graphics` | 60 | 26 | 34 |
+| `kitty::graphics` | 60 | 30 | 30 |
 | `kitty` | 2 | 0 | 2 |
 | `log` | 5 | 3 | 2 |
 | `error` | 2 | 1 | 1 |
@@ -36,15 +36,15 @@
 | `snapshot` | 27 | 0 | 27 |
 | `unicode` | 2 | 0 | 2 |
 | `selection::gesture` | 50 | 0 | 50 |
-| 合计 | 718 | 203 | 515 |
+| 合计 | 718 | 221 | 497 |
 
-调用点集中在 `native/src/terminal/ghostty_terminal/internal.rs`（VT 线程主循环）、`public_api.rs`、`commands.rs`、`theme.rs`、`session.rs` 与 `render/context.rs`；其余模块全未接线。
+调用点集中在 `native/src/terminal/ghostty_terminal/internal/`（VT 线程主循环及命令、渲染、选区、Kitty 图像子模块）、`public_api.rs`、`commands.rs`、`theme.rs`、`session.rs` 与 `render/context.rs`；其余模块全未接线。
 
 ## 2. 已使用 API
 
-### 2.1 `terminal`（46 项）
+### 2.1 `terminal`（55 项）
 
-下表为 `Terminal` 的方法与相关类型；模式常量只列已用的三个，其余 39 个见 3.1。
+下表为 `Terminal` 的方法与相关类型；模式常量只列已用的四个，其余 38 个见 3.1。
 
 | 项 | 说明 |
 | --- | --- |
@@ -52,18 +52,21 @@
 | `ClipboardContents` | 负载集合 |
 | `ClipboardLocation` | 选择器枚举（`Standard`/`Primary`/`Selection`） |
 | `ClipboardWriteError` | 写入拒绝原因（仅用 `Busy`） |
+| `CursorStyle` | 上游光标样式枚举（块/下划线/竖线） |
 | `Mode` | 终端模式号与 DEC/ANSI 分类的载体 |
 | `ModeKind` | `Dec`/`Ansi`，模式种类 |
 | `Point` | 网格坐标寻址：`Screen`/`Viewport`/`History`/`Active` 四种空间 |
 | `PointCoordinate` | 行列坐标值 |
 | `PointSpace` | 格引用反解时的坐标空间（仅用 `Screen`） |
 | `ScrollViewport` | 视口滚动量（仅用 `Delta`） |
+| `Scrollbar` | 滚动条状态；读取 `offset` 得视口偏移 |
 | `SizeReportSize` | `on_size` 应答的行列与单元格像素载荷 |
 | `Terminal` | 终端实例，VT 解析与终端状态的单一来源 |
 | `ClipboardWrite::contents` | 迭代负载的 MIME 与字节 |
 | `ClipboardWrite::location` | 目标选择器：剪贴板/主选区/次选区 |
 | `ClipboardWrite::reply` | 回调返回前必须应答，否则写入被拒 |
 | `Mode::BRACKETED_PASTE` | 模式 2004，粘贴括号化判定 |
+| `Mode::COLOR_SCHEME_REPORT` | 模式 2031，明暗配色变化上报 |
 | `Mode::FOCUS_EVENT` | 模式 1004，焦点上报判定 |
 | `Mode::SYNC_OUTPUT` | 模式 2026，同步输出（脏帧门控）判定 |
 | `Mode::new` | 以「编号 + 种类」构造模式 |
@@ -75,20 +78,26 @@
 | `Terminal::default_color_palette` | 读取默认调色板以覆写 |
 | `Terminal::grid_ref` | 取网格格引用，读单元与超链接的统一入口 |
 | `Terminal::is_cursor_visible` | 光标可见性 |
+| `Terminal::is_mouse_tracking` | 任一鼠标跟踪模式是否启用 |
 | `Terminal::mode` | 查询单个终端模式开关 |
 | `Terminal::new` | 以行列创建终端，VT 线程入口 |
 | `Terminal::on_clipboard_write` | OSC 52/1337/5522 剪贴板写入回调 |
 | `Terminal::on_pty_write` | 终端应答（DECRPM、DSR、DA）回写 PTY 的回调 |
 | `Terminal::on_size` | XTWINOPS 尺寸查询（CSI 14/16/18 t）应答回调 |
+| `Terminal::pwd` | OSC 7/1337 上报的工作目录原始字节 |
 | `Terminal::point_from_grid_ref` | 格引用反解为绝对网格坐标 |
 | `Terminal::reset` | RIS 全重置，清空回滚与状态 |
 | `Terminal::resize` | 重调网格尺寸与单元格像素几何 |
 | `Terminal::rows` | 当前网格行数 |
 | `Terminal::scroll_viewport` | 按 `ScrollViewport::Delta` 增量滚动视口 |
+| `Terminal::scrollbar` | 读取滚动条状态，按帧/批次比较偏移 |
 | `Terminal::scrollback_rows` | 回滚行数 |
 | `Terminal::set_default_bg_color` | 推送默认背景色 |
 | `Terminal::set_default_color_palette` | 推送 16 色 ANSI 调色板 |
+| `Terminal::set_default_cursor_color` | 设置默认光标色（OSC 12 应答来源） |
+| `Terminal::set_default_cursor_style` | 设置 DECSCUSR 重置后的默认光标样式 |
 | `Terminal::set_default_fg_color` | 推送默认前景色 |
+| `Terminal::set_mode` | 设置当前模式值，不改变 RIS 重置后的默认值 |
 | `Terminal::set_scrollback_max_bytes` | 解除字节预算，让行数成为唯一回滚约束 |
 | `Terminal::set_scrollback_max_lines` | 设置回滚行数预算 |
 | `Terminal::title` | 窗口标题，会话列表显示 |
@@ -177,7 +186,7 @@
 | `Snapshot::cursor_visible` | 快照内的光标可见性 |
 | `Snapshot::cursor_visual_style` | 光标视觉样式 |
 
-### 2.6 `screen`（11 项）
+### 2.6 `screen`（14 项）
 
 不经迭代器的按格查询（全量文本、宽字符尾格、超链接命中、选区端点）。
 
@@ -192,16 +201,20 @@
 | `Cell::style_id` | 样式号，供连续同样式单元缓存复用 |
 | `Cell::wide` | 宽度类型：常规/宽/spacer |
 | `GridRef::cell` | 取该格单元 |
+| `GridRef::graphemes` | 把该格字素簇写入调用方缓冲 |
 | `GridRef::hyperlink_uri` | OSC 8 超链接 URI，按 `OutOfSpace{required}` 二次精确读取 |
+| `GridRef::row` | 取该格所在原始行 |
 | `GridRef::style` | 取该格样式 |
+| `Row::has_kitty_virtual_placeholder` | 该行是否含 Kitty 虚拟占位 |
 
-### 2.7 `search`（15 项）
+### 2.7 `search`（17 项）
 
 搜索随 VT 线程存活，`run` 之后按快照读命中。
 
 | 项 | 说明 |
 | --- | --- |
 | `MatchBuffer` | 命中读出的可复用缓冲 |
+| `Scroll` | 搜索选中命中时的视口滚动策略 |
 | `Search` | 搜索器，随 VT 线程存活并跨查询复用索引状态 |
 | `Snapshot` | 搜索快照 |
 | `MatchBuffer::new` | 构造命中读出缓冲 |
@@ -211,6 +224,7 @@
 | `Search::select_prev` | 朝更新内容切换选中命中 |
 | `Search::selected_index` | 当前选中序号 |
 | `Search::set_needle` | 设置 needle |
+| `Search::set_scroll` | 设置搜索选中时的视口滚动策略 |
 | `Search::snapshot` | 取命中快照 |
 | `Search::total_matches` | 命中总数 |
 | `Snapshot::selected_match` | 选中命中的选区 |
@@ -285,7 +299,7 @@
 | `FormatterOptions::with_trim` | 去尾部空白 |
 | `FormatterOptions::with_unwrap` | 拼接软换行行且不带换行符 |
 
-### 2.11 `kitty::graphics`（26 项）
+### 2.11 `kitty::graphics`（30 项）
 
 图像在进程内解码为 RGBA8，放置几何一次取全。
 
@@ -307,6 +321,7 @@
 | `Image::width` | 图像宽 |
 | `PlacementIteration::image_id` | 所属图像号 |
 | `PlacementIteration::is_virtual` | 是否虚拟占位（跳过，交给字形管线） |
+| `PlacementIteration::placement_id` | 放置号 |
 | `PlacementIteration::next` | 取下一放置 |
 | `PlacementIteration::placement_render_info` | 一次取全渲染几何 |
 | `PlacementIteration::x_offset` | 单元格内水平像素偏移 |
@@ -316,7 +331,10 @@
 | `PlacementIterator::update` | 绑定图像存储 |
 | `RustPngDecoder::new` | 构造内置解码器 |
 | `Terminal::kitty_graphics` | 取 Kitty 图像存储 |
+| `Terminal::set_kitty_image_from_file_allowed` | 允许 Kitty 图像经文件介质读取 |
+| `Terminal::set_kitty_image_from_shared_mem_allowed` | 允许 Kitty 图像经共享内存介质读取 |
 | `Terminal::set_kitty_image_storage_limit` | 图像存储总量上限（本仓设 64 MiB，恰为上游默认值） |
+| `Terminal::set_kitty_image_temp_file_dir` | 设置 Kitty 图像临时文件目录 |
 
 ### 2.12 `log`（3 项）
 
@@ -338,11 +356,11 @@
 
 ## 3. 未使用 API
 
-515 项未用（72%）经聚类验证为正常构成：整域禁用 117 项（`selection::gesture` 50 + `snapshot` 27 + `osc`/`sgr` 17 + `build_info` 11 + `alloc` 5 + 其余 7，均对应 PROHIBITED/DESIGN 禁项或引擎已内化）、枚举常量族 84 项（`Mode` 39 + 设备属性应答族 45，清单型常量按需取用）、同一能力的替代表达 24 项（`*_with_alloc` 分配器变体、`*_buf`/`format_len` 缓冲变体——已用等价形态）、功能域内可选方法/选项 290 项（完整桌面嵌壳方的可选面）。对照：上游官方示例 `ghostling_rs`（约 1kLoC 的完整终端）消费约 50 项，本仓 203 项是其 4 倍。718 项是上游「完整能力菜单」而非「预期全量消费」。
+497 项未用（69%）经聚类验证为正常构成：整域禁用 117 项（`selection::gesture` 50 + `snapshot` 27 + `osc`/`sgr` 17 + `build_info` 11 + `alloc` 5 + 其余 7，均对应 PROHIBITED/DESIGN 禁项或引擎已内化）、枚举常量族 83 项（`Mode` 38 + 设备属性应答族 45，清单型常量按需取用）、同一能力的替代表达 24 项（`*_with_alloc` 分配器变体、`*_buf`/`format_len` 缓冲变体——已用等价形态）、功能域内可选方法/选项 273 项（完整桌面嵌壳方的可选面）。对照：上游官方示例 `ghostling_rs`（约 1kLoC 的完整终端）消费约 50 项，本仓 221 项约为其 4 倍。718 项是上游「完整能力菜单」而非「预期全量消费」。
 
-### 3.1 `terminal`（179 项）
+### 3.1 `terminal`（170 项）
 
-配置类 setter 与查询类 getter 全部未用，上游默认值即满足需求；设备属性应答族备而未用的原因是本项目不需要向被测程序谎报能力。
+剩余配置类 setter 与查询类 getter 均未用，上游默认值即满足需求；设备属性应答族备而未用的原因是本项目不需要向被测程序谎报能力。
 
 | 项 | 说明 |
 | --- | --- |
@@ -356,7 +374,6 @@
 | `CompressionMode` | 回滚压缩模式 |
 | `CompressionResult` | 回滚压缩结果 |
 | `ConformanceLevel` | 一致性级别常量族（VT100…VT525、LEVEL_2…5） |
-| `CursorStyle` | 上游光标样式枚举 |
 | `DesktopNotification` | OSC 9/777 桌面通知 |
 | `DeviceAttributeFeature` | 设备特性位常量族 |
 | `DeviceAttributes` | 设备属性应答组合 |
@@ -364,7 +381,6 @@
 | `PrimaryDeviceAttributes` | 主设备属性（DA1） |
 | `ProgressReport` | OSC 9;4 进度上报 |
 | `ProgressState` | 进度状态枚举 |
-| `Scrollbar` | 滚动条状态 |
 | `SecondaryDeviceAttributes` | 次设备属性（DA2） |
 | `TertiaryDeviceAttributes` | 三次设备属性（DA3） |
 | `ClipboardMime::new` | 构造 MIME 条目 |
@@ -436,7 +452,6 @@
 | `Mode::ANY_MOUSE` | DEC 1003，任意移动鼠标跟踪 |
 | `Mode::AUTOREPEAT` | DEC 8，自动重复 |
 | `Mode::BUTTON_MOUSE` | DEC 1002，按键事件鼠标跟踪 |
-| `Mode::COLOR_SCHEME_REPORT` | DEC 2031，配色方案上报 |
 | `Mode::CURSOR_BLINKING` | DEC 12，光标闪烁（PROHIBITED 禁止设置） |
 | `Mode::CURSOR_VISIBLE` | DEC 25，光标可见 |
 | `Mode::DECCKM` | DEC 1，应用光标键 |
@@ -488,7 +503,6 @@
 | `Terminal::height_px` | 终端像素高 |
 | `Terminal::is_cursor_at_prompt` | 光标是否停在语义提示处 |
 | `Terminal::is_cursor_pending_wrap` | 光标是否待折行 |
-| `Terminal::is_mouse_tracking` | 鼠标跟踪是否开启（编码器自行同步） |
 | `Terminal::is_vt_ground` | 当前是否处于 ground 状态 |
 | `Terminal::kitty_keyboard_flags` | kitty 键盘协议标志读取 |
 | `Terminal::mouse_shape` | OSC 22 设置的鼠标形状 |
@@ -504,19 +518,14 @@
 | `Terminal::on_render_hold` | 渲染保持回调（模式 2026 配套；本仓在帧发布层门控，见 §5 五次复核） |
 | `Terminal::on_title_changed` | 标题变化回调 |
 | `Terminal::on_xtversion` | XTGETTCAP/版本查询回调 |
-| `Terminal::pwd` | OSC 7/1337 上报的工作目录 |
 | `Terminal::scrollback_max_bytes` | 回滚字节上限读取 |
 | `Terminal::scrollback_max_lines` | 回滚行数上限读取 |
-| `Terminal::scrollbar` | 滚动条状态 |
 | `Terminal::set_apc_max_bytes` | APC 序列上限（上游默认：kitty 65 MiB、glyph 1 MiB，两协议默认全开） |
 | `Terminal::set_clipboard_write_max_bytes` | 设置剪贴板写入上限 |
 | `Terminal::set_continuation_max_bytes` | 设置续传缓冲上限（默认禁用；仅服务快照重放，本仓无持久化故不启用） |
 | `Terminal::set_default_cursor_blink` | 设置默认光标闪烁 |
-| `Terminal::set_default_cursor_color` | 设置默认光标色 |
-| `Terminal::set_default_cursor_style` | 设置默认光标样式 |
 | `Terminal::set_default_mode` | 设置模式的默认值（reset 后恢复） |
 | `Terminal::set_glyph_protocol_enabled` | 开关字形协议（Sixel/Kitty） |
-| `Terminal::set_mode` | 直接设置单个模式 |
 | `Terminal::set_resize_pull_scrollback` | 增高时是否从回滚拉取内容 |
 | `Terminal::set_terminfo_name` | 设置应答用的 terminfo 名 |
 | `Terminal::set_title_report_enabled` | 开关标题上报 |
@@ -638,9 +647,9 @@
 | `Snapshot::set_dirty` | 置脏 |
 | `Update::end` | 结束分段更新 |
 
-### 3.6 `screen`（26 项）
+### 3.6 `screen`（23 项）
 
-单元与样式经 `render::CellIteration` 读取，其 `raw_cell` 正是 `screen::Cell`；原始行与跟踪引用无调用方。
+单元与样式经 `render::CellIteration` 读取，其 `raw_cell` 正是 `screen::Cell`；原始行的 Kitty 虚拟占位判定已接线，其余跟踪引用无调用方。
 
 | 项 | 说明 |
 | --- | --- |
@@ -656,11 +665,8 @@
 | `Cell::has_text` | 是否含文本 |
 | `Cell::is_protected` | 是否受保护（DECSED/DECSEL 不擦除） |
 | `Cell::semantic_content` | 语义内容 |
-| `GridRef::graphemes` | 该格字素簇 |
-| `GridRef::row` | 取该格所在原始行 |
 | `Row::has_grapheme_cluster` | 含字素簇 |
 | `Row::has_hyperlink` | 含超链接 |
-| `Row::has_kitty_virtual_placeholder` | 含 Kitty 虚拟占位 |
 | `Row::is_dirty` | 行是否脏 |
 | `Row::is_styled` | 含非默认样式 |
 | `Row::is_wrap_continuation` | 软换行续行 |
@@ -671,20 +677,18 @@
 | `TrackedGridRef::set` | 重设跟踪点 |
 | `TrackedGridRef::snapshot` | 取当前码点 |
 
-### 3.7 `search`（11 项）
+### 3.7 `search`（9 项）
 
-`run` 已封装 `feed`+`tick`，滚动由选中命中时上游自动完成，全部命中也够用。
+`run` 已封装 `feed`+`tick`；命中选中时的视口滚动由已用的 `set_scroll(Scroll::None)` 关闭，全部命中也够用。
 
 | 项 | 说明 |
 | --- | --- |
 | `Matches` | 命中集合类型 |
-| `Scroll` | 滚动策略枚举 |
 | `Status` | 搜索状态枚举 |
 | `Search::feed` | 分步喂入内容 |
 | `Search::needle` | 当前 needle 回读 |
 | `Search::new_with_alloc` | 自定义分配器创建 |
 | `Search::scroll` | 滚动策略回读 |
-| `Search::set_scroll` | 手动设滚动策略 |
 | `Search::status` | 搜索状态机状态 |
 | `Search::tick` | 分步推进搜索 |
 | `Snapshot::matches` | 快照内全部命中 |
@@ -772,9 +776,9 @@
 | `FormatterOptions::with_style` | 附带默认样式 |
 | `FormatterOptions::with_tabstops` | 附带制表位 |
 
-### 3.11 `kitty::graphics`（34 项）
+### 3.11 `kitty::graphics`（30 项）
 
-图像只可能来自 PTY 字节流内的 APC 载荷，三条读取路径开关（文件、共享内存、临时目录）保持上游默认「全部禁止」；分项几何读取由 `placement_render_info` 一次取全替代。
+图像只可能来自 PTY 字节流内的 APC 载荷；三条读取路径由已用的 setter 显式配置，临时目录限定到 app 自有目录。分项几何读取由 `placement_render_info` 一次取全替代。
 
 | 项 | 说明 |
 | --- | --- |
@@ -793,7 +797,6 @@
 | `PlacementIteration::columns` | 占列数 |
 | `PlacementIteration::grid_size` | 网格尺寸 |
 | `PlacementIteration::pixel_size` | 像素尺寸 |
-| `PlacementIteration::placement_id` | 放置号 |
 | `PlacementIteration::rect` | 完整矩形 |
 | `PlacementIteration::rows` | 占行数 |
 | `PlacementIteration::set_layer` | 设分层 |
@@ -809,9 +812,6 @@
 | `Terminal::kitty_image_storage_limit` | 图像存储上限读取 |
 | `Terminal::kitty_image_temp_file_dir` | 图像临时文件目录 |
 | `Terminal::set_apc_max_bytes_kitty` | Kitty 的 APC 上限 |
-| `Terminal::set_kitty_image_from_file_allowed` | 设置允许从文件读图像 |
-| `Terminal::set_kitty_image_from_shared_mem_allowed` | 设置允许从共享内存读图像 |
-| `Terminal::set_kitty_image_temp_file_dir` | 设置图像临时文件目录 |
 
 ### 3.12 `alloc`（5 项）
 
@@ -1027,15 +1027,16 @@ SGR 属性经 `render::CellIteration::style` 直读。
 
 ## 5. 观察
 
-- `Terminal::on_bell` 未接线。曾有 7 处注释描述一条不存在的 BEL 通道（`commands.rs` 的 `RunConfig`、`types.rs` 的 `EVENT_CHANNEL_CAPACITY`、`session.rs` 的 5 处收割路径文档），已随归档变更 `2026-10-12-audit-research-residual-gaps` 的任务 3.1/3.2 删除；这些位置现只描述 OSC 52 剪贴板写入。`session.rs:829` 的 `0x07` 是 OSC 52 应答的 **BEL 终止符**（兼容 xterm），是真实协议内容，不在其列。
+- `Terminal::on_bell` 未接线；当前没有 BEL 事件通道。OSC 52 写回调在 `internal/run.rs` 中经 `ClipboardWrite::reply` 应答，其 `remember` 参数表示是否记住授权，不是 BEL 终止符；本仓没有授权提示流程，固定传 `false`。
 - `selection::gesture` 一族不采用，理由不止连击计数：其自动滚动按定时器在边缘区持续滚动，与本仓「每次触点移动滚一行、静止不滚」冲突；其手势状态若由 VT 线程持有，则每个触摸帧都需跨线程往返，使拖动快路径的无跨语言调用优势尽失，并与视图侧手势所有权形成双状态机。词派生、跟踪选区、随滚动跟随与复制格式化仍走上游，见 §2.8。
 - OSC 52 的读取请求（`?`）上游明确忽略，仍由本仓 `output_processor` 的最小扫描器拦截；因此 `on_clipboard_read` 与整个 `ClipboardRead` 族不必接线。
 - 鼠标与键盘编码器的所有单选项 setter 都不单独调用，选项一律经 `set_options_from_terminal` 从终端整体同步，这是编码正确的唯一入口。
 - 光标视觉样式取 `render::Snapshot::cursor_visual_style` 而非 `Terminal::cursor_style`，因为快照路径与 CellData 同源，两条路径不会分叉。
-- 未使用的 515 项中，多数是上游为通用嵌壳方提供的可选能力（设备属性应答族、桌面通知、进度上报、快照持久化、手势状态机、自定义分配器）。剩余的配置型 setter 均为上游默认值即足够；需要限流或改协议行为时再启用，届时须先补 DESIGN 声明。
+- 未使用的 497 项中，多数是上游为通用嵌壳方提供的可选能力（设备属性应答族、桌面通知、进度上报、快照持久化、手势状态机、自定义分配器）。剩余的配置型 setter 均为上游默认值即足够；需要限流或改协议行为时再启用，届时须先补 DESIGN 声明。
 - 2026-10-20 全量复核：公开项总数 718 与源码精确吻合（含 `terminal.rs`/`render.rs` 各 2 个 `pub use` 再导出；`io.rs` 为 `pub(crate)` 不计入）；抽查已用项均有真实调用点、抽查未用项确实未接线，本清单分类可信。
 - 同轮复核现有使用无错误：回滚须先 `set_scrollback_max_bytes(None)` 再设行数（上游字节预算默认先于行数触发），`internal.rs` 顺序正确；KGP 存储上限 64 MiB 恰为上游默认值；APC 载荷上游默认 kitty 65 MiB、glyph 1 MiB 且两协议默认全开，大图传输无隐藏截断；光标未知样式回退块、焦点序列直写 PTY 两处实现与文档论断一致。`Terminal::compress` 的条目说明原写成「丢弃最旧内容」，与上游「压缩只改存储表示、从不动逻辑内容或回滚上限」矛盾，已修正；该 API 未用合理——上游注明须与写入/渲染/搜索串行，本仓 2000 行预算内存可控。
 - 二次复核（2026-10-20 晚）：上游 master 领先本仓钉住 rev 仅 1 个提交（2026-10-19，`libghostty-vt-sys` 构建脚本允许经 `ZIG` 环境变量选择 Zig 版本，只改 README 与 build.rs），不触碰 `crates/libghostty-vt/src`，公开面 718 项不变。本次修正两处分类滞后：`RowIteration::dirty` 与 `Snapshot::clean` 随行级脏跟踪接线已实际使用（`internal.rs` 的行级脏判定与整帧抽取后标记），自未用表移入 §2.5，计数订正为已用 203 / 未用 515。候选「可用未用」API 逐项核查（`on_title_changed`/`next_dirty`/`begin_update`/`Update::end`/`viewport_active`/`is_cursor_pending_wrap`/`vt_write_until_ground`/`is_vt_ground`/`track_grid_ref`/`overscan` 家族/`cursor_blinking`/`cursor_password_input`/`set_resize_pull_scrollback`）：生产代码零命中且各有不采用的架构理由（拉取模式、行缓存按行索引对齐、VT 线程独占解析、整行滚动），维持未用。`focus::Event::encode` 判定记入 §3.15：与手写字面量同字节，多一次 FFI 往返，无净收益。
 - 三次复核（2026-10-20 深夜，逐项全覆盖）：已用 203 项逐一对照上游 doc comment 核查调用语义，**全部符合，无一使用不当**。逐项核实的关键约束：`set_png_decoder` 上游明文要求与 terminal 同线程，本仓在 `run_inner`（VT 线程）注册与 `vt_write` 同线程；`on_clipboard_write` 的 `reply` 义务两条路径都履行（成功 `Ok`、通道满 `Busy`），`try_send` 永不阻塞 VT 线程；`key::Event` 跨事件复用时 `set_unshifted_codepoint` 显式写 `'\0'` 防残留（上游无清零入口）、`set_consumed_mods` 避免文本消费后修饰位重复叠加；编码器选项一律每事件前 `set_options_from_terminal` 整体同步；`Snapshot::clean` 在整帧抽取完成后才调用；`set_logger` 实读上游源码为进程全局（`RwLock` + `sys_set`，非线程局部），本仓经 `log::logger()` 桥接与上游文档示例一致；`style_id` 行内连续同样式缓存、Kitty `generation()` 存储戳跳过、paste `OutOfSpace{required}` 精确扩容、`to_ordered(Forward)` 抹平拖动方向、search `MatchBuffer` 跨查询复用——均与上游语义一致。未用 515 项换角度全面复查（「本仓已有对应功能但自建」的交叉项逐一深挖）：光标色为本轮唯一新识别候选——上游 `Snapshot::cursor_color` 返回 OSC 12 运行时覆盖色，本仓 `build_cursor` 恒取主题 `palette.cursor`；判定为一致的设计立场而非遗漏：bg/fg/cursor 三色以主题为单一来源（`Terminal::bg_color`/`fg_color` 的 OSC 10/11 覆盖读取同样不消费），DESIGN 光标恒块状不闪烁，alacritty 主题文件自带 cursor 色且本仓解析链路完整。`selection_background` 由搜索高亮（`ffi.rs`）与选区反显（VT 烘焙进 CellData）消费，不经上游选区颜色路径，合理。`pending_wrap` 渲染、`on_enquiry`、OSC 12 消费均零命中，无功能缺口。结论：无应接线而漏接的 API，无需任何代码改动。
 - 四次复核（2026-10-21，针对「未用比例异常」的构成分析）：515 项未用聚类为四类（见 §3 引言）——整域禁用 117（22.7%，对应 PROHIBITED/DESIGN 禁项或引擎已内化）、枚举常量族 84（16.3%，`Mode` 42 取 3、设备属性应答族 45，清单型常量按需取用）、替代表达 24（4.7%，`*_with_alloc`/`*_buf` 已用等价形态）、域内可选面 290（56.3%，完整桌面嵌壳方才需要），分模块账目自洽。对照证据：上游官方示例 `ghostling_rs`（约 1kLoC 完整终端）实读消费约 50 项（use 导入 27 类型 + 方法入口），且其消费的设备属性应答族恰是本仓判定不采用的域；本仓 203 项为其 4 倍。结论：72% 未用是通用 VT 引擎绑定库的正常形态，非异常信号。本轮逐家族「成对 API 只用一半」检查发现**一处使用不完整（唯一缺口）**：`Mode::SYNC_OUTPUT`（已用）与 `on_render_hold`（未用）成对只用一半——`internal.rs` 查询模式 2026 写入 `GridSnapshot.sync_active`，但该字段生产侧零消费（`take_snapshot` 生产调用为零、渲染主路径走 CellData 通道、渲染/JNI/Kotlin/tests 对 `sync_active` 全零命中），查询结果写后无人读，BSU/ESU 同步更新期间渲染无帧门控（可能呈现中间帧）；上游为这正是提供 `on_render_hold` 回调（`held: bool`，文档明言可自由忽略）。处置二选一待规格裁定：接线渲染门控，或移除该查询；两者都须先过 openspec 流程，本轮只记录不改代码。其余成对检查全部合适：`Selection::adjust` 未用合理（命令通道每事件携带完整坐标，`Selection::new` 重建 + `to_ordered` 比增量调整更直接）；glyph 协议维持默认全开合理（上游绑定层渲染面无 glossary 出口，本仓无消费路径，关闭亦无渲染差异）。
 - 五次复核（2026-10-21，处置四次复核留下的唯一成对缺口）：不复用 `on_render_hold` 回调——本仓渲染由宿主线程驱动、VT 线程内没有可捕获的帧，回调语义无法完整复刻。改为在帧发布层门控：`internal.rs` 的 VT 循环在批次尾部（与 50ms 空闲 tick 两处发布点）查询 `Mode::SYNC_OUTPUT`，保持期间不构建、不发布 CellData，屏幕停留在此前的完整帧；ESU 的写入重新置脏并在同一批次发布最终帧。引擎没有时钟，故设 1s 超时（上游推荐值）：超时后 `set_mode(SYNC_OUTPUT, false)` 强制解锁并发布当前帧，避免程序崩溃导致画面永久冻结。`GridSnapshot.sync_active`（写后无人读）随之删除。回归测试 `synchronized_output_defers_frame_until_release` 与 `synchronized_output_hold_times_out_without_release` 钉住两条语义；`on_render_hold` 保持未用，但不再构成功能缺口。
+- 六次复核（2026-11-01）：上游当前固定修订的 `libghostty-vt` 安全 Rust 源码相对上次清单无变化，公开项仍为 718；本仓新增使用 18 项（终端 9、屏幕 3、搜索 2、Kitty 图像 4），分类计数订正为已用 221 / 未用 497。新增项逐项核对调用语义：明暗模式 2031 报告、鼠标跟踪状态、OSC 7/1337 工作目录、滚动条偏移、默认光标色/样式、模式写入、格字素/行/Kitty 虚拟占位、搜索滚动策略、Kitty 放置号与三种图像介质均按上游契约使用；未发现应接线而漏接的 API。

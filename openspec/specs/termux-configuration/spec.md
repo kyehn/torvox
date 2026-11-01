@@ -6,32 +6,39 @@
 装包脚本都直接写文件，不经过本应用的设置页）。本能力定义该文件的读取时机、容错口径
 与逐键语义。
 
-该文件**不经过设置页**，因此没有「设置变了」这种事件可用：读取只能发生在
-启动与会话配置重下发这两个时机。读失败 MUST 保留上一份可用配置——写到一半的文件
-不该把界面打回全默认。
+该文件**不经过设置页**，因此没有「设置变了」这种事件可用：应用启动时读取一次，
+进程存活期间不再重读。读取或解析失败 MUST 使用内置默认值并记录错误——写到一半的
+文件不该让应用崩溃，也不该在后续会话中悄悄换一套配置。
 
 ## Requirements
 
 ### Requirement: 读取路径与容错
 
-解析器 MUST 依次尝试 `~/.termux/termux.properties` 与 `~/.config/termux/termux.properties`，
-前者不存在或不可读时回落后者。文件读取或解析失败 MUST 保留上一次成功的解析结果
-并记录错误，MUST NOT 抛给调用方、MUST NOT 清空已有配置。
+解析器 MUST 在应用启动时读取一次 `~/.termux/termux.properties`；该路径不存在时再读取
+`~/.config/termux/termux.properties`。两条路径不合并。文件读取或解析失败 MUST 使用内置
+默认值并记录错误，MUST NOT 抛给调用方；进程存活期间 MUST NOT 因文件变化再次读取。
 
 只认**常规文件**且 MUST NOT 跟随符号链接：该文件由外部写入，链接可以把读取带到
-家目录之外，也可能指向设备；非常规文件（管道、目录）同样跳过。
+家目录之外，也可能指向设备；非常规文件（管道、目录）同样跳过。主路径存在但因符号链接
+或非常规文件被跳过时，MUST NOT 再检查次路径。
 
 读取 MUST 为 UTF-8；单文件超过 64 KiB MUST 视为无效并跳过（MUST NOT 读进内存），
-沿用上一次成功的配置。
+使用内置默认值。
 
 应用 MUST NOT 创建、写入或修改该文件。
 
-`colors.properties` MUST NOT 被读取或解析，终端配色只来自内置主题。
+`colors.properties` 与 `termux.float.properties` MUST NOT 被读取或解析；终端配色只来自
+内置主题，浮动窗口功能不在本仓范围。
 
 #### Scenario: 文件写到一半
 
 - **WHEN** `termux.properties` 被外部进程截断成半行
-- **THEN** 界面沿用上一次成功解析的配置，日志里有一条解析错误，应用不崩溃
+- **THEN** 应用使用内置默认值，日志里有一条解析错误，应用不崩溃
+
+#### Scenario: 主路径不存在时读取次路径
+
+- **WHEN** `~/.termux/termux.properties` 不存在且 `~/.config/termux/termux.properties` 存在
+- **THEN** 解析次路径
 
 #### Scenario: 两份路径都存在
 
@@ -40,18 +47,23 @@
 
 #### Scenario: 配置是符号链接
 
-- **WHEN** `~/.termux/termux.properties` 是指向别处的符号链接
-- **THEN** 该路径被跳过，改用次路径；次路径不存在时全部取默认值
+- **WHEN** `~/.termux/termux.properties` 存在且是指向别处的符号链接
+- **THEN** 该路径被跳过，且不再检查次路径，全部取默认值
 
 #### Scenario: 配置过大
 
 - **WHEN** `termux.properties` 超过 64 KiB
-- **THEN** 该文件不被读取，日志里有一条体积超限的说明，界面沿用上一次成功的配置（首次加载即默认值）
+- **THEN** 该文件不被读取，日志里有一条体积超限的说明，应用使用内置默认值
 
-#### Scenario: colors.properties 不生效
+#### Scenario: 启动后不重读
 
-- **WHEN** 用户写入 `~/.termux/colors.properties`
-- **THEN** 终端配色仍取当前主题，该文件不影响任何颜色
+- **WHEN** 应用启动后外部进程修改了 `termux.properties`
+- **THEN** 当前进程继续使用启动时解析出的配置，直到进程重启
+
+#### Scenario: 其他 properties 文件不生效
+
+- **WHEN** 用户写入 `~/.termux/colors.properties` 或 `~/.termux/termux.float.properties`
+- **THEN** 两个文件均不被读取，不影响配色或任何其他行为
 
 ### Requirement: properties 语法
 
@@ -104,13 +116,33 @@ MUST NOT 使整份文件解析失败。
 - **WHEN** `extra-keys-style` 从 `none` 逐档改到 `all`
 - **THEN** 每一档都在上一档基础上多出一组字形，`all` 一档含 ESC/CTRL/ALT 的 ISO 符号
 
-### Requirement: 键栏中不可渲染的项
+### Requirement: 键名先套用上游别名
 
-键名 MUST 先套用 termux 上游的别名表（`ESCAPE`=`ESC`、`CONTROL`=`CTRL` 等），
-否则同一份 `extra-keys` 在两个应用里画出的键栏不一样。键名表之外的键名 MUST 按上游语义
-当作**字面量文本**渲染并发送（`-_-` 发送三个字符），MUST NOT 被丢弃。
+键名 MUST 先套用 termux 上游的别名表（`ESCAPE`=`ESC`、`CONTROL`=`CTRL`、
+`SHFT`=`SHIFT`、`FUNCTION`=`FN` 等）。键名表之外的键名 MUST 按上游语义当作**字面量
+文本**渲染并发送（`-_-` 发送三个字符），MUST NOT 被丢弃。
 
-`FN` 与 `SHIFT` 键 MUST NOT 渲染：`SHIFT` 由粘滞修饰栏承担，`FN` 在本应用没有二次映射。
+#### Scenario: 未知键名按字面量发送
+
+- **WHEN** `extra-keys` 里出现 `-_-`
+- **THEN** 键栏画出一个 `-_-` 键，按下发送三个字符 `-_-`，同行其余按键照常渲染
+
+#### Scenario: 别名键名与原名等价
+
+- **WHEN** `extra-keys` 里写 `ESCAPE` 而非 `ESC`
+- **THEN** 键栏画出一个与 `ESC` 等价的键，按下发出 ESC
+
+### Requirement: FN 与 SHIFT 是可渲染的特殊修饰键
+
+`FN` 与 `SHIFT` MUST 识别为 termux 的特殊修饰键并渲染；二者 MUST 走与 `CTRL`、`ALT`
+相同的修饰键状态机，不得被静默丢弃。
+
+#### Scenario: FN 与 SHIFT 渲染为修饰键
+
+- **WHEN** `extra-keys` 里出现 `FN` 或 `SHIFT`
+- **THEN** 键栏渲染该键，点击后进入对应修饰状态，同行其余按键照常渲染
+
+### Requirement: 坏项与显示名互不连坐
 
 只含坏字段的对象 MUST 只丢自己那一项，MUST NOT 作废整行或整份布局。只有 `display`、
 没有 `key`/`macro` 的对象 MUST 被丢弃并记一条说明。对象字段名 MUST 同时接受裸名与带引号
@@ -119,15 +151,25 @@ MUST NOT 使整份文件解析失败。
 `display` MUST 覆盖键帽文本（`extra-keys-text-all-caps` 照常作用于它），MUST NOT 改变键码、
 特殊动作或长按内容。
 
+#### Scenario: 空对象只丢自己
+
+- **WHEN** `extra-keys = [['ESC',{popup:'|'},'TAB']]`
+- **THEN** 键栏只有 ESC 与 TAB，日志里说明那一项被丢弃
+
+#### Scenario: display 覆盖键帽
+
+- **WHEN** `extra-keys = [[{key:'ESC',display:'quit'}]]` 且 `extra-keys-text-all-caps = false`
+- **THEN** 键帽显示 `quit`，按下仍发出 ESC
+
 #### Scenario: 未知键名按字面量发送
 
 - **WHEN** `extra-keys` 里出现 `-_-`
 - **THEN** 键栏画出一个 `-_-` 键，按下发送三个字符 `-_-`，同行其余按键照常渲染
 
-#### Scenario: FN 与 SHIFT 不渲染
+#### Scenario: FN 与 SHIFT 渲染为修饰键
 
 - **WHEN** `extra-keys` 里出现 `FN` 或 `SHIFT`
-- **THEN** 该键不出现在键栏上，日志里有一条警告，同行其余按键照常渲染
+- **THEN** 键栏渲染该键，点击后进入对应修饰状态，同行其余按键照常渲染
 
 #### Scenario: 别名键名与原名等价
 
@@ -148,6 +190,12 @@ MUST NOT 使整份文件解析失败。
 
 可解析布局里的坏项 MUST NOT 让整份布局回落到默认：一个不认识的键不该作废用户配好的其余键位。
 
+坏项包括按键对象内部的语法错误（缺冒号、多余符号）：这类错误 MUST 只丢该对象那一项，
+MUST 把解析位置同步到该对象的闭合符之后，使同一行里其余按键照常解析，并 MUST 记一条
+说明。对象里的尾随逗号（`{key:'X',}`）与空对象（`{}`）MUST NOT 被当作语法错误：
+尾随逗号 MUST 照常解析出该键并记一条说明，空对象 MUST 按「没有 `key`/`macro`」的既有
+口径丢弃。
+
 两个例外：语法上无法配平的整份文本 MUST 退回默认布局并记错误；「写了行、但每一行都被坏项
 掏空」时 MUST 退回默认布局并记错误，因为键栏是抽屉与滚动锁定的唯一入口，空键栏会把它们
 一起藏起来。显式写 `[]` 仍按「不要键栏」处理。
@@ -162,20 +210,27 @@ MUST NOT 使整份文件解析失败。
 - **WHEN** `extra-keys` 写了行，但每一行都被坏项掏空
 - **THEN** 键栏退回默认布局，并记一条错误
 
+#### Scenario: 对象里的语法错误只丢自己那一项
+
+- **WHEN** `extra-keys = [['ESC',{key 'TAB'},'CTRL']]`（对象缺冒号）
+- **THEN** 键栏有 ESC 与 CTRL，缺冒号的那一项被跳过，日志里说明该项被丢弃
+
+#### Scenario: 尾随逗号照常解析出该键
+
+- **WHEN** `extra-keys = [['ESC',{key:'TAB',},'CTRL']]`
+- **THEN** 键栏有 ESC、TAB 与 CTRL，日志里有一条关于尾随逗号的说明
+
 ### Requirement: extra-keys 的宏
 
-`{macro: "..."}` MUST 被解析并播放：宏串按空白切分，`CTRL`/`ALT`/`SHIFT` 是修饰记号，
+`{macro: "..."}` MUST 被解析并播放：宏串按空白切分，`CTRL`/`ALT`/`SHIFT`/`FN` 是修饰记号，
 作用于其后第一个普通记号（用过即清），普通记号是键名或字面量文本——语义与 termux
-上游 `TerminalExtraKeys` 一致。大写字母是字面量，MUST 补 Shift 以产出大写，MUST NOT
-被当成小写字母发送。
+上游 `TerminalExtraKeys` 一致。大写字母按其码点原样发送，MUST NOT 被当成小写字母。
 
 有键码的普通记号 MUST 走原生键编码器，并连同平台文本一起下发：可打印键没有文本时编码器
-不产生任何字节，Ctrl 折叠与 Alt 的 ESC 前缀也由编码器决定。
+不产生任何字节，Ctrl 折叠与 Alt 的 ESC 前缀也由编码器决定。`SHIFT` 与 `FN` 只修饰有键码
+的记号；字面量文本按其码点发送。
 
-宏 MUST NOT 影响键栏上的粘滞 CTRL/ALT：宏自带修饰位，两者叠加会让语义与用户预期不符。
-
-宏内出现 `FN` 时该项 MUST NOT 渲染（只丢自己那一项），MUST NOT 发出与配置不符的半截
-按键序列。
+宏 MUST NOT 影响键栏上的粘滞 CTRL/ALT/SHIFT/FN：宏自带修饰位，两者叠加会让语义与用户预期不符。
 
 宏键帽没有显式 `display` 时 MUST 逐记号套键名别名与 `extra-keys-style` 字形，再用空格
 拼回（上游 `ExtraKeyButton` 口径）。
@@ -190,10 +245,10 @@ MUST NOT 使整份文件解析失败。
 - **WHEN** `extra-keys` 里有一项 `{macro: "CTRL f d"}`
 - **THEN** `d` 不带 Ctrl
 
-#### Scenario: 不可用的宏不渲染
+#### Scenario: FN 修饰宏按键
 
-- **WHEN** `extra-keys` 里有一项 `{macro: "FN f"}`
-- **THEN** 该项不占位置也不可点，其余键位照常生效
+- **WHEN** `extra-keys` 里有一项 `{macro: "FN f"}` 且用户点击它
+- **THEN** 终端收到带 Fn 修饰状态的 `f` 键事件，不影响键栏上的粘滞修饰状态
 
 ### Requirement: 宏里的字面量文本
 
@@ -226,16 +281,15 @@ OSC 7 上报在同一次会话里换名字。
 
 ### Requirement: terminal-cursor-style 的取值
 
-`terminal-cursor-style` MUST 接受 `block`/`bar`/`underline`，非法值 MUST 回退 `block`。
-另 MUST 接受 `beam` 作为 `bar` 的别名（同为竖线）——termux 上游没有这个取值，它是本
-应用对常见写法的兼容。
+`terminal-cursor-style` MUST 接受 termux 上游的 `block`/`bar`/`underline`，非法值 MUST 回退
+`block`；MUST NOT 接受上游未定义的别名。
 
 它 MUST 作为**默认**样式下发，程序用 DECSCUSR 指定过的样式仍然优先。
 
-#### Scenario: beam 与 bar 同形
+#### Scenario: 非法样式回退
 
 - **WHEN** `terminal-cursor-style = beam`
-- **THEN** 光标画成竖线，与 `bar` 的效果相同
+- **THEN** 该值不生效，光标使用默认块状样式
 
 ### Requirement: 键盘切换键的两种语义
 
@@ -288,7 +342,7 @@ MUST 在终端取得焦点后请求一次输入法，并把「本视图可接收
 
 ### Requirement: 窗口与边距类键
 
-下列键 MUST 按 `docs/specification/config.md` 的取值与默认值生效：
+下列键 MUST 按 `docs/specification/CONFIG.md` 的取值与默认值生效：
 
 - `fullscreen`：布尔，默认 `false`；为真时隐藏状态栏。
 - `use-fullscreen-workaround`：布尔，默认 `false`；为真时全屏下系统栏改为滑动临时唤出。
@@ -312,9 +366,9 @@ MUST 在终端取得焦点后请求一次输入法，并把「本视图可接收
 `back-key` MUST 支持 `back`/`escape`（默认 `back`）：`escape` 时返回键改发 ESC。
 
 `volume-keys` MUST 支持 `virtual`/`volume`（默认 `virtual`）：`virtual` 时音量减按下即置为
-虚拟 Ctrl，按住期间持续生效、抬起时回收；`volume` 时不拦截，系统照常调节音量。外接字母
-键盘发出的音量键 MUST NOT 拦截（termux 上游口径：完整键盘在场时不抢它的音量键）；音量加
-MUST NOT 拦截——上游把它映射成虚拟 FN，本应用没有 FN 映射。
+虚拟 Ctrl、音量加按下即置为虚拟 Fn，按住期间持续生效、抬起时回收；`volume` 时不拦截，
+系统照常调节音量。外接字母键盘发出的音量键 MUST NOT 拦截（termux 上游口径：完整键盘在
+场时不抢它的音量键）。
 
 `ctrl-space-workaround` MUST 为布尔（默认 `false`）：为真时把 Ctrl+空格补发为 NUL。
 补发 MUST 只在下按发生一次，而下按与抬起两路事件 MUST 都被消费：抬起事件漏回输入法或
@@ -329,6 +383,11 @@ MUST NOT 拦截——上游把它映射成虚拟 FN，本应用没有 FN 映射�
 
 - **WHEN** 外接字母键盘在场，用户按它的音量减
 - **THEN** 该按键不被应用拦截，交给键盘自身处理
+
+#### Scenario: 虚拟模式映射音量加为 Fn
+
+- **WHEN** `volume-keys = virtual` 且用户按住音量加
+- **THEN** 终端收到处于 Fn 修饰状态的按键事件，抬起后 Fn 状态被回收
 
 `virtual` 的按住 MUST NOT 改写用户手动锁定的 Ctrl：按下置按住态、抬起按「是按住态就关」
 回收时，锁定态会在那一次按住里被静默吃掉。抬起 MUST 只回收自己置的按住态，这期间用户
@@ -389,8 +448,8 @@ MUST NOT 拦截——上游把它映射成虚拟 FN，本应用没有 FN 映射�
 自身的动作，宏按顺序播放，键名表之外的文本整串写出。次级按键的 `display` MUST NOT 改变
 它执行的动作。
 
-次级按键不可用（`FN`/`SHIFT`、不可用的宏）时 MUST 丢弃该次级按键并记一条说明，MUST NOT
-丢弃主键。
+次级按键不可用（不可用的宏）时 MUST 丢弃该次级按键并记一条说明，MUST NOT 丢弃主键。
+`FN` 与 `SHIFT` 是可用的特殊修饰键，MUST 作为次级按键保留。
 
 #### Scenario: 长按执行次级按键
 
@@ -402,7 +461,7 @@ MUST NOT 拦截——上游把它映射成虚拟 FN，本应用没有 FN 映射�
 - **WHEN** `extra-keys` 里有一项 `{key: 'HOME', popup: {macro: 'CTRL f d'}}` 且用户长按它
 - **THEN** 终端依次收到 Ctrl+f 与 d
 
-#### Scenario: 不可用的次级键只丢长按动作
+#### Scenario: FN 可作为次级修饰键
 
 - **WHEN** `extra-keys` 里有一项 `{key: '-', popup: 'FN'}`
-- **THEN** 该键照常渲染并发送 `-`，日志里说明长按动作被丢弃
+- **THEN** 该键照常渲染并发送 `-`，长按时进入 Fn 修饰状态
