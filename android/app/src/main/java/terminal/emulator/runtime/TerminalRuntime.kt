@@ -1088,6 +1088,22 @@ constructor(
     }
 
     /**
+     * 把滚动偏移对齐到 VT 真值（离实时视图多少行），但**不**记手势时间。
+     *
+     * 浏览回滚期间新输出把活动区底边推远，宿主手里的旧偏移会漂移：回到底边时
+     * 按旧值算出的目标停在底边之上（新输出落在视口之外，终端看上去「死了」）。
+     * 真值由原生随帧发布，宿主在手势开始时对齐一次即可。
+     *
+     * 不记手势时间：这不是用户动作。若记上，渲染线程的 `recentlyScrolled` 保护会
+     * 把「刚滚动过」当成真的滚过，新输出引起的自动贴底被无端抑制。
+     */
+    fun syncScrollOffset(offset: Int) {
+        val entry = sessions[activeSessionId] ?: return
+        if (entry.scrollOffset == offset) return
+        entry.scrollOffset = offset
+    }
+
+    /**
      * 从手势层同步逐像素滚动余量，交由渲染线程转发给原生
      * （同 [setScrollOffset]：只存储 + 通知，由渲染线程在 surface 锁下完成 JNI 穿越）。
      */
