@@ -87,13 +87,22 @@ impl PtyMaster {
     /// 不设限地等锁会让「整段持会话锁以墙钟为界」变成「以条数 × 排空期限为界」。
     ///
     /// `None` 表示期限内没取到写入锁，调用方须把整条退回队列下帧续写。
+    ///
+    /// 期限是**整段**（等锁 + 写入）的总预算：等锁已经耗掉的时间必须从写入的
+    /// 份额里扣掉。两段各用满整份期限时最坏耗时是 `2 × drain_timeout`，
+    /// 与调用方「整段持会话锁以墙钟为界」的约定不符——逐帧收割的应答因此会把
+    /// 渲染与看门狗按住双倍时间。
     pub fn write_with_timeout_counted(
         &self,
         data: &[u8],
         drain_timeout: std::time::Duration,
     ) -> Option<(usize, std::io::Result<()>)> {
+        let started = std::time::Instant::now();
         let _order = self.write_order.try_lock_for(drain_timeout)?;
-        Some(self.pty.write_all(data, drain_timeout, false))
+        // 取锁可能已经吃掉大半预算：写入只拿**剩余**部分（`saturating_sub`
+        // 让超支的情形落到 0，而不是回绕成一个巨大的期限）。
+        let remaining = drain_timeout.saturating_sub(started.elapsed());
+        Some(self.pty.write_all(data, remaining, false))
     }
 
     pub(super) fn pty_write_order(&self) -> parking_lot::MutexGuard<'_, ()> {

@@ -914,6 +914,73 @@ fn write_back_yields_the_frame_when_a_user_write_holds_the_master_lock() {
     );
 }
 
+/// 回归钉：逐帧应答续写的**整段**预算（等锁 + 写入）不得翻倍。
+///
+/// [`PtyMaster::write_with_timeout_counted`](super::PtyMaster::write_with_timeout_counted)
+/// 先等主端写入锁、再把**同一份**期限交给 `write_all`：两段各用满整份期限时最坏耗时
+/// 是 `2 × drain_timeout`，而调用方（[`Session::drain_pty_write_back`]）的约定是
+/// 「整段持会话锁以墙钟为界」。于是一次锁争用就能把逐帧取同一把锁的渲染与看门狗
+/// 按住双倍时间。
+///
+/// 复现是确定的：用户写入持锁 200ms（等价于 `feedPty` 卡在主端排空上），随后以
+/// 500ms 预算续写一条应答——修复前耗时约 700ms，修复后约 500ms（等锁吃掉的
+/// 200ms 从写入份额里扣掉）。
+#[test]
+fn write_back_budget_covers_lock_wait_and_write_as_one_whole() {
+    use std::sync::mpsc;
+
+    const LOCK_HOLD: Duration = Duration::from_millis(200);
+    const BUDGET: Duration = Duration::from_millis(500);
+    /// 调度余量：只吸收线程唤醒与 sleep 的抖动，不得宽到让「翻倍」蒙混过关。
+    const SLACK: Duration = Duration::from_millis(100);
+
+    let (mut pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+    // 写出 1 字节后恒返回 EAGAIN：`write_all` 于是走到「等主端排空」分支，把
+    // 剩余期限睡满——正是逐帧应答在主端满时的真实形态。
+    pty.write_partial_then_block(1);
+    let session = Arc::new(Mutex::new(
+        Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed"),
+    ));
+
+    // 用户输入持写入锁 200ms。
+    let (locked_sender, locked_receiver) = mpsc::channel();
+    let holder = {
+        let session = session.clone();
+        std::thread::spawn(move || {
+            let pty_master = session.lock().pty_master();
+            let _order = pty_master.pty_write_order();
+            locked_sender.send(()).expect("已持锁");
+            std::thread::sleep(LOCK_HOLD);
+        })
+    };
+    locked_receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("用户写入须在期限内取到主端写入锁");
+
+    let started = std::time::Instant::now();
+    let (written, result) = session
+        .lock()
+        .pty_master()
+        .write_with_timeout_counted(b"\x1b[1;1R", BUDGET)
+        .expect("预算须足以取到写入锁");
+    let elapsed = started.elapsed();
+
+    holder.join().expect("持锁线程 panicked");
+
+    assert!(
+        result.is_err(),
+        "主端恒满时写入必须如实报错，不得伪装成成功"
+    );
+    assert_eq!(written, 1, "已写出的字节必须如实上报");
+    assert_eq!(handle.written(), b"\x1b", "首字节确已落到主端");
+    assert!(
+        elapsed <= BUDGET + SLACK,
+        "等锁与写入必须共用一份预算：实际耗时 {elapsed:?}，上限 {:?}",
+        BUDGET + SLACK
+    );
+}
+
 /// 回归钉：待上报的剪贴板写入队列必须有界，且丢最旧。
 ///
 /// 该队列此前的深度说明写着「受 `EVENT_CHANNEL_CAPACITY` 约束」——那只约束
