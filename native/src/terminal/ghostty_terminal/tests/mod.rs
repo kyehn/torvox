@@ -82,6 +82,30 @@ fn terminal_with_twenty_lines() -> GhosttyTerminal {
     terminal_under_test
 }
 
+/// 批量写入整段行文本：所有字节一次入队。
+///
+/// 逐行 `vt_write` 会把每行变成一条命令，而命令批尾是唯一的帧发布点——每满
+/// 64 条命令就要重建一次整幅网格。压力用例逐行写时，几百上千行输入要付上百次
+/// 与被测语义无关的整幅重建；并行套件里机器被压满，固定期限的 flush 随之超时，
+/// 用例因「机器慢」而红而非因缺陷而红。
+///
+/// 整段字节一次入队对上游是**同一条字节流**，解析结果与逐行写完全一致
+/// （上游解析器跨调用保持状态，分片与整段等价），被测语义不受影响。
+fn write_lines(terminal_under_test: &mut GhosttyTerminal, lines: impl IntoIterator<Item = String>) {
+    let mut buffer = String::new();
+    for line in lines {
+        buffer.push_str(&line);
+    }
+    terminal_under_test.vt_write(buffer.as_bytes());
+}
+
+/// 压力用例的排空期限。
+///
+/// 整幅网格重建的成本随机器速度变化（并行套件里可达数倍），期限须留足余量；
+/// 期限只用来把「VT 线程卡死」与「机器慢」分开，不参与被测语义判定——
+/// 超时被断言捕获时给出的是「排空未完成」而非一个含混的深度偏差。
+const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// 等待一帧推送：内容不变的滚动与重推用例必须在超时前收到帧。
 fn await_pushed_frame(terminal_under_test: &mut GhosttyTerminal, context: &str) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);

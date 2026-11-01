@@ -397,10 +397,17 @@ fn read_all_text_answers_repeated_queries_within_query_timeout() {
     const MAX_SCROLLBACK: u32 = 500;
     let mut terminal_under_test =
         GhosttyTerminal::new(ROWS, COLUMNS, MAX_SCROLLBACK).expect("terminal");
-    for line_number in 0..MAX_SCROLLBACK + ROWS {
-        terminal_under_test.vt_write(format!("line{line_number}\n").as_bytes());
-    }
-    terminal_under_test.flush();
+    // 整段字节一次入队：逐行写会让这 524 行变成 524 条命令，命令批尾每 64 条
+    // 就要重建一次整幅网格——与被测的「回滚填满后查询仍在期限内」无关的开销
+    // 会把机器压满，查询随之错过期限。整段写对上游是同一条字节流。
+    write_lines(
+        &mut terminal_under_test,
+        (0..MAX_SCROLLBACK + ROWS).map(|line_number| format!("line{line_number}\n")),
+    );
+    assert!(
+        terminal_under_test.flush_with_timeout(DRAIN_TIMEOUT),
+        "排空必须完成：未完成时回滚只反映已处理的部分"
+    );
     // ghostty 会自行裁剪回滚，故只断言「已大幅填满」而非精确上限。
     //
     // 与文件内其余护栏同口径按期限轮询：系统过载（本机全量套件并行、深缓冲

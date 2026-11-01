@@ -35,7 +35,11 @@ fn command_batch_stays_bounded_under_backlog() {
     let queued = fill_command_backlog(&terminal_under_test);
     assert!(queued > 0, "命令通道须能灌入积压");
 
-    let deadline = Instant::now() + Duration::from_secs(10);
+    // 排空期限：命令批尾每 64 条命令就要重建一次整幅网格，积压排空的总成本
+    // 随机器速度变化（并行套件里可达数倍）。期限只用来把「批无界、积压永不排空」
+    // 与「机器慢」分开——批无界时通道恒非空，再长的期限也等不到排空，
+    // 故放宽期限不削弱判别力。
+    let deadline = Instant::now() + Duration::from_secs(60);
     while !terminal_under_test.cmd_tx.is_empty() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -103,7 +107,7 @@ fn bounded_batch_keeps_every_command() {
         terminal_under_test.vt_write(format!("SEQ_{index:04}\r\n").as_bytes());
     }
     assert!(
-        terminal_under_test.flush_with_timeout(Duration::from_secs(5)),
+        terminal_under_test.flush_with_timeout(Duration::from_secs(30)),
         "flush 必须得到应答：丢命令会让应答随丢"
     );
 

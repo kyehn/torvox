@@ -101,10 +101,14 @@ fn decscusr_cursor_style_reaches_snapshot() {
 #[test]
 fn scrollback_cap_is_honored() {
     let mut terminal = GhosttyTerminal::new(24, 80, 10).expect("terminal");
-    for index in 0..2000 {
-        terminal.vt_write(format!("CAP_{index:04}\r\n").as_bytes());
-    }
-    terminal.flush();
+    write_lines(
+        &mut terminal,
+        (0..2000).map(|index| format!("CAP_{index:04}\r\n")),
+    );
+    assert!(
+        terminal.flush_with_timeout(DRAIN_TIMEOUT),
+        "排空必须完成：未完成时回滚深度只反映已处理的部分"
+    );
     let depth = terminal.scrollback_length();
     assert!(
         depth < 2000,
@@ -116,10 +120,14 @@ fn scrollback_cap_is_honored() {
 #[test]
 fn scrollback_keeps_order_and_newest_line_stays_visible() {
     let mut terminal = GhosttyTerminal::new(24, 80, 5_000).expect("terminal");
-    for index in 0..500u32 {
-        terminal.vt_write(format!("SEQ_{index:04}\r\n").as_bytes());
-    }
-    terminal.flush();
+    write_lines(
+        &mut terminal,
+        (0..500u32).map(|index| format!("SEQ_{index:04}\r\n")),
+    );
+    assert!(
+        terminal.flush_with_timeout(DRAIN_TIMEOUT),
+        "排空必须完成：未完成时回滚深度只反映已处理的部分"
+    );
 
     let depth = terminal.scrollback_length();
     assert!(depth >= 400, "回滚区应保留大部分输入行, 实际={depth}");
@@ -161,15 +169,22 @@ fn scrollback_deep_buffer_does_not_collapse() {
     // 上游按 LF 语义换行推进 scrollback（\r\n 在该路径行为不同）。
     // 命令通道有界（1024）：大批量写入必须分批 flush，否则 try_send
     // 静默丢弃，scrollback 恒 0。
+    //
+    // 每批整段字节一次入队（而非逐行入队）：逐行写会把 2.5 万行变成 2.5 万条
+    // 命令，命令批尾每 64 条就要重建一次整幅网格——与被测的回滚语义无关的
+    // 开销会把机器压满，固定期限的 flush 随之超时，用例因「机器慢」而红。
+    // 分批（每批一条命令）仍远在通道容量之内，逐行写与整段写对上游是同一条
+    // 字节流，回滚深度一致。
     for chunk in (0..25_000)
         .map(|index| format!("DEEP_{index:05}\n"))
         .collect::<Vec<_>>()
-        .chunks(500)
+        .chunks(2_500)
     {
-        for line in chunk {
-            terminal.vt_write(line.as_bytes());
-        }
-        terminal.flush();
+        write_lines(&mut terminal, chunk.iter().cloned());
+        assert!(
+            terminal.flush_with_timeout(DRAIN_TIMEOUT),
+            "排空必须完成：未完成时回滚深度只反映已处理的部分"
+        );
     }
     let depth = terminal.scrollback_length();
     assert!(
@@ -751,4 +766,36 @@ fn ed2_at_prompt_scrolls_and_removes_kitty_placements() {
         terminal.take_kitty_placements().is_empty(),
         "首次 ED2 后放置集合必须为空"
     );
+}
+
+#[test]
+fn tmp_probe_write_cost() {
+    // A: 网格足够高，不发生滚动 —— 纯解析成本。
+    for lines in [50u32, 200, 800, 2000] {
+        let mut terminal = GhosttyTerminal::new(3000, 80, 10).expect("terminal");
+        let payload: Vec<u8> = (0..lines)
+            .flat_map(|i| format!("CAP_{i:04}\r\n").into_bytes())
+            .collect();
+        let started = std::time::Instant::now();
+        terminal.vt_write(&payload);
+        terminal.flush();
+        println!(
+            "PROBE noscroll rows=3000 lines={lines}: total={:?}",
+            started.elapsed()
+        );
+    }
+    // B: 24x80 网格，发生滚动 —— 滚动/回滚成本。
+    for lines in [50u32, 100, 200, 400, 800, 1600] {
+        let mut terminal = GhosttyTerminal::new(24, 80, 20_000).expect("terminal");
+        let payload: Vec<u8> = (0..lines)
+            .flat_map(|i| format!("CAP_{i:04}\r\n").into_bytes())
+            .collect();
+        let started = std::time::Instant::now();
+        terminal.vt_write(&payload);
+        terminal.flush();
+        println!(
+            "PROBE scroll rows=24 lines={lines}: total={:?}",
+            started.elapsed()
+        );
+    }
 }
