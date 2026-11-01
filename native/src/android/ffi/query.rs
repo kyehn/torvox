@@ -86,6 +86,49 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedScr
     })
 }
 
+/// 最近一帧的滚动模型：离实时视图多少行（0 = 视口贴底）。首帧尚未取走时为 -1；
+/// 未知会话抛异常（与回滚长度载体一致）。
+///
+/// 宿主拿它做滚动增量与选区行号的基线：浏览期间新输出把活动区底边推远，宿主
+/// 手里的旧值会漂移——回到底边时按旧值算出的目标停在底边之上（新输出不可见）。
+///
+/// 无锁读（原子量）：会话锁可能被 PTY 写入按住数十毫秒，而滚动手势在 UI 线程
+/// 逐事件读这个基线。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedScrollOffset(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+) -> jint {
+    jni_export_guard!(&mut unowned_env, RENDERED_SCROLLBACK_NONE, |env| {
+        let Some(offset) = rendered_scroll_offset(session_id as u64) else {
+            throw_session_missing(env, "getRenderedScrollOffset");
+            return Ok(RENDERED_SCROLLBACK_NONE);
+        };
+        offset
+    })
+}
+
+/// 最近一帧的 VT 视口顶部绝对行号（0 = 回滚区顶部）。首帧尚未取走时为 -1；
+/// 未知会话抛异常（与回滚长度载体一致）。
+///
+/// 搜索高亮与选区的「绝对行 → 视口行」折算 MUST 用它：锚在内容上，浏览期间
+/// 新输出不移动它，不会随宿主滚动偏移漂移。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedViewportRow(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+) -> jint {
+    jni_export_guard!(&mut unowned_env, RENDERED_SCROLLBACK_NONE, |env| {
+        let Some(row) = rendered_viewport_row(session_id as u64) else {
+            throw_session_missing(env, "getRenderedViewportRow");
+            return Ok(RENDERED_SCROLLBACK_NONE);
+        };
+        row
+    })
+}
+
 /// 会话**已应用**的滚动偏移（0 = 视口贴底）。
 ///
 /// 与 `TerminalRuntime.activeSessionScrollOffset()` 的区别是「已应用」：后者是渲染线程

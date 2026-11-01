@@ -701,6 +701,21 @@ class Bridge(private val config: TerminalConfig) {
         queryPort.renderedScrollbackLength()
     }
 
+    /**
+     * 最近一帧的滚动模型：离实时视图多少行（0 = 视口贴底）。首帧未发布时为 -1。
+     *
+     * **绝不同步询问 VT 线程**（一次原子读），故可在滚动手势的逐事件热路径调用。
+     * 浏览期间新输出把活动区底边推远，这个值随之更新——宿主拿旧值算滚动目标会
+     * 停在底边之上（新输出落在视口外）。
+     */
+    fun renderedScrollOffset(): Int = onQuery("renderedScrollOffset", -1) {
+        queryPort.renderedScrollOffset()
+    }
+
+    fun renderedViewportRow(): Int = onQuery("renderedViewportRow", -1) {
+        queryPort.renderedViewportRow()
+    }
+
     fun cursorViewportPacked(): Long = onQuery("cursorViewportPacked", -1L) {
         queryPort.cursorViewportPacked()
     }

@@ -283,6 +283,13 @@ object NativeBridge {
      */
     @JvmStatic external fun getRenderedScrollbackLength(sessionId: Long): Int
 
+    /**
+     * 最近一帧的滚动模型：离实时视图多少行（0 = 视口贴底）。
+     * 首帧尚未取走时为 -1；未知会话抛异常。
+     */
+    @JvmStatic external fun getRenderedScrollOffset(sessionId: Long): Int
+    @JvmStatic external fun getRenderedViewportRow(sessionId: Long): Int
+
     /** 会话已应用的滚动偏移（0 = 视口贴底）；未知会话返回 0。 */
     @JvmStatic external fun getSessionScrollOffset(sessionId: Long): Int
 

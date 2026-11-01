@@ -245,6 +245,16 @@ struct SessionEntry {
     /// 每帧都要用；改读此处后不再向 VT 线程发同步 RPC——VT 忙于输出时那次查询
     /// 最长阻塞 500ms，正是滚动/拖柄的卡顿来源。
     rendered_scrollback: AtomicI32,
+    /// 同一帧的滚动模型：离实时视图多少行（`回滚长度 - 视口顶行`）。
+    ///
+    /// 宿主拿它做滚动增量与选区行号的基线：浏览期间新输出把活动区底边推远，
+    /// 宿主手里的旧值会漂移——回到底边时按旧值算出的目标停在底边之上（新输出
+    /// 不可见），选区与搜索高亮的行号也随之错位。
+    ///
+    /// 滚动在途时发布的是**已下发的目标**而非真值（帧仍是旧视口，见
+    /// `frame_reflects_scroll`），故宿主读到的永远是可安全采用的当前模型。
+    rendered_scroll_offset: AtomicI32,
+    rendered_viewport_row: AtomicI32,
     /// PTY 摄入标志的共享镜像。渲染线程每帧读清它；放在注册表而非会话里，
     /// 是因为取会话锁可能被 VT 解析按住数十毫秒。
     new_output: Arc<AtomicBool>,
@@ -263,6 +273,8 @@ impl SessionEntry {
             render_wake,
             rendered_cursor: AtomicI64::new(RENDERED_CURSOR_NONE),
             rendered_scrollback: AtomicI32::new(RENDERED_SCROLLBACK_NONE),
+            rendered_scroll_offset: AtomicI32::new(RENDERED_SCROLLBACK_NONE),
+            rendered_viewport_row: AtomicI32::new(RENDERED_SCROLLBACK_NONE),
             new_output,
             alt_screen_active,
         }
@@ -296,6 +308,25 @@ fn rendered_scrollback(session_id: u64) -> Option<i32> {
     let registry = rlock_session_registry();
     let entry = registry.get(&session_id)?;
     Some(entry.rendered_scrollback.load(Ordering::Acquire))
+}
+
+/// 读某会话当前的滚动模型（离实时视图多少行）；会话未登记时返回 `None`，
+/// 首帧未发布时返回 [`RENDERED_SCROLLBACK_NONE`]。
+///
+/// 不取会话锁：会话锁可能被 PTY 写入按住数十毫秒，而滚动手势在 UI 线程逐事件
+/// 读这个基线。
+fn rendered_scroll_offset(session_id: u64) -> Option<i32> {
+    let registry = rlock_session_registry();
+    let entry = registry.get(&session_id)?;
+    Some(entry.rendered_scroll_offset.load(Ordering::Acquire))
+}
+
+/// 读某会话最近一帧的 VT 视口顶部绝对行号；会话未登记时返回 `None`，
+/// 首帧未发布时返回 [`RENDERED_SCROLLBACK_NONE`]。
+fn rendered_viewport_row(session_id: u64) -> Option<i32> {
+    let registry = rlock_session_registry();
+    let entry = registry.get(&session_id)?;
+    Some(entry.rendered_viewport_row.load(Ordering::Acquire))
 }
 
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =

@@ -268,9 +268,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
             crate::terminal::ghostty_terminal::GhosttyTerminal::search_viewport_highlights_on(
                 &query_tx,
             );
-        // 视口顶行的绝对行号。`scroll_offset` 与 VT 视口是同一来源（宿主统一滚动），
-        // 上游默认的 `select_next` 自动滚动已关闭，二者不会各走各的。
-        let viewport_top = highlights.scrollback_lines as i32 - scroll_offset;
+        // 视口顶行的绝对行号：以 VT 真值（`rendered_viewport_row`）为准——锚在内容上，
+        // 浏览期间新输出不移动它，不会随宿主滚动偏移漂移。首帧未发布时回退到
+        // `scrollback_lines - scroll_offset`（宿主旧口径），保证首帧也有高亮。
+        let viewport_top = match rendered_viewport_row(session_id as u64) {
+            Some(row) if row >= 0 => row,
+            _ => highlights.scrollback_lines as i32 - scroll_offset,
+        };
         let mut state = render_state_mut();
         let Some(render_state) = state.as_mut() else {
             return Ok(());
