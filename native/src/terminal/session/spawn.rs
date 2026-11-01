@@ -59,13 +59,10 @@ impl Session {
         scrollback_lines: u32,
     ) -> Result<Self, SessionError> {
         log::info!("Session::spawn: shell='{shell}', rows={rows}, cols={cols}, cwd={cwd:?}");
-        // 预先拒绝非法尺寸（与 `resize` 同一判据）：0 行/0 列会让 Ghostty 网格与 PTY
-        // winsize 同时变成无意义值，下方的 `as u16` 还会静默截断越界尺寸，
-        // 导致缓存的 grid_size 与 PTY 不一致。
-        if rows == 0 || cols == 0 || u16::try_from(rows).is_err() || u16::try_from(cols).is_err() {
-            return Err(SessionError::InvalidDimensions);
-        }
-        let mut pty = match PtyPair::spawn(shell, rows as u16, cols as u16, env, cwd) {
+        // 与 `resize` 同一判据：0 行/0 列会让 Ghostty 网格与 PTY winsize 同时变成无意义
+        // 值，而 `as u16` 还会把越界尺寸静默截断，使缓存的 grid_size 与 PTY 不一致。
+        let (pty_rows, pty_cols) = validated_grid(rows, cols)?;
+        let mut pty = match PtyPair::spawn(shell, pty_rows, pty_cols, env, cwd) {
             Ok(pty_pair) => {
                 log::info!("Session::spawn: PtyPair::spawn OK");
                 pty_pair
