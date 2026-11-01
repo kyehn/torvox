@@ -312,6 +312,20 @@ Kotlin 侧的 `FONT_SIZE_MIN_SP` 独占（用户界面层的下限，原生不�
 - **WHEN** 设置页显示「字号：94 SP（约 X px）」
 - **THEN** X 等于 94 乘以完整 sp→px 系数，而非仅乘显示密度
 
+#### Scenario: 区间收紧时存量字号就地收敛
+
+- **WHEN** 宽屏上存下的 96sp 在旋转、分屏或系统字体放大后超出新的可选上界
+- **THEN** 调节条显示值、设置页展示的像素值与原生渲染值 MUST 都收敛到新上界，
+      三者一致；MUST NOT 让拇指停在轨末而读数仍打印 96sp，MUST NOT 在首次触摸时
+      才把上界悄悄写回
+
+区间不是常量：它随 `screenWidthDp` 与 sp→px 系数变化，而 Activity 自行处理
+`orientation|screenSize|fontScale`（组合不重建，`rememberSaveable` 里的旧值会跨过
+一次区间收缩）。Slider 对越界值只钳拇指、不钳读数，首次触摸按指针位置换算出端点
+写回——用户只是看了一眼设置，值就被改掉。故存量值 MUST 在**进入调节条时**经同一条
+钳位函数收敛，MUST NOT 依赖控件在触摸时替调用方收敛。收敛只作用于展示与生效值，
+MUST NOT 回写 DataStore：用户回到宽屏时原值仍然有效。
+
 ### Requirement: 上报的单元格尺寸为物理像素
 
 `getFontInfo` 上报的单元格宽高 MUST 是**物理**像素，即单元四边形实际布置所用的尺度

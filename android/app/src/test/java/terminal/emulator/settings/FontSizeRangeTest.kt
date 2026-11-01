@@ -141,6 +141,33 @@ class FontSizeRangeTest {
     }
 
     @Test
+    fun clampPullsStoredValuesIntoTheCurrentRange() {
+        // 区间不是常量：它随屏宽与系统字体缩放变化。宽屏（1200dp）上的 96sp 上界恰好
+        // 也是 96sp，旋转到 360dp 竖屏后只剩 30sp。存量值落在区间外时，Slider 只把拇指
+        // 钳到轨末、读数照旧打印 96，而原生按上界渲染——三者互相矛盾，首次触摸还会把
+        // 上界写回。收敛是让「展示的字号」与「实际渲染的字号」同源的唯一办法。
+        assertEquals(
+            "1200dp 上 96sp 本就在区间内，不得被改动",
+            96f,
+            SettingsRepository.clampFontSize(96f, 2.625f, 1200f),
+            0f,
+        )
+        assertEquals(
+            "360dp 上界 30sp，96sp 必须收敛到 30sp",
+            30f,
+            SettingsRepository.clampFontSize(96f, 2.625f, 360f),
+            0f,
+        )
+        // 区间内原样返回：钳位不得把用户选定的合法值挪到别的档位。
+        assertEquals(20f, SettingsRepository.clampFontSize(20f, 2.625f, 360f), 0f)
+        // 低于下限（旧版本或外部导入可能写 0）抬到下限，而不是让 Slider 画在负区间。
+        assertEquals(4f, SettingsRepository.clampFontSize(0f, 2.625f, 360f), 0f)
+        // 幂等：设置页每次重组都会再收敛一次，反复收敛不得继续漂移。
+        val clamped = SettingsRepository.clampFontSize(96f, 2.625f, 360f)
+        assertEquals(clamped, SettingsRepository.clampFontSize(clamped, 2.625f, 360f), 0f)
+    }
+
+    @Test
     fun adaptiveDefaultStaysInsideSelectableRange() {
         // 自适应默认值只取决于屏宽，与 sp→px 系数无关；故对整个系数域取最紧上界
         // 一次判定，不逐个系数重复同一条断言。`fontSizeMaxSp` 随系数单调不增，

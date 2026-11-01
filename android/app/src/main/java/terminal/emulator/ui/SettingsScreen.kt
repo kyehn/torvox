@@ -284,8 +284,16 @@ private fun AppearanceSectionContent(
     val fontSizeUpperBound = SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp)
     var sliderFontSize by rememberSaveable {
         mutableFloatStateOf(
-            fontSize.coerceIn(SettingsRepository.FONT_SIZE_MIN_SP, fontSizeUpperBound),
+            SettingsRepository.clampFontSize(fontSize, spToPxScale, screenWidthDp),
         )
+    }
+    // 区间随屏宽、系统字体缩放变化，而 Activity 自行处理 orientation/screenSize/fontScale
+    // （见清单），组合不会重建，`rememberSaveable` 里的旧值于是可能落在新上界之外。
+    // 不就地收敛时：拇指被 Slider 钳在轨末、读数仍打印旧值、实际渲染由原生钳到上界，
+    // 三者互不相同，而首次触摸会把上界写回。区间一收紧就同步收敛。
+    LaunchedEffect(fontSizeUpperBound) {
+        sliderFontSize =
+            SettingsRepository.clampFontSize(sliderFontSize, spToPxScale, screenWidthDp)
     }
     Column {
         FontSizeSlider(
@@ -316,7 +324,9 @@ private fun AppearanceSectionContent(
         FontInfoSectionIfAvailable(
             fontInfo = fontInfo,
             defaultFontName = defaultFontName,
-            fontSize = fontSize,
+            // 原生尚未上报度量时用它占位：必须与调节条同值，否则占位行会报出
+            // 一个实际并未渲染的字号（越界存量值的情形）。
+            fontSize = sliderFontSize,
             spToPxScale = spToPxScale,
             textColor = textColor,
             secondaryText = secondaryText,

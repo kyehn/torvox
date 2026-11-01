@@ -178,6 +178,19 @@ constructor(private val provider: SettingsDataStoreProvider) {
          */
         fun fontSizeRangeSteps(spToPxScale: Float, screenWidthDp: Float): Int =
             ((fontSizeMaxSp(spToPxScale, screenWidthDp) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
+
+        /**
+         * 把任意字号收敛到**本机当前**的可选区间：调节条、捏合预览、落盘值与设置页展示
+         * 都经这一处，四者永远对同一区间给出一致结果。
+         *
+         * 必须存在是因为区间本身随设备变化：宽屏存下的 96sp 旋转到 360dp 竖屏后上界只剩
+         * 30sp，分屏、改系统字体缩放同理。Slider 对越界值只钳拇指不钳读数（拇指停在轨末，
+         * 读数仍打印原值），而首次触摸会按指针位置换算出区间端点写回——用户只是看了一眼
+         * 设置，值就被悄悄改掉。收敛后的值才是实际渲染的值（原生同样按此区间钳位），
+         * 故展示与生效从此同源。
+         */
+        fun clampFontSize(sp: Float, spToPxScale: Float, screenWidthDp: Float): Float =
+            sp.coerceIn(FONT_SIZE_MIN_SP, fontSizeMaxSp(spToPxScale, screenWidthDp))
     }
 
     /**
