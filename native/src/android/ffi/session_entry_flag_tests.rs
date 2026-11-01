@@ -51,10 +51,7 @@ fn input_path_state_queries_do_not_take_the_session_lock() {
         Session::with_pty_for_test(Box::new(pty) as Box<dyn crate::terminal::pty::Pty>, 24, 80)
             .expect("session");
     let session = Arc::new(Mutex::new(session));
-    let entry = SessionEntry::new(
-        Arc::clone(&session),
-        Arc::new(RenderWake::default()),
-    );
+    let entry = SessionEntry::new(Arc::clone(&session), Arc::new(RenderWake::default()));
 
     // 登记进注册表：读取路径必须能真的找到这条会话才谈得上「读它的标志」。
     const SESSION_ID: u64 = 0xF11E_5EED_BEEF;
