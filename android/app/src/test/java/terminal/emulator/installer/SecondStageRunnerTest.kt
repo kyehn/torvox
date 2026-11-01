@@ -1,6 +1,8 @@
 package terminal.emulator.installer
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -137,6 +139,27 @@ class SecondStageRunnerTest {
         reader.close()
         daemon.join(5_000)
         assertEquals(null, uncaught)
+    }
+
+    /**
+     * postinst 目录列举失败必须报失败，不能当作「没有脚本」而静默成功。
+     *
+     * 静默成功的后果：dpkg 停在半配置状态，而安装一路报成功，用户拿到一份装了一半
+     * 的引导，且此后没有任何线索指向真正的失败原因。
+     */
+    @Test
+    fun postinst_directory_listing_failure_is_reported() = runBlocking {
+        val prefix = tempPrefix()
+        File(prefix, "var/lib/dpkg/info").mkdirs()
+        val runner = SecondStageRunner(prefix, File("/tmp/home"), listDirectoryEntries = { null })
+
+        val result = runner.run()
+
+        assertFalse("列举失败必须报失败：${result.errors}", result.success)
+        assertTrue(
+            "错误信息须说明列举失败：${result.errors}",
+            result.errors.single().contains("Cannot list postinst scripts"),
+        )
     }
 
     @Test

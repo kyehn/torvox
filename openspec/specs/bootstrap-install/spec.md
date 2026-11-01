@@ -62,6 +62,11 @@ stderr 与 stdout MUST 由守护线程排空到 EOF（提前停止会让子进�
 - **WHEN** `var/lib/dpkg/info` 不存在
 - **THEN** postinst 阶段成功
 
+#### Scenario: 目录列举失败视为失败
+
+- **WHEN** `var/lib/dpkg/info` 存在但内容列举失败
+- **THEN** postinst 阶段失败并上报，MUST NOT 按「没有脚本」静默成功
+
 #### Scenario: 失败摘录上报
 
 - **WHEN** postinst 失败

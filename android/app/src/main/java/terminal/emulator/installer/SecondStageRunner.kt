@@ -51,6 +51,13 @@ class SecondStageRunner(
     private val prefixDir: File,
     private val homeDir: File,
     private val onProgress: BootstrapProgressCallback? = null,
+    /**
+     * 列出目录内容；返回 null 表示「列举不出来」（I/O 失败），不是「目录为空」。
+     *
+     * 注入点只为在 JVM 单测里构造该前提：靠权限位制造不可列举的目录在 root 或
+     * 特殊挂载下不成立，用例会被静默跳过——等于没测。
+     */
+    private val listDirectoryEntries: (File) -> Array<File>? = { it.listFiles() },
 ) {
     companion object {
         /** 进程已退出后等待 stdout 排空线程收尾的上限；超时即放弃剩余输出（daemon 线程不会泄漏）。 */
@@ -122,8 +129,12 @@ class SecondStageRunner(
         // 且依赖彼此的包（dpkg 自身即依赖某些包先就位）可能随机失败。
         // dpkg 记录的文件名本身就是版本化的字典序（如 `libfoo_1.2.postinst`），
         // 故字典序即 dpkg 的惯例序。
-        val scripts =
-            postinstDir.listFiles()?.filter { it.name.endsWith(".postinst") }?.sortedBy { it.name } ?: emptyList()
+        // `listFiles()` 返回 null 是 I/O 失败而非「没有脚本」：按空清单收尾等于宣告
+        // postinst 全部成功，而 dpkg 仍处于半配置状态——安装一路报成功。
+        val entries =
+            listDirectoryEntries(postinstDir)
+                ?: return Result(listOf("Cannot list postinst scripts in ${postinstDir.name}"))
+        val scripts = entries.filter { it.name.endsWith(".postinst") }.sortedBy { it.name }
         val totalScripts = scripts.size
         val errors = mutableListOf<String>()
         var scriptsCompleted = 0
