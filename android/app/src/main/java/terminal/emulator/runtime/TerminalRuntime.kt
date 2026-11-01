@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.limitedParallelism
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -3793,6 +3794,15 @@ constructor(
 
     @Volatile private var lastWindowFocus: Boolean = false
 
+    /**
+     * 焦点事件的串行派发通道。[TerminalDispatchers.inputOutput] 是多线程池：直接派发时
+     * 相邻两次窗口焦点变化（获焦/失焦）会并发进入原生，DECSET 1004 的 focus-in/focus-out
+     * 写入 PTY 的顺序随线程调度漂移，可与用户操作颠倒——远端 TUI 的焦点状态就此与真实
+     * 窗口相反，且没有自愈触发点（最后一次事件落地即尘埃落定）。单并发调度器按派发
+     * 顺序串行执行，使写入顺序与派发顺序一致。
+     */
+    private val focusDispatcher = TerminalDispatchers.inputOutput.limitedParallelism(1)
+
     fun focusChange(focused: Boolean) {
         lastWindowFocus = focused
         // 焦点上报（DECSET 1004）按窗口生效：只有活动会话会收到。
@@ -3803,9 +3813,9 @@ constructor(
         // 上限为 VT 空闲 tick 的四倍，见原生 `FOCUS_MODE_QUERY_TIMEOUT_MS`）
         // 再写 PTY，两者都在会话锁内。此前在 UI 线程同步调用，VT 线程一旦卡住
         // （大输出、GC）每次窗口焦点变化都会把主线程堵满 50ms——正是掉帧的形状。
-        // 焦点顺序由单线程执行器保持，与键盘事件进入 PTY 的顺序一致（xterm 语义：
-        // 焦点上报与按键的先后须与用户操作顺序相符）。
-        scope.launch(TerminalDispatchers.inputOutput) {
+        // 派发经 [focusDispatcher] 串行化，焦点上报彼此按用户操作顺序落地
+        // （xterm 语义）。
+        scope.launch(focusDispatcher) {
             bridge.focusEvent(focused)
         }
     }
