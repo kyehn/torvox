@@ -167,6 +167,12 @@ class MouseReportingInstrumentedTest : ComposeTerminalLogcatTest() {
         val tapY = (TAP_ROW + 0.5f) * cellHeight
         val expectPress = sgrSequence(0, TAP_COL, TAP_ROW, release = false)
         val expectRelease = sgrSequence(0, TAP_COL, TAP_ROW, release = true)
+        // 测试前确保输入法已收起：启动期自动弹出的键盘与本用例的「不得拉起」
+        // 判据无关，先收起再测，避免把启动态误判为轻点拉起。
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            activity.window.decorView.windowInsetsController?.hide(android.view.WindowInsets.Type.ime())
+        }
+        Thread.sleep(500)
         // 抽屉关闭后的 350ms 防护窗会按设计吞掉窗内的首次轻点（防关闭动画穿透误触），
         // 用户会再点一次；用例同形重试，判据仍是「点击最终到达应用」。
         var clicked = false
