@@ -8,7 +8,7 @@
 ## 依赖
 
 - 依赖、工具尽量使用最新版本，尽量不固定小版本，版本声明尽量不写精确版本（尽量不用 `=x.y.z`）
-- 多使用库，尽量避免自定义实现。
+- 多使用库，尽量使用外部依赖，尽量保持代码精简，尽量避免自定义实现，绝不重复造轮子，如读取 `toml` 以及其他格式文件必须使用库，绝对不能自定义实现。
 - 图标（非软件桌面图标）使用系统提供或图标包，不做 `vendor`，不从外部单独下载。
 
 ## 习惯
@@ -43,12 +43,12 @@
 
 - 渲染在 Rust 侧通过 `wgpu` 完成；Kotlin 通过直接 JNI 调用渲染与查询接口，只接收轻量事件与查询结果，不持有逐帧网格快照。
 
-- 终端状态、PTY、VT 线程与 GPU 绘制归属 Rust；Kotlin 持有会话表（id、标题、界面状态）、设置与渲染线程调度，按 `sessionId` 寻址。
+- 终端状态、PTY、VT 线程与 GPU 绘制归属 Rust；Kotlin 持有会话表（id、标题、界面状态）、设置与渲染线程调度。
 
-- 每个会话的 PTY 读取线程把输出送入有界通道，Ghostty VT 线程解析并维护终端状态；Kotlin 为当前活动会话运行一个渲染线程，经 JNI 调用 Rust 将当前帧绘制到 `ANativeWindow`。切换会话时停止旧渲染线程并启动新线程。
+- 每个会话的 PTY 读取线程把输出送入有界通道，Ghostty VT 线程解析并维护终端状态；Kotlin 为当前活动会话运行一个渲染线程，经 JNI 调用 Rust 将当前帧绘制。切换会话时停止旧渲染线程并启动新线程。
 
 - Android Activity 生命周期要求应用正确处理以下场景：
-  - Activity 重建（屏幕旋转、配置变更）：Surface 被销毁并重建，旧 `ANativeWindow` 指针失效。
+  - Activity 重建（屏幕旋转、配置变更）
   - 进程被回收：系统可能终止应用进程，全部 Rust 状态与 PTY 进程随之消失。
   - 后台切回前台：后台时暂停渲染，切回前台恢复渲染。
 
@@ -68,7 +68,7 @@
 
 ## 设置
 
-- **字体大小**：提供调节条，支持双指捏合缩放。默认字号按屏宽自适应，调节条的步长和范围必须合理并且是实际可设置数值，即渲染情况应该和设置 UI 一致。调节条与捏合缩放共用同一上界。
+- **字体大小**：提供调节条，支持双指捏合缩放。默认字号按屏宽自适应，调节条的步长和范围必须合理并且是实际可设置数值，即渲染情况应该和设置 UI 一致。调节条与捏合缩放的精度和范围应当一致。
 - **字体选择**：显示当前设置的主字体（默认使用 `/system/etc/fonts.xml` 的 monospace 字体），支持从字体列表中选择字体。
   - 完整字体列表只在实际显示字体列表时获取，字体列表需要被缓存直到应用关闭
   - 系统不存在 `fonts.xml` 或其内容无法解析，软件输出日志并崩溃退出，不做复杂处理。
@@ -91,11 +91,12 @@
   - 支持如 `/data/data/com.termux/files/usr/bin/sh` `/system/bin/sh /data/data/com.termux/files/usr/bin/login.sh` `/data/data/com.termux/files/usr/bin/bash -l` 等写法。
   - 不支持相对路径如 `login.sh`（须为绝对路径），不支持无解释器直接执行脚本路径如 `/data/data/com.termux/files/usr/bin/login.sh`（须经 `/system/bin/sh` 间接执行）
   - 启动入口应该是二进制文件且是绝对路径。
-  - 启动目录默认 `/data/data/com.termux/files/home`；可通过 `termux.properties` 的 `default-working-directory` 覆盖，非法值回退默认；不提供 GUI 设置。
+  - 启动目录为 `/data/data/com.termux/files/home`
 - **Bootstrap**：支持 URL 与本地文件安装。
   - 提供 Termux 预设选项，不提供旧版本如 `apt-android-5 2022.04.28-r6`，从 `termux-app/app/build.gradle` 提取逻辑。
-  - 原子化替换 `/data/data/com.termux/files/usr/` 目录，安装前清空中间目录 `/data/data/com.termux/files/usr-staging`，清不净即中止安装（不把新引导写进残留的旧树），原 `usr` 重命名为 `usr.xxxxx`（随机后缀），安装完成后旧目录由用户手动删除，不自动删除。
-  - 不记录 Bootstrap 状态，不得生成安装标记。
+  - 原子化替换 `/data/data/com.termux/files/usr/` 目录，下载/安装前目录 `/data/data/com.termux/files/usr-staging` 如果存在则拒绝执行，原 `usr` 重命名为 `usr.xxxxx`（随机后缀），安装完成后旧目录由用户手动删除，不自动删除。
+  - 不进行任何 SHA-256 校验或其他类似检查，所有文件中亦不得保存此类数据
+  - 不记录 Bootstrap 状态，不得生成安装标记，不创建 profileInstalled 这类文件。
   - 不得特殊化设置权限，按照 Termux 同款流程设置，不额外设置。
   - 禁止对其他 bootstrap 特殊处理，`postinstall` 只在存在时运行，不做无意义检查/校验，出现问题正常报错。
 - **清除应用数据按钮**，清除设置数据/缓存数据等。不得影响 `/data/data/com.termux/files` 目录
@@ -105,10 +106,10 @@
 ### 终端页面
 
 - 脏跟踪，跳过干净快照，跳过逐行复制，减少突发输出期间的工作量。
-- 对于 `nix --help` 这类命令，修饰键栏的向右按键（`->`）和向左按键（`<-`）以及向上和向下按键应该正确发送信号
+- 对于 `nix --help` 这类输出分页显示的命令，修饰键栏的向右按键（`->`）和向左按键（`<-`）以及向上和向下按键应该正确发送信号
 - 部分接口支持批量查询以保证性能。
 - 只渲染当前使用的会话，后台会话/切换应用/进入设置时暂停渲染。
-- 输入光标默认方块样式（高度、宽度等均参考 Termux），可通过 `termux.properties` 的 `terminal-cursor-style` 设为 `block`/`bar`/`underline`，不闪烁；另接受 `beam` 作为 `bar` 的别名（同为竖线，Termux 上游无此取值）。
+- 输入光标方块样式（高度、宽度、颜色等均参考 Termux）
 - 切换应用返回或从应用设置返回终端应该正常渲染且无进入卡顿、黑屏、闪烁、跳跃。输入弹出/隐藏时无卡顿、闪烁、跳跃、压扁、拉伸、溢出。
 - 只加载实际需要的字体（如 `DroidSansMono` `NotoColorEmoji` `Noto Sans CJK SC`），加载字体族如 `Noto Sans CJK SC` 而不是仅 `Noto Sans CJK SC Regular`，不加载未使用字体。支持非等宽字体作为主字体。
 - 支持 CJK 字体，比如退格一次一个汉字而不是两次一个汉字。CJK 字体渲染速度应该和英文字体基本一致，退格 CJK 字符的速度应该和英文基本一致，不卡顿。
@@ -124,6 +125,8 @@
   - 全选后复制功能必须能够正常工作，全选只涉及有内容区域。
   - 弹出菜单尽量不遮挡被选择文本，保持合理位置，包括变更选择范围后，按钮一次点击即生效无需重复点击，参考 Termux 实现
   - 链接识别仅查询 `libghostty-vt` 的 OSC 8 超链接，不扫描纯文本裸 URL，不检查链接的实际可用性，点击后交系统 API 跳转。
+  - 控制柄必须位于选区两端
+  - 一侧选区移动不会干扰另一侧
 - 支持全功能输入法，不限制输入法特性
 - 支持单码位整形与复杂文种叠加、kitty 图像协议等特性（参考 ghostty-android-terminal 实现），不做跨单元连字。
 - 支持触摸操作。
@@ -141,33 +144,34 @@
   - `TERM` 为 `xterm-256color`。
   - `TERMUX_VERSION` 为 `0.119.0-beta.3`。
   - `PATH` 为 原 `PATH` 附加 `/data/data/com.termux/files/usr/bin`，仅目录存在时附加设置。failsafe 时，保留原 `PATH`，不附加。
-  - `ENV` 为 `/data/data/com.termux/.mkshrc`，文件不存在时创建，bash 启动时注入 `PROMPT_COMMAND` 以上报会话标题。
+  - `ENV` 为 `/data/data/com.termux/.mkshrc`，文件不存在时创建，注入 `PROMPT_COMMAND` 以上报会话标题。
 - 不得设置 `LD_LIBRARY_PATH` `PWD` `LD_PRELOAD` 等环境变量
 - 仅宿主存在时透传环境变量，不硬编码：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
 - 设置中 Shell 启动入口为空时依次寻找 `/data/data/com.termux/files/usr/bin/bash` 和 `/data/data/com.termux/files/usr/bin/login` 以及 `/system/bin/sh`，文件存在即启动，不检查文件权限，失败输出错误，无其他回退。
 - shell 崩溃（非主动正常退出）保留现场不关闭会话（参考 Termux，如执行 `exit -1` 后输出 `[Process completed (code 255) - press Enter]`，不主动关闭会话），正常退出时（如 `exit` 命令或用户点击关闭按钮）关闭会话。
-- 回滚行数默认 2000，可通过 `termux.properties` 的 `terminal-transcript-rows` 设置（100–50000），非法值回退 2000。
+- 回滚行数和 termux-app 保持一致。
 - 较快的启动速度，能够在启动动画结束后直接显示 Shell 和主题背景，而不是从黑屏花费较长时间过渡。
 - 没有任何内建命令，不内置提供 `termux-setup-storage` `termux-open` 等，也没有替代实现。
 - 忽略 bell character，不做出响应
-- 应用位于后台时能够继续活跃，但不实现 `termux-wake-lock`，不得影响“睡眠”等机制。
+- 启动后自动弹出输入法
+- 应用位于后台时能够继续活跃，参考 termux-app 实现唤醒锁，包括通知栏按钮
 
 ### 修饰键栏
 
 - 不能和系统全面屏手势冲突：底部上滑不触发按键动画或点击；手势被系统取消时不产生按键。
 - CTRL、ALT 等粘滞键点击切换一次性激活，发送带修饰键的按键后消费一次性状态。激活反馈为文字/背景变化与短促缩放，不做双击持久或其他复杂操作。
 - 动画/逻辑与 Termux 基本一致，动画简短、不复杂、不卡顿、快速、不浪费时间。
-- 默认 2 行 7 列；布局由 `extra-keys` 决定（见 `config.md`）。默认布局与 Termux 上游一致：`ESC DRAWER SCROLL HOME ↑ END PGUP` / `TAB CTRL ALT ← ↓ → PGDN`（DRAWER 长按为粘贴）。
+- 布局与 Termux 保持一致
 - 支持左右滑动在按键页与文本输入页之间切换,和 Termux 实现一致。
 - 修饰键栏不被输入法遮挡，在输入法弹出/隐藏时跟随移动。
 - **文本搜索输入框**：当文本搜索时，文本搜索输入框取代修饰键栏位置，显示文本输入框、当前位置/总匹配数、上一个、下一个、关闭等按钮。
-  - 使用 `libghostty-vt` 的 `search::Search` 实现，命中、导航与高亮均以上游为单一来源。
+  - 使用 `libghostty-vt` 提供的功能
   - 超出查询长度直接判为无命中且不截断，命中规模上限走上游，不另设命中表。
   - 搜索存在延迟，避免浪费资源，避免未完成输入时搜索
   - 搜索覆盖回滚区而不只是当前屏幕。
   - 匹配到的单元格反色；当前选中命中特殊高亮并居中显示，其余命中保持反色。
   - 计数在未选中时显示 `共 N 个`，选中后显示 `第 k 个，共 N 个`。
-  - 上一个、下一个滚动到匹配位置，适应输入法弹出时的显示区域
+  - 上一个、下一个滚动到匹配位置，需要考虑输入法弹出时的实际可见区域
 
 ## 侧边面板（合理布局，不可溢出）
 
@@ -184,13 +188,13 @@
 
 ## 应用快捷方式 shortcuts
 
-- 只有“新建会话（Failsafe）”一项，图标和 termux-app 一致，应用已启动和未启动时都能使用，使用 `/system/bin/sh` 作为启动入口
+- 只有“新建会话（Failsafe）”一项，图标和 termux-app 一致，应用已启动和未启动时都能使用新建会话，使用 `/system/bin/sh` 作为启动入口
 
 ## 软件
 
 - 应用启动时检查应用数据兼容性：无法解析或引用不存在的主题/字体时清除该项并回退默认；不得清除 `/data/data/com.termux/files`。
 - 实现文档提供器，向系统文件选择器暴露 `/data/data/com.termux/files/home`，可读可写，可执行文件被修改后不丢失权限。
-- 参考 termux-app 实现前台通知常驻，显示会话数量，提供“退出”按钮，申请通知权限。
+- 参考 termux-app 实现前台通知常驻，显示会话数量，提供“申请唤醒锁”、“退出”按钮，申请通知权限。
 - **不得修改用户文件**：`/data/data/com.termux/files` 由用户管理，应用自身不得修改 `/data/data/com.termux/files/home`，不得创建 `/data/data/com.termux/files/home/.termux/fonts` `/data/data/com.termux/files/home/storage` `/data/data/com.termux/files/home/storage/shared` 等路径，对于 `/data/data/com.termux/files/usr` 只有在 Bootstrap 安装阶段可以作为重命名目标，其他情况不得修改。不自动清理 `/data/data/com.termux/files/usr/tmp` 等目录。
 - 适配 Android 软件启动屏动画
 - 遵循 Material Design 3

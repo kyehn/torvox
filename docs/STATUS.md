@@ -1,14 +1,13 @@
-## 未被解决的问题（禁止修改本文件）
+禁止对本文件进行任何修改
 
-基于 `0fb8b397`
+---
 
-本轮已修复并从上述清单移除：
+## 未被解决的问题
 
-- 上下滑动晃动：回到底部改走 VT 活动区意图（`ViewportTarget::Bottom`），滚动模型、搜索高亮与选区折算改用 VT 视口真值（`viewport_row`），手势开始前对齐滚动基线到真值
-- 使用 kitten icat 显示图像，然后 clear，其他被清除但是图像依旧显示，第二次 clear 图像被清除（kitty 放置生成戳门控）
-- 概率性，较多输出时或 IO 多时终端显示可能死亡（VT 命令批无界→帧与查询被饿死）：命令批处理上限与查询通道优先
-- 全面屏上滑手势触发修饰栏按键动画（按下态因系统认领手势后的取消事件被丢弃而永久
-  卡住；键栏底边改为避开系统手势区，按下反馈复位改为瞬时）
-- prompt 下方多出一行输入提示符、概率性需要手动下滑才能看到 prompt（建会话时用来算
-  初始 winsize 的字体度量不是最终度量，attach 之后多出的一次 resize 令 shell 收到
-  SIGWINCH 并重排已打印的 prompt）
+基于 `6929055fbe4f3cbf37e8b694dcafeb97f27138e8`
+
+- docs/persistence 内容需要重新验证和更新
+- openspec/specs 目录文档需要根据 docs/specification 重写
+- android/benchmark 需要更充分的性能测试并且断言测试结果，使用模拟器检查，优化提高性能
+- termux.properties 的所有相关代码必须根据 docs/specification termux-app 重新检查和修改，并且每个键都需要充分测试
+- 检查 docs/specification 的修改，对照项目进行修改 修复

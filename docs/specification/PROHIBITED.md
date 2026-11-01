@@ -47,6 +47,4 @@
 
 ## 配置文件
 
-- 解析 `termux.properties` 中未在 `config.md` 列出的键，以及 `colors.properties`、`termux.float.properties`。允许读取的键仅按 `config.md` 列出；其他键一律忽略。
-- `extra-keys` 的 `FN` 键与 `SHIFT` 键：本应用只有 CTRL/ALT 两套粘滞修饰，没有 FN 与 Shift 的二次映射，这两类键不渲染。
-- `volume-keys` 的虚拟 FN 映射：音量加键既不拦截也不映射成 FN。
+- 解析 `colors.properties`、`termux.float.properties`
