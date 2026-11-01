@@ -582,6 +582,16 @@ rules:
     message: "Raw `object : AsyncCallback` blocks the callback style. Use coroutines (`suspend` functions) instead."
     severity: ERROR
     languages: [kotlin]
+  - id: no-inline-focus-event
+    patterns:
+      - pattern: $BRIDGE.focusEvent($FOCUSED)
+      - pattern-not-inside: |
+          private fun dispatchFocusEvent(bridge: Bridge, focused: Boolean) {
+            ...
+          }
+    message: "Focus events must go through `dispatchFocusEvent`: an inline `focusEvent` call runs on the caller thread (blocking on a VT mode query plus a PTY write whose hold time is unbounded) and bypasses the serialized focus channel, so focus-in/focus-out can land out of order."
+    severity: ERROR
+    languages: [kotlin]
   - id: no-unmanaged-build-exec
     patterns:
       - pattern-either:

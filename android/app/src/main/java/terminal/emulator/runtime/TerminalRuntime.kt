@@ -3433,8 +3433,11 @@ constructor(
                 // DECSET 1004 焦点上报是按窗口的，新活动会话在后台期间
                 // 从未收到 focus-in。重新发送最后已知的窗口焦点状态，
                 // 使获得焦点的 TUI（vim/fzf）恢复其 FocusGained 行为。
+                // 走 [dispatchFocusEvent] 而非就地调用：就地调用会在本锁内做
+                // VT 模式查询与 PTY 写入（持锁时间无上界），一次慢写就把全部
+                // 会话操作冻住。
                 if (lastWindowFocus) {
-                    target.bridge.focusEvent(true)
+                    dispatchFocusEvent(target.bridge, true)
                 }
             } catch (exception: Exception) {
                 // 目标会话的渲染线程此刻已在运行，故此处不做任何恢复：
@@ -3801,21 +3804,42 @@ constructor(
      */
     private val focusDispatcher = TerminalDispatchers.inputOutput.limitedParallelism(1)
 
+    /**
+     * 把一次焦点上报送进 [focusDispatcher]：窗口焦点变化与切会话补发的 focus-in 共用
+     * 这一条通道，故全部焦点事件都按派发顺序落地（xterm 语义）。
+     *
+     * 不得就地调用 [Bridge.focusEvent]：原生 focus_event 先经 VT 线程做 1004 模式查询
+     * （有界等待，上限为 VT 空闲 tick 的四倍），再写 PTY（排空上限 5s，且每有部分写入
+     * 就重置期限——持锁时间无上界）。就地调用若发生在 [sessionLock] 内，一次慢写就把
+     * 全部会话操作（新建/切换/关闭/退出处理）冻住同样长；即便不在锁内，也会与窗口
+     * 焦点事件并发进入原生，先后顺序随线程调度漂移。
+     */
+    private fun dispatchFocusEvent(bridge: Bridge, focused: Boolean) {
+        scope.launch(focusDispatcher) {
+            try {
+                bridge.focusEvent(focused)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                // 焦点上报丢失会让 vim 一类应用停在错误的焦点模式，必须出声：
+                // 作用域是 SupervisorJob，未捕获异常会直达默认处理器（进程崩溃）。
+                LogUtil.error("Runtime", "focus event dispatch failed (focused=$focused)", exception)
+            }
+        }
+    }
+
     fun focusChange(focused: Boolean) {
         lastWindowFocus = focused
         // 焦点上报（DECSET 1004）按窗口生效：只有活动会话会收到。
         // 向每个会话广播会让单次窗口焦点变化执行 N 次同步 JNI RPC。
         val entry = sessions[activeSessionId] ?: return
-        val bridge = entry.bridge
         // 不在主线程做：原生 focus_event 先经 VT 线程做 1004 模式查询（有界等待，
         // 上限为 VT 空闲 tick 的四倍，见原生 `FOCUS_MODE_QUERY_TIMEOUT_MS`）
         // 再写 PTY，两者都在会话锁内。此前在 UI 线程同步调用，VT 线程一旦卡住
         // （大输出、GC）每次窗口焦点变化都会把主线程堵满 50ms——正是掉帧的形状。
         // 派发经 [focusDispatcher] 串行化，焦点上报彼此按用户操作顺序落地
         // （xterm 语义）。
-        scope.launch(focusDispatcher) {
-            bridge.focusEvent(focused)
-        }
+        dispatchFocusEvent(entry.bridge, focused)
     }
 
     /**
@@ -4247,8 +4271,11 @@ constructor(
         }
         // 接替会话在窗口获得焦点时成为活动会话；
         // 重发 focus-in 使 DECSET 1004 的 TUI 恢复。
+        // 走 [dispatchFocusEvent] 而非就地调用：本函数在 [sessionLock] 内运行，
+        // 就地调用会在锁内做 VT 模式查询与 PTY 写入（持锁时间无上界），
+        // 一次慢写就把全部会话操作（新建/切换/关闭/退出处理）冻住。
         if (lastWindowFocus && !replacement.closing) {
-            bridge.focusEvent(true)
+            dispatchFocusEvent(bridge, true)
         }
         if (replacement.closing) {
             // 并发的 closeSession/closeDeadSession 赢得了接替会话的竞争；
