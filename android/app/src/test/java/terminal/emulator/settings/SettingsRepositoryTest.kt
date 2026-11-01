@@ -220,8 +220,13 @@ class SettingsRepositoryTest {
                 gatedRepository.latestBootstrapUrlEdit(),
             )
             releaseWrite.complete(Unit)
-            Thread.sleep(800)
-            assertEquals("最后一次编辑必须最终落盘", urls.last(), gatedRepository.bootstrapUrl.first())
+            // 等到流真的发布该值，而不是睡一个「通常够用」的固定时长：
+            // 固定睡眠在并行跑测试/CI 负载高时必然偶发失败。
+            assertEquals(
+                "最后一次编辑必须最终落盘",
+                urls.last(),
+                withTimeout(5_000) { gatedRepository.bootstrapUrl.first { it == urls.last() } },
+            )
         }
     }
 
@@ -237,10 +242,12 @@ class SettingsRepositoryTest {
             }
         val gated = mockk<DataStore<Preferences>>()
         every { gated.data } returns durable.data
+        val firstWriteAttempted = CompletableDeferred<Unit>()
         var failNextWrite = true
         coEvery { gated.updateData(any()) } coAnswers {
             if (failNextWrite) {
                 failNextWrite = false
+                firstWriteAttempted.complete(Unit)
                 throw java.io.IOException("disk full")
             }
             durable.updateData(firstArg())
@@ -254,18 +261,19 @@ class SettingsRepositoryTest {
 
         runBlocking {
             gatedRepository.recordBootstrapUrlEdit(firstUrl)
-            Thread.sleep(800)
+            // 等「第一次写入确实尝试过」这一事实，而不是睡一个期望够长的固定时长：
+            // 失败发生在 updateData 内，尝试返回后持久层必然仍是空值。
+            withTimeout(5_000) { firstWriteAttempted.await() }
             assertEquals(
                 "失败的写入不得留下半截值",
                 "",
                 gatedRepository.bootstrapUrl.first(),
             )
             gatedRepository.recordBootstrapUrlEdit(secondUrl)
-            Thread.sleep(800)
             assertEquals(
                 "首次写入失败后收集器仍须存活",
                 secondUrl,
-                gatedRepository.bootstrapUrl.first(),
+                withTimeout(5_000) { gatedRepository.bootstrapUrl.first { it == secondUrl } },
             )
         }
     }
@@ -290,8 +298,10 @@ class SettingsRepositoryTest {
             repository.rearmBootstrapUrlEdits()
             repository.recordBootstrapUrlEdit(rearmedUrl)
             assertEquals(rearmedUrl, repository.latestBootstrapUrlEdit())
-            Thread.sleep(700)
-            assertEquals(rearmedUrl, repository.bootstrapUrl.first())
+            assertEquals(
+                rearmedUrl,
+                withTimeout(5_000) { repository.bootstrapUrl.first { it == rearmedUrl } },
+            )
         }
     }
 }
