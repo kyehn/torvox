@@ -253,7 +253,10 @@ fn viewport_row(terminal: &Terminal) -> u32 {
     terminal.scrollbar().map_or_else(
         |error| {
             log::warn!("ghostty_terminal: scrollbar query failed: {error}");
-            0
+            // 查询失败时退回「贴底」而非行号 0：0 是回滚区顶端，会让画面整幅
+            // 跳到最老的历史再等下一帧跳回，闪烁且误导。回滚长度查询本身失败时
+            // 它按 0 处理，两者仍然落在合法区间 `0..=scrollback_len` 内。
+            scrollback_len(terminal)
         },
         |bar| bar.offset.min(u64::from(u32::MAX)) as u32,
     )
