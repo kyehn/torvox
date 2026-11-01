@@ -32,6 +32,15 @@ class FastDeathRecoveryTest {
     }
 
     @Test
+    fun renderThreadDeath_requires_a_live_thread_and_no_exit_flag() {
+        assertFalse("alive thread that never exited is healthy", isRenderThreadDead(false, threadAlive = true))
+        assertTrue("thread that exited its loop is dead", isRenderThreadDead(true, threadAlive = true))
+        assertTrue("terminated thread is dead", isRenderThreadDead(false, threadAlive = false))
+        assertFalse("reference not written yet is not dead", isRenderThreadDead(false, threadAlive = null))
+        assertTrue("exited flag wins even without a reference", isRenderThreadDead(true, threadAlive = null))
+    }
+
+    @Test
     fun initialRenderRetry_retries_until_success_or_budget() {
         assertTrue(
             "failed result under budget retries",

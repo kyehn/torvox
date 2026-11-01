@@ -1,14 +1,20 @@
 package terminal.emulator.runtime
 
 import android.content.Context
+import android.content.res.Configuration
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
+import android.os.SystemClock
+import android.view.Choreographer
 import android.view.Surface
 import androidx.annotation.MainThread
+import androidx.compose.runtime.IntState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.net.toUri
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -31,22 +37,42 @@ import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.Shell
 import terminal.emulator.bridge.TerminalConfig
+import terminal.emulator.installer.BootstrapDownloader
+import terminal.emulator.installer.BootstrapInstaller
+import terminal.emulator.installer.BootstrapOrchestrator
+import terminal.emulator.installer.SecondStageRunner
+import terminal.emulator.installer.bootstrapDirectories
 import terminal.emulator.monitor.FrameMarks
 import terminal.emulator.monitor.RenderWatchDog
+import terminal.emulator.resolveEffectiveFontFamily
+import terminal.emulator.service.TerminalForegroundService
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.settings.TerminalCursorStyle
 import terminal.emulator.settings.TermuxPropertiesRepository
+import terminal.emulator.termuxFontDirs
 import terminal.emulator.ui.RenderPauseLedger
 import terminal.emulator.ui.SurfaceAttachGate
+import terminal.emulator.ui.SurfaceOwnership
+import terminal.emulator.ui.buttonHeightDp
+import terminal.emulator.ui.extraKeyRowCount
 import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
+import java.io.File
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.round
 
 data class RuntimeState(
     val isRunning: Boolean = false,
@@ -216,9 +242,9 @@ internal data class SessionEntry(
     @Volatile var running: Boolean,
     @Volatile var renderThreadExited: Boolean = false,
     @Volatile var restartAttempts: Int = 0,
-    // 初始值同 TerminalRuntime.INITIAL_RESTART_DELAY_MS（100L）；decayRestartCounts/confirmRestartGrace
-    // 会在健康期后重置为该常量，故新会话须从相同延迟起步。
-    @Volatile var nextRestartDelayMs: Long = 100L,
+    // 与 decayRestartCounts/confirmRestartGrace 的重置值同源（INITIAL_RESTART_DELAY_MS），
+    // 故新会话从与「健康期后」完全相同的延迟起步。
+    @Volatile var nextRestartDelayMs: Long = INITIAL_RESTART_DELAY_MS,
     // 已调度死亡渲染线程的重启且仍在等待退避延迟。防止渲染监视器在退避延迟（最长 1000ms）
     // 未到期期间每个 500ms 节拍重复派发同一死亡条目——否则 restartAttempts 被重复计数而提前关闭会话。
     @Volatile var restartScheduled: Boolean = false,
@@ -270,7 +296,7 @@ internal data class SessionEntry(
     // 并可能被该 set(false) 一并清除，代价是一个空闲超时（最长 ~500ms）——绝不会丢帧
     // （下次信号或周期帧节拍会重渲染）。信号合并天然允许此情形，逐信号队列在此属过度设计。
 
-    val renderSignaled = java.util.concurrent.atomic.AtomicBoolean(false)
+    val renderSignaled = AtomicBoolean(false)
 
     @Volatile var forceRenderRequested: Boolean = false
 
@@ -406,10 +432,10 @@ constructor(
     @Volatile private var pendingSurface: PendingSurface? = null
 
     /** Surface 归属：判定 `surfaceDestroyed` 是否来自当前持有视图。 */
-    private val surfaceOwnership = terminal.emulator.ui.SurfaceOwnership()
+    private val surfaceOwnership = SurfaceOwnership()
 
     /** 一次移交的 Surface 与其尺寸；不可变，读一次即自洽。 */
-    private class PendingSurface(val surface: android.view.Surface, val width: Int, val height: Int)
+    private class PendingSurface(val surface: Surface, val width: Int, val height: Int)
 
     /** 渲染线程生命周期监管。 */
     val renderSupervisor = RenderSupervisor()
@@ -418,7 +444,7 @@ constructor(
 
     private val eventDispatcher = EventDispatcher()
 
-    private val scope = CoroutineScope(SupervisorJob() + terminal.emulator.util.TerminalDispatchers.inputOutput)
+    private val scope = CoroutineScope(SupervisorJob() + TerminalDispatchers.inputOutput)
 
     private val _state = MutableStateFlow(RuntimeState())
     val state: StateFlow<RuntimeState> = _state.asStateFlow()
@@ -468,8 +494,7 @@ constructor(
     val startupMetrics: StateFlow<StartupMetrics> = startupMetricsFlow.asStateFlow()
 
     /** 进程启动至今的毫秒数（uptime 时基，与 `Process.getStartUptimeMillis()` 同源）。 */
-    private fun elapsedSinceProcessStartMs(): Long =
-        android.os.SystemClock.uptimeMillis() - android.os.Process.getStartUptimeMillis()
+    private fun elapsedSinceProcessStartMs(): Long = SystemClock.uptimeMillis() - Process.getStartUptimeMillis()
 
     /** 渲染线程写；只在值真正变化时发布。 */
     private fun publishStartupMetrics(startupToFirstFrameMs: Long? = null, startupToFirstOutputMs: Long? = null) {
@@ -576,18 +601,18 @@ constructor(
      * 注意消费侧必须真的被重算：Compose 仪器化用例里组合只在 `waitForIdle`/`advanceTimeBy`
      * 期间前进，写入方（如本类）无法替测试推进时钟。
      */
-    private val surfaceRecreateSignalState = androidx.compose.runtime.mutableIntStateOf(0)
-    val surfaceRecreateSignal: androidx.compose.runtime.IntState get() = surfaceRecreateSignalState
+    private val surfaceRecreateSignalState = mutableIntStateOf(0)
+    val surfaceRecreateSignal: IntState get() = surfaceRecreateSignalState
 
     private val sessions = ConcurrentHashMap<Long, SessionEntry>()
 
     // ── vsync 帧回调链 ──
     // UI 工作投递到主 Looper（Choreographer.getInstance() 需要 Looper，
     // 而 TerminalRuntime 本身可能由 DI 在任意线程构建）。
-    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     /** 幂等保护：每进程仅一条自调度回调链（CAS 保护；注册失败时重置以允许重试）。 */
-    private val vsyncChainStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val vsyncChainStarted = AtomicBoolean(false)
 
     /**
      * 唯一的自调度 Choreographer 帧回调：每个显示帧即一次 vsync 信号。
@@ -598,7 +623,7 @@ constructor(
      * （search_highlights / selection / pending_flash_phase）依赖逐帧消费，链断会使其静默冻结。
      */
     private val vsyncFrameCallback =
-        object : android.view.Choreographer.FrameCallback {
+        object : Choreographer.FrameCallback {
             override fun doFrame(frameTimeNanos: Long) {
                 // 无锁读取：sessions 是 ConcurrentHashMap，activeSessionId 是 @Volatile。
                 val entry = sessions[activeSessionId]
@@ -617,7 +642,7 @@ constructor(
                     entry.pokeVsync()
                 }
                 // 自调度：无论本帧是否产出绘制，都以显示刷新率保持链存活。
-                android.view.Choreographer.getInstance().postFrameCallback(this)
+                Choreographer.getInstance().postFrameCallback(this)
             }
         }
 
@@ -626,7 +651,7 @@ constructor(
         if (!vsyncChainStarted.compareAndSet(false, true)) return
         mainHandler.post {
             try {
-                android.view.Choreographer.getInstance().postFrameCallback(vsyncFrameCallback)
+                Choreographer.getInstance().postFrameCallback(vsyncFrameCallback)
                 LogUtil.debug("Runtime", "vsync frame callback chain started")
             } catch (exception: Exception) {
                 // 允许后续会话启动时重试注册。
@@ -656,10 +681,10 @@ constructor(
             val properties = termuxProperties.configuration.value.properties
             // 零行（`extra-keys = []`）返回 0：此时键栏整条不画，网格也不该为它留高度，
             // 否则终端底部会挂着一条点不出东西、也看不见内容的空白带。
-            val rows = terminal.emulator.ui.extraKeyRowCount(properties.extraKeys)
+            val rows = extraKeyRowCount(properties.extraKeys)
             if (rows == 0) return 0
-            val buttonHeightDp = terminal.emulator.ui.buttonHeightDp(properties.terminalToolbarHeightScale)
-            return (rows * buttonHeightDp * context.resources.displayMetrics.density + 0.5f).toInt()
+            val rowHeightDp = buttonHeightDp(properties.terminalToolbarHeightScale)
+            return (rows * rowHeightDp * context.resources.displayMetrics.density + 0.5f).toInt()
         }
 
     /**
@@ -683,7 +708,7 @@ constructor(
     // 而非原始设置值出发（后者在字号从未显式设置时可能不同）。
     @Volatile internal var appliedFontSizeTenths: Int = 0
 
-    private val renderGeneration = java.util.concurrent.atomic.AtomicInteger(0)
+    private val renderGeneration = AtomicInteger(0)
 
     /**
      * 活动会话 id。**唯一写入口**：赋值时同步对齐运行期镜像
@@ -710,6 +735,17 @@ constructor(
 
     @Volatile private var starting = false
     private val sessionLock = Any()
+
+    /**
+     * 结束「启动中」标记的唯一写入口（置真的唯一入口是 [start] 的锁内）。
+     *
+     * 该标记是 [start] 与 [createSessionInner] 之间的互斥闸门，写与读 MUST 同锁：
+     * 散落在各提前返回分支上的裸赋值会让「start 已放弃」对 createSession 的可见时机
+     * 取决于读写交错，也让「早退路径漏写」在结构上无处可查。
+     */
+    private fun endStarting() {
+        synchronized(sessionLock) { starting = false }
+    }
 
     /**
      * 应急会话请求（兼容 termux 的应用快捷方式 extra `com.termux.app.failsafe_session`）：
@@ -746,8 +782,8 @@ constructor(
      * 以保持 surface-destroy → surface-available 的顺序；分处不同线程可能让新 Surface 没有渲染线程
      * （异步暂停停掉了刚启动的恢复）。
      */
-    private val surfaceTransitionExecutor: java.util.concurrent.ExecutorService =
-        java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+    private val surfaceTransitionExecutor: ExecutorService =
+        Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "SurfaceTransition").apply { isDaemon = true }
         }
 
@@ -773,21 +809,29 @@ constructor(
      * 剪贴板只读一次：同一帧内 N 个积压请求各做一次 binder 读取，
      * 洪泛时一帧内上千次往返。读取结果对本帧所有请求相同
      * （单线程同步派发，中间无交错），逐个回复时复用即可。
+     *
+     * 每个回复独立保护：一次 JNI 失败只损失那一个应答，既不会中断其余请求的回复，
+     * 也不会把异常抛给调用方——渲染循环在退出分支里先调用本函数再做会话清理，
+     * 抛出去就会跳过 `handleSessionExit`，把已从原生队列消费、不再重发的退出事件
+     * 连同整个原生会话与子进程一起泄漏。
      */
-    private fun dispatchClipboardRequests(requests: List<terminal.emulator.bridge.Bridge.ClipboardRequest>) {
+    private fun dispatchClipboardRequests(requests: List<Bridge.ClipboardRequest>) {
         if (requests.isEmpty()) return
         val answer = clipboardAccess.clipboardText()
+        // 读取失败即 null（不作答，而非空串）：远端请求悬空好过粘出空白。
+        // 失败详情已由 ClipboardAccess 记日志。
+        val text = answer.getOrNull()
         requests.forEach { request ->
-            answer.fold(
-                onSuccess = { text ->
-                    NativeBridge.clipboardResult(request.sessionId, request.requestId, text)
-                },
-                onFailure = {
-                    // 不作答（而非空串）：远端请求悬空好过粘出空白。
-                    // 失败详情已由 ClipboardAccess 记日志。
-                    NativeBridge.clipboardResult(request.sessionId, request.requestId, null)
-                },
-            )
+            try {
+                NativeBridge.clipboardResult(request.sessionId, request.requestId, text)
+            } catch (exception: Exception) {
+                if (exception is CancellationException) throw exception
+                LogUtil.error(
+                    "Runtime",
+                    "clipboard reply failed for request ${request.requestId} of session ${request.sessionId}",
+                    exception,
+                )
+            }
         }
     }
 
@@ -951,7 +995,7 @@ constructor(
 
     private fun startForegroundServiceIfNeeded() {
         if (!foregroundServiceRunning) {
-            terminal.emulator.service.TerminalForegroundService.start(context)
+            TerminalForegroundService.start(context)
             foregroundServiceRunning = true
             LogUtil.debug("Runtime", "foreground service started")
         }
@@ -963,9 +1007,9 @@ constructor(
         // 是无害空操作（返回 false），故无条件停止并重置标志。
         val stopped =
             try {
-                terminal.emulator.service.TerminalForegroundService.stop(context)
+                TerminalForegroundService.stop(context)
             } catch (serviceException: Exception) {
-                if (serviceException is kotlinx.coroutines.CancellationException) {
+                if (serviceException is CancellationException) {
                     throw serviceException
                 }
                 // stopService 的 binder 失败（罕见）不得让标志残留为真：陈旧标志会使
@@ -993,11 +1037,11 @@ constructor(
             foregroundServiceRunning = false
         }
         try {
-            if (!terminal.emulator.service.TerminalForegroundService.updateSessionCount(context, count)) {
+            if (!TerminalForegroundService.updateSessionCount(context, count)) {
                 foregroundServiceRunning = false
             }
         } catch (exception: Exception) {
-            if (exception is kotlinx.coroutines.CancellationException) {
+            if (exception is CancellationException) {
                 throw exception
             }
             // 同理：启动没成功就不能让标志停在真，否则后续 startForegroundServiceIfNeeded
@@ -1020,7 +1064,7 @@ constructor(
     )
 
     private val selectionState =
-        java.util.concurrent.atomic.AtomicReference(
+        AtomicReference(
             SelectionStateSnapshot(0, 0, 0, 0, false),
         )
 
@@ -1197,7 +1241,7 @@ constructor(
      * 转义序列，可见宽度仍是两个字符，不会把命令行顶到折行。
      */
     private fun ensureMkshPromptRc() {
-        val mkshRcFile = java.io.File(context.applicationInfo.dataDir, MKSHRC_FILENAME)
+        val mkshRcFile = File(context.applicationInfo.dataDir, MKSHRC_FILENAME)
         // 新内容独有前缀：含 OSC 7 发射的旧 rc 不匹配，覆盖自愈。
         val contentMarker = "# terminal: termux-parity prompt (see"
         if (mkshRcFile.isFile) {
@@ -1223,7 +1267,7 @@ constructor(
 
     /** [ensureMkshPromptRc] 写入的 mksh rc 文件绝对路径。 */
     private val mkshrcPath: String
-        get() = java.io.File(context.applicationInfo.dataDir, MKSHRC_FILENAME).absolutePath
+        get() = File(context.applicationInfo.dataDir, MKSHRC_FILENAME).absolutePath
 
     private suspend fun buildConfig(): TerminalConfig {
         val configReads = coroutineScope {
@@ -1240,10 +1284,9 @@ constructor(
         val shell = resolveShell(configReads.shellPath)
         // 强调色取主题 ANSI 槽位 5，与原生渲染同一份调色板。
         accentColor = resolvedTheme.ansi[5].toArgb()
-        val prefixDir = java.io.File(context.filesDir, "usr").absolutePath
+        val prefixDir = File(context.filesDir, "usr").absolutePath
         val homeDir =
-            java.io
-                .File(context.filesDir, "home")
+            File(context.filesDir, "home")
                 .apply {
                     if (!exists() && !mkdirs()) {
                         LogUtil.warn("Runtime", "Failed to create home directory: $this")
@@ -1347,24 +1390,24 @@ constructor(
         ) {
             for (entry in sessions.values) {
                 if (!entry.running) continue
-                if (entry.renderThreadExited) {
+                if (isRenderThreadDead(entry.renderThreadExited, entry.renderThreadRef?.isAlive)) {
                     deadSessions.add(entry)
-                } else {
-                    val thread = entry.renderThreadRef
-                    if (thread != null && !thread.isAlive) {
-                        deadSessions.add(entry)
-                    }
-                    if (entry.restartAttempts > 0) {
-                        healthySessions.add(entry)
-                    }
+                } else if (entry.restartAttempts > 0) {
+                    healthySessions.add(entry)
                 }
             }
         }
 
-        internal fun decayRestartCounts(healthySessions: MutableList<SessionEntry>) {
-            for (entry in healthySessions) {
-                synchronized(sessionLock) {
-                    if (!entry.running || entry.renderThreadExited) continue
+        internal fun decayRestartCounts(healthySessions: List<SessionEntry>) {
+            if (healthySessions.isEmpty()) return
+            // 整批一次加锁：逐条加锁会在会话多时反复进出总闸，而这里只是清计数。
+            synchronized(sessionLock) {
+                for (entry in healthySessions) {
+                    // 扫描与本次衰减之间条目可能已死（线程在两步之间退出）：
+                    // 只有仍在运行且线程确实存活的条目才算「健康期」，否则会把
+                    // 刚死条目的重启预算清零，使 RENDER_MAX_RESTART_ATTEMPTS 永不生效。
+                    if (!entry.running) continue
+                    if (isRenderThreadDead(entry.renderThreadExited, entry.renderThreadRef?.isAlive)) continue
                     if (entry.restartAttempts > 0) {
                         entry.restartAttempts = 0
                         entry.nextRestartDelayMs = INITIAL_RESTART_DELAY_MS
@@ -1875,7 +1918,8 @@ constructor(
                                                 // 不予回复会挂起请求方。
                                                 // 先于 handleSessionExit 回复（后者可能关闭
                                                 // bridge，~100ms+）也把延迟降到最低。
-                                                // 每次回复单独保护：此处的 JNI 失败绝不能
+                                                // 每个应答在 dispatchClipboardRequests 内部各自保护，
+                                                // 那里吞掉 JNI 失败正是为了不跳过下方的退出清理。
                                                 dispatchClipboardRequests(poll.clipboardReads)
                                                 if (poll.sessionId != 0L && poll.sessionId != entry.sessionId) {
                                                     // 后台（非活动）会话的 shell 已退出。
@@ -2185,7 +2229,7 @@ constructor(
          * 处理 [poll] 中所有非退出事件，由渲染循环在退出处理之后调用。
          * 此处的异常绝不能跳过循环的逐帧簿记（调用方把我们包在外层 try 中）。
          */
-        fun handle(poll: terminal.emulator.bridge.Bridge.PollResult) {
+        fun handle(poll: Bridge.PollResult) {
             if (poll.clipboard != null) {
                 clipboardAccess.setClipboardText(poll.clipboard)
             }
@@ -2280,9 +2324,6 @@ constructor(
         /** 渲染暂停期间会话推进泵的节拍（毫秒），对标上游读侧 16ms 合并投递。 */
         private const val SESSION_PUMP_INTERVAL_MS = 16L
         private const val RENDER_MAX_RESTART_ATTEMPTS = 5
-        private const val INITIAL_RESTART_DELAY_MS = 100L
-        private const val MAX_RESTART_DELAY_MS = 1000L
-        private const val GRACE_PERIOD_AFTER_RESTART_MS = 300L
     }
 
     /** 自定义入口原样透传；默认入口走前缀探测结果，探测失败即系统 shell。 */
@@ -2350,7 +2391,7 @@ constructor(
      * 默认入口探测：依次尝试 bash 与 login，文件存在即用（DESIGN.md Shell 节），不检查权限。
      */
     private fun findPrefixShell(prefixDir: String): String? = listOf("bin/bash", "bin/login").firstOrNull { candidate ->
-        java.io.File("$prefixDir/$candidate").isFile
+        File("$prefixDir/$candidate").isFile
     }
 
     /**
@@ -2367,26 +2408,25 @@ constructor(
         get() = context.resources.configuration.screenWidthDp.toFloat()
 
     internal suspend fun computeFontSizeTenths(): Int {
-        // 落盘值与自适应值统一钳到可选区间（SettingsRepository 的唯一定义）：
-        // 历史超限存量与跨设备搬来的值都不再让原生拒收，渲染、下发记录与
-        // 调节条三方恒一致。
-        val userFontSize =
-            settingsRepository.fontSize.first().coerceIn(
-                SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp),
-            )
-        if (settingsRepository.fontSizeExplicitlySet.first()) {
-            // fontSize 以 sp 为单位，fontSizeTenths 是同一值的十分之一 sp 形式
-            // （原生字体管线直接消费 sp，光栅缩放会施加密度）。
-            // 此处再乘密度会双重缩放字号（10sp → 225 tenths = 22.5sp），
-            // 使设置滑块与渲染尺寸不一致。
-            return (userFontSize * TENTHS_PER_UNIT.toFloat()).toInt()
-        }
-        // 全新安装：按屏幕宽度推导合理默认值（唯一来源：SettingsRepository.defaultFontSize），
-        // 使手机（~360dp）和平板（~600dp）显示相同的列数。宽度取自 Repository 的
-        // provider，而非在本类再读一次 configuration——同一条缺省策略只认一个宽度来源。
-        return (settingsRepository.defaultFontSize * TENTHS_PER_UNIT.toFloat()).toInt()
+        // 单次快照：`settings` 流已把「从未显式设置」解析为按屏宽自适应的缺省值
+        // （见 SettingsRepository.settings 的 elvis 右侧），而缺省值恒在可选区间内，
+        // 故「已设置」与「未设置」两支在这里是同一个式子——无需再读一次
+        // fontSizeExplicitlySet，也无需让两条分支各写一遍钳位。
+        val fontSizeSp = clampFontSizeSp(settingsRepository.settings.first().fontSize)
+        // 原生字体管线直接消费 sp（光栅缩放另行施加密度），此处绝不能乘密度：
+        // 那会把 10sp 变成 22.5sp，使设置滑块与实际渲染尺寸分家。
+        return (fontSizeSp * TENTHS_PER_UNIT.toFloat()).toInt()
     }
+
+    /**
+     * 用户可选字号区间的唯一钳位入口：调节条、捏合预览与落盘值都经它收敛，
+     * 三者因而永远对同一区间给出一致结果（区间定义见
+     * [SettingsRepository.fontSizeMaxSp]）。
+     */
+    private fun clampFontSizeSp(sp: Float): Float = sp.coerceIn(
+        SettingsRepository.FONT_SIZE_MIN_SP,
+        SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp),
+    )
 
     /**
      * 缩放预览：把新字体度量推给原生字体管线并刷新 Kotlin 单元格度量，但不 resize 网格。
@@ -2401,12 +2441,7 @@ constructor(
     fun setFontSizePreview(sizeSp: Float) {
         // 与调节条/手势同一可选区间：超限值钳入而非丢弃，使预览位置恒有渲染响应，
         // 调用方传的本就是区间内值时行为不变。
-        val clampedSp =
-            sizeSp.coerceIn(
-                SettingsRepository.FONT_SIZE_MIN_SP,
-                SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp),
-            )
-        val tenths = (clampedSp * TENTHS_PER_UNIT.toFloat()).toInt()
+        val tenths = (clampFontSizeSp(sizeSp) * TENTHS_PER_UNIT.toFloat()).toInt()
         // 同值跳过：手势 preview 高频推送同一字号时不走 JNI，
         // 与 native 侧跳过配合，缩放期间不抖动。
         if (tenths == appliedFontSizeTenths) return
@@ -2485,9 +2520,9 @@ constructor(
         val systemDark =
             (
                 context.resources.configuration.uiMode and
-                    android.content.res.Configuration.UI_MODE_NIGHT_MASK
+                    Configuration.UI_MODE_NIGHT_MASK
                 ) ==
-                android.content.res.Configuration.UI_MODE_NIGHT_YES
+                Configuration.UI_MODE_NIGHT_YES
         return resolveTerminalThemeName(
             mode = stored.themeMode,
             fixedName = stored.themeName,
@@ -2544,7 +2579,7 @@ constructor(
             // 等待至多 3 秒而非直接放弃，避免浪费一轮布局重建的启动延迟。
             var waited = 0
             while (!NativeBridge.isNativeLoaded() && waited < 60) {
-                kotlinx.coroutines.delay(50)
+                delay(50)
                 waited++
             }
         }
@@ -2554,7 +2589,7 @@ constructor(
             // 原生库缺失或 ABI 不匹配时应用会崩溃。
             LogUtil.error("Runtime", "start: native library not loaded, aborting start")
             synchronized(sessionLock) {
-                starting = false
+                endStarting()
             }
             return
         }
@@ -2576,7 +2611,7 @@ constructor(
                 "Runtime",
                 "start() called with non-positive dimensions, waiting for surfaceChanged",
             )
-            starting = false
+            endStarting()
             return
         }
 
@@ -2593,12 +2628,12 @@ constructor(
                 "Runtime",
                 "start() called with small surface ${width}x$height (display=${displayW}x$displayH min=${minWidth}x$minHeight), waiting for correct surfaceChanged",
             )
-            starting = false
+            endStarting()
             return
         }
 
         // 提到外层以便失败路径能关闭它；start() 在构造 Bridge 之前提前返回时保持为 null。
-        var startedBridge: terminal.emulator.bridge.Bridge? = null
+        var startedBridge: Bridge? = null
         if (surface != null) {
             // 原生侧经 attachWindow(JNI) 接收 Surface，Kotlin 绝不跨桥传递裸 ANativeWindow 指针；
             // 指针为 0 时不得中止启动，否则终端根本无法启动。
@@ -2628,29 +2663,29 @@ constructor(
                     }
                         .getOrNull() ?: "<unparsable>"
                 LogUtil.debug("Runtime", "Bootstrap URL set: $origin")
-                val directories = terminal.emulator.installer.bootstrapDirectories(context)
+                val directories = bootstrapDirectories(context)
                 val installOrchestrator =
-                    terminal.emulator.installer.BootstrapOrchestrator(
-                        terminal.emulator.installer.BootstrapDownloader(context),
-                        terminal.emulator.installer.BootstrapInstaller(
+                    BootstrapOrchestrator(
+                        BootstrapDownloader(context),
+                        BootstrapInstaller(
                             prefixDir = directories.prefix,
                             homeDir = directories.home,
                             stagingDir = directories.staging,
                         ),
-                        terminal.emulator.installer.SecondStageRunner(
+                        SecondStageRunner(
                             prefixDir = directories.prefix,
                             homeDir = directories.home,
                         ),
                     )
                 when (installOrchestrator.getInstallStatus()) {
-                    terminal.emulator.installer.BootstrapOrchestrator.Status.NOT_INSTALLED -> {
+                    BootstrapOrchestrator.Status.NOT_INSTALLED -> {
                         // 绝不自动下载：Termux 引导（~150 MB）必须从设置显式安装，
                         // 应用不得自行下载或安装。仅记录状态使缺失安装仍可诊断；
                         // 设置中的引导按钮是唯一入口。
                         LogUtil.debug("Runtime", "Bootstrap not installed — install manually from Settings")
                     }
 
-                    terminal.emulator.installer.BootstrapOrchestrator.Status.INSTALLED -> {
+                    BootstrapOrchestrator.Status.INSTALLED -> {
                         LogUtil.debug("Runtime", "Bootstrap already installed")
                     }
 
@@ -2701,7 +2736,7 @@ constructor(
                     LogUtil.error("Runtime", "Failed to close bridge on invalid surface", closeException)
                 }
                 startedBridge = null
-                starting = false
+                endStarting()
                 // 悬空的 Surface 不得留在待挂载队列里：网格计算以 pendingSurface 的
                 // 宽高为权威，留着会算出一个与任何真实 Surface 都不匹配的网格，
                 // 并把它经 resize 推给 PTY（一次多余的 SIGWINCH + 重排）。
@@ -2754,7 +2789,7 @@ constructor(
                     // 并覆盖现有会话的 UI 状态——改为销毁刚 spawn 的原生会话，
                     // 保持现有会话活动。
                     LogUtil.warn("Runtime", "start: sessions already exist, aborting own insertion")
-                    starting = false
+                    endStarting()
                     abandonedReason = "duplicate"
                 } else {
                     finalSessionId = spawn.sessionId
@@ -2852,7 +2887,7 @@ constructor(
                     startForegroundServiceIfNeeded()
                     updateForegroundSessionCount(sessions.size)
                 } catch (serviceException: Exception) {
-                    if (serviceException is kotlinx.coroutines.CancellationException) {
+                    if (serviceException is CancellationException) {
                         // 实践中不可达（该加锁块内无挂起点；服务调用是同步 IPC），
                         // 但按项目约定重抛。若它真的触发，条目保持已插入状态，
                         // 清理由调用方的作用域拆除负责。
@@ -2894,7 +2929,7 @@ constructor(
             } catch (closeException: Exception) {
                 LogUtil.error("Runtime", "Failed to close bridge during start rollback", closeException)
             }
-            if (exception is kotlinx.coroutines.CancellationException) {
+            if (exception is CancellationException) {
                 // 重抛取消：吞没它会破坏结构化并发（与 createSessionInner 同一约定）。
                 // finally 块仍会重置 starting。
                 throw exception
@@ -2923,7 +2958,7 @@ constructor(
                 }
             }
         } finally {
-            starting = false
+            endStarting()
         }
     }
 
@@ -2931,7 +2966,7 @@ constructor(
     // （surface.rs 按 ANativeWindow 拥有各自的 wgpu 管线）。
     // 跨会话共享单条预初始化 GPU 管线是可能的未来优化（可缩短会话创建时间），
     // 但尚未实现——不要假定存在共享管线。
-    private val createSessionMutex = kotlinx.coroutines.sync.Mutex()
+    private val createSessionMutex = Mutex()
 
     /**
      * 新建终端会话。与并发调用（新会话按钮连点）以及 [start] 串行化：
@@ -2966,7 +3001,7 @@ constructor(
             return -1L
         }
         var nextId = 0L
-        var createdBridge: terminal.emulator.bridge.Bridge? = null
+        var createdBridge: Bridge? = null
         // 回滚路径可见的条目引用：并发 closeSession 可能把它标记为
         // renderThreadPossiblyAlive，此时绝不可 bridge.close()。
         var hangGuardedEntry: SessionEntry? = null
@@ -2980,7 +3015,7 @@ constructor(
                 "createSession bridgeElapsed=${(System.nanoTime() - bridgeStartNs) / 1_000_000}ms",
             )
             bridge.setSystemLocale(
-                java.util.Locale.getDefault().toLanguageTag(),
+                Locale.getDefault().toLanguageTag(),
             )
 
             // 先 spawn（在锁外），使原生会话 ID 成为权威映射键。
@@ -3097,7 +3132,7 @@ constructor(
                         startForegroundServiceIfNeeded()
                         updateForegroundSessionCount(sessions.size)
                     } catch (serviceException: Exception) {
-                        if (serviceException is kotlinx.coroutines.CancellationException) {
+                        if (serviceException is CancellationException) {
                             // 实践中不可达（该加锁段内无挂起点），按约定重抛；
                             // 任何清理由作用域拆除负责。
                             throw serviceException
@@ -3149,7 +3184,7 @@ constructor(
                     )
                 }
             }
-            if (exception is kotlinx.coroutines.CancellationException) {
+            if (exception is CancellationException) {
                 // 重抛取消：吞没它会破坏结构化并发。
                 throw exception
             }
@@ -3265,7 +3300,7 @@ constructor(
             target.forceRenderRequested = true
             target.notifyRender()
         } catch (exception: Exception) {
-            if (exception is kotlinx.coroutines.CancellationException) throw exception
+            if (exception is CancellationException) throw exception
             LogUtil.error(
                 "Runtime",
                 "switchSession: initial render failed for session $sessionId",
@@ -3437,7 +3472,7 @@ constructor(
      * 前台服务计数与通知的撤销都是既有语义，不另开一套。
      */
     fun closeAllSessions() {
-        synchronized(sessionLock) { sessions.keys.sorted().toList() }
+        synchronized(sessionLock) { sessions.keys.sorted() }
             .forEach { sessionId -> closeSession(sessionId) }
         // 最后一个会话关闭时计数已归零并停掉服务；此处再确认一次，覆盖
         // 关闭过程中又新建了会话的情况（那时服务应继续存活）。
@@ -3544,8 +3579,9 @@ constructor(
         // 不会把界面闪回默认值。
         termuxProperties.reloadNow()
         val config = buildConfig()
-        val effectiveFontFamily =
-            terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
+        // 与建会话路径共用同一份字族解析：两处各读一次设置，中途改设置就会让
+        // 「新会话的字族」与「改设置时下发的字族」不同源。
+        val effectiveFontFamily = resolveEffectiveFontFamily()
         // 只换字体/字号/主题/光栅尺度，不 resize 各会话网格：网格的 winsize 只由
         // spawn 时的真实度量与显式 resize 决定，applySettings 不碰它。
         // 光栅尺度 MUST 一并重推：系统「字体大小」变化会让 Activity 重建
@@ -3561,7 +3597,15 @@ constructor(
                 cursorStyleNativeValue = termux.properties.terminalCursorStyle.nativeValue,
             )
         sessions.values.forEach { entry ->
-            entry.bridge.applyRenderContract(contract)
+            try {
+                entry.bridge.applyRenderContract(contract)
+            } catch (exception: Exception) {
+                if (exception is CancellationException) throw exception
+                // 会话可能正在拆除（bridge 已关闭）：失败只属于该会话。若让它抛出，
+                // 一个正在关闭的会话就会拦住其余会话拿到新设置——用户看到的是
+                // 「改主题没反应」，而真正的失败点连日志都没有。
+                LogUtil.error("Runtime", "applySettings failed for session ${entry.sessionId}", exception)
+            }
             entry.notifyRender()
         }
         // 光栅尺度变了，逻辑单元格度量随之改变：按新度量刷新并重算网格，否则
@@ -3651,7 +3695,7 @@ constructor(
         val fontSizeTenths = computeFontSizeTenths()
         appliedFontSizeTenths = fontSizeTenths
         val fontFamily = settingsRepository.fontFamily.first()
-        val effectiveFontFamily = terminal.emulator.resolveEffectiveFontFamily(fontFamily)
+        val effectiveFontFamily = resolveEffectiveFontFamily(fontFamily)
         LogUtil.debug(
             "Runtime",
             "applyFontSettings: fontFamily='$fontFamily' effective='$effectiveFontFamily' fontSizeTenths=$fontSizeTenths sessions=${sessions.size}",
@@ -3750,7 +3794,7 @@ constructor(
         // （大输出、GC）每次窗口焦点变化都会把主线程堵满 50ms——正是掉帧的形状。
         // 焦点顺序由单线程执行器保持，与键盘事件进入 PTY 的顺序一致（xterm 语义：
         // 焦点上报与按键的先后须与用户操作顺序相符）。
-        scope.launch(terminal.emulator.util.TerminalDispatchers.inputOutput) {
+        scope.launch(TerminalDispatchers.inputOutput) {
             bridge.focusEvent(focused)
         }
     }
@@ -3764,7 +3808,16 @@ constructor(
      * 作业就此停摆。故暂停期间另起本泵只推进会话，不消费事件——事件留在原生
      * 队列，渲染恢复后照常派发。
      */
-    @Volatile private var sessionPump: java.util.concurrent.ScheduledExecutorService? = null
+    @Volatile private var sessionPump: ScheduledExecutorService? = null
+
+    /**
+     * [sessionPump] 的 check-then-act 锁。
+     *
+     * 起泵来自 surface 转换线程，停泵既来自同一线程（恢复路径）也来自泵任务自身
+     * （无会话时自停）。无锁时「自停」与「起泵」交错会留下一个刚建好就被关掉的泵：
+     * 恢复后无人推进会话，后台输出停摆而渲染线程看起来完全正常。
+     */
+    private val sessionPumpLock = Any()
 
     fun pauseRendering() {
         // stopRenderThread 会 join 渲染线程（每会话最长 THREAD_JOIN_TIMEOUT_MS）；
@@ -3804,41 +3857,45 @@ constructor(
      * 可见进度。无会话时自停，不留常驻线程。
      */
     private fun startSessionPump() {
-        if (sessionPump != null) return
-        val pump =
-            java.util.concurrent.Executors.newSingleThreadScheduledExecutor { runnable ->
-                Thread(runnable, "SessionPump").apply { isDaemon = true }
-            }
-        sessionPump = pump
-        pump.scheduleWithFixedDelay(
-            {
-                val hasSession =
-                    synchronized(sessionLock) {
-                        val active = activeSessionId
-                        active != 0L && sessions.containsKey(active)
+        synchronized(sessionPumpLock) {
+            if (sessionPump != null) return
+            val pump =
+                Executors.newSingleThreadScheduledExecutor { runnable ->
+                    Thread(runnable, "SessionPump").apply { isDaemon = true }
+                }
+            sessionPump = pump
+            pump.scheduleWithFixedDelay(
+                {
+                    val hasSession =
+                        synchronized(sessionLock) {
+                            val active = activeSessionId
+                            active != 0L && sessions.containsKey(active)
+                        }
+                    if (!hasSession) {
+                        // 无会话即无推进需求：停掉自身（调度器随之空转，resumeRendering 会回收）。
+                        stopSessionPump()
+                        return@scheduleWithFixedDelay
                     }
-                if (!hasSession) {
-                    // 无会话即无推进需求：停掉自身（调度器随之空转，resumeRendering 会回收）。
-                    stopSessionPump()
-                    return@scheduleWithFixedDelay
-                }
-                try {
-                    NativeBridge.pumpSessions()
-                } catch (exception: Exception) {
-                    // 单次失败不终止泵：会话已销毁或原生桥异常时，下一拍自然收敛。
-                    LogUtil.warn("Runtime", "session pump iteration failed: ${exception.javaClass.simpleName}")
-                }
-            },
-            0,
-            SESSION_PUMP_INTERVAL_MS,
-            java.util.concurrent.TimeUnit.MILLISECONDS,
-        )
+                    try {
+                        NativeBridge.pumpSessions()
+                    } catch (exception: Exception) {
+                        // 单次失败不终止泵：会话已销毁或原生桥异常时，下一拍自然收敛。
+                        LogUtil.warn("Runtime", "session pump iteration failed: ${exception.javaClass.simpleName}")
+                    }
+                },
+                0,
+                SESSION_PUMP_INTERVAL_MS,
+                TimeUnit.MILLISECONDS,
+            )
+        }
     }
 
     /** 停止会话推进泵：渲染恢复后由渲染线程接管推进（幂等）。 */
     private fun stopSessionPump() {
-        sessionPump?.shutdownNow()
-        sessionPump = null
+        synchronized(sessionPumpLock) {
+            sessionPump?.shutdownNow()
+            sessionPump = null
+        }
     }
 
     fun resumeRendering() {
@@ -3962,7 +4019,7 @@ constructor(
      * 调用（账本非线程安全）。
      */
     @MainThread
-    fun attachSurface(surface: android.view.Surface, width: Int, height: Int) {
+    fun attachSurface(surface: Surface, width: Int, height: Int) {
         // 只有**换了 Surface 实例**才算新的开孔：同一 Surface 的尺寸变化
         // （旋转、输入法重排）交换链里仍有上一帧，此时盖底色会闪一下。
         if (attachedSurface !== surface) {
@@ -3977,7 +4034,7 @@ constructor(
     }
 
     /** 最近一次交给渲染器的 Surface 实例，用于区分「新开孔」与「同一开孔改尺寸」。 */
-    private var attachedSurface: android.view.Surface? = null
+    private var attachedSurface: Surface? = null
 
     /**
      * 把待绑定的 Surface 交给刚建好的 bridge。
@@ -3985,7 +4042,7 @@ constructor(
      * 返回是否真的绑上了：绑不上即会话没有画面（终端空白），调用方据此记错误——
      * 这一形态在 logcat 里若无痕迹就只能靠人复现。
      */
-    private suspend fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge): Boolean {
+    private suspend fun attachPendingSurface(bridge: Bridge): Boolean {
         // 一次取出三元组：读两次之间可能有并发移交，尺寸必须与该 Surface 同源。
         val pending = pendingSurface ?: return false
         // bridge spawn 期间持有者可能已被销毁
@@ -4167,7 +4224,7 @@ constructor(
             renderSupervisor.startRenderThread(replacement)
         }
         if (syncGrid) {
-            bridge.let { syncGridDimensions(it) }
+            syncGridDimensions(bridge)
         }
         // 接替会话在窗口获得焦点时成为活动会话；
         // 重发 focus-in 使 DECSET 1004 的 TUI 恢复。
@@ -4191,7 +4248,7 @@ constructor(
      * 中途改设置就会让初始 winsize 与最终字族不同源。
      */
     private suspend fun resolveEffectiveFontFamily(): String =
-        terminal.emulator.resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
+        resolveEffectiveFontFamily(settingsRepository.fontFamily.first())
 
     /**
      * 计时调用原生建会话并记录耗时。
@@ -4201,7 +4258,7 @@ constructor(
      */
     private suspend fun spawnTerminalTimed(
         bridge: Bridge,
-        config: terminal.emulator.bridge.TerminalConfig,
+        config: TerminalConfig,
         caller: String,
         surfaceWidth: Int,
         surfaceHeight: Int,
@@ -4254,16 +4311,16 @@ constructor(
      */
     private suspend fun applyRenderSettings(
         bridge: Bridge,
-        config: terminal.emulator.bridge.TerminalConfig,
+        config: TerminalConfig,
         caller: String,
         syncGrid: Boolean,
         fontFamily: String,
     ) {
         // 用户字体目录（home/.termux/fonts 与 home/.config/termux/fonts）此刻才真正到达原生字体库。
-        val fontDirs = terminal.emulator.termuxFontDirs(context).filter { it.isDirectory }.map { it.absolutePath }
+        val fontDirs = termuxFontDirs(context).filter { it.isDirectory }.map { it.absolutePath }
         bridge.setExtraFontPaths(fontDirs)
         // 系统区域设置决定 CJK 回退顺序；缺失则原生管线停留在 locale ""。
-        bridge.setSystemLocale(java.util.Locale.getDefault().toLanguageTag())
+        bridge.setSystemLocale(Locale.getDefault().toLanguageTag())
         val termux = termuxProperties.configuration.value
         bridge.applyRenderContract(
             RenderContract(
@@ -4536,7 +4593,7 @@ constructor(
  * [file] 是否以 ELF 魔数（0x7f 'E' 'L' 'F'）开头。用于在 prefix shell 解析中排除 shebang 脚本：
  * linker-wrapper 的 spawn 路径只能加载真正的 ELF 二进制。
  */
-internal fun isElf(file: java.io.File): Boolean = try {
+internal fun isElf(file: File): Boolean = try {
     file.inputStream().use { input ->
         val magic = ByteArray(4)
         val read = input.read(magic)
@@ -4555,7 +4612,7 @@ internal fun isElf(file: java.io.File): Boolean = try {
  * 系统解释器启动脚本判定：首行 shebang 指向系统路径（`/system/bin/`）的脚本可由应用进程直接执行， 无需经 linker
  * 桥接；指向应用私有目录的脚本不计入（其解释器本身尚不可用）。 与安装器/启动路径共享，供通用 bootstrap 启动器脚本使用，不针对特定发行版。
  */
-internal fun isSystemShellScript(file: java.io.File): Boolean = try {
+internal fun isSystemShellScript(file: File): Boolean = try {
     file.inputStream().use { input ->
         val header = ByteArray(64)
         val read = input.read(header)
@@ -4571,11 +4628,35 @@ internal fun isSystemShellScript(file: java.io.File): Boolean = try {
     false
 }
 
+// 死渲染线程重启的退避起点、上限与重启后的健康确认宽限期（见 RenderSupervisor）。
+private const val INITIAL_RESTART_DELAY_MS = 100L
+private const val MAX_RESTART_DELAY_MS = 1000L
+private const val GRACE_PERIOD_AFTER_RESTART_MS = 300L
+
 /** 下次死渲染线程重启的退避延迟：把先前延迟翻倍，上限 [maxDelayMs]（handleDeadRenderThread 中的指数退避）。 */
 internal fun nextRestartDelayMs(currentMs: Long, maxDelayMs: Long): Long = (currentMs * 2).coerceAtMost(maxDelayMs)
 
 /** 死亡渲染重启预算：尝试计数超过 [maxAttempts] 即关闭会话而非再次重启。 */
 internal fun shouldCloseDeadRender(restartAttempts: Int, maxAttempts: Int): Boolean = restartAttempts > maxAttempts
+
+/**
+ * 渲染线程是否已死：循环退出标志已置位，或线程引用在且不再存活。
+ *
+ * 监视器据此把条目分成「待重启」与「健康」两组，两组 MUST 互斥。此前「健康」只要求
+ * `!renderThreadExited`，而线程刚死时该标志尚未置位——同一条目因此同时落入两组，
+ * [RenderSupervisor.decayRestartCounts] 随即把它的 [SessionEntry.restartAttempts] 清零，
+ * 重启预算永不耗尽（每 500ms 重启一轮，`RENDER_MAX_RESTART_ATTEMPTS` 形同虚设，
+ * 最终表现为渲染循环反复重建而会话永不关闭）。
+ *
+ * 线程引用缺失（null）**不算死**：条目插入映射到 [RenderSupervisor.startRenderThread]
+ * 真正把线程写入之间，`running` 已为真而引用仍为空。把这段正常的启动窗口判成死亡
+ * 会让监视器抢先重启，与即将启动的线程争同一会话（两条线程消费唯一事件队列）。
+ * 真正的孤儿条目由失败回滚按 bridge 身份移除。
+ *
+ * @param threadAlive 线程当前是否存活；null = 线程引用尚未写入
+ */
+internal fun isRenderThreadDead(renderThreadExited: Boolean, threadAlive: Boolean?): Boolean =
+    renderThreadExited || threadAlive == false
 
 /**
  * 初始同步渲染重试（switchSession）：只有硬失败（< 0：会话未注册、渲染态异常等）
@@ -4621,7 +4702,7 @@ internal val rasterScaleRange: ClosedFloatingPointRange<Float> by lazy {
     // 不设兜底默认值：钳到一个猜测值只会让字号上界与原生实际接受区间悄悄脱节，
     // 正是本属性存在的理由所反对的。
     val bounds =
-        requireNotNull(terminal.emulator.bridge.NativeBridge.getRasterScaleRange()) {
+        requireNotNull(NativeBridge.getRasterScaleRange()) {
             "原生未返回光栅缩放区间（JNI 调用失败）"
         }
     require(bounds.size == 2 && bounds.all { it.isFinite() && it > 0f } && bounds[0] <= bounds[1]) {
@@ -4712,7 +4793,7 @@ internal fun resolveWorkingDirectory(configured: String, homeDir: String): Strin
         }
     val absolute = if (expanded.startsWith("/")) expanded else "$homeDir/$expanded"
     val normalized = absolute.trimEnd('/').ifEmpty { "/" }
-    val directory = java.io.File(normalized)
+    val directory = File(normalized)
     return if (directory.isDirectory && directory.canRead()) normalized else homeDir
 }
 
@@ -4815,7 +4896,7 @@ private const val SURFACE_RECREATE_SLOW_INTERVAL_MS = SURFACE_RECREATE_SLOW_INTE
  */
 internal fun computeContentBottomPx(contentRow: Int, cellHeightPx: Float): Int {
     if (contentRow < 0 || cellHeightPx <= 0f) return 0
-    return kotlin.math.round((contentRow + 1) * cellHeightPx).toInt()
+    return round((contentRow + 1) * cellHeightPx).toInt()
 }
 
 /**
