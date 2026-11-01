@@ -479,6 +479,10 @@ fun TerminalScreen(
             // 否则搜索中新输出到达后高亮按旧偏移错位绘制。
             LaunchedEffect(runtimeState.scrollResetEpoch) {
                 if (runtimeState.scrollResetEpoch > 0L) {
+                    // Surface 的私有偏移也必须跟着归零：选区/拖柄/长按菜单都按
+                    // `scrollbackLength - scrollOffset` 折算绝对行，只同步高亮镜像
+                    // 会让自动贴底后的首次长按锚到旧视口，偏差正好是刚才滚开的行数。
+                    surfaceRef.value?.resetScrollOffset()
                     viewportScrollOffset.intValue = viewModel.runtime.activeSessionScrollOffset()
                 }
             }
