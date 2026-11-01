@@ -1,6 +1,7 @@
 package terminal.emulator.settings
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -22,10 +23,15 @@ class TermuxPropertiesParserTest {
         assertTrue("空文件是正常状态，不该报错: ${loaded.errors}", loaded.errors.isEmpty())
     }
 
-    /** 启动不主动弹键盘（与既有外观一致，上游默认相反）。 */
+    /**
+     * 默认启动即弹键盘：与上游 termux 同值，也是 `DESIGN.md` 的要求。
+     *
+     * 该键在还是空转键时取过 `true`（那时它只被解析、不改变行为），键变成真开关后
+     * 默认值没有跟着上游一起复核，于是默认配置下冷启动永远不弹输入法。
+     */
     @Test
-    fun `keyboard startup default matches the app's behaviour`() {
-        assertTrue(parse("").properties.hideSoftKeyboardOnStartup)
+    fun `keyboard startup default matches upstream`() {
+        assertFalse(parse("").properties.hideSoftKeyboardOnStartup)
     }
 
     @Test

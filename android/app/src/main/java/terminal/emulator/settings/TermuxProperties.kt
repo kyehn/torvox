@@ -15,13 +15,13 @@ data class TermuxProperties(
     val fullscreen: Boolean = false,
     val ctrlSpaceWorkaround: Boolean = false,
     /**
-     * 启动时不弹软键盘。
+     * 启动时是否隐藏软键盘。
      *
-     * 默认 `true`，与上游不同（上游默认 `false` = 启动即弹）：本应用启动时从不主动
-     * 请求输入法，默认值必须反映既有外观。写 `false` 会在首帧后主动请求一次；平台仍
-     * 可能拒绝（窗口尚未取得焦点时 `show` 会被丢弃），此时轻点终端即可。
+     * 默认 `false`（上游 `TermuxPropertyConstants` 把该键列在「默认 false」的布尔集合里）：
+     * 冷启动即弹键盘，与 `DESIGN.md` 的「启动后自动弹出输入法」一致。写 `true` 则启动时
+     * 不请求输入法，直到用户轻点终端。
      */
-    val hideSoftKeyboardOnStartup: Boolean = true,
+    val hideSoftKeyboardOnStartup: Boolean = false,
     val extraKeysTextAllCaps: Boolean = true,
     val terminalMarginHorizontalDp: Int = DEFAULT_MARGIN_HORIZONTAL_DP,
     val terminalMarginVerticalDp: Int = DEFAULT_MARGIN_VERTICAL_DP,
