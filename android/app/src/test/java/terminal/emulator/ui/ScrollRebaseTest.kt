@@ -31,6 +31,13 @@ class ScrollRebaseTest {
     }
 
     @Test
+    fun `content shrinkage clamps the offset at the top`() {
+        // clear / RIS 让回滚区缩短（甚至归零）：偏移跟着缩，且绝不落到负数。
+        assertEquals(4, rebasedScrollOffset(10, 94, 100))
+        assertEquals(0, rebasedScrollOffset(10, 0, 100))
+    }
+
+    @Test
     fun `rebased offset never exceeds the scrollback length`() {
         // 顶到回滚区顶端：偏移不得超过当前回滚长度，否则会多滚出实际可滚的行数。
         assertEquals(100, rebasedScrollOffset(98, 100, 95))
