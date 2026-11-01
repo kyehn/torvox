@@ -17,7 +17,17 @@ import java.nio.file.attribute.PosixFilePermission
  * 从 [TerminalDocumentsProvider] 拆分出来，使提供者主体只剩查询与打开通道， 函数数回到 detekt TooManyFunctions
  * 阈值内。所有变更落盘后广播通知， 外部文件客户端才能即时刷新（否则复制进入、重命名看起来“没反应”）。
  */
-internal class DocumentMutations(private val context: Context, private val rootDir: () -> File) {
+internal class DocumentMutations(
+    private val context: Context,
+    private val rootDir: () -> File,
+    /**
+     * 列出目录内容；返回 null 表示「列举不出来」（I/O 失败），不是「目录为空」。
+     *
+     * 注入点只为在 JVM 单测里构造该前提：靠权限位制造不可列举的目录在 root 或
+     * 特殊挂载下不成立，用例会被静默跳过——等于没测。
+     */
+    private val listDirectoryEntries: (File) -> Array<File>? = { it.listFiles() },
+) {
     private companion object {
         /** 客户端未给名字时的新建占位名，扩展名按 mimeType 追加。 */
         const val DEFAULT_FILE_NAME = "New Document"
@@ -386,7 +396,11 @@ internal class DocumentMutations(private val context: Context, private val rootD
         // 立刻 EACCES，复制一棵只读目录树必然失败。
         val pendingDirectoryPermissions = mutableListOf(source to target)
         val stack = ArrayDeque<Pair<File, File>>()
-        source.listFiles()?.forEach { stack.addLast(it to target) }
+        // 列举失败不是「空目录」：按空目录收尾会交出一棵缺内容的副本树，
+        // 而客户端收到的是「复制成功」——用户据此删掉原件即丢数据。
+        val rootChildren = listDirectoryEntries(source)
+            ?: throw IOException("Failed to list directory '${source.path}'")
+        rootChildren.forEach { stack.addLast(it to target) }
         while (stack.isNotEmpty()) {
             val (source, destinationParent) = stack.removeLast()
             if (Files.isSymbolicLink(source.toPath())) {
@@ -397,7 +411,9 @@ internal class DocumentMutations(private val context: Context, private val rootD
                     throw IOException("Failed to create directory '${destination.path}'")
                 }
                 pendingDirectoryPermissions += source to destination
-                source.listFiles()?.forEach { stack.addLast(it to destination) }
+                val children = listDirectoryEntries(source)
+                    ?: throw IOException("Failed to list directory '${source.path}'")
+                children.forEach { stack.addLast(it to destination) }
             } else {
                 copyRegularFile(source, File(destinationParent, source.name))
             }

@@ -6,6 +6,7 @@ import android.provider.DocumentsContract.Document
 import android.webkit.MimeTypeMap
 import terminal.emulator.runtime.LogUtil
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -18,7 +19,16 @@ import java.util.Locale
  * 从 [TerminalDocumentsProvider] 拆分出来，使提供者主体只剩 DocumentsProvider override 入口，函数数回到 detekt
  * TooManyFunctions 阈值内。变更操作见 [DocumentMutations]。
  */
-internal class DocumentQueries(private val context: Context) {
+internal class DocumentQueries(
+    private val context: Context,
+    /**
+     * 列出目录内容；返回 null 表示「列举不出来」（I/O 失败），不是「目录为空」。
+     *
+     * 注入点只为在 JVM 单测里构造该前提：靠权限位制造不可列举的目录在 root 或
+     * 特殊挂载下不成立，用例会被静默跳过——等于没测。
+     */
+    private val listDirectoryEntries: (File) -> Array<File>? = { it.listFiles() },
+) {
     /**
      * 暴露给系统文件选择器的家目录，返回**规范形式**：`encodeDocId` 以
      * `rootDir.canonicalPath` 剥前缀，若这里交出词法路径形式（`/data/user/0/…` 之类
@@ -88,7 +98,12 @@ internal class DocumentQueries(private val context: Context) {
     fun readChildren(parentCanonical: File, rootCanonical: String): List<ChildEntry> {
         val parentRel = TerminalDocumentsProvider.relativeDocId(parentCanonical.path, rootCanonical)
         val entries = ArrayList<ChildEntry>()
-        for (child in parentCanonical.listFiles() ?: return emptyList()) {
+        // 列举失败不是「空目录」：空游标让客户端把读不到的目录当成空目录，
+        // 继续往一个看不见内容的路径写入。
+        val children =
+            listDirectoryEntries(parentCanonical)
+                ?: throw FileNotFoundException("queryChildDocuments: cannot list directory '$parentRel'")
+        for (child in children) {
             val attributes =
                 try {
                     Files.readAttributes(

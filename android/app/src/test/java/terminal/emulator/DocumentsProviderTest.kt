@@ -1147,6 +1147,72 @@ class DocumentsProviderTest {
         }
     }
 
+    /**
+     * 源目录列举失败必须让复制失败，不能交出一棵空目录树却报「复制成功」。
+     *
+     * 静默的空副本最坏：客户端与用户都以为复制完成，用户据此删掉原件，
+     * 内容就此丢失——而全程没有任何错误提示。
+     */
+    @Test
+    fun copyDocument_reports_failure_when_source_tree_cannot_be_listed() {
+        val root = rootDir()
+        val source = java.io.File(root, "unlistable-src").apply { mkdirs() }
+        java.io.File(source, "payload.txt").writeText("data")
+        java.io.File(root, "dest").apply { mkdirs() }
+        val mutations =
+            DocumentMutations(
+                org.robolectric.RuntimeEnvironment.getApplication(),
+                { root },
+                listDirectoryEntries = { null },
+            )
+
+        val failure =
+            try {
+                mutations.copyDocument("unlistable-src", "dest")
+                null
+            } catch (expected: java.io.IOException) {
+                expected
+            }
+
+        assertNotNull("copy must fail when the source tree cannot be listed", failure)
+        assertEquals(
+            "no half-copied tree may be left behind",
+            emptyList<String>(),
+            java.io.File(root, "dest").list()?.toList() ?: emptyList<String>(),
+        )
+    }
+
+    /**
+     * 目录列举失败必须报错，不能回空游标。
+     *
+     * 空游标让客户端把「读不到」当成「目录是空的」：用户看到的是一间空房，
+     * 真实原因（I/O 失败）无处可寻。
+     */
+    @Test
+    fun readChildren_reports_failure_when_directory_cannot_be_listed() {
+        val root = rootDir()
+        val directory = java.io.File(root, "unlistable").apply { mkdirs() }
+        val queries =
+            DocumentQueries(
+                org.robolectric.RuntimeEnvironment.getApplication(),
+                listDirectoryEntries = { null },
+            )
+
+        val failure =
+            try {
+                queries.readChildren(directory.canonicalFile, root.canonicalPath)
+                null
+            } catch (expected: java.io.FileNotFoundException) {
+                expected
+            }
+
+        assertNotNull("listing failure must be reported", failure)
+        assertTrue(
+            "message must name the directory: ${failure?.message}",
+            failure?.message?.contains("unlistable") == true,
+        )
+    }
+
     @Test
     fun moveDocument_relocates_and_clears_source() {
         val provider = ensureProvider()

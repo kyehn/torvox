@@ -192,6 +192,11 @@ should throw FileNotFoundException」（也即让 SAF 界面把失效路径当�
 - **WHEN** 对不存在的目录发起 `queryChildDocuments`
 - **THEN** 抛 `FileNotFoundException` 且不得对该目录调用 `watch()` 登记
 
+#### Scenario: 目录列举失败不按空目录回答
+
+- **WHEN** 客户端查询一个存在但内容列举失败的目录
+- **THEN** MUST 抛 `FileNotFoundException`，MUST NOT 回空游标把「读不到」说成「空目录」
+
 ### Requirement: 树寻址的前置校验由提供者按根内包含性回答
 
 平台对树 URI 的每次访问先调用 `DocumentsProvider.isChildDocument`（`enforceTree`），
@@ -265,6 +270,11 @@ docId 含 `/` 且需经 URI 编解码往返，平台对每次访问先执行 `en
 - **WHEN** 客户端寻址一个指向 home 之外的符号链接
 - **THEN** 以 `FileNotFoundException` 拒绝，且 home 内不留下任何复制产物，
       home 之外的目标不被搬走或改名
+
+#### Scenario: 源树列举失败时报错而非交出空副本
+
+- **WHEN** 复制目录树时源目录内容列举失败
+- **THEN** 复制 MUST 失败并清理半截产物，MUST NOT 交出一棵缺内容的副本树却报成功
 
 ### Requirement: 删除按幂等语义覆盖
 

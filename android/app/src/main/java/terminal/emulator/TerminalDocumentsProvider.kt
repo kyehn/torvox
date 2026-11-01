@@ -572,7 +572,14 @@ class TerminalDocumentsProvider : DocumentsProvider() {
                 if (canonical != rootPath && current.name.lowercase().contains(needle)) {
                     queries.addDocRow(cursor, current, rootDir, columns)
                 }
-                current.listFiles()?.forEach { pending.addLast(it) }
+                val children = current.listFiles()
+                if (children == null) {
+                    // 列举失败不是「空目录」：这一支的条目搜不到，必须留证据，
+                    // 否则用户只看到「文件不存在」。
+                    LogUtil.warn(TAG, "querySearchDocuments: cannot list '${current.name}'; subtree skipped")
+                } else {
+                    children.forEach { pending.addLast(it) }
+                }
             } else if (current.name.lowercase().contains(needle)) {
                 queries.addDocRow(cursor, current, rootDir, columns)
             }
