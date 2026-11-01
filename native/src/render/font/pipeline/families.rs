@@ -8,6 +8,38 @@
 use super::{CjkFallbackState, FontInfo, FontInfoActive, FontPipeline};
 use crate::render::font::font_db;
 
+/// 该面是否族内的常规面（非粗、非斜）。
+///
+/// 判据与 [`super::face_has_style`] 同源方向相反：那边问「这个面能不能顶替请求的
+/// 粗/斜样式」，这边问「这个面能不能当不做任何样式时的基面」。两者都只看面自己的
+/// 字重与倾斜，不看族内还有谁。
+fn is_regular_face(face: &fontdb::FaceInfo) -> bool {
+    face.weight < fontdb::Weight::BOLD && face.style == fontdb::Style::Normal
+}
+
+/// 从同一个字体文件装入的面里选出族基面，返回它在 `faces` 中的位置。
+///
+/// 基面是**全部无样式文本**的出字入口（`font_id` → `glyph_information`），故优先
+/// 常规面：一个文件里按顺序躺着 `Bold`/`Italic`/`Regular` 时取首面，会让整屏正文
+/// 直接按那个样式画——用户只是选了字体文件，并没有要求整屏加粗或倾斜。没有常规面
+/// 的文件（只有 `Bold` 的变体包）仍取首个有族名的面，否则它根本选不中。
+///
+/// 返回位置而非面：`fontdb::ID` 在测试里造不出互异值，位置是唯一可区分的身份。
+fn pick_primary_face(faces: &[&fontdb::FaceInfo]) -> Option<usize> {
+    let mut first_named = None;
+    for (position, face) in faces.iter().enumerate() {
+        if face.families.is_empty() {
+            // 无族名的面（TTC 里的无名子集）不能作基面：按族名选中时无从匹配。
+            continue;
+        }
+        if is_regular_face(face) {
+            return Some(position);
+        }
+        first_named.get_or_insert(position);
+    }
+    first_named
+}
+
 impl FontPipeline {
     /// 选定主字体。
     ///
@@ -325,6 +357,12 @@ impl FontPipeline {
             return Some(id);
         }
         let cleaned = family_name.replace(['_', '-'], " ").trim().to_lowercase();
+        // 归一后为空（名字只有分隔符或空白）时到此为止：`contains("")` 恒真，
+        // 继续下去会把这个坏名字匹配到库内**任意**字族，「找不到该族」于是被
+        // 报成成功，设置页显示选中的是一个用户根本没选过的字体。
+        if cleaned.is_empty() {
+            return None;
+        }
         for face in font_database.faces() {
             for (family, _) in &face.families {
                 let fam_lower = family.to_lowercase();
@@ -390,23 +428,25 @@ impl FontPipeline {
         None
     }
 
-    /// 装入字体文件到当前字体库，返回文件中首个有族名的面的族名。
+    /// 装入字体文件到当前字体库，返回作为族基面的那个面的族名。
     ///
     /// 该面被记住（见 `user_font_faces`）：按族名选中时用它，
     /// 而不是扫库取首个——同一路径的文件被替换后旧面仍在库里。
     ///
-    /// 族名取自**首个有族名的**面：TTC 的首面可能没有族名（无名子集），
-    /// 按首面取族名会得到空串，用户选字体时无从匹配。
+    /// 族名取自**有族名的**面：TTC 的首面可能没有族名（无名子集），
+    /// 按首面取族名会得到空串，用户选字体时无从匹配。多个有族名的面时
+    /// 取常规面（见 [`pick_primary_face`]）——基面是全部无样式文本的出字入口。
     pub fn load_font_file(&mut self, path: &std::path::Path) -> Option<String> {
         let font_database = self.font_system.db_mut();
         let source = fontdb::Source::File(path.into());
         let ids = font_database.load_font_source(source);
-        let (face_id, family) = ids.iter().find_map(|face_id| {
-            let face = font_database.face(*face_id)?;
-            let family = face.families.first().map(|(name, _)| name.clone())?;
-            Some((*face_id, family))
-        })?;
-        self.user_font_faces.insert(family.to_lowercase(), face_id);
+        let loaded: Vec<&fontdb::FaceInfo> = ids
+            .iter()
+            .filter_map(|face_id| font_database.face(*face_id))
+            .collect();
+        let face = *loaded.get(pick_primary_face(&loaded)?)?;
+        let family = face.families.first()?.0.clone();
+        self.user_font_faces.insert(family.to_lowercase(), face.id);
         Some(family)
     }
 
@@ -426,5 +466,117 @@ impl FontPipeline {
     #[cfg(test)]
     pub fn has_font(&self) -> bool {
         self.font_id.is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FontPipeline, is_regular_face, pick_primary_face};
+
+    /// 构造样本面：只提供判据用得到的字段（与 `face_has_style` 的测试同款）。
+    ///
+    /// `family` 为 `None` 表示 TTC 里的无名子集。
+    fn face(weight: u16, style: fontdb::Style, family: Option<&str>) -> fontdb::FaceInfo {
+        fontdb::FaceInfo {
+            id: fontdb::ID::default(),
+            source: fontdb::Source::Binary(std::sync::Arc::new(Vec::<u8>::new())),
+            index: 0,
+            families: family
+                .map(|name| vec![(name.to_string(), fontdb::Language::English_UnitedStates)])
+                .unwrap_or_default(),
+            post_script_name: String::new(),
+            style,
+            weight: fontdb::Weight(weight),
+            stretch: fontdb::Stretch::Normal,
+            monospaced: true,
+        }
+    }
+
+    #[test]
+    fn regular_face_is_neither_bold_nor_slanted() {
+        assert!(is_regular_face(&face(
+            400,
+            fontdb::Style::Normal,
+            Some("Demo")
+        )));
+        assert!(is_regular_face(&face(
+            300,
+            fontdb::Style::Normal,
+            Some("Demo")
+        )));
+        // 半粗（600）仍算常规：`Weight::BOLD` 是 700，与 `face_has_style` 同一阈值。
+        assert!(is_regular_face(&face(
+            600,
+            fontdb::Style::Normal,
+            Some("Demo")
+        )));
+        assert!(!is_regular_face(&face(
+            700,
+            fontdb::Style::Normal,
+            Some("Demo")
+        )));
+        assert!(!is_regular_face(&face(
+            400,
+            fontdb::Style::Italic,
+            Some("Demo")
+        )));
+        assert!(!is_regular_face(&face(
+            400,
+            fontdb::Style::Oblique,
+            Some("Demo")
+        )));
+    }
+
+    /// 文件里先躺着粗/斜面时，基面 MUST 仍取常规面。
+    ///
+    /// 取到粗面的表现是「用户只选了个字体文件，整屏正文变成粗体」——基面是全部
+    /// 无样式文本的出字入口，它的样式就是正文的样式。
+    #[test]
+    fn primary_face_prefers_the_regular_face_over_a_leading_bold_one() {
+        let bold = face(700, fontdb::Style::Normal, Some("Demo"));
+        let italic = face(400, fontdb::Style::Italic, Some("Demo"));
+        let regular = face(400, fontdb::Style::Normal, Some("Demo"));
+        let faces = [&bold, &italic, &regular];
+        assert_eq!(pick_primary_face(&faces), Some(2));
+    }
+
+    /// 没有常规面的文件（只有粗体的变体包）仍要能选中：退回首个有族名的面。
+    #[test]
+    fn primary_face_falls_back_to_the_first_named_face() {
+        let bold = face(700, fontdb::Style::Normal, Some("Demo"));
+        let black = face(900, fontdb::Style::Normal, Some("Demo"));
+        let faces = [&bold, &black];
+        assert_eq!(pick_primary_face(&faces), Some(0));
+    }
+
+    /// 无名面不能作基面：按族名选中时无从匹配，选出来的族名是空串。
+    #[test]
+    fn primary_face_skips_faces_without_a_family() {
+        let nameless = face(400, fontdb::Style::Normal, None);
+        let regular = face(400, fontdb::Style::Normal, Some("Demo"));
+        let faces = [&nameless, &regular];
+        assert_eq!(pick_primary_face(&faces), Some(1));
+        assert_eq!(pick_primary_face(&[&nameless]), None);
+    }
+
+    /// 只有分隔符/空白的族名 MUST NOT 匹配到任何面。
+    ///
+    /// 归一化后它是空串，而 `contains("")` 恒真：不加这道闸，`set_font_family("-")`
+    /// 会把库内首个面当成命中并返回成功，设置页据此显示一个用户没选过的字体。
+    #[test]
+    fn separator_only_family_name_matches_nothing() {
+        let pipeline = FontPipeline::new(512, 512, 14.0);
+        let font_database = pipeline.font_system.db();
+        assert!(
+            font_database.faces().next().is_some(),
+            "环境须装有字体，否则本用例没有判别力"
+        );
+        for name in ["-", "_", " ", "--__"] {
+            assert_eq!(
+                FontPipeline::find_font_by_name(font_database, name),
+                None,
+                "族名 {name:?} 归一后为空，不得匹配到任何面"
+            );
+        }
     }
 }
