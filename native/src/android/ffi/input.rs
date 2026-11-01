@@ -554,8 +554,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_mouseTrackingA
     session_id: jlong,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
-        read_terminal_flag_jboolean(session_id as u64, |session| {
-            session.terminal().mouse_tracking_active_atomic()
+        read_terminal_flag_jboolean(session_id as u64, |entry| {
+            entry.mouse_tracking_active.load(Ordering::Acquire)
         })
     })
 }

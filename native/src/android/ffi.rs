@@ -253,13 +253,21 @@ struct SessionEntry {
     new_output: Arc<AtomicBool>,
     /// 备用屏激活的共享镜像，与 `new_output` 同批上报，读取同样不取会话锁。
     alt_screen_active: Arc<AtomicBool>,
+    /// 鼠标上报（DECSET 1000/1002/1003）开关的共享镜像，与备用屏同款：
+    /// VT 线程每帧刷新，输入路径（触摸拖动、外接滚轮）每个事件都要判一次，
+    /// 读原子量才让 UI 线程完全不碰会话锁。
+    mouse_tracking_active: Arc<AtomicBool>,
 }
 
 impl SessionEntry {
     fn new(session: Arc<Mutex<Session>>, render_wake: Arc<RenderWake>) -> Self {
-        let (new_output, alt_screen_active) = {
+        let (new_output, alt_screen_active, mouse_tracking_active) = {
             let session = session.lock();
-            (session.new_output_flag(), session.alt_screen_active_flag())
+            (
+                session.new_output_flag(),
+                session.alt_screen_active_flag(),
+                session.mouse_tracking_active_flag(),
+            )
         };
         Self {
             session,
@@ -269,6 +277,7 @@ impl SessionEntry {
             rendered_viewport_row: AtomicI32::new(RENDERED_SCROLLBACK_NONE),
             new_output,
             alt_screen_active,
+            mouse_tracking_active,
         }
     }
 }

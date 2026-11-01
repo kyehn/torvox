@@ -62,15 +62,22 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsCol
 
 /// 读会话的 VT 线程维护的原子镜像标志（鼠标上报、备用屏等）。
 ///
-/// 会话未知或锁被占用时返回 `false`——两者都意味着「此刻无法确认该状态」，
-/// 与标志本身为假同义，故调用方无需区分。
-pub(super) fn read_terminal_atomic_flag(session_id: u64, read: impl Fn(&Session) -> bool) -> bool {
+/// **不取会话锁**：镜像由 VT 线程每帧写入注册表持有的共享原子量，读它只需一次
+/// 原子读。会话锁则可能被 PTY 写入按住数秒（`feed_pty` 的写入面正是这样克隆
+/// 出去再写），而这两个标志在输入路径上**每个事件都要判一次**（触摸拖动的
+/// MOVE、外接滚轮）——持锁读会把 UI 线程按在写入洪流上，表现为滚动卡顿。
+///
+/// 会话未知时返回 `false`：那意味着「此刻无法确认该状态」，与标志本身为假同义，
+/// 故调用方无需区分。
+pub(super) fn read_terminal_atomic_flag(
+    session_id: u64,
+    read: impl Fn(&SessionEntry) -> bool,
+) -> bool {
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&session_id) else {
         return false;
     };
-    let session = entry.session.lock();
-    read(&session)
+    read(entry)
 }
 
 /// 读原子镜像标志并转成 JNI 布尔值。
@@ -80,7 +87,7 @@ pub(super) fn read_terminal_atomic_flag(session_id: u64, read: impl Fn(&Session)
 /// 「读不到」的分界就可能分叉。
 pub(super) fn read_terminal_flag_jboolean(
     session_id: u64,
-    read: impl Fn(&Session) -> bool,
+    read: impl Fn(&SessionEntry) -> bool,
 ) -> jboolean {
     if read_terminal_atomic_flag(session_id, read) {
         JNI_TRUE
@@ -214,8 +221,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getAltScreenSt
     session_id: jlong,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
-        read_terminal_flag_jboolean(session_id as u64, |session| {
-            session.terminal().alt_screen_active_atomic()
+        read_terminal_flag_jboolean(session_id as u64, |entry| {
+            entry.alt_screen_active.load(Ordering::Acquire)
         })
     })
 }

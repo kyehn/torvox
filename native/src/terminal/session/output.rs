@@ -172,6 +172,13 @@ impl Session {
         Arc::clone(&self.terminal.alt_screen_active)
     }
 
+    /// 鼠标上报（DECSET 1000/1002/1003）开关的无锁镜像：与备用屏同款——
+    /// 触摸拖动的每个事件都要判一次是否把滚轮转发给远端，读原子量才能让
+    /// UI 线程完全不碰会话锁（会话锁可被 PTY 写入按住数秒）。
+    pub fn mouse_tracking_active_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.terminal.mouse_tracking_active)
+    }
+
     /// 收割 VT 线程经上游回调上报的事件（剪贴板写入）到队列/标志位。
     /// 拉取式：每帧重复调用，VT 线程尚未处理完时取到空、下帧再取（见
     /// `harvest_vt_side_effects` 的说明——本路径不 flush）。

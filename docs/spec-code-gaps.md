@@ -80,8 +80,9 @@
   长按即粘贴。
 - `volume-keys` 默认 `virtual`，`MainActivity` 默认把音量减拦截为虚拟 Ctrl（按住期间持续生效）；
   `DESIGN.md` 未声明该行为。
-- `hide-soft-keyboard-on-startup` 默认 `true`，与上游的 `false` 相反（本应用启动时从不
-  主动请求输入法，默认值必须反映既有外观），已在 `config.md` 与 `openspec` 注明。
+- `hide-soft-keyboard-on-startup` 默认 `false`，与上游 termux 同值：冷启动在终端取得
+  焦点后主动请求一次输入法，满足 `DESIGN.md` 的「启动后自动弹出输入法」；此前默认 `true`
+  是该键还是空转键时的遗留，已在 `openspec` 归档对齐。
 - `terminal-margin-horizontal` 默认 3dp、`terminal-margin-vertical` 默认 0dp、
   `terminal-toolbar-height` 默认 1 倍：默认视觉与 Termux 接近。
 
