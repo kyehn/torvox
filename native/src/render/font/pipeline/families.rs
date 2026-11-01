@@ -435,7 +435,7 @@ impl FontPipeline {
     ///
     /// 族名取自**有族名的**面：TTC 的首面可能没有族名（无名子集），
     /// 按首面取族名会得到空串，用户选字体时无从匹配。多个有族名的面时
-    /// 取常规面（见 [`pick_primary_face`]）——基面是全部无样式文本的出字入口。
+    /// 取常规面（见 `pick_primary_face`）——基面是全部无样式文本的出字入口。
     pub fn load_font_file(&mut self, path: &std::path::Path) -> Option<String> {
         let font_database = self.font_system.db_mut();
         let source = fontdb::Source::File(path.into());
