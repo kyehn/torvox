@@ -2436,8 +2436,7 @@ constructor(
      * 捏合预览与落盘值都经它收敛，三者因而永远对同一区间给出一致结果。
      * 此处只补上本机当前的系数与屏宽两个自变量。
      */
-    private fun clampFontSizeSp(sp: Float): Float =
-        SettingsRepository.clampFontSize(sp, spToPxScale, screenWidthDp)
+    private fun clampFontSizeSp(sp: Float): Float = SettingsRepository.clampFontSize(sp, spToPxScale, screenWidthDp)
 
     /**
      * 缩放预览：把新字体度量推给原生字体管线并刷新 Kotlin 单元格度量，但不 resize 网格。
