@@ -184,6 +184,9 @@ master rev，MUST NOT 长期停在某个旧 rev 上——DESIGN 已要求「跟�
 VT 解析与重排是上游 `libghostty-vt` 的职责（DESIGN 单一来源，`ghostty_terminal/tests/` 删除集合已列明）。TESTING 只测本项目功能、不做回归，故 xterm 语料、缺口触发器与重排往返三类断言 MUST NOT 留存本仓：`native/tests/vt_corpus.rs`、`native/tests/vt_conformance.rs`、`native/tests/vt_upstream_blockers.rs`、`native/tests/reflow_round_trip.rs` 已删除。
 
 #### Scenario: 外部真值类断言的同口径
+- **WHEN** 复查某项断言是否值得保留在本仓测试里
+- **THEN** 以外部基准或重复 Gherkin 套件承载的断言 MUST 保持删除状态，同类断言 MUST 只在本地单测保留一条
+
 
 外部真值类断言同口径 MUST NOT 留存：以 Unicode UCD 宽度表、kitty 规范字节、ghostty fuzz 语料为期望的三类外部基准（`native/tests/external_benchmarks/`，9 例）已删除，`ureq` 随之退出 dev-dependencies。逐条复述既有本地单测的 Gherkin 套件（`native/tests/bdd/`、`native/tests/features/`，7 特性 12 场景）同批删除，`cucumber`／`tokio` 退出 dev-dependencies——TESTING「不保留无意义或低价值测试」之下，与本地单测重复的断言 MUST 只留一条。
 
@@ -261,6 +264,9 @@ VT 解析与重排是上游 `libghostty-vt` 的职责（DESIGN 单一来源，`g
 不是可用理由；因许可被排除的资产 MUST 改列其真正违反的门槛。
 
 #### Scenario: 实测数字与差异归因
+- **WHEN** 采纳上游资产或登记其差异
+- **THEN** MUST 附今日实测的通过与差异数字、把差异归因到具体层，且临时探针 MUST 在判定后删除
+
 
 MUST 采纳的资产 MUST 附实测数字（今日直接通过的用例数与差异聚类），实测探针 MUST 在判定
 完成后删除。差异 MUST 归因到具体层（本仓 / 绑定层 / 终端上游），MUST NOT 以「上游行为不同」
@@ -755,6 +761,9 @@ MUST NOT 把逐份结论只留在归档变更里。
 MUST NOT 以概括表述代替逐项判定。
 
 #### Scenario: 语料资产逐项判定
+- **WHEN** 判定某上游语料资产是否采纳
+- **THEN** MUST 按下表给出判定与可复核依据，采纳规模 MUST 以仍可读取的输入为准
+
 
 | 资产 | 判定 | 可复核依据 |
 | --- | --- | --- |
@@ -812,6 +821,9 @@ MUST NOT 以概括表述代替逐项判定。
 条目，MUST NOT 以「未声明」笼统代替；错裁 MUST 按事实更正并保留更正前后结论。
 
 #### Scenario: 功能面逐条裁定
+- **WHEN** 生态扫描命中某个功能面
+- **THEN** MUST 按下表给出出处与判定；`DESIGN.md` 未声明者 MUST 记为不立项
+
 
 | 功能面 | 出处 | 判定 |
 | --- | --- | --- |
@@ -866,6 +878,9 @@ MUST NOT 以概括表述代替逐项判定。
 MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 #### Scenario: 反面做法点名与归属
+- **WHEN** 评审参考实现的具体做法
+- **THEN** MUST 按表点名出处并标明可参照或不得反向采纳
+
 
 | 项 | 出处 | 判定与依据 |
 | --- | --- | --- |
@@ -903,6 +918,9 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 使门禁的判定以基线为准而非以「无输出」为准。
 
 #### Scenario: 实测基线与验收判据
+- **WHEN** 记录规范要求但尚未落地的门禁项
+- **THEN** MUST 给出规范依据、落地方案与当次实测基线，不得以计划代替实测
+
 
 | 项 | 规范依据 | 落地方案（未实施） |
 | --- | --- | --- |
@@ -981,6 +999,9 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 条目写成已解决，也 MUST NOT 因「做不到」而删除条目。
 
 #### Scenario: 未闭合条目的去向
+- **WHEN** 审计遗留未闭合条目
+- **THEN** MUST 按下表登记维持不处理的理由；覆盖缺口 MUST 显式记为缺口，MUST NOT 冒充已覆盖
+
 
 | 项 | 判定与依据 |
 | --- | --- |
@@ -1027,6 +1048,9 @@ MUST 已在索引行内可读到；满足该条件后报告本体 MUST 可被删
 承接，MUST NOT 因文档已删而让结论失去落点。
 
 #### Scenario: 索引外的补充事实
+- **WHEN** 引用生态扫描得出的判断
+- **THEN** MUST 使用下文保留的事实，MUST NOT 引用已退役的研究报告原文
+
 
 生态扫描中仍作为判断依据保留的事实：跨 25 仓扫描 `wgpu` 零命中、完整 GPU 终端渲染
 路径仅本仓；Canvas 逐格体系在 CJK 性能上先天不足，Termux 与 ghostty 均已批注

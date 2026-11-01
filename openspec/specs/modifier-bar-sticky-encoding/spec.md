@@ -45,6 +45,9 @@ MUST 按 ghostty `src/input/function_keys.zig` 的 Enter 条目上报 `CSI 27;mo
 
 #### Scenario: 仅 Alt 回车的 ESC 前缀
 
+- **WHEN** 按住 Alt 再按回车
+- **THEN** 载荷 MUST 是 ESC 前缀加 CR（`\x1b\r`），MUST NOT 发 LF
+
 仅 Alt 时 MUST 为 ESC 前缀加 CR。
 
 Shift+Enter MUST NOT 走 LF：LF 在 raw 模式下同样被读成 Ctrl+J 即字母 j，
@@ -123,6 +126,9 @@ wezterm `termwiz/src/input.rs` 的 Alt+Tab → `ESC TAB`）：
 | Shift+Alt | `CSI 27;4;9~` |
 
 #### Scenario: 越界形态不得出现
+
+- **WHEN** Tab 与修饰键组合被编码
+- **THEN** MUST NOT 发出 `CSI 9;mod~` 这一无参考实现使用的形态
 
 MUST NOT 发出 `CSI 9;mod~`：该形态既不是 xterm 的 `CSI 27;mod;9~`，
 也不是其 `formatOtherKeys` 变体 `CSI 9;mod u`，无任何参考实现使用。

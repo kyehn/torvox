@@ -25,6 +25,9 @@ Ghostty，网格未变的行占绝大多数；`RenderState` 由上游持有跨�
 
 #### Scenario: 迭代器生命周期的显式声明
 
+- **WHEN** 跨函数传递渲染状态与行/格迭代器
+- **THEN** 三者 MUST 声明与 `Terminal<'alloc, 'cb>` 相同的具名生命周期 `'alloc`；迭代器创建失败 MUST 在 VT 线程启动阶段暴露，MUST NOT 延后到首次渲染才出声
+
 以引用的形式跨函数传递这些对象时，MUST 为迭代器声明同一个具名生命周期
 （`RenderState<'alloc>`、`RowIterator<'alloc>`、`CellIterator<'alloc>`，与
 `Terminal<'alloc, 'cb>` 的 `'alloc` 对齐）。上游 `Terminal` 对 `'alloc` 不变，

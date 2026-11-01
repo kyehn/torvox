@@ -231,6 +231,9 @@ docId 含 `/` 且需经 URI 编解码往返，平台对每次访问先执行 `en
 
 #### Scenario: 树根前缀别名与链接语义
 
+- **WHEN** 外部文件管理器经树 URI 传入带树根前缀的 docId（如 `terminal_home/nix.conf`）
+- **THEN** 解码 MUST 先按精确路径寻址，仅当精确路径不存在且去前缀后仍在根内时接受别名，返回的 docId MUST 恒为无前缀的行内形式
+
 树根前缀别名：外部文件管理器经树 URI 寻址时，传进来的 docId 可能带上树根前缀
 （`terminal_home/nix.conf`），而本提供者行内只发行无前缀的相对路径。解码 MUST 先按精确路径
 寻址（家目录里真有 `terminal_home` 子目录时，其行内地址不受影响）；仅当精确路径不存在

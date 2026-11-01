@@ -373,6 +373,9 @@ MUST NOT 因此改变。备用屏状态 MUST 随每帧渲染结果一并上报�
 
 #### Scenario: 以网格收缩兑现适应窗口大小
 
+- **WHEN** 备用屏下输入法弹出且终端位移为 0
+- **THEN** 网格高度 MUST 扣除输入法遮挡并防抖后下发一次 SIGWINCH，MUST 只重算网格、MUST NOT 重配交换链；主屏 MUST NOT 扣遮挡
+
 **位移为 0 MUST 同时以网格收缩兑现「适应窗口大小」**：窗口是 `adjustNothing`，
 Surface 尺寸全程不变，故备用屏下 MUST 把输入法遮挡计入网格高度
 （`rows = floor((surface − ModifierBar − 输入法遮挡) / cellHeight)`），使全屏 TUI
