@@ -1,12 +1,14 @@
 # 代码与规范差异审计
 
-审计日期：2026-10-31。范围：`main`（含本轮从 `wb` / `wb2` 合入的提交）与工作区改动。
+审计日期：2026-10-31（第 1–5 轮）、2026-11-01（第 6 轮）。范围：`main`（含本轮从 `wb` /
+`wb2` 合入的提交）与工作区改动。
 依据：`docs/specification/` 全部文档；`openspec/specs` 作为次级规范一并核对。代码位置用
 文件与符号表示，不写行号。
 
 ## 结论
 
-- 配置面：`termux.properties` 实解析 16 个键，`docs/specification/config.md` 与 `PROHIBITED.md` 现已全部收录；
+- 配置面：`termux.properties` 实解析 20 个键（16 个标量键 + 4 个 `shortcut.*`），
+  `docs/specification/config.md` 与 `PROHIBITED.md` 现已全部收录；
   代码与规范对齐，不再是「规范未收录」。
 - `colors.properties` 解析已按用户指令移除，实现与 `config.md`、`PROHIBITED.md` 一致。
 - 修饰键栏默认布局：**与 Termux 上游一致**（上游 v0.119.0-beta.3 的
@@ -33,13 +35,13 @@
 - 本轮清掉了 `openspec/specs` 里已删除功能的残留条款（响铃、光标闪烁、会话切换提示），
   使次级规范重新与实现对齐；其余差异按现状登记，未擅自删除功能。
 
-## 配置键面：16 个键（与 config.md 对齐）
+## 配置键面：20 个键（与 config.md 对齐）
 
-`docs/specification/config.md` 与 `PROHIBITED.md` 现已收录全部 16 个键；代码解析与文档一致，
+`docs/specification/config.md` 与 `PROHIBITED.md` 现已收录全部 20 个键；代码解析与文档一致，
 不再是「三键限制」下的违规。下表仅作现状登记，键面本身已无规范差异。
 
-`TermuxPropertiesParser.parse` 解析下表 16 个键，`TermuxProperties` 为每个键保留字段，
-并各有消费方。
+`TermuxPropertiesParser.parse` 解析下表 20 个键（16 个标量键，加上 `SessionShortcut.entries`
+的 4 个 `shortcut.*` 键），`TermuxProperties` 为每个键保留字段，并各有消费方。
 
 | 键 | 实际作用 | 与规范的关系 |
 | --- | --- | --- |
@@ -56,13 +58,17 @@
 | `terminal-toolbar-height` | 修饰键栏高度倍率 | config.md 已收录 |
 | `extra-keys-style` | 键帽字形档位 | config.md 已收录 |
 | `extra-keys` | 键栏布局（行、键位、字形、`display` 覆盖、`popup` 次级键、宏播放、键名别名） | config.md 已收录；默认布局与 Termux 上游一致（见下节） |
+| `shortcut.create-session` | 实体键盘 Ctrl 组合键新建会话 | 允许（config.md 已收录） |
+| `shortcut.next-session` | 实体键盘 Ctrl 组合键切到下一会话 | 允许（config.md 已收录） |
+| `shortcut.previous-session` | 实体键盘 Ctrl 组合键切到上一会话 | 允许（config.md 已收录） |
+| `shortcut.rename-session` | 解析时明确忽略并记警告（本仓无重命名 UI） | config.md 已收录（不实施） |
 | `back-key` | 返回键改发 ESC | config.md 已收录 |
 | `volume-keys` | 音量减改为虚拟 Ctrl | config.md 已收录 |
 | `soft-keyboard-toggle-behaviour` | 键盘键改为启用/禁用输入法 | config.md 已收录 |
 
 证据：`TermuxPropertiesParser.parse` 的 `boolean`、`integer`、`float`、`choice`
-与 `extraKeys` 分支；`TermuxProperties` 的字段与默认值；消费方分别是 `MainActivity`
-（`ctrlSpaceWorkaround`、`backKey`、`volumeKeys`）、
+与 `extraKeys`、`sessionShortcuts` 分支；`TermuxProperties` 的字段与默认值；消费方分别是
+`MainActivity`（`ctrlSpaceWorkaround`、`backKey`、`volumeKeys`、`sessionShortcuts`）、
 `TerminalScreen`（`useFullscreenWorkaround`、`fullscreen`、`hideSoftKeyboardOnStartup`、
 `extraKeys*`、`terminalMargin*Dp`、`softKeyboardToggleBehaviour`）、`SystemBars`
 （`fullscreen`）、`TerminalRuntime`（`terminalToolbarHeightScale`、`extraKeys`）。
@@ -239,10 +245,33 @@
 - `wb` 的 spotless 排版提交与分支自带的审计文档不并入：前者只改格式，后者是分支当时的
   阶段性结论，本文件取而代之。
 
+## 第 6 轮发现的三处漂移（已订正）
+
+第 6 轮（2026-11-01）全量通读 Rust 与 Kotlin 源码后，逐项复核「规范—文档—实现」三方对应，
+发现三处漂移，均已订正；无代码改动。
+
+1. **次级规范引用了不存在的目录**：`openspec/specs/upstream-alignment/spec.md` 三处仍称
+   有 6 份综合研究报告「现役在 `docs/research/`」，但该目录已随提交 `f8b1d762`
+   （`chore: 移除 docs/research 并收敛 STATUS 与 semgrep 覆盖配置`）整体删除。
+   同一规范另有 `termux-app.md` 索引行，把上游 `termux.properties` 归入「不适用」的理由写作
+   「`PROHIBITED.md` 明禁解析该文件」——现行 `PROHIBITED.md` 只禁**未列入 `config.md` 的键**，
+   且本仓已按 `termux-configuration` 解析了允许的 20 个键。
+   已由 openspec 变更 `2026-11-01-fix-research-index-retirement-drift` 订正：
+   研究报告口径改为「全部 111 份已整体退役，索引表是唯一常驻载体」，
+   `termux-app.md` 索引行的判定理由按现行禁令与现行实现更正。
+2. **本文件的键面计数漏计**：「配置键面」小节写「16 个键」，漏计 4 个 `shortcut.*` 键，
+   实为 20 个；而同一文件的结论节已经描述了 `shortcut.*` 的实现——文件内部已不自洽。
+   已更正小节标题、表内补四行，并同步更正结论节口径。
+3. **本文件的审计轮次记录顺序错乱**：第 1 轮条目被排在第 2–5 轮之后且孤立成段，
+   轮次是时间线，倒序不可读。已按轮次升序重排。
+
 ## 审计轮次记录
-- 第 2 轮（2026-10-31）：复核 TermuxProperties 键面与解析器，16 个键与规范一致；`cargo fmt --check` 通过、openspec 41/41 通过。无代码修改。
+
+轮次按推进顺序排列；每轮只记当轮新增差异，已订正的旧结论在对应条目里注明更正。
+
+- 第 1 轮（2026-10-31）：全量复核代码与规范文档，未发现新增差异。验证：`cargo fmt --check` 通过、`openspec validate --all --strict` 41/41 通过、`testDebugUnitTest` 762 用例通过（含 native 产物）。无代码修改。
+- 第 2 轮（2026-10-31）：复核 TermuxProperties 键面与解析器；`cargo fmt --check` 通过、openspec 41/41 通过。无代码修改。（第 6 轮更正：本轮原文写「16 个键与规范一致」，但 `shortcut.*` 四个键当时已落地且已收录于 `config.md`，键面实为 20 个。）
 - 第 3 轮（2026-10-31）：复核禁止功能项（MCP/termux-api/termux-exec/proot/X11/Shizuku 等）在代码中无实现；仅注释提及 termux-exec 的 login 探针。无代码修改。
 - 第 4 轮（2026-10-31）：复核字体系统与 fonts.xml 解析链路、AndroidManifest applicationId 与 SDK 版本，与规范一致。无代码修改。
 - 第 5 轮（2026-10-31）：复核环境变量白名单、nix/store 引用、Cargo/Gradle 版本与 ABI 过滤，与规范一致。无代码修改。
-
-- 第 1 轮（2026-10-31）：全量复核代码与规范文档，未发现新增差异。验证：`cargo fmt --check` 通过、`openspec validate --all --strict` 41/41 通过、`testDebugUnitTest` 762 用例通过（含 native 产物）。无代码修改。
+- 第 6 轮（2026-11-01）：全量通读 Rust 与 Kotlin 源码后复核「规范—文档—实现」三方对应，发现并订正上列三处漂移。无代码修改。
