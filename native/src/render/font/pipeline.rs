@@ -544,6 +544,13 @@ impl FontPipeline {
     /// 或斜体族设为主字体时，fontdb 的查询只会把基底面自己选回来；此时若判为
     /// 「无匹配面」，调用方会在已经是粗/斜的位图上再合成一遍——粗体叠成双粗、
     /// 斜体斜两次，而那正是本函数要避免的结果。
+    ///
+    /// fontdb 的 `query` 是**最佳匹配**而非严格过滤：族内没有粗/斜面时它仍会
+    /// 把某个常规面选回来，且该面的 ID 不一定是基底面——同一字体文件被装进库两次
+    /// （系统扫描一遍、用户字体目录或 `load_font_file` 再装一遍）就属于这种情形，
+    /// 两个 ID 同族同字形、样式都是 Normal。故命中面 MUST 自己带有所请求的样式，
+    /// 否则一律合成：把重复的常规面当成「更贴合的面」会让斜体整段直立显示。
+    ///
     /// 结果记在 `style_face_cache`，使 fontdb 查询每个 (字体, 粗, 斜)
     /// 组合至多执行一次，而非每帧每个样式单元一次。
     pub(crate) fn resolve_style_face(
@@ -576,10 +583,17 @@ impl FontPipeline {
         };
         let matched = font_database.query(&query);
         let result = match matched {
-            // 库里有另一个更贴合的面：用它出真字形，不合成。
-            Some(id) if id != base_id => Some(id),
-            // 查询把基底面自己选回来了（族内没有别的候选）：基底面本身已是粗/斜时
-            // 它就是答案，返回它以跳过合成；否则交给调用方合成。
+            // 命中面确实带有所请求的样式：用它出真字形，不合成。
+            Some(id)
+                if id != base_id
+                    && font_database
+                        .face(id)
+                        .is_some_and(|face| face_has_style(face, bold, italic)) =>
+            {
+                Some(id)
+            }
+            // 基底面自己就是所需的粗/斜面（查询把它或它的同族重复面选了回来）：
+            // 返回基底面以跳过合成，避免在已是粗/斜的位图上再合成一遍。
             Some(_) => base_already_styled.then_some(base_id),
             // 族内连一个候选都没有：只能合成。
             None => None,

@@ -537,3 +537,43 @@ fn glyph_cache_key_distinguishes_subpixel_raster_sizes() {
         "同尺寸必须命中同一条目"
     );
 }
+
+/// 回归钉：同族的**常规**重复面不得被当成斜体面。
+///
+/// fontdb 的 `query` 是最佳匹配而非严格过滤：族内没有斜面时它照样返回某个常规
+/// 面，而同一文件被装进库两次（系统扫描一遍、用户字体目录或 `load_font_file`
+/// 再装一遍）时那个面的 ID 与基底面不同。判据若只看「ID 不同」，斜体就会被换成
+/// 常规位图——斜体整段直立，且不报任何错。
+///
+/// 判别力：删掉 `face_has_style` 复核后，本用例在重复面存在时返回 `Some(重复面)`。
+#[test]
+fn duplicate_regular_face_is_not_taken_as_the_italic_face() {
+    let (mut pipeline, _) = styled_test_pipeline();
+    let primary = pipeline.font_id.expect("管线应有主字体");
+    let bytes = std::fs::read(find_test_font()).expect("测试字体可读");
+    let duplicate = *pipeline
+        .font_system
+        .db_mut()
+        .load_font_source(fontdb::Source::Binary(std::sync::Arc::new(bytes)))
+        .first()
+        .expect("重复装载应产出一个面");
+    assert_ne!(duplicate, primary, "前提：重复装载得到另一个面 ID");
+    let style_of = |id| {
+        pipeline
+            .font_system
+            .db()
+            .face(id)
+            .map(|face| (face.style, face.weight))
+    };
+    assert_eq!(
+        style_of(duplicate),
+        style_of(primary),
+        "前提：重复面与基底面同样式"
+    );
+
+    assert_eq!(
+        pipeline.resolve_style_face(duplicate, false, true),
+        None,
+        "同族没有斜面时只能合成，重复的常规面不得被当成斜面"
+    );
+}
