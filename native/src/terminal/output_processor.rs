@@ -134,11 +134,25 @@ impl ReadScan {
                 }
             }
             ReadState::Esc => {
-                self.buf.push(byte);
                 if byte == b']' {
+                    self.buf.push(byte);
                     self.state = ReadState::EscBracket;
+                } else if byte == 0x1B && self.buf.len() < MAX_SCAN_BYTES {
+                    // `ESC ESC` 是 VT 解析器的「重启转义序列」：第二个 ESC 既不终结前导、
+                    // 也不自成终结符，整段重新从 `Esc` 态开始。故 `ESC ESC ] 5 2 ; c ; ? BEL`
+                    // 在解析器眼里仍是一个合法的 OSC 52 读取请求。
+                    //
+                    // 原实现在此直接 drain 回地面态，于是这条请求既不收割也不应答——
+                    // 远端一直等到超时，而本仓没有任何痕迹。
+                    //
+                    // 保留（而非吐出）前导字节还有第二个必要条件：一旦提前把前导送给 VT，
+                    // 命中后吞掉的后半段会在 VT 侧留下悬挂的 `ESC`，把紧随其后的普通字节
+                    // 当成转义终结符吃掉。上限兜住病态输入（连发 ESC），合法读取请求远短于
+                    // `MAX_SCAN_BYTES`。
+                    self.buf.push(byte);
                 } else {
-                    self.drain(&mut snapshot.filtered);
+                    // 其余字节说明这不是 OSC 52 读取：前导连同本字节原样透传。
+                    self.pass_through(byte, &mut snapshot.filtered);
                 }
             }
             ReadState::EscBracket => {
@@ -349,6 +363,39 @@ mod tests {
             "重置后每个字节都必须按地面态透传"
         );
         assert!(snapshot.clipboard_reads.is_empty());
+    }
+
+    /// `ESC ESC` 是 VT 解析器的转义序列重启：第二个 ESC 不终结前导，故
+    /// `ESC ESC ] 5 2 ; c ; ? BEL` 仍是一个合法的 OSC 52 读取请求，必须照样收割。
+    ///
+    /// 原实现把它 drain 回地面态，于是该请求既不收割也不应答 —— 远端一直等到超时，
+    /// 本仓却没有任何痕迹可查。
+    #[test]
+    fn doubled_escape_prefix_still_yields_a_read_request() {
+        let mut processor = OutputProcessor::new();
+        let snapshot = processor.process(b"\x1b\x1b]52;c;?\x07");
+        assert_eq!(snapshot.clipboard_reads.as_slice(), ["c"]);
+        assert!(
+            snapshot.filtered.is_empty(),
+            "重复 ESC 也属前导，命中后必须连同它一起吞掉（提前漏给 VT 会留下悬挂 ESC）"
+        );
+    }
+
+    /// 连发 ESC 不得让暂存无界增长：超限即吐出已暂存字节并重新开始。
+    #[test]
+    fn repeated_escapes_stay_bounded() {
+        let mut processor = OutputProcessor::new();
+        let input = vec![0x1b_u8; MAX_SCAN_BYTES * 4];
+        let snapshot = processor.process(&input);
+        assert!(snapshot.clipboard_reads.is_empty());
+        assert!(
+            input.starts_with(&snapshot.filtered),
+            "只允许延迟吐出，不得改动字节"
+        );
+        assert!(
+            input.len() - snapshot.filtered.len() <= MAX_SCAN_BYTES,
+            "暂存必须被上限兜住，否则连发的 ESC 会让它无界增长"
+        );
     }
 
     #[test]
