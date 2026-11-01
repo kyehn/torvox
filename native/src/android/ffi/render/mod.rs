@@ -15,6 +15,8 @@ pub(super) use diagnostics::{
     SURFACE_INVALIDATED_BIT, pack_render_sample,
 };
 #[cfg(test)]
+pub(super) use frame::scroll_bookkeeping_offset;
+#[cfg(test)]
 pub(super) use overlay::{
     build_cursor, frame_reflects_scroll, highlight_rows_to_mark, mark_overlay_dirty_rows,
     should_repaint_idle,

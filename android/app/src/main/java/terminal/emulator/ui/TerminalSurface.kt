@@ -1856,19 +1856,39 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var lastImeVisible: Boolean = false
 
     /**
-     * 把本地滚动偏移对齐到 VT 真值（离实时视图多少行）。
-     *
-     * 浏览回滚期间新输出把活动区底边推远，宿主手里的旧偏移随之漂移：回到底边时
-     * 按旧值算出的目标停在底边之上——新输出落在视口之外，终端看上去「死了」；
-     * 选区与搜索高亮的行号也随之错位。真值由原生随帧发布，一次原子读即可取到。
-     *
-     * 只对齐、不当作滚动意图下发：真值与已下发的目标相同时无需再推一次。
+     * 上次重基时的回滚长度：内容在底边增长了多少，滚动偏移就跟着重基多少。
+     * -1 = 尚未重基过（首个基线无从比较，只记录不调整）。
      */
-    private fun syncScrollOffsetFromTruth() {
-        val truth = viewModel?.runtime?.bridge()?.renderedScrollOffset() ?: return
-        if (truth < 0 || truth == scrollOffset) return
-        scrollOffset = truth
-        viewModel?.runtime?.syncScrollOffset(truth)
+    private var scrollbackLengthAtRebase: Int = -1
+
+    /**
+     * 把滚动偏移重基到当前真值口径（离实时视图多少行），返回当前回滚长度。
+     *
+     * 浏览回滚期间新输出把活动区底边推远，同一处内容离底边更远了，偏移必须跟着
+     * 增长，否则会漂移：回到底边时按旧值算出的目标停在底边之上（新输出落在视口
+     * 之外，终端看上去「死了」），滚到回滚区顶端时也会多滚出实际可滚的行数。
+     *
+     * 重基量取回滚长度的增长（内容在底边增长的那部分），不直接抄原生发布的真值：
+     * 真值同时含「视口自己移动」的部分，直接抄会把尚未落地的那一步抹掉——滚动丢步、
+     * 手感发黏。重基只挪基线，用户已请求的那部分原样保留。
+     *
+     * 基线取运行时那份（见 [getScrollOffset]）：运行时是真源，新输出在渲染线程把
+     * 偏移复位为 0（自动贴底），本地字段只是手势期间的镜像。
+     */
+    private fun rebaseScrollOffset(): Int {
+        val scrollbackLen = currentScrollbackLength()
+        val previousLen = scrollbackLengthAtRebase
+        if (previousLen < 0) {
+            scrollbackLengthAtRebase = scrollbackLen
+            return scrollbackLen
+        }
+        val base = viewModel?.runtime?.activeSessionScrollOffset() ?: scrollOffset
+        val rebased = rebasedScrollOffset(base, scrollbackLen, previousLen)
+        scrollbackLengthAtRebase = scrollbackLen
+        if (rebased != scrollOffset) {
+            setScrollOffset(rebased)
+        }
+        return scrollbackLen
     }
 
     // 回滚长度缓存：正常情况下直接读渲染线程随帧发布的原子量（零等待），
@@ -2613,8 +2633,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 并把拖拽柄钉到新视口的顶/底行后同步两个手柄位置。
      */
     private fun stepEdgeScroll(step: Int) {
-        syncScrollOffsetFromTruth()
-        val scrollbackLen = currentScrollbackLength()
+        val scrollbackLen = rebaseScrollOffset()
         val newOffset = (scrollOffset + step).coerceIn(0, scrollbackLen)
         if (newOffset != scrollOffset) {
             setScrollOffset(newOffset)
@@ -2833,10 +2852,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 }
                 if (wheelForwarded) return true
                 if (wheelBridge != null && wheelBridge.isAltScreenActive()) return true
-                // 基线取 VT 真值：浏览期间新输出把活动区底边推远，旧偏移会让本次
-                // 增量算在错误的起点上（回到底边时更会停在底边之上）。
-                syncScrollOffsetFromTruth()
-                val scrollbackLen = currentScrollbackLength()
+                // 基线重基到当前真值口径：浏览期间新输出把活动区底边推远，旧偏移会让
+                // 本次增量算在错误的起点上（回到底边时更会停在底边之上）。
+                val scrollbackLen = rebaseScrollOffset()
                 if (!isScrolling) {
                     isScrolling = true
                     onScrollingStateChanged?.invoke(true)
@@ -2883,8 +2901,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 if (flingBridge != null && flingBridge.isAltScreenActive()) {
                     return true
                 }
-                syncScrollOffsetFromTruth()
-                val scrollbackLen = currentScrollbackLength()
+                val scrollbackLen = rebaseScrollOffset()
                 val absoluteX = kotlin.math.abs(velocityX)
                 val absoluteY = kotlin.math.abs(velocityY)
 
@@ -3302,8 +3319,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     fun scrollToRow(row: Int) {
         stopFlingAnimation()
-        syncScrollOffsetFromTruth()
-        val scrollbackLen = currentScrollbackLength()
+        val scrollbackLen = rebaseScrollOffset()
         val targetOffset = scrollOffsetForRow(row, scrollbackLen)
         if (targetOffset != scrollOffset) {
             setScrollOffset(targetOffset)
@@ -4251,6 +4267,19 @@ internal data class ScrollStep(
     /** 更新后的位移显出量（见 `TerminalSurface.imeShiftRevealPx`）。 */
     val revealPx: Float = 0f,
 )
+
+/**
+ * 滚动偏移重基（纯函数，见 [TerminalSurface.rebaseScrollOffset]）。
+ *
+ * 增长量取回滚长度的增量：内容在底边增长了多少行，同一处内容就离底边远了多少行，
+ * 偏移必须同步增长才仍指向同一处内容。偏移为 0（视口贴底）时不动——贴底时视口随
+ * 新输出下移，偏移恒为 0。
+ */
+internal fun rebasedScrollOffset(offset: Int, scrollbackLength: Int, previousScrollbackLength: Int): Int {
+    val growth = scrollbackLength - previousScrollbackLength
+    if (growth == 0 || offset == 0) return offset
+    return (offset + growth).coerceIn(0, scrollbackLength)
+}
 
 /**
  * 手指滚动增量换算（onScroll 可测核心，同向逻辑）。

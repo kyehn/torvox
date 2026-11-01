@@ -176,6 +176,28 @@ pub(super) fn prepare_render(session_id: u64) -> bool {
     true
 }
 
+/// 滚动记账基线（纯函数）：宿主下一次滚动目标换算增量时用的「当前位置」。
+///
+/// 真值口径 = 回滚长度 - 视口顶行 =「离实时视图多少行」。浏览期间新输出把活动区
+/// 底边推远，宿主手里的旧偏移会漂移——回到底边时按旧值算出的目标停在底边之上
+/// （新输出落在视口外，终端看上去「死了」）。宿主按同一口径重基偏移，两端必须
+/// 同口径，故此处把基线校准到真值。
+///
+/// 只在帧已反映最新滚动请求时校准：滚动在途时该帧仍是旧视口，据此回写会把刚
+/// 下发的目标退回旧值（等于撤销这次滚动），此时保持已下发的目标。
+pub(crate) fn scroll_bookkeeping_offset(
+    frame_request_id: u64,
+    latest_request_id: u64,
+    scrollback_length: u32,
+    viewport_row: u32,
+    current_offset: i64,
+) -> i64 {
+    if !frame_reflects_scroll(frame_request_id, latest_request_id) {
+        return current_offset;
+    }
+    i64::from(scrollback_length) - i64::from(viewport_row)
+}
+
 /// 阶段 2：收集单元数据（仅持会话锁）。
 ///
 /// 有新数据时从通道接收自有的 `CellData`（零拷贝移动）；空闲时只记录事实——
@@ -231,26 +253,21 @@ pub(super) fn collect_frame_data(session_id: u64) -> Result<FrameData, jint> {
                 Ordering::Release,
             );
             let latest_scroll_request_id = session.terminal().latest_scroll_request_id();
-            // 滚动模型以 VT 真值为准：浏览期间新输出把活动区底边推远，宿主手里的
-            // 「离实时视图多少行」若不随之校准就会漂移——回到底边时按旧值算出的
-            // 目标停在底边之上（新输出落在视口外，终端看上去「死了」），选区与
-            // 搜索高亮的行号也随之错位。
-            //
-            // 只在帧已反映最新滚动请求时校准：滚动在途时该帧仍是旧视口，据此回写
-            // 会把刚下发的目标退回旧值（等于撤销这次滚动）。在途期间发布的是
-            // 已下发的目标，宿主读到的永远是可安全采用的当前模型。
-            if frame_reflects_scroll(cursor_info.scroll_request_id, latest_scroll_request_id) {
-                let truth_offset = i64::from(cursor_info.scrollback_length)
-                    - i64::from(cursor_info.viewport_row);
-                session.set_last_scroll_offset(truth_offset);
-            }
-            entry.rendered_scroll_offset.store(
-                i32::try_from(session.last_scroll_offset()).unwrap_or(i32::MAX),
-                Ordering::Release,
-            );
+            // 滚动记账以 VT 真值为准：「离实时视图多少行」= 回滚长度 - 视口顶行。
+            // 浏览期间新输出把活动区底边推远，宿主手里的旧偏移会漂移——回到底边时
+            // 按旧值算出的目标停在底边之上（新输出落在视口外，终端看上去「死了」）。
+            // 宿主按同一口径重基偏移（见 `TerminalSurface.rebaseScrollOffset`），
+            // 两端必须同口径，故此处把记账基线校准到真值。
+            session.set_last_scroll_offset(scroll_bookkeeping_offset(
+                cursor_info.scroll_request_id,
+                latest_scroll_request_id,
+                cursor_info.scrollback_length,
+                cursor_info.viewport_row,
+                session.last_scroll_offset(),
+            ));
             // 视口顶行真值：锚在内容上，浏览期间新输出不移动它。
             // 滚动在途时发布的是帧里真实的 viewport_row（旧视口），宿主读到的是
-            // 可安全采用的当前值——与 rendered_scroll_offset 同一发布节奏。
+            // 可安全采用的当前值。
             entry.rendered_viewport_row.store(
                 i32::try_from(cursor_info.viewport_row).unwrap_or(i32::MAX),
                 Ordering::Release,

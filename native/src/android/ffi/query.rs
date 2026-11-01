@@ -86,29 +86,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedScr
     })
 }
 
-/// 最近一帧的滚动模型：离实时视图多少行（0 = 视口贴底）。首帧尚未取走时为 -1；
-/// 未知会话抛异常（与回滚长度载体一致）。
-///
-/// 宿主拿它做滚动增量与选区行号的基线：浏览期间新输出把活动区底边推远，宿主
-/// 手里的旧值会漂移——回到底边时按旧值算出的目标停在底边之上（新输出不可见）。
-///
-/// 无锁读（原子量）：会话锁可能被 PTY 写入按住数十毫秒，而滚动手势在 UI 线程
-/// 逐事件读这个基线。
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedScrollOffset(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    session_id: jlong,
-) -> jint {
-    jni_export_guard!(&mut unowned_env, RENDERED_SCROLLBACK_NONE, |env| {
-        let Some(offset) = rendered_scroll_offset(session_id as u64) else {
-            throw_session_missing(env, "getRenderedScrollOffset");
-            return Ok(RENDERED_SCROLLBACK_NONE);
-        };
-        offset
-    })
-}
-
 /// 最近一帧的 VT 视口顶部绝对行号（0 = 回滚区顶部）。首帧尚未取走时为 -1；
 /// 未知会话抛异常（与回滚长度载体一致）。
 ///
