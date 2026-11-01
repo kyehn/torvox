@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -442,7 +443,7 @@ private fun BootstrapSectionFromSettings(
     bootstrapProgress: BootstrapProgress?,
     onUrlChanged: (String) -> Unit,
     onRunBootstrap: () -> Unit,
-    onInstallOffline: (android.net.Uri) -> Unit,
+    onInstallOffline: (Uri) -> Unit,
     textColor: Color,
     secondaryText: Color,
     accentColor: Color,
@@ -941,7 +942,7 @@ private fun BootstrapSection(
     bootstrapUrl: String,
     onUrlChanged: (String) -> Unit,
     onRunBootstrap: () -> Unit,
-    onInstallOffline: (android.net.Uri) -> Unit,
+    onInstallOffline: (Uri) -> Unit,
     bootstrapRunning: Boolean,
     bootstrapResult: String?,
     bootstrapProgress: BootstrapProgress?,

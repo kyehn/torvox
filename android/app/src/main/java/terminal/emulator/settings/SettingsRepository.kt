@@ -4,7 +4,10 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
@@ -357,7 +360,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
             bootstrapUrlEditsArmed = false
             // 去重基线一并清掉：数据已被删除，重设同一个 URL 必须真的再写一次。
             lastPersistedBootstrapUrl = null
-            @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+            @OptIn(ExperimentalCoroutinesApi::class)
             bootstrapUrlEdits.resetReplayCache()
         }
     }
@@ -369,7 +372,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     init {
         scope.launch {
-            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            @OptIn(FlowPreview::class)
             bootstrapUrlEdits.debounce(DEBOUNCE_MILLIS).collect { value ->
                 // 落盘失败不得终止收集器：`put` 经 DataStore 做文件 IO，抛出的异常会
                 // 直接结束本 collect，此后用户的所有引导 URL 编辑被静默丢弃（重启后
@@ -383,7 +386,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
                         }
                     }
                 } catch (exception: Exception) {
-                    if (exception is kotlinx.coroutines.CancellationException) throw exception
+                    if (exception is CancellationException) throw exception
                     LogUtil.error(TAG, "bootstrap url edit persist failed", exception)
                 }
             }

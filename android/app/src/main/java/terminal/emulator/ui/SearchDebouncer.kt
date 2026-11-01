@@ -1,5 +1,7 @@
 package terminal.emulator.ui
 
+import android.os.Handler
+
 /** 支持取消的延时任务调度，抽象出来使防抖逻辑可在无 Looper 的 JVM 上单元测试。 */
 interface DebounceScheduler {
     /** 在 [delayMillis] 之后运行 [action]，替换任何待执行的已调度动作。 */
@@ -9,8 +11,8 @@ interface DebounceScheduler {
     fun cancelPending()
 }
 
-/** 由主线程 [android.os.Handler] 支撑的 [DebounceScheduler]；生产 Compose 代码使用。JVM 单元测试不使用它（它们用假调度器）。 */
-class HandlerDebounceScheduler(private val handler: android.os.Handler) : DebounceScheduler {
+/** 由主线程 [Handler] 支撑的 [DebounceScheduler]；生产 Compose 代码使用。JVM 单元测试不使用它（它们用假调度器）。 */
+class HandlerDebounceScheduler(private val handler: Handler) : DebounceScheduler {
     private var pendingRunnable: Runnable? = null
 
     override fun postDelayed(delayMillis: Long, action: () -> Unit) {
