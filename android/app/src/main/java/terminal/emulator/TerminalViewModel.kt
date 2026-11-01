@@ -8,6 +8,7 @@ import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.Surface
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -1008,7 +1009,7 @@ constructor(
                     // 显示侧本就对空值有回落（FontFamilySelectors 取列表首项仅作标签）。
                     publishFontState(bridge)
                 } catch (fatal: IllegalStateException) {
-                    if (fatal is kotlinx.coroutines.CancellationException) throw fatal
+                    if (fatal is CancellationException) throw fatal
                     // 系统 fonts.xml 缺失或不可解析：按 DESIGN 记录日志并崩溃退出，
                     // 不得静默回退为空列表。
                     LogUtil.error("TerminalViewModel", "Fatal: system fonts.xml unreadable", fatal)
@@ -1058,28 +1059,28 @@ constructor(
                     clearUnknownFontFamily(family, applied)
                     publishFontState(bridge)
                     LogUtil.debug("Font", "Font applied: ${_defaultFontName.value}")
-                    kotlinx.coroutines.withContext(TerminalDispatchers.main) {
+                    withContext(TerminalDispatchers.main) {
                         val message =
                             if (applied == false) {
                                 context.getString(R.string.font_apply_failed, family)
                             } else {
                                 context.getString(R.string.font_applied, _defaultFontName.value)
                             }
-                        android.widget.Toast.makeText(
+                        Toast.makeText(
                             context,
                             message,
-                            android.widget.Toast.LENGTH_SHORT,
+                            Toast.LENGTH_SHORT,
                         )
                             .show()
                     }
                 } catch (exception: Exception) {
                     if (exception is CancellationException) throw exception
                     LogUtil.error("Font", "setFontFamily failed for $family", exception)
-                    kotlinx.coroutines.withContext(TerminalDispatchers.main) {
-                        android.widget.Toast.makeText(
+                    withContext(TerminalDispatchers.main) {
+                        Toast.makeText(
                             context,
                             context.getString(R.string.font_apply_failed, exception.message ?: ""),
-                            android.widget.Toast.LENGTH_SHORT,
+                            Toast.LENGTH_SHORT,
                         )
                             .show()
                     }
@@ -1263,11 +1264,11 @@ constructor(
                     LogUtil.error("TerminalViewModel", "clear app data incomplete, undeleted or unreadable: $survivors")
                     return@launch
                 }
-                kotlinx.coroutines.withContext(TerminalDispatchers.main) {
-                    android.widget.Toast.makeText(
+                withContext(TerminalDispatchers.main) {
+                    Toast.makeText(
                         context,
                         context.getString(R.string.clear_app_data_done),
-                        android.widget.Toast.LENGTH_LONG,
+                        Toast.LENGTH_LONG,
                     )
                         .show()
                 }

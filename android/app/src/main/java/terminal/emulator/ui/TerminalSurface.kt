@@ -1,12 +1,18 @@
 package terminal.emulator.ui
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Matrix
+import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.os.SystemClock
 import android.util.AttributeSet
+import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -16,6 +22,10 @@ import android.view.ScaleGestureDetector
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewGroup
+import android.view.WindowInsets.Type
+import android.view.WindowManager
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.CorrectionInfo
 import android.view.inputmethod.CursorAnchorInfo
@@ -26,8 +36,12 @@ import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.view.inputmethod.SurroundingText
 import android.view.inputmethod.TextAttribute
+import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.Magnifier
 import android.widget.PopupWindow
+import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.core.view.ViewCompat
@@ -58,8 +72,12 @@ import terminal.emulator.runtime.computeGridDimensions
 import terminal.emulator.runtime.computeImeSurfaceShift
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.util.runCatchingCancellable
+import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.max
 import kotlin.math.roundToInt
+import android.R as AndroidR
 
 class TerminalSurface
 @JvmOverloads
@@ -81,8 +99,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         try {
             val inputMethodManager =
                 context.getSystemService(
-                    android.content.Context.INPUT_METHOD_SERVICE,
-                ) as android.view.inputmethod.InputMethodManager
+                    Context.INPUT_METHOD_SERVICE,
+                ) as InputMethodManager
             inputMethodManager.hideSoftInputFromWindow(windowToken, 0)
         } catch (_: Exception) {
             // 视图已拆除——忽略。
@@ -195,7 +213,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var selectionMenuPopup: PopupWindow? = null
 
     /** 菜单条视图，与 [selectionMenuPopup] 同生命周期（原地换条目时复用，见 [showSelectionMenu]）。 */
-    private var selectionMenuBar: android.widget.LinearLayout? = null
+    private var selectionMenuBar: LinearLayout? = null
 
     /**
      * 菜单窗口里已建好的条目文案。条目集不变就什么都不动；变了（例如剪贴板由空变
@@ -270,8 +288,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             existing.update(
                 windowLocation[0] + anchor.first,
                 windowLocation[1] + anchor.second,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
             )
             LogUtil.debug(
                 TAG,
@@ -289,8 +307,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val popup =
             PopupWindow(
                 menuBar,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
             )
                 .apply {
                     isOutsideTouchable = false
@@ -298,7 +316,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     setBackgroundDrawable(null)
                     setAnimationStyle(0)
                     setWindowLayoutType(
-                        android.view.WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL,
+                        WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL,
                     )
                 }
         try {
@@ -406,12 +424,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         } catch (_: IllegalArgumentException) {
             return
         }
-        val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT)
+        val scheme = uri.scheme?.lowercase(Locale.ROOT)
         if (scheme != "http" && scheme != "https") return
         try {
             val intent =
-                android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
-                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                Intent(Intent.ACTION_VIEW, uri)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         } catch (exception: Exception) {
             LogUtil.warn(TAG, "openSelectionAsLink: no handler", exception)
@@ -422,18 +440,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 深色胶囊工具栏，每个动作用一个可点击标签承载（创建窗口时用；
      * 已在屏幕上的菜单原地换条目走 [fillMenuBar]）。
      */
-    private fun buildMenuBar(actions: List<Pair<String, () -> Unit>>): android.widget.LinearLayout {
-        val menuBar = android.widget.LinearLayout(context)
+    private fun buildMenuBar(actions: List<Pair<String, () -> Unit>>): LinearLayout {
+        val menuBar = LinearLayout(context)
         fillMenuBar(menuBar, actions)
         return menuBar
     }
 
     /** 把 [actions] 装进 [menuBar]：先清空再重建按钮，窗口与背景复用（见 [showSelectionMenu]）。 */
-    private fun fillMenuBar(menuBar: android.widget.LinearLayout, actions: List<Pair<String, () -> Unit>>) {
+    private fun fillMenuBar(menuBar: LinearLayout, actions: List<Pair<String, () -> Unit>>) {
         val density = resources.displayMetrics.density
         fun densityPixels(value: Int): Int = (value * density + HALF_PIXEL_OFFSET).toInt()
-        menuBar.orientation = android.widget.LinearLayout.HORIZONTAL
-        val backgroundDrawable = android.graphics.drawable.GradientDrawable()
+        menuBar.orientation = LinearLayout.HORIZONTAL
+        val backgroundDrawable = GradientDrawable()
         backgroundDrawable.setColor(resolveThemeColor(R.attr.colorSurface, R.color.material_color_surface))
         backgroundDrawable.cornerRadius = densityPixels(MENU_BAR_CORNER_RADIUS_DP).toFloat()
         menuBar.background = backgroundDrawable
@@ -441,7 +459,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         menuBar.removeAllViews()
         for ((label, action) in actions) {
             val item =
-                android.widget.TextView(context).apply {
+                TextView(context).apply {
                     text = label
                     setTextColor(resolveThemeColor(R.attr.colorOnSurface, R.color.material_color_on_surface))
                     textSize = MENU_ITEM_TEXT_SIZE_SP
@@ -466,12 +484,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 颜色资源，Kotlin 侧不出现任何字面颜色值。
      */
     private fun resolveThemeColor(attribute: Int, fallbackColorResource: Int): Int {
-        val typedValue = android.util.TypedValue()
+        val typedValue = TypedValue()
         if (!context.theme.resolveAttribute(attribute, typedValue, true)) {
-            return androidx.core.content.ContextCompat.getColor(context, fallbackColorResource)
+            return ContextCompat.getColor(context, fallbackColorResource)
         }
         return if (typedValue.resourceId != 0) {
-            androidx.core.content.ContextCompat.getColor(context, typedValue.resourceId)
+            ContextCompat.getColor(context, typedValue.resourceId)
         } else {
             typedValue.data
         }
@@ -1344,16 +1362,16 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
         /**
          * 系统 Material 选区手柄：解析平台主题属性
-         * （android.R.attr.textSelectHandleLeft/Right），
+         * （AndroidR.attr.textSelectHandleLeft/Right），
          * 使手柄形态是框架自带的泪滴形而非自定义矢量图。
          */
-        internal fun resolveSelectionHandleDrawable(left: Boolean): android.graphics.drawable.Drawable? {
+        internal fun resolveSelectionHandleDrawable(left: Boolean): Drawable? {
             val attributes =
                 intArrayOf(
                     if (left) {
-                        android.R.attr.textSelectHandleLeft
+                        AndroidR.attr.textSelectHandleLeft
                     } else {
-                        android.R.attr.textSelectHandleRight
+                        AndroidR.attr.textSelectHandleRight
                     },
                 )
             val typedArray = context.theme.obtainStyledAttributes(attributes)
@@ -1418,7 +1436,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 覆盖层每次重建都晚于菜单，会把菜单压住：菜单被压住时落在条目上的
                     // 点击穿透到终端、被当成「柄位外的轻击」清掉选区（现象：所有菜单
                     // 按钮失效、点击菜单消失）。
-                    setWindowLayoutType(android.view.WindowManager.LayoutParams.TYPE_APPLICATION_PANEL)
+                    setWindowLayoutType(WindowManager.LayoutParams.TYPE_APPLICATION_PANEL)
                     isSplitTouchEnabled = false
                     // focusable=false 使键盘输入继续流向终端，
                     // 同时覆盖层消费其边界内的触摸（由 dispatchTouchEvent 路由）。
@@ -1524,7 +1542,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             dismissPopupQuietly(popup)
         }
 
-        private fun dismissPopupQuietly(popup: android.widget.PopupWindow?) {
+        private fun dismissPopupQuietly(popup: PopupWindow?) {
             if (popup == null) return
             try {
                 popup.dismiss()
@@ -1538,8 +1556,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 失败与「本就无需拆除」在日志里完全无法区分（禁止空 catch / 不隐藏错误）。
             try {
                 val windowManager =
-                    context.getSystemService(android.content.Context.WINDOW_SERVICE)
-                        as android.view.WindowManager
+                    context.getSystemService(Context.WINDOW_SERVICE)
+                        as WindowManager
                 windowManager.removeViewImmediate(popup.contentView)
             } catch (exception: Exception) {
                 LogUtil.warn(TAG, "dismissPopupQuietly: forced remove failed", exception)
@@ -1555,11 +1573,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
          *   使轻击/滑动/双指缩放手势与没有覆盖层时完全一致。
          */
         private inner class HandleOverlayLayout(
-            private val leftDrawable: android.graphics.drawable.Drawable,
-            private val rightDrawable: android.graphics.drawable.Drawable,
+            private val leftDrawable: Drawable,
+            private val rightDrawable: Drawable,
             val handleWidth: Int,
             val handleHeight: Int,
-        ) : android.widget.FrameLayout(context) {
+        ) : FrameLayout(context) {
             private val startView = HandleView(leftDrawable)
             private val endView = HandleView(rightDrawable)
 
@@ -1569,14 +1587,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             var streamForwarding: Boolean = false
                 private set
 
-            private var popupDeferredDismiss: android.widget.PopupWindow? = null
+            private var popupDeferredDismiss: PopupWindow? = null
             var onStreamEnded: (() -> Unit)? = null
 
-            fun dismissOnStreamEnd(popup: android.widget.PopupWindow?) {
+            fun dismissOnStreamEnd(popup: PopupWindow?) {
                 popupDeferredDismiss = popup
             }
 
-            fun consumeDeferredDismiss(): android.widget.PopupWindow? {
+            fun consumeDeferredDismiss(): PopupWindow? {
                 val pendingPopup = popupDeferredDismiss
                 popupDeferredDismiss = null
                 return pendingPopup
@@ -1704,12 +1722,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 return true
             }
 
-            private inner class HandleView(private val drawable: android.graphics.drawable.Drawable) : View(context) {
+            private inner class HandleView(private val drawable: Drawable) : View(context) {
                 override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                     setMeasuredDimension(handleWidth, handleHeight)
                 }
 
-                override fun onDraw(canvas: android.graphics.Canvas) {
+                override fun onDraw(canvas: Canvas) {
                     drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
                     drawable.draw(canvas)
                 }
@@ -2096,7 +2114,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 把一次滚动增量落到视图：偏移、位移显出量、渲染器亚行余量。
      *
      * 拖动与惯性共用这一条管道（见 [applyScrollDistance]），两者的区别只在增量
-     * 从哪来——手指还是 `OverScroller`。分成两份实现时惯性那份会漏掉边界丢弃与
+     * 从哪来——手指还是 `android.widget.OverScroller`。分成两份实现时惯性那份会漏掉边界丢弃与
      * 显出量，内容按整行跳（STATUS ⑩）。
      */
     private fun applyScrollStep(step: ScrollStep, scrollbackLen: Int) {
@@ -2378,7 +2396,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val reachedBound = clampedPx != targetPx
         val settled =
             elapsedMs >= FLING_MAX_DURATION_MS ||
-                kotlin.math.abs(flingOffsetPx(flingVelocityPxPerS, FLING_MAX_DURATION_MS) - travelPx) < FLING_SETTLE_PX
+                abs(flingOffsetPx(flingVelocityPxPerS, FLING_MAX_DURATION_MS) - travelPx) < FLING_SETTLE_PX
         if (reachedBound || settled) {
             finishFlingAnimation()
             return
@@ -2491,19 +2509,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
         // 协议白名单：终端输出不可信，故只允许打开 http(s)
         // （阻止 OSC 8 中的 intent:/file:/javascript:）。
-        val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT)
+        val scheme = uri.scheme?.lowercase(Locale.ROOT)
         if (scheme != "http" && scheme != "https") {
             LogUtil.warn(TAG, "openLinkAt: rejected non-http(s) scheme: $scheme")
             return false
         }
         return try {
             val intent =
-                android.content
-                    .Intent(android.content.Intent.ACTION_VIEW, uri)
-                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                Intent(Intent.ACTION_VIEW, uri)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
             true
-        } catch (missingHandler: android.content.ActivityNotFoundException) {
+        } catch (missingHandler: ActivityNotFoundException) {
             LogUtil.warn(TAG, "openLinkAt: no handler for $uri", missingHandler)
             false
         } catch (blockedError: SecurityException) {
@@ -2833,7 +2850,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     val pointerYPx = secondEvent.y
                     // 走满一个单元格高度 = 一个滚轮行，与下方的本地滚动映射
                     // （distanceY / cellHeight）一致。
-                    val lines = kotlin.math.max(1, kotlin.math.abs((distanceY / cellHeight).toInt()))
+                    val lines = max(1, abs((distanceY / cellHeight).toInt()))
                     // 手指上移（distanceY > 0）= 滚轮上（3，较旧）；手指下移 = 滚轮下（4，较新）
                     val button = if (distanceY > 0f) 3 else 4
                     val cappedLines = lines.coerceAtMost(MAX_WHEEL_LINES_PER_GESTURE)
@@ -2902,8 +2919,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     return true
                 }
                 val scrollbackLen = rebaseScrollOffset()
-                val absoluteX = kotlin.math.abs(velocityX)
-                val absoluteY = kotlin.math.abs(velocityY)
+                val absoluteX = abs(velocityX)
+                val absoluteY = abs(velocityY)
 
                 // 横向 fling 消费掉但不做任何事：DESIGN 只要求修饰键栏左右滑动，
                 // 终端内容区的横向甩动没有声明语义。此前它被映射成向运行中程序注入
@@ -2978,7 +2995,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // minSdk 33：可直接使用平台的 WindowInsetsController；ViewCompat 的辅助方法已弃用。
                         val controller = windowInsetsController
                         controller?.hide(
-                            android.view.WindowInsets.Type.ime(),
+                            Type.ime(),
                         )
                     }
                     return true
@@ -2994,7 +3011,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 post {
                     val controller = windowInsetsController
                     controller?.show(
-                        android.view.WindowInsets.Type.ime(),
+                        Type.ime(),
                     )
                 }
                 return true
@@ -3149,7 +3166,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         holder.addCallback(this)
         // SurfaceView 在窗口中开了孔；终端内容由原生渲染器绘制到 Surface，
         // 其余一切（工具栏、覆盖层）留在普通视图层级中。
-        holder.setFormat(android.graphics.PixelFormat.RGBA_8888)
+        holder.setFormat(PixelFormat.RGBA_8888)
         isFocusable = true
         isFocusableInTouchMode = true
         setWillNotDraw(false)
@@ -3202,7 +3219,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     if (hasWindowFocus()) {
                         startupKeyboardRunnable = null
                         requestFocus()
-                        windowInsetsController?.show(android.view.WindowInsets.Type.ime())
+                        windowInsetsController?.show(Type.ime())
                         return
                     }
                     if (startupKeyboardAttempts++ >= STARTUP_KEYBOARD_ATTEMPTS) {
@@ -3700,7 +3717,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // `(1,6)-(1,10)` → `(1,6)-(1,7)`），菜单随选区重锚走位，
                     // 用户点下去的一瞬正好点空——表象即「菜单按钮全部失效」。
                     if (!longPressDragStarted) {
-                        val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+                        val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
                         val deltaX = event.x - longPressStartX
                         val deltaY = event.y - longPressStartY
                         longPressDragStarted = deltaX * deltaX + deltaY * deltaY > touchSlop * touchSlop
@@ -4392,7 +4409,7 @@ internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, spToPxScale
  * 终值与基准差值超过阈值才持久化，否则撤销预览恢复基准。
  */
 internal fun zoomSettledOnNewSize(baseFontSizeSp: Float, finalSizeSp: Float): Boolean =
-    kotlin.math.abs(finalSizeSp - baseFontSizeSp) > ZOOM_FONT_SIZE_EPSILON_SP
+    abs(finalSizeSp - baseFontSizeSp) > ZOOM_FONT_SIZE_EPSILON_SP
 
 /**
  * ACTION_MULTIPLE 的字符载荷。

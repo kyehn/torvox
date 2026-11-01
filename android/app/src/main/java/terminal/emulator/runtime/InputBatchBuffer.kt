@@ -1,9 +1,12 @@
 package terminal.emulator.runtime
 
+import android.os.Handler
+import android.os.Looper
 import android.view.Choreographer
 import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * 把 PTY 写入按帧合并为一块，使输入法输入避开逐字节的原生调用路径。
@@ -34,7 +37,7 @@ class InputBatchBuffer(
     private var frameCallback: Choreographer.FrameCallback? = null
     private var scheduled = false
     private var bufferedSessionId = 0L
-    private val fallbackHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val fallbackHandler = Handler(Looper.getMainLooper())
     private val fallbackFlush = Runnable { flush() }
 
     /**
@@ -132,7 +135,7 @@ class InputBatchBuffer(
                     LogUtil.error("InputBatchBuffer", "PTY write failed", exception)
                 }
             }
-        } catch (exception: java.util.concurrent.RejectedExecutionException) {
+        } catch (exception: RejectedExecutionException) {
             // 已调用 close()（视图已分离）；待处理输入被丢弃。必须记日志：
             // 静默丢弃会让输入与粘贴在没有任何症状的情况下彻底失效。
             LogUtil.warn("InputBatchBuffer", "PTY write rejected: batch buffer closed", exception)

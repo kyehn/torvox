@@ -3,8 +3,12 @@
 
 package terminal.emulator.ui
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.view.WindowInsets.Type
+import android.view.inputmethod.InputMethodManager
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -27,6 +31,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -37,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -57,13 +64,16 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
+import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.SearchMatchRange
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.selectionEndpoints
@@ -72,6 +82,7 @@ import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
+import java.util.concurrent.atomic.AtomicReference
 
 // toggleKeyboard lambda 在抽屉完全关闭时已跳过延迟路径；
 // 抽屉打开时，50ms 足以让遮罩轻击在输入法与关闭动画竞争前生效。
@@ -94,7 +105,7 @@ private val searchQueryMaxLength: Int by lazy {
     // 原生库缺失时 NativeBridge 的类初始化仍会成功（它只记日志），
     // 但 external 方法的链接会抛 UnsatisfiedLinkError——那是 Error 不是 Exception，
     // 会从 onQueryChange 回调一路逃到全局处理器而崩掉进程。故显式设防。
-    val bridge = terminal.emulator.bridge.NativeBridge
+    val bridge = NativeBridge
     if (!bridge.isNativeLoaded()) {
         0
     } else {
@@ -119,7 +130,7 @@ private data class SearchState(
         get() = resultCount > 0
 }
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TerminalScreen(
     modifier: Modifier = Modifier,
@@ -155,7 +166,7 @@ fun TerminalScreen(
             )
         }
     val isSettingsDark =
-        resolveAppDarkMode(settings.appThemeMode, androidx.compose.foundation.isSystemInDarkTheme())
+        resolveAppDarkMode(settings.appThemeMode, isSystemInDarkTheme())
     // `soft-keyboard-toggle-behaviour = enable/disable` 时 KEYBOARD 键翻转的是
     // 「软键盘可用与否」，而不是当次可见性。状态放在组合里：翻转后 AndroidView 的
     // update 块把新值推给 TerminalSurface，轻点路径据此决定要不要拉起输入法。
@@ -178,7 +189,7 @@ fun TerminalScreen(
     val scope = rememberCoroutineScope()
     // 只在事件回调里读写，从不在组合期读，故不用快照状态——那会让每次赋值多触发
     // 一次无效失效（写入还发生在 Handler 回调里，本就不在快照范围内）。
-    val searchJobHolder = remember { java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?>(null) }
+    val searchJobHolder = remember { AtomicReference<Job?>(null) }
     // 搜索查询的 150ms 真实防抖。SearchDebouncer 把快速连击合并为静默期后的
     // 一次 performSearch，而不是每次击键都触发一次全回滚搜索。
     // 生产调度器跑在主 Looper 上（TerminalSurface 回调在主线程）；
@@ -189,9 +200,9 @@ fun TerminalScreen(
             scheduler = HandlerDebounceScheduler(Handler(Looper.getMainLooper())),
         )
     }
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     var showTextSearch by remember { mutableStateOf(false) }
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val view = LocalView.current
     // 覆盖层（设置页）打开时终端页不得再写系统栏明暗：设置页与终端页同处一棵
     // 组合树，各自都写的话谁最后重组谁赢——被遮住的那一页也会把图标改成另一套，
@@ -224,23 +235,23 @@ fun TerminalScreen(
     // 给一声 Toast；没有提示的话，再按一次看起来就像没反应。
     val toggleKeyboard: () -> Unit = {
         val inputMethodManager =
-            context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-                as android.view.inputmethod.InputMethodManager
+            context.getSystemService(Context.INPUT_METHOD_SERVICE)
+                as InputMethodManager
         if (softKeyboardBehaviour == SoftKeyboardToggleBehaviour.ENABLE_DISABLE) {
             softKeyboardEnabled = !softKeyboardEnabled
             if (!softKeyboardEnabled) {
                 inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
             }
-            android.widget.Toast.makeText(
+            Toast.makeText(
                 context,
                 context.getString(
                     if (softKeyboardEnabled) R.string.soft_keyboard_enabled else R.string.soft_keyboard_disabled,
                 ),
-                android.widget.Toast.LENGTH_SHORT,
+                Toast.LENGTH_SHORT,
             ).show()
         } else {
             val imeCurrentlyVisible =
-                view.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == true
+                view.rootWindowInsets?.isVisible(Type.ime()) == true
             if (imeCurrentlyVisible) {
                 inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
             } else {
@@ -251,7 +262,7 @@ fun TerminalScreen(
                 val deferForDrawer = drawerState.isOpen || drawerState.isAnimationRunning
                 if (!deferForDrawer) {
                     view.windowInsetsController?.show(
-                        android.view.WindowInsets.Type.ime(),
+                        Type.ime(),
                     )
                 } else {
                     // 用户手势之外的 SHOW_IMPLICIT 在 Android 12+ 上会被静默拒绝
@@ -262,7 +273,7 @@ fun TerminalScreen(
                     view.postDelayed(
                         {
                             view.windowInsetsController?.show(
-                                android.view.WindowInsets.Type.ime(),
+                                Type.ime(),
                             )
                         },
                         IME_TOGGLE_DELAY_MS,
@@ -291,8 +302,8 @@ fun TerminalScreen(
                 surfaceRef.value?.cancelResizeDebounces()
                 val inputMethodManager =
                     context.getSystemService(
-                        android.content.Context.INPUT_METHOD_SERVICE,
-                    ) as android.view.inputmethod.InputMethodManager
+                        Context.INPUT_METHOD_SERVICE,
+                    ) as InputMethodManager
                 inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
             } else if (event == Lifecycle.Event.ON_RESUME) {
                 val surface = surfaceRef.value
@@ -431,7 +442,7 @@ fun TerminalScreen(
             // 高亮会整体停在旧行；此处由所有改变可见偏移的路径（手势、程序化滚动、
             // 会话切换与输出引起的贴底复位）同步。手势滚动只在搜索可见时写
             // （见 onScrollChanged），故打开搜索时先补一次当前偏移。
-            val viewportScrollOffset = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            val viewportScrollOffset = remember { mutableIntStateOf(0) }
 
             LaunchedEffect(showTextSearch) {
                 if (showTextSearch) {
@@ -477,7 +488,7 @@ fun TerminalScreen(
                 val bridge = viewModel.runtime.bridge() ?: return
                 // 原生库缺失时 external 链接会抛 UnsatisfiedLinkError（Error 非
                 // Exception）；搜索框可在没有原生的降级态打开，关闭路径必须先设防。
-                if (!terminal.emulator.bridge.NativeBridge.isNativeLoaded()) return
+                if (!NativeBridge.isNativeLoaded()) return
                 try {
                     withContext(TerminalDispatchers.inputOutput) { bridge.searchSetNeedle("") }
                 } catch (error: CancellationException) {
@@ -622,8 +633,7 @@ fun TerminalScreen(
                         val createdSurface = remember { arrayOfNulls<TerminalSurface>(1) }
                         AndroidView(
                             factory = { context ->
-                                terminal.emulator.ui
-                                    .TerminalSurface(context)
+                                TerminalSurface(context)
                                     .apply { setTag("TerminalSurfaceView") }
                                     .also { surface ->
                                         createdSurface[0] = surface
