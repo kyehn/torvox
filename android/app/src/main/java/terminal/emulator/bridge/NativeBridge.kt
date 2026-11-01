@@ -283,8 +283,6 @@ object NativeBridge {
      */
     @JvmStatic external fun getRenderedScrollbackLength(sessionId: Long): Int
 
-    @JvmStatic external fun getRenderedViewportRow(sessionId: Long): Int
-
     /** 会话已应用的滚动偏移（0 = 视口贴底）；未知会话返回 0。 */
     @JvmStatic external fun getSessionScrollOffset(sessionId: Long): Int
 

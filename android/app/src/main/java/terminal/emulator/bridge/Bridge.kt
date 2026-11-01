@@ -701,10 +701,6 @@ class Bridge(private val config: TerminalConfig) {
         queryPort.renderedScrollbackLength()
     }
 
-    fun renderedViewportRow(): Int = onQuery("renderedViewportRow", -1) {
-        queryPort.renderedViewportRow()
-    }
-
     fun cursorViewportPacked(): Long = onQuery("cursorViewportPacked", -1L) {
         queryPort.cursorViewportPacked()
     }
