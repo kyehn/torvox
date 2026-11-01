@@ -251,8 +251,8 @@
 发现三处漂移，均已订正；无代码改动。
 
 1. **次级规范引用了不存在的目录**：`openspec/specs/upstream-alignment/spec.md` 三处仍称
-   有 6 份综合研究报告「现役在 `docs/research/`」，但该目录已随提交 `f8b1d762`
-   （`chore: 移除 docs/research 并收敛 STATUS 与 semgrep 覆盖配置`）整体删除。
+   有 6 份综合研究报告「现役在 `docs/research/`」，但该目录已随一次仓库清理提交（移除 `docs/research` 并收敛 STATUS
+   与 semgrep 覆盖配置）整体删除。
    同一规范另有 `termux-app.md` 索引行，把上游 `termux.properties` 归入「不适用」的理由写作
    「`PROHIBITED.md` 明禁解析该文件」——现行 `PROHIBITED.md` 只禁**未列入 `config.md` 的键**，
    且本仓已按 `termux-configuration` 解析了允许的 20 个键。
@@ -271,7 +271,7 @@
 
 - 第 1 轮（2026-10-31）：全量复核代码与规范文档，未发现新增差异。验证：`cargo fmt --check` 通过、`openspec validate --all --strict` 41/41 通过、`testDebugUnitTest` 762 用例通过（含 native 产物）。无代码修改。
 - 第 2 轮（2026-10-31）：复核 TermuxProperties 键面与解析器；`cargo fmt --check` 通过、openspec 41/41 通过。无代码修改。（第 6 轮更正：本轮原文写「16 个键与规范一致」，但 `shortcut.*` 四个键当时已落地且已收录于 `config.md`，键面实为 20 个。）
-- 第 3 轮（2026-10-31）：复核禁止功能项（MCP/termux-api/termux-exec/proot/X11/Shizuku 等）在代码中无实现；仅注释提及 termux-exec 的 login 探针。无代码修改。
+- 第 3 轮（2026-10-31）：复核禁止功能项（MCP、Termux API 扩展、termux-exec、proot、X11、Shizuku 等）在代码中无实现；仅注释提及 termux-exec 的 login 探针。无代码修改。
 - 第 4 轮（2026-10-31）：复核字体系统与 fonts.xml 解析链路、AndroidManifest applicationId 与 SDK 版本，与规范一致。无代码修改。
-- 第 5 轮（2026-10-31）：复核环境变量白名单、nix/store 引用、Cargo/Gradle 版本与 ABI 过滤，与规范一致。无代码修改。
+- 第 5 轮（2026-10-31）：复核环境变量白名单、Nix 存储路径引用、Cargo/Gradle 版本与 ABI 过滤，与规范一致。无代码修改。
 - 第 6 轮（2026-11-01）：全量通读 Rust 与 Kotlin 源码后复核「规范—文档—实现」三方对应，发现并订正上列三处漂移。无代码修改。
