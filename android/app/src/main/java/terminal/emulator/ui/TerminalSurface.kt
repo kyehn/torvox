@@ -3356,6 +3356,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     fun resetScrollOffset() {
         stopFlingAnimation()
         lastScrollbackQueryNanos = 0L
+        // 重基基线属于会话：沿用上一个会话的回滚长度，切换后的首个手势会把
+        // 「两个会话回滚长度之差」当成内容增长加进偏移，锚到无关行。
+        scrollbackLengthAtRebase = -1
+        // 亚行余量同样属于会话：留着上一次手势的半行，新会话的首个滚动会先跳半行。
+        scrollAccumulatorPx = 0f
+        viewModel?.runtime?.clearScrollRemainder()
         val sessionOffset = viewModel?.runtime?.activeSessionScrollOffset() ?: 0
         if (scrollOffset != sessionOffset) {
             scrollOffset = sessionOffset

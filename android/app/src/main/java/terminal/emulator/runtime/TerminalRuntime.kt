@@ -1101,6 +1101,19 @@ constructor(
         entry.lastSignalNanos = System.nanoTime()
     }
 
+    /**
+     * 清掉活动会话的亚行滚动余量，不把它记成一次滚动手势。
+     *
+     * 会话切换时调用：余量属于旧会话，留着会让新会话的首个滚动先跳半行；
+     * 而 [setScrollRemainderPx] 会给 `lastScrollNanos` 盖戳，那会让新输出在
+     * 随后一段时间里被误判为「用户刚滚动过」而不再自动贴底。
+     */
+    fun clearScrollRemainder() {
+        val entry = sessions[activeSessionId] ?: return
+        entry.scrollRemainderPx = 0f
+        entry.lastSignalNanos = System.nanoTime()
+    }
+
     /** 从 TerminalViewModel 同步 SCROLL 按钮锁，使渲染线程知道新输出时是否自动复位滚动。 */
     fun setScrollActive(active: Boolean) {
         val entry = sessions[activeSessionId] ?: return
