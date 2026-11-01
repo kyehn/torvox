@@ -75,9 +75,9 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_SETTINGS = "terminal.emulator.open_settings"
 
         /**
-         * 仅测试用的 extra：从本地路径安装引导 zip，供 NixExecRealTerminalTest 使用
+         * 仅测试用的 extra：从本地路径安装引导 zip，供引导程序真实终端测试使用
          * ——instrumentation 进程无法写应用 filesDir（SELinux app_data 类目）。
-         * 对应 INSTALL_BOOTSTRAP 广播后门。
+         * 仅 debug 构建响应，release 构建不携带该后门。
          */
         const val EXTRA_INSTALL_BOOTSTRAP = "terminal.emulator.install_bootstrap"
     }
@@ -227,7 +227,7 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
             openSettingsRequests++
         }
-        // 仅测试用的引导安装入口（NixExecRealTerminalTest）。
+        // 仅测试用的引导安装入口（TermuxBootstrapRealTerminalTest）。
         // 仅限 debug 构建：release APK 绝不能携带该安装后门 extra
         // （否则任何应用都能把我们指向任意 zip）。
         if (BuildConfig.DEBUG) {

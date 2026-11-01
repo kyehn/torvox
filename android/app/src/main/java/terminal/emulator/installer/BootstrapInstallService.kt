@@ -17,7 +17,7 @@ import java.io.File
  * 具有独立 android:process 名的进程由应用自身 fork，保留应用自己的 SELinux 域，
  * 因此可以写 filesDir。
  *
- * 由 MainActivity 触发（EXTRA_INSTALL_BOOTSTRAP intent / INSTALL_BOOTSTRAP 广播）。
+ * 由 MainActivity 触发（EXTRA_INSTALL_BOOTSTRAP intent，仅 debug 构建）。
  * 进度与结果均输出到 logcat。
  */
 class BootstrapInstallService : Service() {
