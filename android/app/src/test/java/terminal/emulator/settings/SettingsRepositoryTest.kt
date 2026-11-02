@@ -304,4 +304,24 @@ class SettingsRepositoryTest {
             )
         }
     }
+
+    @Test
+    fun `a dropped edit never lands when writes are rearmed before the debounce expires`() {
+        // 清除应用数据要删目录并重建 prefs，耗时可能长于剩余的防抖窗口。
+        // 清除一结束写入就被重新武装，而那个待写值此刻才到期——它 MUST NOT
+        // 把清除前的 URL 写回去：否则「已清除」的提示是假话，URL 悄悄回来了。
+        val droppedUrl = "https://example.invalid/dropped.zip"
+        kotlinx.coroutines.runBlocking {
+            repository.recordBootstrapUrlEdit(droppedUrl)
+            repository.dropPendingBootstrapUrlEdits()
+            // 清除完成：写入在此刻就已重新武装，而防抖窗口还没到期。
+            repository.rearmBootstrapUrlEdits()
+            Thread.sleep(700)
+            assertEquals(
+                "dropped edit must not land after clear",
+                "",
+                repository.bootstrapUrl.first(),
+            )
+        }
+    }
 }

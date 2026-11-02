@@ -23,6 +23,7 @@ import terminal.emulator.ui.theme.AppThemeMode
 import terminal.emulator.ui.theme.TerminalThemeMode
 import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.util.TerminalDispatchers
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.floor
@@ -329,16 +330,26 @@ constructor(private val provider: SettingsDataStoreProvider) {
      * 应用同寿，页面销毁带不走待写值。
      */
     fun recordBootstrapUrlEdit(url: String) {
-        bootstrapUrlEdits.tryEmit(url)
+        bootstrapUrlEdits.tryEmit(BootstrapUrlEdit(url, bootstrapUrlEditGeneration.get()))
     }
 
     /** 最近一次编辑值（含尚未落盘的），供安装动作直接读取。 */
-    fun latestBootstrapUrlEdit(): String? = bootstrapUrlEdits.replayCache.lastOrNull()
+    fun latestBootstrapUrlEdit(): String? = bootstrapUrlEdits.replayCache.lastOrNull()?.value
 
     private val scope = CoroutineScope(SupervisorJob() + TerminalDispatchers.inputOutput)
 
+    /**
+     * 一次引导 URL 编辑：值 + 它所属的「清除轮次」。
+     *
+     * 轮次（generation）用来区分「清除之前编辑的」与「清除之后编辑的」：清除应用
+     * 数据要删目录并重建 prefs，耗时可能长于剩余的防抖窗口，故清除结束（写入重新
+     * 武装）时那个待写值可能还没到期。轮次让清除之前编辑的值无论何时到期都作废，
+     * 而清除之后的新编辑照常落盘。
+     */
+    private data class BootstrapUrlEdit(val value: String, val generation: Long)
+
     private val bootstrapUrlEdits =
-        MutableSharedFlow<String>(
+        MutableSharedFlow<BootstrapUrlEdit>(
             replay = 1,
             extraBufferCapacity = 1,
             onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -346,11 +357,21 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     /**
      * 防抖写入与清除的互斥：已在途的 `put` 要么先完成（其产物随即被删除），
-     * 要么看到停用而跳过——防抖窗口内（300ms）的编辑不可能在删除之后落地。
+     * 要么看到停用而跳过。
      */
     private val bootstrapUrlEditMutex = Mutex()
 
     @Volatile private var bootstrapUrlEditsArmed = true
+
+    /**
+     * 清除轮次：每次清除应用数据递增一次。
+     *
+     * 停用标志只覆盖「清除进行中」这段窗口，而清除本身要删目录并重建 prefs，耗时
+     * 可能长于剩余的防抖窗口——清除一结束写入就被重新武装，那个清除之前编辑的
+     * 待写值随后到期并落盘，把刚清掉的 URL 又写了回去（「已清除」的提示成了假话）。
+     * 轮次让清除之前的编辑无论何时到期都作废。
+     */
+    private val bootstrapUrlEditGeneration = AtomicLong(0)
 
     /**
      * 最近一次已落盘的引导 URL，用于去重。
@@ -371,6 +392,8 @@ constructor(private val provider: SettingsDataStoreProvider) {
     suspend fun dropPendingBootstrapUrlEdits() {
         bootstrapUrlEditMutex.withLock {
             bootstrapUrlEditsArmed = false
+            // 轮次一并推进：清除之前编辑的待写值就此作废，无论它何时到期。
+            bootstrapUrlEditGeneration.incrementAndGet()
             // 去重基线一并清掉：数据已被删除，重设同一个 URL 必须真的再写一次。
             lastPersistedBootstrapUrl = null
             @OptIn(ExperimentalCoroutinesApi::class)
@@ -393,9 +416,14 @@ constructor(private val provider: SettingsDataStoreProvider) {
                 // 取消是协作式终止，必须照原样重抛。
                 try {
                     bootstrapUrlEditMutex.withLock {
-                        if (bootstrapUrlEditsArmed && value != lastPersistedBootstrapUrl) {
-                            put(Keys.BOOTSTRAP_URL, value)
-                            lastPersistedBootstrapUrl = value
+                        val current = bootstrapUrlEditGeneration.get()
+                        if (
+                            bootstrapUrlEditsArmed &&
+                            value.generation == current &&
+                            value.value != lastPersistedBootstrapUrl
+                        ) {
+                            put(Keys.BOOTSTRAP_URL, value.value)
+                            lastPersistedBootstrapUrl = value.value
                         }
                     }
                 } catch (exception: Exception) {
