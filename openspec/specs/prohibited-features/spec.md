@@ -28,6 +28,12 @@
 - **WHEN** 用户浏览设置与应用功能
 - **THEN** 不存在环境变量编辑项、接收用户环境变量的入口或 `termux.env` 逻辑
 
+#### Scenario: Shell 的标准环境不受影响
+
+- **WHEN** 应用启动 Shell
+- **THEN** Shell 仍拿到 `TERM`、`HOME`、`PATH` 等标准环境变量；它们只用于启动 Shell，
+      不承载用户设置，也不在应用内部传递数据
+
 ### Requirement: 不实现禁止的外部集成
 
 应用 MUST NOT 提供 Model Context Protocol、termux-api、termux-exec、termux-am、
@@ -48,11 +54,11 @@ Termux:Tasker、Termux:Boot 或 Shizuku 集成。实现中 MUST NOT 保留这些
 ### Requirement: 不实现禁止的设置能力
 
 设置页 MUST NOT 提供光标闪烁开关或速度调节、Shell 启动入口状态、修饰键栏布局编辑
-器、自定义终端主题或固定/取消固定侧边面板。实体键盘快捷键设置 MUST NOT 扩展为
-用户可配置的任意绑定界面。
+器、自定义终端主题、固定/取消固定侧边面板的按钮，或实体键盘快捷键的设置界面。
 
 内置主题的预览、Shell 启动入口的路径与参数字符串、以及
-`termux.properties` 中 termux-app 兼容的固定会话快捷键不属于上述禁止项；它们仍
+`termux.properties` 中 termux-app 兼容的固定会话快捷键不属于上述禁止项：后者是配置
+契约里的固定快捷键（`shortcut.create-session` 等），不是用户可配置的绑定界面。它们仍
 分别受主题、Shell 与配置能力的约束。
 
 #### Scenario: 不提供光标闪烁设置

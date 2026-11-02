@@ -5,6 +5,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
@@ -27,13 +29,13 @@ data class TermuxConfiguration(
 /**
  * `~/.termux/termux.properties` 的读取与缓存。
  *
- * 读取时机是显式的 [reloadNow]：首帧前（`TerminalRuntime.start`）与每次设置重下发
- * （`TerminalRuntime.applySettings`）各一次。不用 `FileObserver`——它只覆盖 inotify
- * 可达的路径，用户用 SAF 或 `adb push` 改写时事件未必到达，而重读对所有写入方式都
- * 成立，代价是一次 stat。
+ * 读取时机是显式的 [loadOnce]：应用启动时（`TerminalRuntime.start`）读一次，
+ * 进程存活期间不再重读。不用 `FileObserver`——它只覆盖 inotify 可达的路径，用户用
+ * SAF 或 `adb push` 改写时事件未必到达；而规格要求配置只在启动时读一次，文件之后
+ * 的变化等下次启动生效。
  *
- * 文件不存在是正常状态（等价于全部默认值），不是错误；只有「存在但读不出」才记错误，
- * 且保留上一次成功的结果，不把用户的配置因为一次 IO 失败清空。
+ * 文件不存在是正常状态（等价于全部默认值），不是错误；「存在但读不出」才记错误，
+ * 并回退默认值——半截文件不该让应用崩溃，也不该把配置换成另一套。
  */
 @Singleton
 class TermuxPropertiesRepository
@@ -42,36 +44,44 @@ constructor(@ApplicationContext private val context: Context) {
     private val _configuration = MutableStateFlow(TermuxConfiguration())
     val configuration: StateFlow<TermuxConfiguration> = _configuration.asStateFlow()
 
-    /** 最近一次成功读取的配置：读失败时继续用它，避免界面闪回默认值。 */
-    @Volatile private var lastGood: TermuxConfiguration = TermuxConfiguration()
+    private val loadMutex = Mutex()
 
-    /** 同步重读；调用方已在线程池上时使用。 */
-    suspend fun reloadNow() {
-        withContext(TerminalDispatchers.inputOutput) {
-            val errors = mutableListOf<String>()
-            val home = File(context.filesDir, "home")
-            val propertiesFile = locate(home, "termux.properties")
+    /** 已经读过：启动后不再重读。 */
+    private var loaded = false
 
-            val properties =
-                if (propertiesFile == null) {
-                    TermuxProperties()
-                } else {
-                    readFile(propertiesFile, errors)?.let { text ->
-                        val loaded = TermuxPropertiesParser.parse(text)
-                        errors += loaded.errors.map { "${propertiesFile.name}: $it" }
-                        loaded.properties
-                    } ?: lastGood.properties
-                }
+    /**
+     * 读一次配置；重复调用是空操作。
+     *
+     * 读不到或读失败时使用默认值并记录错误，不抛给调用方。
+     */
+    suspend fun loadOnce() {
+        loadMutex.withLock {
+            if (loaded) return
+            withContext(TerminalDispatchers.inputOutput) {
+                val errors = mutableListOf<String>()
+                val home = File(context.filesDir, "home")
+                val propertiesFile = locate(home, "termux.properties")
 
-            for (error in errors) LogUtil.warn(TAG, error)
-            val configuration =
-                TermuxConfiguration(
-                    properties = properties,
-                    propertiesPath = propertiesFile?.absolutePath,
-                    errors = errors,
-                )
-            lastGood = configuration
-            _configuration.value = configuration
+                val properties =
+                    if (propertiesFile == null) {
+                        TermuxProperties()
+                    } else {
+                        readFile(propertiesFile, errors)?.let { text ->
+                            val parsed = TermuxPropertiesParser.parse(text)
+                            errors += parsed.errors.map { "${propertiesFile.name}: $it" }
+                            parsed.properties
+                        } ?: TermuxProperties()
+                    }
+
+                for (error in errors) LogUtil.warn(TAG, error)
+                _configuration.value =
+                    TermuxConfiguration(
+                        properties = properties,
+                        propertiesPath = propertiesFile?.absolutePath,
+                        errors = errors,
+                    )
+            }
+            loaded = true
         }
     }
 
@@ -82,10 +92,15 @@ constructor(@ApplicationContext private val context: Context) {
      * 只认**常规文件**且不跟随符号链接：这份文件由外部写入（`adb push`、SAF），
      * 链接可以让读取跑到应用家目录之外，也可能指向一个设备；把它们当配置读进来只会
      * 得到无法解释的行为。非常规文件（管道、目录）同样跳过。
+     *
+     * 主路径**存在但不是可读常规文件**时不再检查次路径：两条路径是二选一，
+     * 主路径摆着一个符号链接却悄悄去读别的文件，正是「读到的不是你写的」。
      */
     private fun locate(home: File, name: String): File? {
         val primary = File(File(home, ".termux"), name)
-        if (isReadableRegularFile(primary)) return primary
+        if (primary.exists()) {
+            return primary.takeIf { isReadableRegularFile(it) }
+        }
         val secondary = File(File(home, ".config/termux"), name)
         return secondary.takeIf { isReadableRegularFile(it) }
     }
@@ -100,7 +115,7 @@ constructor(@ApplicationContext private val context: Context) {
     }
 
     /**
-     * 读不出时记错误并返回 null；`null` 的语义是「保留上次结果」，不是「空配置」。
+     * 读不出时记错误并返回 null；`null` 的语义是「回退默认值」，不是「空配置」。
      *
      * 超过 [MAX_BYTES] 的文件按读失败处理：配置是用户手写的小文件，一个几百兆的
      * 文件要么是放错了地方，要么是别的东西——两种情况都不该被读进内存。

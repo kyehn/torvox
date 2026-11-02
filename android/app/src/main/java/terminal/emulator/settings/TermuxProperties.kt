@@ -378,9 +378,9 @@ internal object TermuxPropertiesParser {
                 when ((values["terminal-cursor-style"] ?: "block").lowercase()) {
                     "block" -> TerminalCursorStyle.BLOCK
 
-                    // `beam` 是竖线的另一种叫法（`config.md` 允许的取值）：
-                    // 上游只有 `bar`，两者都落成竖线。
-                    "bar", "beam" -> TerminalCursorStyle.BAR
+                    // 只接受上游的三个取值：别名（如 `beam`）不是配置契约，
+                    // 多认一个值就多一份与上游不一致的可能。
+                    "bar" -> TerminalCursorStyle.BAR
 
                     "underline" -> TerminalCursorStyle.UNDERLINE
 

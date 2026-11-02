@@ -120,13 +120,20 @@ class TermuxPropertiesParserTest {
             TerminalCursorStyle.UNDERLINE,
             parse("terminal-cursor-style = underline").properties.terminalCursorStyle,
         )
-        // `beam` 是竖线的别名（`config.md` 允许的取值），落成 `bar`。
-        assertEquals(
-            TerminalCursorStyle.BAR,
-            parse("terminal-cursor-style = beam").properties.terminalCursorStyle,
-        )
+        assertEquals(TerminalCursorStyle.BAR, parse("terminal-cursor-style = bar").properties.terminalCursorStyle)
         assertEquals(ExtraKeysStyle.ALL, parse("extra-keys-style = all").properties.extraKeysStyle)
         assertEquals(BackKeyBehaviour.ESCAPE, parse("back-key = escape").properties.backKey)
+    }
+
+    /** 上游没有 `beam`：别名不是配置契约，非法值回退默认值并留痕。 */
+    @Test
+    fun `the non-upstream beam alias falls back to the default`() {
+        val loaded = parse("terminal-cursor-style = beam")
+        assertEquals(TerminalCursorStyle.BLOCK, loaded.properties.terminalCursorStyle)
+        assertTrue(
+            "非法光标样式必须留痕：${loaded.errors}",
+            loaded.errors.any { it.contains("terminal-cursor-style") },
+        )
     }
 
     /** 五种样式都必须被认得：写错一个就等于用户的键栏外观莫名其妙地回到默认。 */

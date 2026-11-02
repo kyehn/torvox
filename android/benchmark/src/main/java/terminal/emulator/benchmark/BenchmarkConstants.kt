@@ -15,6 +15,28 @@ internal const val CONTROL_KEY_RESOURCE_ID = "Key_CTRL"
 
 internal const val DRAWER_KEY_RESOURCE_ID = "Key_DRAWER"
 
+internal const val TERMINAL_SCREEN_RESOURCE_ID = "TerminalScreen"
+
+internal const val SESSION_DRAWER_RESOURCE_ID = "SessionDrawer"
+
+/** 等待界面元素出现的上限；超时即失败，不允许把「没出现」当成通过。 */
+internal const val UI_TIMEOUT_MILLIS = 10_000L
+
+/**
+ * 模拟器（软件渲染）上的粗粒度上限，只拦「卡死级」回归，不是性能 SLO。
+ *
+ * 精确耗时由 `StartupTimingMetric` / `FrameTimingMetric` 输出，真机阈值需另行标定；
+ * 这里的断言保证基准失败时能指出「慢到不可用」，而不是只留下一串没人看的数字。
+ */
+internal const val COLD_START_BUDGET_MILLIS = 6_000L
+
+internal const val WARM_START_BUDGET_MILLIS = 3_000L
+
+internal const val INTERACTION_BUDGET_MILLIS = 4_000L
+
+/** 交互动画至少要出帧；0 帧说明动画根本没跑，测到的只是静止画面。 */
+internal const val MIN_ANIMATION_FRAME_COUNT = 1
+
 /** 宏基准会重装被测应用并重置运行时权限，需在测量前重新授权。 */
 internal fun grantNotificationPermission(device: UiDevice) {
     device.executeShellCommand("pm grant $TARGET_PACKAGE $NOTIFICATION_PERMISSION")

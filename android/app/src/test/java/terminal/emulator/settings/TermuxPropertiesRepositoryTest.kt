@@ -32,7 +32,7 @@ class TermuxPropertiesRepositoryTest {
         return file
     }
 
-    private fun load(repository: TermuxPropertiesRepository) = runBlocking { repository.reloadNow() }
+    private fun load(repository: TermuxPropertiesRepository) = runBlocking { repository.loadOnce() }
 
     @Test
     fun `the primary path is read`() {
@@ -53,6 +53,40 @@ class TermuxPropertiesRepositoryTest {
         load(repository)
         assertFalse(repository.configuration.value.properties.fullscreen)
         assertNull(repository.configuration.value.propertiesPath)
+    }
+
+    /**
+     * 主路径存在但被跳过时不再检查次路径：两条路径是二选一。
+     *
+     * 悄悄去读次路径等于「读到的不是你写的」——用户看到主路径被拒绝，却拿到了另一份
+     * 配置，且没有任何提示。
+     */
+    @Test
+    fun `a symlinked primary path does not fall back to the secondary path`() {
+        val target = writeConfig("elsewhere/termux.properties", "fullscreen = true")
+        val link = File(homeDirectory(), ".termux/termux.properties")
+        link.parentFile?.mkdirs()
+        java.nio.file.Files.createSymbolicLink(link.toPath(), target.toPath())
+        writeConfig(".config/termux/termux.properties", "fullscreen = true")
+        val repository = TermuxPropertiesRepository(context)
+        load(repository)
+        assertFalse(repository.configuration.value.properties.fullscreen)
+        assertNull(repository.configuration.value.propertiesPath)
+    }
+
+    /** 配置只在启动时读一次：启动后文件被改写，当前进程不跟着变。 */
+    @Test
+    fun `the configuration is read only once`() {
+        writeConfig(".termux/termux.properties", "fullscreen = true")
+        val repository = TermuxPropertiesRepository(context)
+        load(repository)
+        assertTrue(repository.configuration.value.properties.fullscreen)
+        writeConfig(".termux/termux.properties", "fullscreen = false")
+        load(repository)
+        assertTrue(
+            "启动后不得重读 termux.properties",
+            repository.configuration.value.properties.fullscreen,
+        )
     }
 
     /** 超过 64 KiB 的文件按无效处理：配置是手写的小文件，大文件只会把内存吃满。 */

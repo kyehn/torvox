@@ -132,15 +132,16 @@ MUST NOT 使整份文件解析失败。
 - **WHEN** `extra-keys` 里写 `ESCAPE` 而非 `ESC`
 - **THEN** 键栏画出一个与 `ESC` 等价的键，按下发出 ESC
 
-### Requirement: FN 与 SHIFT 是可渲染的特殊修饰键
+### Requirement: FN 与 SHIFT 不渲染
 
-`FN` 与 `SHIFT` MUST 识别为 termux 的特殊修饰键并渲染；二者 MUST 走与 `CTRL`、`ALT`
-相同的修饰键状态机，不得被静默丢弃。
+`FN` 与 `SHIFT` MUST NOT 渲染：本应用的粘滞修饰态只有 `CTRL` 与 `ALT`，没有 Fn 二次
+映射，也没有 Shift 粘滞态。出现这两个键名时 MUST 跳过该项并记一条说明，MUST NOT
+把它们当字面量文本发出去（发一串字母 `FN` 与用户意图完全无关）。
 
-#### Scenario: FN 与 SHIFT 渲染为修饰键
+#### Scenario: FN 与 SHIFT 被跳过
 
 - **WHEN** `extra-keys` 里出现 `FN` 或 `SHIFT`
-- **THEN** 键栏渲染该键，点击后进入对应修饰状态，同行其余按键照常渲染
+- **THEN** 该键不出现在键栏上，日志里有一条说明，同行其余按键照常渲染
 
 ### Requirement: 坏项与显示名互不连坐
 
@@ -150,31 +151,6 @@ MUST NOT 使整份文件解析失败。
 
 `display` MUST 覆盖键帽文本（`extra-keys-text-all-caps` 照常作用于它），MUST NOT 改变键码、
 特殊动作或长按内容。
-
-#### Scenario: 空对象只丢自己
-
-- **WHEN** `extra-keys = [['ESC',{popup:'|'},'TAB']]`
-- **THEN** 键栏只有 ESC 与 TAB，日志里说明那一项被丢弃
-
-#### Scenario: display 覆盖键帽
-
-- **WHEN** `extra-keys = [[{key:'ESC',display:'quit'}]]` 且 `extra-keys-text-all-caps = false`
-- **THEN** 键帽显示 `quit`，按下仍发出 ESC
-
-#### Scenario: 未知键名按字面量发送
-
-- **WHEN** `extra-keys` 里出现 `-_-`
-- **THEN** 键栏画出一个 `-_-` 键，按下发送三个字符 `-_-`，同行其余按键照常渲染
-
-#### Scenario: FN 与 SHIFT 渲染为修饰键
-
-- **WHEN** `extra-keys` 里出现 `FN` 或 `SHIFT`
-- **THEN** 键栏渲染该键，点击后进入对应修饰状态，同行其余按键照常渲染
-
-#### Scenario: 别名键名与原名等价
-
-- **WHEN** `extra-keys` 里写 `ESCAPE` 而非 `ESC`
-- **THEN** 键栏画出一个与 `ESC` 等价的键，按下发出 ESC
 
 #### Scenario: 空对象只丢自己
 
@@ -222,15 +198,18 @@ MUST 把解析位置同步到该对象的闭合符之后，使同一行里其余
 
 ### Requirement: extra-keys 的宏
 
-`{macro: "..."}` MUST 被解析并播放：宏串按空白切分，`CTRL`/`ALT`/`SHIFT`/`FN` 是修饰记号，
+`{macro: "..."}` MUST 被解析并播放：宏串按空白切分，`CTRL`/`ALT`/`SHIFT` 是修饰记号，
 作用于其后第一个普通记号（用过即清），普通记号是键名或字面量文本——语义与 termux
-上游 `TerminalExtraKeys` 一致。大写字母按其码点原样发送，MUST NOT 被当成小写字母。
+上游 `TerminalExtraKeys` 一致。大写字母是字面量，MUST 补 Shift 以产出大写，MUST NOT
+被当成小写字母发送。
 
 有键码的普通记号 MUST 走原生键编码器，并连同平台文本一起下发：可打印键没有文本时编码器
-不产生任何字节，Ctrl 折叠与 Alt 的 ESC 前缀也由编码器决定。`SHIFT` 与 `FN` 只修饰有键码
-的记号；字面量文本按其码点发送。
+不产生任何字节，Ctrl 折叠与 Alt 的 ESC 前缀也由编码器决定。
 
-宏 MUST NOT 影响键栏上的粘滞 CTRL/ALT/SHIFT/FN：宏自带修饰位，两者叠加会让语义与用户预期不符。
+宏 MUST NOT 影响键栏上的粘滞 CTRL/ALT：宏自带修饰位，两者叠加会让语义与用户预期不符。
+
+宏内出现 `FN` 时该项 MUST NOT 渲染（只丢自己那一项），MUST NOT 发出与配置不符的半截
+按键序列。
 
 宏键帽没有显式 `display` 时 MUST 逐记号套键名别名与 `extra-keys-style` 字形，再用空格
 拼回（上游 `ExtraKeyButton` 口径）。
@@ -366,9 +345,11 @@ MUST 在终端取得焦点后请求一次输入法，并把「本视图可接收
 `back-key` MUST 支持 `back`/`escape`（默认 `back`）：`escape` 时返回键改发 ESC。
 
 `volume-keys` MUST 支持 `virtual`/`volume`（默认 `virtual`）：`virtual` 时音量减按下即置为
-虚拟 Ctrl、音量加按下即置为虚拟 Fn，按住期间持续生效、抬起时回收；`volume` 时不拦截，
-系统照常调节音量。外接字母键盘发出的音量键 MUST NOT 拦截（termux 上游口径：完整键盘在
-场时不抢它的音量键）。
+虚拟 Ctrl，按住期间持续生效、抬起时回收；`volume` 时不拦截，系统照常调节音量。外接字母
+键盘发出的音量键 MUST NOT 拦截（termux 上游口径：完整键盘在场时不抢它的音量键）。
+
+音量加 MUST NOT 被拦截：上游把它映射成虚拟 Fn，本应用没有 Fn 修饰态，拦截下来只能得到
+一个无法兑现的按键，故交回系统。
 
 `ctrl-space-workaround` MUST 为布尔（默认 `false`）：为真时把 Ctrl+空格补发为 NUL。
 补发 MUST 只在下按发生一次，而下按与抬起两路事件 MUST 都被消费：抬起事件漏回输入法或
@@ -384,10 +365,10 @@ MUST 在终端取得焦点后请求一次输入法，并把「本视图可接收
 - **WHEN** 外接字母键盘在场，用户按它的音量减
 - **THEN** 该按键不被应用拦截，交给键盘自身处理
 
-#### Scenario: 虚拟模式映射音量加为 Fn
+#### Scenario: 音量加不被拦截
 
 - **WHEN** `volume-keys = virtual` 且用户按住音量加
-- **THEN** 终端收到处于 Fn 修饰状态的按键事件，抬起后 Fn 状态被回收
+- **THEN** 该按键不被应用拦截，系统照常调节音量
 
 `virtual` 的按住 MUST NOT 改写用户手动锁定的 Ctrl：按下置按住态、抬起按「是按住态就关」
 回收时，锁定态会在那一次按住里被静默吃掉。抬起 MUST 只回收自己置的按住态，这期间用户
@@ -448,8 +429,8 @@ MUST 在终端取得焦点后请求一次输入法，并把「本视图可接收
 自身的动作，宏按顺序播放，键名表之外的文本整串写出。次级按键的 `display` MUST NOT 改变
 它执行的动作。
 
-次级按键不可用（不可用的宏）时 MUST 丢弃该次级按键并记一条说明，MUST NOT 丢弃主键。
-`FN` 与 `SHIFT` 是可用的特殊修饰键，MUST 作为次级按键保留。
+次级按键不可用（不可用的宏、`FN`、`SHIFT`）时 MUST 丢弃该次级按键并记一条说明，MUST NOT
+丢弃主键。
 
 #### Scenario: 长按执行次级按键
 
@@ -461,7 +442,7 @@ MUST 在终端取得焦点后请求一次输入法，并把「本视图可接收
 - **WHEN** `extra-keys` 里有一项 `{key: 'HOME', popup: {macro: 'CTRL f d'}}` 且用户长按它
 - **THEN** 终端依次收到 Ctrl+f 与 d
 
-#### Scenario: FN 可作为次级修饰键
+#### Scenario: 不可用的次级键只丢长按动作
 
 - **WHEN** `extra-keys` 里有一项 `{key: '-', popup: 'FN'}`
-- **THEN** 该键照常渲染并发送 `-`，长按时进入 Fn 修饰状态
+- **THEN** 该键照常渲染并发送 `-`，日志里说明长按动作被丢弃

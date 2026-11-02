@@ -2580,10 +2580,10 @@ constructor(
         }
         // LogUtil.d 已写入 logcat，不重复输出。
         LogUtil.debug("Runtime", "start() called: surface=$surface width=$width height=$height")
-        // 首帧前读一次 termux.properties：这份文件不经过本应用的
-        // 设置页（用户用 `adb push`、SAF 或装包脚本改写），只能在这些时机重读。
-        // 读失败不阻断启动——仓储保留上一次成功的结果，最坏是沿用旧配置。
-        termuxProperties.reloadNow()
+        // 首帧前读一次 termux.properties：这份文件不经过本应用的设置页
+        // （用户用 `adb push`、SAF 或装包脚本改写），规格要求只在应用启动时读一次，
+        // 之后文件的变化等下次启动生效。读失败不阻断启动——最坏是用内置默认值。
+        termuxProperties.loadOnce()
         if (!NativeBridge.isNativeLoaded()) {
             // NativeInit 线程后台加载 libnative：首帧 surface 就绪时可能尚未完成。
             // 等待至多 3 秒而非直接放弃，避免浪费一轮布局重建的启动延迟。
@@ -3587,10 +3587,8 @@ constructor(
     }
 
     suspend fun applySettings() {
-        // termux.properties 不经过设置页改写：任何一次「设置变了」
-        // 的重下发都顺带重读一次，用户的文件改动才有生效时机。读失败保留上次结果，
-        // 不会把界面闪回默认值。
-        termuxProperties.reloadNow()
+        // termux.properties 只在应用启动时读过一次（见 start），这里不重读：
+        // 设置重下发不是文件变化，重读会让同一进程里的配置随外部改写漂移。
         val config = buildConfig()
         // 与建会话路径共用同一份字族解析：两处各读一次设置，中途改设置就会让
         // 「新会话的字族」与「改设置时下发的字族」不同源。

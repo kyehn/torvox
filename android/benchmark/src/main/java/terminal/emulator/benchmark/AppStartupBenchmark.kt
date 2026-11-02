@@ -5,6 +5,9 @@ import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,6 +43,9 @@ class AppStartupBenchmark {
             },
             measureBlock = {
                 startActivityAndWait()
+                // 启动耗时只有在界面真的出现时才有意义：首帧到了但被系统对话框
+                // 挡住时，指标测的是「弹窗出现」而不是「终端可用」。
+                assertTerminalVisible(device)
             },
         )
     }
@@ -59,7 +65,14 @@ class AppStartupBenchmark {
             },
             measureBlock = {
                 startActivityAndWait()
+                assertTerminalVisible(device)
             },
         )
+    }
+
+    /** 终端界面必须真的出现；只测到「进程被拉起」而界面没到位，启动耗时没有意义。 */
+    private fun assertTerminalVisible(device: UiDevice) {
+        val screen = device.wait(Until.findObject(By.res(TERMINAL_SCREEN_RESOURCE_ID)), UI_TIMEOUT_MILLIS)
+        checkNotNull(screen) { "启动后未出现终端界面（$TERMINAL_SCREEN_RESOURCE_ID）" }
     }
 }
