@@ -604,6 +604,24 @@ constructor(
     private val surfaceRecreateSignalState = mutableIntStateOf(0)
     val surfaceRecreateSignal: IntState get() = surfaceRecreateSignalState
 
+    /**
+     * 启动键盘策略（`hide-soft-keyboard-on-startup = false`）是否已认领过。
+     *
+     * 整个应用进程只认领一次：宿主在原生 surface 判死时会换掉整个 `SurfaceView`
+     * （新实例），新实例若把「已请求」当成没请求过，键盘便会在换视图后再次弹出——
+     * 弹出的键盘顺带清掉选区与选区菜单（见 `TerminalSurface` 的
+     * `imeVisibilityChanged` 分支），用户看到的是「选中的文字突然没了菜单」。
+     */
+    private val startupKeyboardRequested = AtomicBoolean(false)
+
+    /**
+     * 认领一次「启动时请求输入法」的机会：首个调用方拿到 true，之后一律 false。
+     *
+     * 认领与执行分离：认领是幂等的单次门，而执行（弹键盘）可能因窗口尚未取得焦点
+     * 而失败、需要重试，两者不能由同一个布尔字段承担。
+     */
+    fun claimStartupKeyboardRequest(): Boolean = startupKeyboardRequested.compareAndSet(false, true)
+
     private val sessions = ConcurrentHashMap<Long, SessionEntry>()
 
     // ── vsync 帧回调链 ──

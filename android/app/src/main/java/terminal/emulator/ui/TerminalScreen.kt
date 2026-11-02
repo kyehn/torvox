@@ -58,7 +58,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -680,8 +679,11 @@ fun TerminalScreen(
                                 // 组合状态是唯一真源：翻转后由这里推给视图，轻点路径才
                                 // 知道该不该拉起输入法。update 每次重组都跑，赋值幂等。
                                 surface.softKeyboardEnabled = softKeyboardEnabled
-                                // `hide-soft-keyboard-on-startup = false`：只执行一次（首次
-                                // update），之后的行为归用户与 KEYBOARD 键管。
+                                // `hide-soft-keyboard-on-startup = false`：启动时主动请求一次
+                                // 输入法，之后的行为归用户与 KEYBOARD 键管。
+                                // 「一次」由运行期认领（见 TerminalRuntime.claimStartupKeyboardRequest），
+                                // 不由本块计数：宿主换掉整个 SurfaceView 后新实例的 update 块
+                                // 会再跑一次，按块计数会让键盘在换视图后再次弹出。
                                 if (!termuxProperties.properties.hideSoftKeyboardOnStartup) {
                                     surface.requestKeyboardOnStart()
                                 }
@@ -821,13 +823,16 @@ fun TerminalScreen(
                 // 恒位于输入法上方而不被遮挡。它与终端 Surface 取同一个 ime 高度
                 // （`imeInsetFlow`），但生效时刻不同：本偏移要等一次重组，
                 // Surface 的 `translationY` 在 insets 派发的同一拍内生效。
+                //
+                // 偏移取**组合期**的确定值而不是 `offset { }` 的延迟 lambda：
+                // 延迟 lambda 在布局（摆放）阶段读状态，状态变化只重跑布局，
+                // 绘制阶段未必被作废——实测输入法收起后键栏仍按键盘高度画在屏幕中部
+                // （布局已是底部，窗口缓冲里还是旧位置），键栏因此遮住终端内容。
                 Box(
                     modifier =
                     Modifier.align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .offset {
-                            IntOffset(0, -imeInsetPx)
-                        }
+                        .offset(y = with(density) { (-imeInsetPx).toDp() })
                         .background(resolvedTerminalTheme.background)
                         .testTag("ModifierBarOverlay"),
                 ) {

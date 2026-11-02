@@ -3177,9 +3177,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     private var keyboardRequested = false
 
-    /** 启动键盘策略是否已执行过（`hide-soft-keyboard-on-startup`）：只执行一次。 */
-    private var startupKeyboardRequested = false
-
     /** 启动键盘弹起重试：窗口取得焦点前 `show` 会被平台丢弃，按 100ms 重试到 2s。 */
     private var startupKeyboardAttempts = 0
     private var startupKeyboardRunnable: Runnable? = null
@@ -3204,10 +3201,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      *
      * 不保证成功：窗口尚未取得焦点时 `show` 会被平台丢弃。该键的语义是「不要主动隐藏」，
      * 不是「强制弹出」。
+     *
+     * 「只执行一次」按**应用进程**计，不按视图实例计（见
+     * [TerminalRuntime.claimStartupKeyboardRequest]）：宿主在原生 surface 判死时会
+     * 换掉整个 `SurfaceView`，新实例若把「已请求」当成没请求过，键盘便会在换视图后
+     * 再次弹出——弹出的键盘顺带清掉选区与选区菜单（见 [installImeInsetListener] 的
+     * `imeVisibilityChanged` 分支），用户看到的是「选中的文字突然没了菜单」。
      */
     fun requestKeyboardOnStart() {
-        if (startupKeyboardRequested) return
-        startupKeyboardRequested = true
+        if (viewModel?.runtime?.claimStartupKeyboardRequest() != true) return
         keyboardRequested = true
         val runnable =
             object : Runnable {
