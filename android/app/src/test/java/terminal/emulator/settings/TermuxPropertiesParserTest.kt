@@ -325,6 +325,26 @@ class TermuxPropertiesParserTest {
         )
     }
 
+    /**
+     * popup 对象里的语法错误只丢这个 popup，主键照常保留。
+     *
+     * popup 是次级键（长按才触发），主键才是日常使用的那一个。popup 里少一个逗号
+     * 就把主键一起丢掉，等于用户为一个长按动作赔上整个键位；整行因此被掏空时更会
+     * 让**整份布局**退回默认——与「写坏的项只丢自己那一项」的约定直接冲突。
+     */
+    @Test
+    fun `a malformed popup object drops only the popup`() {
+        val loaded = parse("""extra-keys = [[{key:'TAB',popup:{key:'X' bad}},'CTRL']]""")
+        assertEquals(
+            listOf(listOf(ExtraKey("TAB"), ExtraKey("CTRL"))),
+            loaded.properties.extraKeys,
+        )
+        assertTrue(
+            "丢掉坏 popup 必须留下可读的说明: ${loaded.errors}",
+            loaded.errors.any { it.contains("popup") },
+        )
+    }
+
     /** 同时写 `key` 与 `macro` 是上游明确禁止的：只丢这一项，其余键位照常。 */
     @Test
     fun `a key with both key and macro drops only itself`() {

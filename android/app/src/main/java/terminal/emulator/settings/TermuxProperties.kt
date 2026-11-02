@@ -799,8 +799,15 @@ internal object ExtraKeysParser {
      */
     private fun parsePopup(cursor: Cursor): ExtraKey? = when (cursor.peek()) {
         '{' -> {
+            val objectStart = cursor.index
             cursor.consume('{')
-            parseKeyObject(cursor, "popup object", allowPopup = false)
+            try {
+                parseKeyObject(cursor, "popup object", allowPopup = false)
+            } catch (error: IllegalArgumentException) {
+                dropMalformedPopup(cursor, objectStart, error)
+            } catch (error: IllegalStateException) {
+                dropMalformedPopup(cursor, objectStart, error)
+            }
         }
 
         '[' -> {
@@ -810,5 +817,21 @@ internal object ExtraKeysParser {
         }
 
         else -> ExtraKey(name = cursor.readString())
+    }
+
+    /**
+     * 坏掉的 popup 对象只丢这个 popup：主键照常保留。
+     *
+     * popup 是次级键（长按才触发），主键才是日常使用的那一个。popup 里少一个逗号
+     * 就把主键一起丢掉，等于用户为一个长按动作赔上整个键位——与「写坏的项只丢自己
+     * 那一项」的约定直接冲突（该约定的原文见本对象的类文档）。
+     *
+     * 对象本身不完整（缺闭合符）时 `skipPastComposite` 仍会抛出：那种配置无从可靠
+     * 恢复，整份布局退回默认。
+     */
+    private fun dropMalformedPopup(cursor: Cursor, objectStart: Int, error: RuntimeException): ExtraKey? {
+        cursor.skipPastComposite(objectStart)
+        cursor.warnings += "extra-keys: malformed popup object dropped (${error.message})"
+        return null
     }
 }
