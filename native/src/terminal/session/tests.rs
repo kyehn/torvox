@@ -303,6 +303,84 @@ fn answer_clipboard_read_after_exit_fails() {
     assert!(handle.written().is_empty(), "nothing may reach the PTY");
 }
 
+/// 回归钉：OSC 52 读取应答的写入不得在用户输入占着主端写入锁时拖住会话锁。
+///
+/// 与 [`write_back_yields_the_frame_when_a_user_write_holds_the_master_lock`] 同源：
+/// 那条钉的是逐帧收割（`drain_pty_write_back`），本条钉的是应答写入本身
+/// （[`Session::answer_clipboard_read`]）。两条都持会话锁，且都与用户输入共用
+/// `pty_write_order` 互斥量——用户输入走 5s 排空期限且每有部分写入就续额，
+/// 持锁时长无上界。
+///
+/// 修复前应答走 `write_with_timeout`：取锁无期限、排空按进度续额。于是
+/// 「整段持会话锁的时间以墙钟为界」在这条路上并不成立——一条应答就能把每帧取
+/// 同一把锁的渲染与看门狗按住数秒，渲染停滞会让看门狗误判渲染线程已死并
+/// 关掉会话（用户侧表现为「远端程序一读剪贴板，终端就卡死并被杀」）。
+#[test]
+fn clipboard_answer_yields_when_a_user_write_holds_the_master_lock() {
+    use std::sync::mpsc;
+
+    const READ_BUDGET: Duration = Duration::from_millis(500);
+
+    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+    let session = Arc::new(Mutex::new(
+        Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed"),
+    ));
+
+    // 用户输入持写入锁停住（等价于 `feedPty` 卡在主端排空上），直到本用例放行。
+    let (locked_sender, locked_receiver) = mpsc::channel();
+    let (release_sender, release_receiver) = mpsc::channel();
+    let user_write = {
+        let session = session.clone();
+        std::thread::spawn(move || {
+            // 写入面克隆出来再取锁：生产路径（`feedPty`）正是如此，
+            // 否则持锁的是会话锁而非主端写入锁，两条就不是同一个状态。
+            let pty_master = session.lock().pty_master();
+            let _order = pty_master.pty_write_order();
+            locked_sender.send(()).expect("已持锁");
+            release_receiver.recv().expect("等放行");
+        })
+    };
+    locked_receiver
+        .recv_timeout(READ_BUDGET)
+        .expect("用户写入须在期限内取到主端写入锁");
+
+    // 应答在另一个线程里写：取不到写入锁的实现会一直等下去，直接在本线程调用
+    // 会把用例挂死而不是判红——挂死的用例比判红的更难排查。
+    let (sender, receiver) = mpsc::channel();
+    let worker = std::thread::spawn({
+        let session = session.clone();
+        move || {
+            let mut session = session.lock();
+            let result = session.answer_clipboard_read("c", "hello");
+            let _ = sender.send((result, session.pty_write_back_queue.len()));
+        }
+    });
+    let received = receiver.recv_timeout(READ_BUDGET);
+
+    release_sender.send(()).expect("放行");
+    user_write.join().expect("用户写入线程 panicked");
+    worker.join().expect("应答线程 panicked");
+
+    let (result, pending) = received.expect("会话锁不得在用户输入持写入锁时被按住满排空上限");
+    assert!(
+        result.is_ok(),
+        "等不到写入锁时应答须被接受（退回续写队列），实测 {result:?}"
+    );
+    assert_eq!(
+        pending, 1,
+        "等不到写入锁时应答须整条退回队列下帧续写，不得丢弃"
+    );
+
+    // 放行后逐帧收割把应答补齐：子应用正等它，丢了就永远等不到。
+    session.lock().process_output();
+    assert_eq!(
+        handle.written(),
+        b"\x1b]52;c;aGVsbG8=\x07",
+        "应答须完整送达：截断在 base64 中间会让子应用等不到一个完整回答"
+    );
+}
+
 #[test]
 fn session_resize_dirty_same_size_still_retries() {
     let mut session = spawn_test_session();

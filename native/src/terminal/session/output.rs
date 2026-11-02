@@ -222,6 +222,16 @@ impl Session {
 
     /// 向 PTY 写入 `ESC ] 52 ; <selection> ; <base64> ESC \\` 应答待处理的 OSC 52
     /// 剪贴板读取请求。selection 为空串（惯例默认 `c`）时原样应答，含义由应用自行解释。
+    ///
+    /// 写入**有界**：调用点持会话锁，而 `pty_write_order` 互斥量此刻可能正被用户输入
+    /// 写入持住（用户输入走 5s 排空期限且每有部分写入就续额，持锁时长无上界）。
+    /// 若取锁无期限、排空按进度续额，两者都会把每帧取同一把锁的渲染与看门狗一起按住，
+    /// 渲染停滞会让看门狗误判渲染线程已死并关掉会话。故取锁与排空都受
+    /// [`crate::terminal::pty::WRITE_BACK_TIMEOUT`] 约束——该期限的文档本就写着
+    /// 「OSC 52 应答」与逐帧收割同属持会话锁的帧级路径。
+    ///
+    /// 未写完的部分退回续写队列（`pty_write_back_queue`），由逐帧收割补齐：应答是
+    /// 请求-响应语义，截断在 base64 中间会让子应用永久等不到一个完整回答。
     pub fn answer_clipboard_read(
         &mut self,
         selection: &str,
@@ -238,11 +248,31 @@ impl Session {
         if self.is_exited() {
             return Err(SessionError::Closed);
         }
-        self.pty
-            .write_with_timeout(&response, crate::terminal::pty::WRITE_BACK_TIMEOUT)
-            .map_err(SessionError::Io)?;
-        Ok(())
+        match self
+            .pty
+            .write_with_timeout_counted(&response, crate::terminal::pty::WRITE_BACK_TIMEOUT)
+        {
+            Some((_, Ok(()))) => Ok(()),
+            Some((written, Err(error))) => {
+                // 只退回**未写出**的部分：整条退回会让下一帧把已发出的前缀再发一遍，
+                // 子应用于是收到两条应答；而全部丢掉又让子应用永远等不到一个完整回答。
+                if written < response.len() {
+                    self.pty_write_back_queue
+                        .push_back(response[written..].to_vec());
+                }
+                Err(SessionError::Io(error))
+            }
+            None => {
+                // 未取到写入锁（用户输入正占着主端）：整条退回续写队列，下帧续写。
+                // 应答不丢——子应用正等它，丢了就永远等不到。此处也不算失败：
+                // 写入只是被推迟，逐帧收割会补上，故只记调试日志。
+                log::debug!("session: OSC 52 应答未即时写出（主端写入锁忙），已排入续写队列");
+                self.pty_write_back_queue.push_back(response);
+                Ok(())
+            }
+        }
     }
+
     /// DECSET 1004 焦点上报：返回待直写子 PTY 的序列，`None` 表示子进程未启用 1004。
     ///
     /// 序列必须**直接**写入子 PTY 而非进入 VT 引擎——引擎的输出流解析器把 `CSI I` 当作

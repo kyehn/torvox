@@ -45,11 +45,15 @@ pub(super) fn handle_clipboard_reads(
             flood_shed_answers += 1;
             flood_shed_warn_throttled(session_id, unanswered);
             // 读锁而非写锁：本分支只查表，而随后的 `answer_clipboard_read` 要经
-            // `PtyMaster::write_with_timeout` 等 `pty_write_order` 互斥量——该锁可能被
-            // 用户输入写入按住、持有时长**无上界**。持注册表**写**锁等它，会把
-            // `pollEvent`/`switchSession`/`destroySession` 连同其余会话的取句柄一起
-            // 冻在锁外；本文件余下部分与 `pump_sessions` 一律在注册表锁外做会话工作。
+            // `PtyMaster::write_with_timeout_counted` 等 `pty_write_order` 互斥量——
+            // 该锁可能被用户输入写入按住、持有时长**无上界**。持注册表**写**锁等它，
+            // 会把 `pollEvent`/`switchSession`/`destroySession` 连同其余会话的取句柄
+            // 一起冻在锁外；本文件余下部分与 `pump_sessions` 一律在注册表锁外做会话工作。
             // 取到 `Arc` 后 guard 即随本句结束而释放，写 PTY 发生在锁外。
+            //
+            // 应答自身的取锁与排空已受 `WRITE_BACK_TIMEOUT` 约束（见
+            // `Session::answer_clipboard_read`），故此处等锁最坏也只有一帧级期限；
+            // 但注册表**写**锁会把这段等待放大成全局停顿，仍不可取。
             if let Some(session) = session_handle(session_id) {
                 let mut session = session.lock();
                 if let Err(error) = session.answer_clipboard_read(&selection, "") {

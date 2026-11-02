@@ -370,7 +370,7 @@ MUST 采纳的资产 MUST 附实测数字（今日直接通过的用例数与差
 | `sylirre/ghostty-android-terminal` | 门槛 1/2/3 均不违反，但须逐条验判别力 | 17 个文件 / 160 个 `@Test`，全在 `androidTest`。期望值锚定外部协议：`EmulatorVtTest.java:423` 断 DSR 应答字面量 `\u001b[1;1R`、`:647` 断 XTWINOPS `\u001b[8;5;20t`；大小写折叠表由脚本从 Python `unicodedata` 生成。与本仓同架构（libghostty-vt + JNI），是最正当的对照面；但本仓已有超链接、搜索、xtwinops、下划线覆盖，净增有限 |
 | `reapercanuk39/termux-kotlin-app` | 门槛 1 不违反（仅限键位编码与鼠标两类断言） | `KeyHandlerTest.java:31-45` 断言 termcap 能力名到字节序列（`kb`→`\u007f`、`kB`→`\033[Z`、`kUP`→`\033[1;2A` 等），出处为 terminfo 规范；`TerminalTest.java:59-65` 断言越界点击按边缘钳位为 `\033[<0;1;1M` 并注明 termux-app issue 501。二者均属本仓自有功能（键位编码、鼠标），非上游 VT 语义 |
 | `CocaKova/charon` | 门槛 1 不违反（仅限外部标准期望值子集）；其 corpus 门槛 1 与「可被实现覆写」均违反 | 外部标准类：`ModernContractTest`（DECRQM/DECRQSS/OSC52 按 ECMA-48）、`KittyKeyboard*`、`Utf8DecoderTest`（WHATWG 算法）、`TextSelection`；另有 `tools/conformance_vttest.py` 把外部套件跑在自己的 pty 上。反例：`CorpusTest.kt:26` 支持 `-Dcharon.regenGoldens` 用自身 `render()` 覆写期望，5 个 `.golden` 均属此类，MUST NOT 采纳；取其 IME 契约经验时，`updateSelection` 经 `javap` 实测为框架内部 @hide（API 33/36/37 公开 `InputConnection` 均无此符号，仅 IME 侧类含之），应用不可覆写，记为不采纳 |
-| `Lord1Egypt/AndroidThothTerm` | 门槛 1 不违反，但仅作判据来源登记 | `emulatorview/src/test` 3 个文件 / 22 个 `@Test`，期望值为人工手写外部真相（如控制字符串不得绘制、选区按逻辑序还原）。其引擎为 `jackpal/Android-Terminal-Emulator` 血统，无 sixel/kitty，能力低于本仓上游，断言只能当边界清单 |
+| `Lord1Egypt/AndroidThothTerm` | 门槛 1 不违反，但仅作判据来源登记 | 2026-11-02 复查：`emulatorview/src/test` 5 个文件 / 34 个 `@Test`，期望值为人工手写外部真相（如控制字符串不得绘制、选区按逻辑序还原）。其引擎为 `jackpal/Android-Terminal-Emulator` 血统，OSC 只有 0/1/2、DA1 自述 `ESC[?1;2c`、DECSET 仅插入模式 4、鼠标只有 1000–1003 与 1006，无 sixel/kitty，能力低于本仓上游，断言只能当边界清单。详见 `docs/persistence/android-thoth-term.md` |
 
 **不可采纳（21 项）：**
 
@@ -402,7 +402,7 @@ MUST 采纳的资产 MUST 附实测数字（今日直接通过的用例数与差
 
 | 项目 | 失效语料 | 依据 |
 | --- | --- | --- |
-| `Lord1Egypt/AndroidThothTerm` | `tests/` 共 **122 个文件 / 11 个子目录 / 864K** | 全仓（含 `.github`、`build.gradle`、构建脚本）对 `tests/scripts`、`tests/wideChars` 等目录的引用数为 **0**。其中 `tests/scripts` 的期望写在脚本末尾 `#expected screen:` 注释里，判定者是人眼；`tests/wideChars` 是散文加手打屏幕 |
+| `Lord1Egypt/AndroidThothTerm` | `tests/` 共 **131 个文件 / 36 个子目录 / 924K**（2026-11-02 复查） | 全仓（含 `.github`、`build.gradle`、构建脚本）对 `tests/scripts`、`tests/wideChars` 等目录的引用数仍为 **0**。其中 `tests/scripts` 的期望写在脚本末尾 `#expected screen:` 注释里，判定者是人眼；`tests/wideChars` 是散文加手打屏幕 |
 
 **不得反向采纳的做法：**
 
@@ -419,6 +419,9 @@ MUST 采纳的资产 MUST 附实测数字（今日直接通过的用例数与差
 | 仓库内提交 CMake 生成物与构建产物 | `terminator` 的 `terminal-emulator/src/main/cpp/Makefile`（内含作者本机绝对路径）、`on3-terminal` 的 `app/build/outputs/apk` | 构建卫生，且违反不得引入无程序消费者的二进制资产 |
 | 把自研 VT 核留作「Ghostty 集成失败时的回退核」 | `kshivang/BossTerm`（`bossterm-core-mpp`，报告原话「if Ghostty integration fails, BossTerm is fallback」） | DESIGN 锁定终端状态单一来源，不设第二 VT 核；引入回退核即违单一来源 |
 | WebView 远程终端作为移动端形态 | `marshallku/copad` 的 `copad-mobile` | DESIGN 无网络终端面（未声明）；终端状态与渲染须在本机（本仓 kotlin + Rust 本地栈） |
+| 安全契约的正面不变量（外部 Intent 数据不得键入 PTY、只走工作目录／argv／环境变量等结构化通道；外部路径逐段校验且不跟随既有链接；检查失败即拒绝不落回宽松路径；每次漏洞修复留永久回归测试） | `Lord1Egypt/AndroidThothTerm`（`docs/security/THORNS.md`） | 仅参照，建议落为规范正面不变量：本仓 `PROHIBITED.md` 只列禁止项，尚无「外部数据不得键入 PTY」条目；本仓对外入口仅文档提供器，其路径防护见 `android/app/src/main/java/terminal/emulator/DocumentMutations.kt` 的 `canonicalFile` 比对 |
+| 导出面策略测试（从构建产物读合并清单并与策略文件精确比对，多一项即失败） | `Lord1Egypt/AndroidThothTerm`（`tests/security/exported_components.py` 与 `tests/security/policy/`） | 仅参照：本仓导出面为启动 Activity 与文档提供器（`android/app/src/main/AndroidManifest.xml`），可用同样思路钉住不得新增导出组件；若采纳，检查体系须只用 Nushell（`STYLE.md`），不得新增 Python 体系 |
+| 上传到会话当前目录（用 `/proc` 前台进程组解析会话真实工作目录，暂存加一步改名，只增不改） | `Lord1Egypt/AndroidThothTerm`（`term/src/main/java/com/thothterm/upload/` 的 `SessionDirectory`、`ProcFiles`、`StagingJournal`） | 未声明，不立项：本仓 `DESIGN.md` 无「上传到会话工作目录」条目；前台进程组解析为可靠技术判据，已随该仓研究写入 `docs/persistence/android-thoth-term.md` 备将来立项引用 |
 
 ### Requirement: 复查的否定结论不得用未经验证的概括
 
@@ -830,7 +833,7 @@ MUST NOT 以概括表述代替逐项判定。
 | Model Context Protocol | godot-pty-gpty、lumina、ntilde、par-term、par-term-emu-core-rust、ratty、Scanline-term | **PROHIBITED 明禁**（`PROHIBITED.md` 终端节「Model Context Protocol」）；口径更正：先前记「未声明」属错裁，按 BiDi 更正同例改判；出处更正：先前引 copad、Lume 属误引（两报告无 MCP），改引实测命中者，同时补入 gpty |
 | 插件系统、事件总线、mux daemon | ratty、par-term、copad、hollow | 未声明，不立项；出处更正：先前引 Scanline-term 属误引（该报告无插件/mux 内容），已按实测命中移除 |
 | 无障碍/文本捕获（`readText` API） | vercel-labs/wterm | `DESIGN.md` 无无障碍面，**未声明，不立项**；朗读形态另撞 `PROHIBITED.md` 终端节「无障碍朗读」；口径更正：先前整行记「PROHIBITED 明禁」系以朗读条目覆盖整个无障碍面，按报告实测（仅可访问性/文本捕获）更正 |
-| WebSocket/网络终端形态（服务端拆分、DOM 单元布局、Electron/Qt 集成、WebView 远程终端） | DomTerm、terminal7、wterm、copad（`copad-mobile`） | 未声明，不立项（本仓无网络终端；wterm 的重连与背压设计仅在日后开网络终端时参考） |
+| WebSocket/网络终端形态（服务端拆分、DOM 单元布局、Electron/Qt 集成、WebView 远程终端） | DomTerm、terminal7、wterm、copad（`copad-mobile`）、ThothTerm（LAN 模式） | 未声明，不立项（本仓无网络终端；wterm 的重连与背压设计仅在日后开网络终端时参考） |
 | 分屏／平铺面板 | batata、godot-pty-gpty、marc2332-term、par-term、pebrel | 未声明，不立项；出处更正：先前引 BossTerm、maui-station 属误引（两报告的 `split` 分别指字形拆分宽度与 Service/UI 分层，非分屏），已替换为实测命中者 |
 | git worktree 侧栏／集成 | marc2332-term、copad | 未声明，不立项（`DESIGN.md` 无 git 集成面） |
 | ZMODEM/tysend 类文件传输 | terminology、konsole、termora、oryxis | 未声明，不立项 |
@@ -848,7 +851,7 @@ MUST NOT 以概括表述代替逐项判定。
 | DBus 远程控制 | qterminal | 未声明（Android 无对应形态），不立项 |
 | 界面多语言/i18n 组织 | qterminal | 本仓界面仅简体中文（`STYLE.md`），不做 i18n；其余语言支持未声明，不立项 |
 | 用户自定义主题覆盖与优先级链（用户文件 > 自动取色 > 默认） | termux-monet | **PROHIBITED 明禁**（`PROHIBITED.md` 设置节「自定义终端主题」）；本仓主题列表固定、构建期读取（`theme-configuration`） |
-| RTL/BiDi 文本整形 | RtlTerminal、ThothTerm | **未声明，不立项**；口径更正：`PROHIBITED.md` 无 BiDi 条目，「已禁止」的表述无依据，正确口径是未声明 |
+| RTL/BiDi 文本整形 | RtlTerminal、ThothTerm | **未声明，不立项**；口径更正：`PROHIBITED.md` 无 BiDi 条目，「已禁止」的表述无依据，正确口径是未声明。2026-11-02 复查：ThothTerm 已在 `PaintRenderer` 内实现 `BidiLayout`／`BidiRun` 与整段 RTL 整形（逻辑列↔视觉列映射见 `TranscriptScreen`），其做法为 Canvas 按方向段绘制并依赖平台整形；本仓渲染为 wgpu 单元格实例化（`native/src/render/cell_builder.rs`），`DESIGN.md` 明令「不做跨单元连字」，阿拉伯文字连接天然跨单元格，采纳即改渲染架构并违背既有声明，上游 Ghostty 亦无 BiDi。**不得反向采纳**其整段整形改造 |
 | 界面 layoutDirection RTL | RtlTerminal | 未声明，不立项 |
 | copy-on-selection（松手即复制） | godot-xterm | 不采纳：选择交互以菜单点击复制为唯一入口（`text-selection`） |
 | bell 冷却/节流 | godot-xterm | 不接线（`on_bell` 无消费者，既有台账行），连带节流不立项 |
@@ -1202,7 +1205,7 @@ Termux 自身也被 fork 删过 `doDcs`／`sixel`）；会话不随 Activity 走
 | `06-GlobalTechInfo-RedTerm.md` | 复用 Termux jar 的 proot 多发行版运行器 | 不采纳（门槛 3）：329 例属 SSH/SFTP/proot 面；单源启动脚本、通知退出、备份替换归本规范各表 | 同仓现行索引行 `GlobalTechInfo-RedTerm.md`；复查台账 `GlobalTechInfo/RedTerm` 行；`bootstrap-install` |
 | `07-rafaelmeloreisnovo-termux-app-rafacodephi.md` | termux 重型 fork：会话加固 + 自研 bootstrap 治理 | 不采纳（门槛 1）：`terminal-emulator/src/test` 与官方逐字节相同；正例为会话加固（先进程组收尾） | 复查台账 `rafaelmeloreisnovo/termux-app-rafacodephi` 行；「参照面与反面做法收敛补齐行」整包完整性校验（BLAKE3 与 sha256 双实现）行 |
 | `08-pavelc4-Rin.md` | Rust 引擎 + Compose 壳，手写 545 行 ANSI 解析 | 不采纳（门槛 1 + 3）：手写解析必然不完备（反衬 Ghostty 单源）；Canvas 指针进 Rust 绘制违渲染分层 | 复查台账 `pavelc4/Rin` 行；「禁止项三条保留」段（不换 VT 核） |
-| `09-Lord1Egypt-AndroidThothTerm.md` | JackPal 血统 Java 仿真器 + BiDi 渲染 | 门槛 1 不违反但仅作判据来源；`tests/` 122 文件对全仓零引用属失效语料；BiDi 未声明；交互侧可参考项本仓已有等价或更强实现——长按取词与拖拽手柄归 `text-selection`、虚拟键布局归 `modifier-bar-height-reservation`、会话列表标题监听归 `session-list`、常驻通知归 `DESIGN.md` 软件节、staging 与失败清理归 `bootstrap-install` | 复查台账 `Lord1Egypt/AndroidThothTerm` 行；「新增失效语料记录」行；「能力裁定补齐行」RTL/BiDi 行；`text-selection`；`modifier-bar-height-reservation`；`session-list`；`bootstrap-install` |
+| `09-Lord1Egypt-AndroidThothTerm.md` | JackPal 血统 Java 仿真器 + BiDi 渲染 | 门槛 1 不违反但仅作判据来源；`tests/` 语料对全仓零引用属失效语料（2026-11-02 复查为 131 文件、仍零引用）；BiDi 已在其 `PaintRenderer` 内有实现但本仓不立项（理由见「能力裁定补齐行」RTL/BiDi 行）；交互侧可参考项本仓已有等价或更强实现——长按取词与拖拽手柄归 `text-selection`、虚拟键布局归 `modifier-bar-height-reservation`、会话列表标题监听归 `session-list`、常驻通知归 `DESIGN.md` 软件节、staging 与失败清理归 `bootstrap-install`；新增的安全契约不变量与导出面策略测试见「参照面与反面做法收敛补齐行」对应两行 | 复查台账 `Lord1Egypt/AndroidThothTerm` 行；「新增失效语料记录」行；「能力裁定补齐行」RTL/BiDi 行；「参照面与反面做法收敛补齐行」安全契约与导出面策略测试两行；`text-selection`；`modifier-bar-height-reservation`；`session-list`；`bootstrap-install`；`docs/persistence/android-thoth-term.md` |
 | `10-ownerroc-termux-monet.md` | 同源换皮的 termux fork | 不采纳（门槛 1 成立、门槛 3 不满足）：测试为官方旧快照、零新增；缺 `ITermImage` 等属更弱上游 | 复查台账 `ownerroc/termux-monet` 行 |
 | `11-irealashu-ApexShell.md` | Compose 壳：每命令 `ProcessBuilder`，正则染色冒充 VT | 无门槛违反：无 VT 测试资产；逐命令执行／提权／历史持久化撞明禁 | 复查台账 `irealashu/ApexShell` 行；「参照面与反面做法收敛补齐行」空 catch 行 |
 | `12-Sunbr99-TerminalOS.md` | 仓内仅 README、LICENSE 与 3 行脚本；README 声称的 Go 结构不存在 | 无门槛违反：无资产可评估 | 复查台账 `Sunbr99/TerminalOS` 行 |
