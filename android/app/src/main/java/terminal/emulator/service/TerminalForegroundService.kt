@@ -26,6 +26,8 @@ class TerminalForegroundService : Service() {
         private const val WIFI_LOCK_TAG = "termvox:wifilock"
         private const val EXTRA_SESSION_COUNT = "session_count"
         private const val ACTION_EXIT = "terminal.emulator.action.EXIT"
+        private const val ACTION_WAKE_LOCK = "terminal.emulator.action.WAKE_LOCK"
+        private const val ACTION_WAKE_UNLOCK = "terminal.emulator.action.WAKE_UNLOCK"
 
         // 唤醒锁单次持有的上限：安全网，由 [scheduleWakeLockRenewal] 在半程续期。
         private const val WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1000L
@@ -86,6 +88,15 @@ class TerminalForegroundService : Service() {
 
     private var sessionCount: Int = 0
 
+    /**
+     * 用户是否要设备保持唤醒。
+     *
+     * 默认 `true`：有会话就持锁（DESIGN「应用位于后台时能够继续活跃」）。通知栏的
+     * 唤醒锁按钮把它翻成 `false`——用户明确表示不想被唤醒时，后续的会话数更新
+     * MUST NOT 又把锁抢回来。
+     */
+    private var wakeLockRequested = true
+
     override fun onCreate() {
         super.onCreate()
         val channel =
@@ -112,6 +123,20 @@ class TerminalForegroundService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        // 通知栏的唤醒锁按钮（DESIGN：常驻通知提供「申请唤醒锁」按钮）：与 termux
+        // 上游同义——持锁时释放，没锁时申请。处理完要重发通知，按钮文案才跟着状态翻。
+        if (intent?.action == ACTION_WAKE_LOCK || intent?.action == ACTION_WAKE_UNLOCK) {
+            wakeLockRequested = intent.action == ACTION_WAKE_LOCK
+            if (wakeLockRequested) {
+                acquireWakeLockIfNeeded()
+                acquireWifiLockIfNeeded()
+            } else {
+                releaseWakeLock()
+                releaseWifiLock()
+            }
+            startForegroundWithSessionCount(sessionCount)
+            return START_STICKY
+        }
         // 进程被杀后 START_STICKY 重启：没有会话能在进程死亡后存活，
         // 故服务（及其 PARTIAL_WAKE_LOCK）已无保活对象。
         // 改为停止，而不是带着永久唤醒锁无休止地重新固定通知。
@@ -128,11 +153,13 @@ class TerminalForegroundService : Service() {
                 // 沿用上次已知值（冷启动为 0，即「启动中」）。
                 sessionCount
             }
-        startForegroundWithSessionCount(sessionCount)
-        if (sessionCount >= 1) {
+        // 先取锁再发通知：通知里的唤醒锁按钮文案按当前锁状态生成，顺序反了会让
+        // 按钮一直显示「申请唤醒锁」，即便锁已经在手上。
+        if (sessionCount >= 1 && wakeLockRequested) {
             acquireWakeLockIfNeeded()
             acquireWifiLockIfNeeded()
         }
+        startForegroundWithSessionCount(sessionCount)
         return START_STICKY
     }
 
@@ -161,6 +188,16 @@ class TerminalForegroundService : Service() {
                 Intent(this, TerminalForegroundService::class.java).setAction(ACTION_EXIT),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
+        // 唤醒锁按钮：持锁时显示「释放唤醒锁」，没锁时显示「申请唤醒锁」（termux 上游同义）。
+        val wakeLockHeld = wakeLock?.isHeld == true
+        val wakeLockPending =
+            PendingIntent.getService(
+                this,
+                if (wakeLockHeld) 3 else 2,
+                Intent(this, TerminalForegroundService::class.java)
+                    .setAction(if (wakeLockHeld) ACTION_WAKE_UNLOCK else ACTION_WAKE_LOCK),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
         val notification =
             Notification
                 .Builder(this, CHANNEL_ID)
@@ -176,6 +213,19 @@ class TerminalForegroundService : Service() {
                             null,
                             getString(R.string.notification_exit),
                             exitPending,
+                        ).build(),
+                ).addAction(
+                    Notification.Action
+                        .Builder(
+                            null,
+                            getString(
+                                if (wakeLockHeld) {
+                                    R.string.notification_wake_unlock
+                                } else {
+                                    R.string.notification_wake_lock
+                                },
+                            ),
+                            wakeLockPending,
                         ).build(),
                 ).build()
         // 缺失 POST_NOTIFICATIONS 不会使这里抛异常（平台文档：前台服务照常启动，
@@ -294,7 +344,7 @@ class TerminalForegroundService : Service() {
         // （此后再无任何调用 acquireWakeLockIfNeeded）。
         // 零会话时不取：裸 start() 冷启动会走到这里，此时 sessionCount 仍为 0，
         // 为不存在的会话持唤醒锁（同 onStartCommand 的判据）。
-        if (sessionCount >= 1) {
+        if (sessionCount >= 1 && wakeLockRequested) {
             if (wakeLock?.isHeld != true) acquireWakeLockIfNeeded()
             acquireWifiLockIfNeeded()
         }

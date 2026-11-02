@@ -142,14 +142,14 @@ data class TermuxPropertiesLoad(val properties: TermuxProperties, val errors: Li
  * 会话快捷键（`shortcut.*`），值是一段 `Ctrl+<字符>` 的码点。
  *
  * 上游把配置存在 `MAP_SESSION_SHORTCUTS`，由 `TermuxTerminalViewClient` 在 Ctrl
- * 组合键上匹配。这里只保留本应用有入口的三项；`rename-session` 没有重命名 UI，
- * 解析时明确忽略。
+ * 组合键上匹配。这里只保留 `CONFIG.md` 声明的三项——上游还有
+ * `shortcut.rename-session`，但本应用没有重命名 UI（会话标题不可改），它与其他
+ * 未声明的键一样被跳过。
  */
 enum class SessionShortcut(val propertyKey: String) {
     CREATE("shortcut.create-session"),
     NEXT("shortcut.next-session"),
     PREVIOUS("shortcut.previous-session"),
-    RENAME("shortcut.rename-session"),
 }
 
 /**
@@ -341,10 +341,6 @@ internal object TermuxPropertiesParser {
         val sessionShortcuts = buildMap {
             for (shortcut in SessionShortcut.entries) {
                 val raw = values[shortcut.propertyKey] ?: continue
-                if (shortcut == SessionShortcut.RENAME) {
-                    errors += "${shortcut.propertyKey}: no session rename UI; ignored"
-                    continue
-                }
                 val codePoint = parseCtrlShortcut(raw)
                 if (codePoint == null) {
                     errors += "${shortcut.propertyKey}: '$raw' is not Ctrl+<character>; ignored"

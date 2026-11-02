@@ -209,6 +209,93 @@ class TerminalForegroundServiceTest {
      * 会永远跳过重启，存活会话既无常驻通知也无唤醒锁。
      */
     @Test
+    fun `the notification offers a wake lock action next to exit`() {
+        startWith(1)
+        val actions = postedNotification().actions
+        assertEquals("exit and wake lock actions expected", 2, actions.size)
+        val labels = actions.map { it.title.toString() }
+        assertTrue(
+            "exit action missing: $labels",
+            labels.contains(context.getString(R.string.notification_exit)),
+        )
+        assertTrue(
+            "wake lock action missing: $labels",
+            labels.contains(context.getString(R.string.notification_wake_unlock)),
+        )
+    }
+
+    @Test
+    fun `the wake lock action releases the lock and offers to acquire it again`() {
+        ShadowPowerManager.clearWakeLocks()
+        val controller =
+            Robolectric.buildService(
+                TerminalForegroundService::class.java,
+                Intent(context, TerminalForegroundService::class.java).apply {
+                    putExtra("session_count", 1)
+                },
+            ).create()
+        controller.startCommand(0, 1)
+        val wakeLock = requireNotNull(ShadowPowerManager.getLatestWakeLock())
+        assertTrue("the lock must start out held", wakeLock.isHeld)
+
+        val unlockIntent =
+            Intent(context, TerminalForegroundService::class.java)
+                .setAction("terminal.emulator.action.WAKE_UNLOCK")
+        controller.get().onStartCommand(unlockIntent, 0, 2)
+        assertFalse(
+            "the action must release the lock",
+            requireNotNull(ShadowPowerManager.getLatestWakeLock()).isHeld,
+        )
+        assertTrue(
+            "the button must offer to acquire the lock again",
+            postedNotification().actions
+                .map { it.title.toString() }
+                .contains(context.getString(R.string.notification_wake_lock)),
+        )
+
+        val lockIntent =
+            Intent(context, TerminalForegroundService::class.java)
+                .setAction("terminal.emulator.action.WAKE_LOCK")
+        controller.get().onStartCommand(lockIntent, 0, 3)
+        // 释放后锁对象会被丢弃，重新申请得到的是新实例：看最新的那把锁。
+        assertTrue(
+            "the action must acquire the lock",
+            requireNotNull(ShadowPowerManager.getLatestWakeLock()).isHeld,
+        )
+    }
+
+    @Test
+    fun `a released wake lock is not taken back by the next session count update`() {
+        ShadowPowerManager.clearWakeLocks()
+        val controller =
+            Robolectric.buildService(
+                TerminalForegroundService::class.java,
+                Intent(context, TerminalForegroundService::class.java).apply {
+                    putExtra("session_count", 1)
+                },
+            ).create()
+        controller.startCommand(0, 1)
+        val wakeLock = requireNotNull(ShadowPowerManager.getLatestWakeLock())
+        controller.get().onStartCommand(
+            Intent(context, TerminalForegroundService::class.java)
+                .setAction("terminal.emulator.action.WAKE_UNLOCK"),
+            0,
+            2,
+        )
+        assertFalse(wakeLock.isHeld)
+
+        val updateIntent =
+            Intent(context, TerminalForegroundService::class.java).apply {
+                putExtra("session_count", 2)
+            }
+        controller.get().onStartCommand(updateIntent, 0, 3)
+        assertFalse(
+            "a session count update must not override the user's choice",
+            wakeLock.isHeld,
+        )
+    }
+
+    @Test
     fun `updateSessionCount reports failure when the start is refused`() {
         val refusingContext =
             object : android.content.ContextWrapper(context) {
@@ -221,11 +308,14 @@ class TerminalForegroundServiceTest {
         )
     }
 
-    private fun postedNotificationText(): CharSequence? {
+    private fun postedNotification(): Notification {
         val manager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
         val notifications = shadowOf(manager).allNotifications
         assertEquals("exactly one notification expected", 1, notifications.size)
-        return notifications.first().extras.getCharSequence(Notification.EXTRA_TEXT)
+        return notifications.first()
     }
+
+    private fun postedNotificationText(): CharSequence? =
+        postedNotification().extras.getCharSequence(Notification.EXTRA_TEXT)
 }

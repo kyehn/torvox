@@ -29,6 +29,22 @@ Activity 因旋转或其他配置变化被重建时，应用 MUST 复用进程�
 - **WHEN** 系统终止应用进程后用户重新启动应用
 - **THEN** 应用从冷启动状态开始，不恢复旧会话、标题或终端内容
 
+### Requirement: 启动后自动弹出输入法
+
+应用启动并进入终端页面时 MUST 自动弹出输入法，使用户无需先点一下终端就能输入。
+`termux.properties` 的 `hide-soft-keyboard-on-startup` 为 `true` 时 MUST NOT 弹出，
+且该行为 MUST 只影响启动这一次。
+
+#### Scenario: 默认启动弹出输入法
+
+- **WHEN** 应用启动并显示终端页面
+- **THEN** 输入法自动弹出，键盘上方的修饰键栏不被遮挡
+
+#### Scenario: 配置关闭启动弹出
+
+- **WHEN** `termux.properties` 设置 `hide-soft-keyboard-on-startup = true`
+- **THEN** 应用启动后不自动弹出输入法
+
 ### Requirement: 前后台切换暂停与恢复渲染
 
 应用进入后台时 MUST 暂停当前会话的渲染；切回前台时 MUST 恢复渲染并呈现最新可用帧。

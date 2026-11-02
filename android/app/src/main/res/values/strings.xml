@@ -65,6 +65,8 @@
     <string name="notification_active_multiple">%d 个终端会话活跃中</string>
     <string name="notification_starting">终端启动中</string>
     <string name="notification_exit">退出</string>
+    <string name="notification_wake_lock">申请唤醒锁</string>
+    <string name="notification_wake_unlock">释放唤醒锁</string>
 
     <!-- Bootstrap -->
     <string name="bootstrap_install">安装引导程序</string>

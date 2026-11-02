@@ -69,6 +69,56 @@
 - **WHEN** 构建子进程环境变量
 - **THEN** 结果中不出现 `LD_LIBRARY_PATH`、`PWD`、`LD_PRELOAD` 及其他未声明变量
 
+### Requirement: 声明的环境变量集合固定
+
+子进程环境 MUST 只包含下列变量及其取值（`DESIGN.md` Shell 节）：
+
+- `HOME` 与 `TERMUX_HOME_DIR_PATH`：`/data/data/com.termux/files/home`
+- `PREFIX` 与 `TERMUX_PREFIX_DIR_PATH`：`/data/data/com.termux/files/usr`
+- `TMPDIR` 与 `TERMUX_TMP_PREFIX_DIR_PATH`：`/data/data/com.termux/files/usr/tmp`
+- `LANG`：`en_US.UTF-8`
+- `COLORTERM`：`truecolor`
+- `TERM`：`xterm-256color`
+- `TERMUX_VERSION`：`0.119.0-beta.3`
+- `PATH`：见「PATH 保留宿主原值并附加 prefix 的 bin」
+- `ENV`：见「ENV 指向 mksh rc」
+
+MUST NOT 设置 `LD_LIBRARY_PATH`、`PWD`、`LD_PRELOAD`。
+
+#### Scenario: 变量取值符合声明
+
+- **WHEN** 构建带 prefix 的会话环境变量
+- **THEN** `HOME`/`TERMUX_HOME_DIR_PATH` 为 home 目录，`PREFIX`/`TERMUX_PREFIX_DIR_PATH`
+      为 prefix 目录，`TMPDIR`/`TERMUX_TMP_PREFIX_DIR_PATH` 为 `{prefix}/tmp`，
+      `LANG` 为 `en_US.UTF-8`，`COLORTERM` 为 `truecolor`，`TERM` 为
+      `xterm-256color`，`TERMUX_VERSION` 为 `0.119.0-beta.3`
+
+#### Scenario: failsafe 会话没有 prefix 变量
+
+- **WHEN** 构建 failsafe 会话的环境变量（无 prefix）
+- **THEN** 结果中不出现 `PREFIX`、`TERMUX_PREFIX_DIR_PATH`、`TMPDIR`、
+      `TERMUX_TMP_PREFIX_DIR_PATH`
+
+### Requirement: 只透传宿主存在的 Android 系统变量
+
+`build_env` MAY 透传下列宿主变量，且 MUST 只透传宿主环境中**实际存在**的那些，
+MUST NOT 为它们硬编码取值（各机型取值不同，硬编码 `ANDROID_ROOT=/system` 在
+API 26+ 上是错的）：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、
+`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、
+`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、
+`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、
+`SYSTEMSERVERCLASSPATH`。
+
+#### Scenario: 宿主存在才透传
+
+- **WHEN** 宿主环境存在 `ANDROID_ROOT` 而不存在 `EXTERNAL_STORAGE`
+- **THEN** 子进程环境含 `ANDROID_ROOT` 的宿主原值，不含 `EXTERNAL_STORAGE`
+
+#### Scenario: 不硬编码系统变量取值
+
+- **WHEN** 宿主环境没有任何 Android 系统变量
+- **THEN** 子进程环境不出现这些变量名，应用不补默认值
+
 ### Requirement: PATH 保留宿主原值并附加 prefix 的 bin
 
 `build_env` MUST 设置 `PATH`：宿主进程的 `PATH` 原值在前，`{prefix}/bin` 在后；`{prefix}/bin` 仅在目录存在时附加（`DESIGN.md` Shell 节：原 `PATH` 附加 `/data/data/com.termux/files/usr/bin`，仅目录存在时附加设置）。`prefix` 为 `None`（无引导或 failsafe）时 MUST 只保留宿主 `PATH`，不附加 Termux 的 bin 目录。宿主没有 `PATH` 时 MUST 只给 `{prefix}/bin`，不得拼出空路径项。

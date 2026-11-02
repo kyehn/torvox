@@ -76,6 +76,24 @@ Termux:Tasker、Termux:Boot 或 Shizuku 集成。实现中 MUST NOT 保留这些
 - **WHEN** 用户浏览主题设置
 - **THEN** 只能预览内置主题，不存在新建、编辑或删除自定义主题的功能
 
+### Requirement: 不修改用户文件
+
+应用 MUST NOT 修改 `/data/data/com.termux/files` 下的用户文件：`files/home` 由用户管理，
+应用 MUST NOT 创建 `files/home/.termux/fonts`、`files/home/storage`、
+`files/home/storage/shared` 等路径，MUST NOT 自动清理 `files/usr/tmp` 等目录。`files/usr`
+只有 Bootstrap 安装阶段可以作为重命名目标，其他情况 MUST NOT 修改。
+
+#### Scenario: 不创建 home 下的目录
+
+- **WHEN** 应用启动或创建会话
+- **THEN** MUST NOT 在 `files/home` 下创建 `.termux/fonts`、`storage` 或
+      `storage/shared` 路径
+
+#### Scenario: 不自动清理临时目录
+
+- **WHEN** 应用退出或清理应用数据
+- **THEN** MUST NOT 删除 `files/usr/tmp` 下的内容
+
 ### Requirement: 不解析禁止的配置文件
 
 应用 MUST NOT 读取或解析 `colors.properties` 与 `termux.float.properties`。文件存在
