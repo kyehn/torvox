@@ -74,6 +74,10 @@ MUST 被忽略，MUST NOT 使整份文件解析失败。
 单个键写坏 MUST NOT 作废整份文件：非法转义（如 `\u12`）MUST 只降级该值，其余键
 MUST 照常生效。
 
+降级非法 `\u` 转义时 MUST 只动真正构成转义的那一个反斜杠：反斜杠成对出现时
+（`\\`）其后的 `u` 是普通字符，MUST NOT 被改写成转义符——否则整份文件会被当作含
+非法转义而作废。
+
 数值键越界 MUST 回退各自的默认值并记录错误，MUST NOT 钳到区间边界——
 上游 `getDefaultIfNotInRange` 的口径是「没配好就用默认」。
 
@@ -107,6 +111,13 @@ MUST 照常生效。
 - **WHEN** `termux.properties` 里 `default-working-directory` 的值含非法转义 `\u12`，
       其余键合法
 - **THEN** 该值按字面量处理，其余键照常生效，整份文件不被作废
+
+#### Scenario: 转义反斜杠后的 u 不是转义符
+
+- **WHEN** `termux.properties` 里某个值含 `\\u12` 或 `\\user`（反斜杠成对出现，
+      其后的 `u` 是普通字符）
+- **THEN** 该值按 Java Properties 规则解析（`\\` 是字面反斜杠），整份文件不被作废，
+      其余键照常生效
 
 #### Scenario: 非 ASCII 值不被破坏
 
