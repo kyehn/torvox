@@ -45,6 +45,8 @@ import terminal.emulator.installer.BootstrapInstallService
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.BackKeyBehaviour
+import terminal.emulator.settings.SessionShortcut
+import terminal.emulator.settings.TermuxProperties
 import terminal.emulator.settings.VolumeKeysBehaviour
 import terminal.emulator.ui.SettingsScreen
 import terminal.emulator.ui.TerminalScreen
@@ -319,6 +321,19 @@ class MainActivity : ComponentActivity() {
         val properties = terminalViewModel.termuxConfiguration.value.properties
         val actionDown = event.action == KeyEvent.ACTION_DOWN
 
+        sessionShortcutFor(event, properties)?.let { shortcut ->
+            // 只认首次按下：长按会产生一串 repeatCount > 0 的 ACTION_DOWN，
+            // 逐条执行会在按住 Ctrl+N 的一秒里建出十几个会话。
+            if (actionDown && event.repeatCount == 0) {
+                when (shortcut) {
+                    SessionShortcut.CREATE -> terminalViewModel.createSession()
+                    SessionShortcut.NEXT -> terminalViewModel.switchToAdjacentSession(forward = true)
+                    SessionShortcut.PREVIOUS -> terminalViewModel.switchToAdjacentSession(forward = false)
+                }
+            }
+            return true
+        }
+
         if (
             properties.volumeKeys == VolumeKeysBehaviour.VIRTUAL &&
             event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN &&
@@ -339,9 +354,9 @@ class MainActivity : ComponentActivity() {
             event.isCtrlPressed &&
             !event.isAltPressed
         ) {
-            // Ctrl+空格在终端语义里就是 NUL。只在下按发送一次，但上下两路都要消费，
-            // 否则抬起事件仍会漏回输入法/编码器。
-            if (actionDown) {
+            // Ctrl+空格在终端语义里就是 NUL。只在下按发送一次（长按的重复下按不再补发），
+            // 但上下两路都要消费，否则抬起事件仍会漏回输入法/编码器。
+            if (actionDown && event.repeatCount == 0) {
                 terminalViewModel.sendKey(
                     keyCode = KeyEvent.KEYCODE_SPACE,
                     modifiers = KeyModifiers.CTRL,
@@ -351,6 +366,22 @@ class MainActivity : ComponentActivity() {
         }
 
         return false
+    }
+
+    /**
+     * 该事件是否命中 `shortcut.*` 配置。
+     *
+     * 上游在 `TerminalView` 清掉 Ctrl 修饰后取码点，再转小写匹配
+     * （`TermuxTerminalViewClient.onCodePoint`），因此 Ctrl+Shift+N 与 Ctrl+n 等价。
+     * 这里用同一个口径：清掉 Ctrl 后取 Unicode 字符，转小写比较。Alt 组合不参与，
+     * 上游也把 Ctrl+Alt 留给硬件快捷键。
+     */
+    private fun sessionShortcutFor(event: KeyEvent, properties: TermuxProperties): SessionShortcut? {
+        if (!event.isCtrlPressed || event.isAltPressed) return null
+        val codePoint = event.getUnicodeChar(event.metaState and KeyEvent.META_CTRL_MASK.inv())
+        if (codePoint == 0) return null
+        val lowerCase = Character.toLowerCase(codePoint)
+        return properties.sessionShortcuts.entries.firstOrNull { it.value == lowerCase }?.key
     }
 
     /**
