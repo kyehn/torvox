@@ -12,7 +12,7 @@
 //! 墙上时钟被校准时可能前跳或回跳，前跳会把两次输出的真实间隔压到下限以下，
 //! 回跳会把间隔算成零而让告警在时钟追上之前长期沉默。
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::Instant;
 
 /// 诊断输出的最小间隔（毫秒）。与 `logcat-hygiene` 规范的 500ms 下限同档。
@@ -96,26 +96,30 @@ impl SlowLogThrottle {
 /// 逐帧诊断若逐条输出会把 logcat 刷成洪水；若只按闸门丢弃，窗口内发生了多少
 /// 次就此不可见，排障时看不出「多久一次」。本类型两者兼得：每个窗口放行一次，
 /// 窗口内的事件计数随该次输出一起交出。
+///
+/// 计数用原子量而非普通整数：同一闸门既被独占 `&mut` 的调用点使用（如会话的
+/// 剪贴板丢弃计数），也被只持 `&self` 的调用点使用（如终端命令入队失败的告警），
+/// 后者来自渲染线程与输入线程，共享同一把闸门。
 pub(crate) struct CountedLogThrottle {
     throttle: SlowLogThrottle,
-    count: u32,
+    count: AtomicU32,
 }
 
 impl CountedLogThrottle {
     pub(crate) const fn new() -> Self {
         Self {
             throttle: SlowLogThrottle::new(),
-            count: 0,
+            count: AtomicU32::new(0),
         }
     }
 
     /// 记一次事件；闸门放行时返回窗口内累计的事件数，否则返回 `None`。
-    pub(crate) fn record(&mut self) -> Option<u32> {
+    pub(crate) fn record(&self) -> Option<u32> {
         self.record_at(now_ms())
     }
 
     /// 以给定时刻记一次事件（测试用，免去睡眠）。
-    pub(crate) fn record_at(&mut self, now_ms: u64) -> Option<u32> {
+    pub(crate) fn record_at(&self, now_ms: u64) -> Option<u32> {
         self.record_events_at(1, now_ms)
     }
 
@@ -124,22 +128,30 @@ impl CountedLogThrottle {
     /// 成批丢弃（队列溢出一次丢掉多条）若逐条走 [`Self::record`]，每条都要判定
     /// 一次窗口、且被压住的那几条会白跑一遍时钟；批量口径与逐条口径在「窗口内
     /// 累计了多少次」上完全一致。`events` 为 0 时不推进窗口、不产生输出。
-    pub(crate) fn record_events(&mut self, events: u32) -> Option<u32> {
+    pub(crate) fn record_events(&self, events: u32) -> Option<u32> {
         self.record_events_at(events, now_ms())
     }
 
     /// [`Self::record_events`] 的定时版（测试用）。
-    pub(crate) fn record_events_at(&mut self, events: u32, now_ms: u64) -> Option<u32> {
+    pub(crate) fn record_events_at(&self, events: u32, now_ms: u64) -> Option<u32> {
         if events == 0 {
             return None;
         }
-        self.count = self.count.saturating_add(events);
+        self.count
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                Some(count.saturating_add(events))
+            })
+            .ok();
         if !self.throttle.should_log_at(now_ms) {
             return None;
         }
-        let count = self.count;
-        self.count = 0;
-        Some(count)
+        Some(self.count.swap(0, Ordering::AcqRel))
+    }
+
+    /// 窗口内已累计但尚未交出的事件数（测试用）。
+    #[cfg(test)]
+    pub(crate) fn pending_count(&self) -> u32 {
+        self.count.load(Ordering::Acquire)
     }
 }
 
@@ -212,14 +224,14 @@ mod tests {
     /// 首条必须可见：汇总行的第一条同样承载「诊断刚发生」这一事实。
     #[test]
     fn counted_throttle_reports_the_first_event() {
-        let mut throttle = CountedLogThrottle::new();
+        let throttle = CountedLogThrottle::new();
         assert_eq!(throttle.record_at(1_000), Some(1));
     }
 
     /// 窗口内的事件被压住，但计数不得丢失：限频吞掉的是条数，不是次数。
     #[test]
     fn counted_throttle_keeps_the_suppressed_count() {
-        let mut throttle = CountedLogThrottle::new();
+        let throttle = CountedLogThrottle::new();
         assert_eq!(throttle.record_at(1_000), Some(1));
         for now in [1_100, 1_200, 1_300] {
             assert_eq!(throttle.record_at(now), None, "now={now} 落在窗口内");
@@ -234,7 +246,7 @@ mod tests {
     /// 成批记事件：一批与逐条在窗口计数上同口径，且一批只判定一次窗口。
     #[test]
     fn batch_record_counts_every_event_in_one_window() {
-        let mut throttle = CountedLogThrottle::new();
+        let throttle = CountedLogThrottle::new();
         assert_eq!(throttle.record_events_at(5, 1_000), Some(5));
         assert_eq!(throttle.record_events_at(7, 1_100), None);
         assert_eq!(
@@ -247,7 +259,7 @@ mod tests {
     /// 一批零次事件不推进窗口、不产生输出：否则「本帧没有丢弃」也会被记成一次。
     #[test]
     fn empty_batch_does_not_open_the_window() {
-        let mut throttle = CountedLogThrottle::new();
+        let throttle = CountedLogThrottle::new();
         assert_eq!(throttle.record_events_at(0, 1_000), None);
         assert_eq!(
             throttle.record_events_at(1, 1_100),
@@ -259,15 +271,50 @@ mod tests {
     /// 交出计数后重新计数：下一窗口不得把上一窗口的次数算进来。
     #[test]
     fn counted_throttle_resets_the_count_after_handover() {
-        let mut throttle = CountedLogThrottle::new();
+        let throttle = CountedLogThrottle::new();
         assert_eq!(throttle.record_at(1_000), Some(1));
         assert_eq!(throttle.record_at(1_100), None);
         assert_eq!(throttle.record_at(1_000 + SLOW_LOG_INTERVAL_MS), Some(2));
         assert_eq!(throttle.record_at(1_100 + SLOW_LOG_INTERVAL_MS), None);
         assert_eq!(
             throttle.record_at(1_000 + 2 * SLOW_LOG_INTERVAL_MS),
-            Some(2),
-            "新窗口只统计本窗口的事件"
+            Some(2)
+        );
+    }
+
+    /// 共享闸门（只持 `&self`）在多线程下不得丢计数：命令入队失败来自渲染线程与
+    /// 输入线程，两者共用同一把闸门。交出的计数之和必须等于记录的事件总数。
+    #[test]
+    fn counted_throttle_keeps_the_total_across_threads() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        const THREADS: u32 = 8;
+        const EVENTS_PER_THREAD: u32 = 1_000;
+
+        let throttle = Arc::new(CountedLogThrottle::new());
+        let handed_over = Arc::new(AtomicU32::new(0));
+        let mut handles = Vec::new();
+        for _ in 0..THREADS {
+            let throttle = Arc::clone(&throttle);
+            let handed_over = Arc::clone(&handed_over);
+            handles.push(std::thread::spawn(move || {
+                let mut local = 0;
+                for _ in 0..EVENTS_PER_THREAD {
+                    if let Some(count) = throttle.record_events_at(1, 1_000) {
+                        local += count;
+                    }
+                }
+                handed_over.fetch_add(local, Ordering::AcqRel);
+            }));
+        }
+        for handle in handles {
+            handle.join().expect("计数线程");
+        }
+        assert_eq!(
+            handed_over.load(Ordering::Acquire) + throttle.pending_count(),
+            THREADS * EVENTS_PER_THREAD,
+            "限频吞掉的是条数，不是次数：已交出与待交出的计数之和必须等于事件总数"
         );
     }
 }

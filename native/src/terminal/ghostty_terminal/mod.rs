@@ -86,9 +86,13 @@ pub struct GhosttyTerminal {
     pub(crate) cache_stats: internal::CacheStats,
     /// 最近一次**已送达**的滚动请求序号（0 = 从未下发过滚动命令）。
     ///
-    /// 渲染侧拿它与帧携带的「VT 已处理的最后一个序号」比较，识别早于在途滚动
-    /// 命令的陈旧帧（见 [`GhosttyTerminal::latest_scroll_request_id`]）。
+    /// 渲染侧拿它与帧携带的「VT 已处理的最后一个序号」比较：帧的序号更小即
+    /// 说明该帧早于在途的滚动命令。
     pub(crate) latest_scroll_request_id: AtomicU64,
+    /// 命令入队失败的告警闸门：命令通道有界，VT 线程繁忙时入队会失败。
+    /// 逐次告警会把 logcat 刷成洪水（实测一次输出高峰刷出两万余行），
+    /// 故按窗口限频，并带上窗口内累计丢弃次数。
+    pub(crate) cmd_drop_log: crate::slow_log::CountedLogThrottle,
     /// Kitty 占位符扫描计数（复用行 / 扫描行），仅测试使用。
     #[cfg(test)]
     pub(crate) kitty_stats: internal::CacheStats,

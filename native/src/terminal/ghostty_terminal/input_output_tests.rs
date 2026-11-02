@@ -64,6 +64,36 @@ fn pty_write_lf_is_promoted_to_crlf() {
     assert_invariants(&snap);
 }
 
+// ── R: 命令通道满时的丢弃告警限频 ──
+
+/// 命令通道满时的每次丢弃都必须计入限频闸门：逐次告警会把 logcat 刷成洪水
+/// （实测一次输出高峰刷出两万余行，淹没其余诊断）。闸门按窗口放行一次，
+/// 窗口内累计的丢弃次数不得丢失——限频吞掉的是条数，不是次数。
+#[test]
+fn full_command_channel_counts_every_dropped_command() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    // 顶替成容量 1 且无人接收的通道：第一次发送占满位置，之后全部失败。
+    let (full_tx, _full_rx) = flume::bounded::<Command>(1);
+    terminal_under_test.cmd_tx = full_tx;
+
+    terminal_under_test.pty_write(b"fills the channel");
+    terminal_under_test.pty_write(b"dropped");
+    assert_eq!(
+        terminal_under_test.cmd_drop_log.pending_count(),
+        0,
+        "首次失败即放行并交出计数，窗口内不留存量"
+    );
+
+    for _ in 0..5 {
+        terminal_under_test.pty_write(b"dropped");
+    }
+    assert_eq!(
+        terminal_under_test.cmd_drop_log.pending_count(),
+        5,
+        "窗口内累计的丢弃次数不得丢失"
+    );
+}
+
 // ── R: pty_write string-mode termination across chunk boundaries ──
 
 /// 分片 OSC 由上游跨调用重组：块 1 未闭合时块 2 作为字符串续接被消费，

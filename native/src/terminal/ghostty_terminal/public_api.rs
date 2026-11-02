@@ -164,6 +164,7 @@ impl super::GhosttyTerminal {
             mouse_tracking_active,
             resize_failed,
             latest_scroll_request_id: AtomicU64::new(0),
+            cmd_drop_log: crate::slow_log::CountedLogThrottle::new(),
             #[cfg(test)]
             cache_stats: cache_stats_for_self,
             #[cfg(test)]
@@ -191,6 +192,20 @@ impl super::GhosttyTerminal {
         self.batch_stats.take()
     }
 
+    /// 命令入队失败时的统一告警。
+    ///
+    /// 命令通道有界（容量见 [`COMMAND_CHANNEL_CAPACITY`]），VT 线程忙于长命令时
+    /// 入队会失败。这是真实异常——被丢弃的命令不会重放——但逐次告警会把 logcat
+    /// 刷成洪水（实测一次输出高峰刷出两万余行，淹没其余诊断），故按 500ms 窗口
+    /// 限频，并带上窗口内累计丢弃次数：限频吞掉的是条数，不是次数。
+    fn warn_command_dropped(&self, operation: &str, error: &flume::TrySendError<Command>) {
+        if let Some(count) = self.cmd_drop_log.record_events(1) {
+            log::warn!(
+                "ghostty_terminal: 命令通道已满，丢弃 {count} 次命令（最近一次 {operation}: {error}）"
+            );
+        }
+    }
+
     pub fn drain_pty_write_responses(&self) -> Vec<Vec<u8>> {
         let mut guard = self
             .pty_write_responses
@@ -211,7 +226,7 @@ impl super::GhosttyTerminal {
         // ST/SGR 提前闭合（会截断合法跨块 OSC 并洗掉颜色）。用 try_send：VT 线程卡住时
         // 不得无限期阻塞调用方（与 pty_write 同策略）。
         if let Err(error) = self.cmd_tx.try_send(Command::Write(buffer)) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
+            self.warn_command_dropped("vt_write", &error);
         }
     }
 
@@ -247,7 +262,7 @@ impl super::GhosttyTerminal {
         // 用 try_send：本方法在持有会话锁的会话/渲染路径上运行，命令通道满（VT 线程
         // 忙于长命令）时不得无限期阻塞调用方；丢弃一块可接受——VT 引擎是帧式的。
         if let Err(error) = self.cmd_tx.try_send(Command::Write(buffer)) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
+            self.warn_command_dropped("pty_write", &error);
         }
     }
 
@@ -273,7 +288,7 @@ impl super::GhosttyTerminal {
     pub fn flush_with_timeout(&self, timeout: std::time::Duration) -> bool {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.cmd_tx.try_send(Command::FlushAck(tx)) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
+            self.warn_command_dropped("flush", &error);
             return false;
         }
         // 有界等待：VT 线程卡死（如病态的 C 解析器输入）时，无限 recv 会在持有会话锁
@@ -292,7 +307,7 @@ impl super::GhosttyTerminal {
     pub fn set_theme(&self, theme: &'static crate::terminal::theme::Theme) {
         // try_send：与 resize 同非阻塞策略。
         if let Err(error) = self.cmd_tx.try_send(Command::SetTheme(theme)) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
+            self.warn_command_dropped("set_theme", &error);
         }
     }
 
@@ -301,7 +316,7 @@ impl super::GhosttyTerminal {
     /// 只是默认值：程序用 DECSCUSR 指定过样式时以程序为准。
     pub fn set_cursor_style(&self, style: CursorStyle) {
         if let Err(error) = self.cmd_tx.try_send(Command::SetCursorStyle(style)) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
+            self.warn_command_dropped("set_cursor_style", &error);
         }
     }
 
@@ -316,7 +331,7 @@ impl super::GhosttyTerminal {
             .cmd_tx
             .try_send(Command::ScrollViewport { target, request_id })
         {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed for scroll: {error}");
+            self.warn_command_dropped("scroll_viewport", &error);
             return false;
         }
         // 只在确认送达后推进「最新请求序号」：未送达的序号不得让渲染侧把
@@ -341,7 +356,7 @@ impl super::GhosttyTerminal {
         // 期间持有 Kotlin sessionLock）。注意：被丢弃的 resize **不会重放**——PTY/网格
         // 保持旧尺寸直到下次 resize 事件（输入法变化、旋转、设置变更、切换会话）。
         if let Err(error) = self.cmd_tx.try_send(Command::Resize { rows, cols }) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed for resize: {error}");
+            self.warn_command_dropped("resize", &error);
             return false;
         }
         true
@@ -363,15 +378,13 @@ impl super::GhosttyTerminal {
             cell_width,
             cell_height,
         }) {
-            log::warn!(
-                "ghostty_terminal: cmd_tx full/dropped failed for set_cell_pixel_size: {error}"
-            );
+            self.warn_command_dropped("set_cell_pixel_size", &error);
         }
     }
 
     pub fn reset(&self) {
         if let Err(error) = self.cmd_tx.try_send(Command::Reset) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed for reset: {error}");
+            self.warn_command_dropped("reset", &error);
         }
     }
 
@@ -379,7 +392,7 @@ impl super::GhosttyTerminal {
     /// 故去重基线在 VT 线程上被失效，帧必定到达（邮箱只留最新帧，重推覆盖旧帧）。
     pub fn request_repaint(&self) {
         if let Err(error) = self.cmd_tx.try_send(Command::Repaint) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed for repaint: {error}");
+            self.warn_command_dropped("request_repaint", &error);
         }
     }
 
@@ -388,13 +401,13 @@ impl super::GhosttyTerminal {
     /// try_send 非阻塞：VT 线程卡住时丢弃而非阻塞调用方（与 resize 同策略）。
     pub fn set_selection(&self, start: (u32, u32), end: (u32, u32)) {
         if let Err(error) = self.cmd_tx.try_send(Command::SetSelection { start, end }) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed for set_selection: {error}");
+            self.warn_command_dropped("set_selection", &error);
         }
     }
 
     pub fn clear_selection(&self) {
         if let Err(error) = self.cmd_tx.try_send(Command::ClearSelection) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed for clear_selection: {error}");
+            self.warn_command_dropped("clear_selection", &error);
         }
     }
 
