@@ -1,5 +1,8 @@
 package terminal.emulator.settings
 
+import java.io.StringReader
+import java.util.Properties
+
 /**
  * `~/.termux/termux.properties` 的解析结果。
  *
@@ -156,109 +159,41 @@ enum class SessionShortcut(val propertyKey: String) {
 private const val UNSUPPORTED_RENAME_SHORTCUT = "shortcut.rename-session"
 
 /**
- * Java Properties 风格的读取器：`key = value` / `key: value`，`#` 与 `!` 起注释，
- * 行尾反斜杠续行，支持 `\n` `\t` `\\` `\ ` `\uXXXX` 转义。
+ * Java Properties 风格的读取器：`key = value` / `key: value` / `key value`，
+ * `#` 与 `!` 起注释，行尾反斜杠续行，支持 `\n` `\t` `\\` `\ ` `\uXXXX` 转义。
  *
- * 不用 `java.util.Properties`：它会把 `extra-keys` 里的 `:`（对象字面量
- * `{key: '-'}`）当成键值分隔符处理吗？不会——分隔符只在首个未转义的 `=`/`:` 处切一次，
- * 但 `Properties.load` 会吃掉续行前的空白并对 ISO-8859-1 做转码，非 ASCII 键值
- * （中文路径）会被静默破坏。故这里显式按 UTF-8 解析。
+ * 语法交给 JDK 的 [Properties]：它是该格式的参考实现，分隔符、续行与转义规则都随
+ * JDK 维护，本仓不再自研一份。用 [StringReader] 而非 `load(InputStream)`——后者按
+ * ISO-8859-1 解码，会把非 ASCII 键值（中文路径）静默破坏。
+ *
+ * JDK 对非法 `\u` 转义抛异常并拒绝整份文件，而本仓的口径是「写坏一个键只废掉那个
+ * 键」：故先把这类转义降级成字面量（`\u12` → `u12`），其余交给 JDK 解析。
  */
 internal object PropertiesFile {
     fun parse(text: String): List<Pair<String, String>> {
-        val logicalLines = mutableListOf<String>()
-        val pending = StringBuilder()
-        for (rawLine in text.lineSequence()) {
-            val line = if (pending.isEmpty()) rawLine else pending.toString() + rawLine.trimStart()
-            if (hasContinuation(line)) {
-                pending.clear()
-                pending.append(line.dropLast(1))
-            } else {
-                pending.clear()
-                logicalLines += line
-            }
-        }
-        if (pending.isNotEmpty()) logicalLines += pending.toString()
-
-        val entries = mutableListOf<Pair<String, String>>()
-        for (line in logicalLines) {
-            val trimmed = line.trim()
-            if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("!")) continue
-            val separator = firstSeparator(trimmed)
-            if (separator < 0) {
-                entries += unescape(trimmed) to ""
-            } else {
-                entries +=
-                    unescape(trimmed.substring(0, separator).trim()) to
-                    unescape(trimmed.substring(separator + 1).trim())
-            }
-        }
-        return entries
+        val properties = RecordingProperties()
+        properties.load(StringReader(MALFORMED_UNICODE_ESCAPE.replace(text, "u")))
+        return properties.recorded
     }
+}
 
-    /** 行尾的反斜杠是续行符；连续两个反斜杠是字面量，不续行。 */
-    private fun hasContinuation(line: String): Boolean {
-        var backslashes = 0
-        var index = line.length - 1
-        while (index >= 0 && line[index] == '\\') {
-            backslashes++
-            index--
-        }
-        return backslashes % 2 == 1
-    }
+/** 非法 `\u` 转义（后随不足四位十六进制）：降级成字面量，不让 JDK 拒绝整份文件。 */
+private val MALFORMED_UNICODE_ESCAPE = Regex("\\\\u(?![0-9a-fA-F]{4})")
 
-    private fun firstSeparator(line: String): Int {
-        var escaped = false
-        for (index in line.indices) {
-            val character = line[index]
-            if (escaped) {
-                escaped = false
-                continue
-            }
-            when (character) {
-                '\\' -> escaped = true
-                '=', ':' -> return index
-            }
-        }
-        return -1
-    }
+/**
+ * 记录 [Properties] 的写入顺序与重复。
+ *
+ * `Properties.load` 逐条写入、后写覆盖先写，却**不保留**出现顺序与重复：同一个键写
+ * 两遍在 `Properties` 里看不出来。本仓要把重复留痕（用户同时写两行通常是在排查
+ * 为什么改了没效果），故自行记录每一次写入。
+ */
+private class RecordingProperties : Properties() {
+    val recorded = mutableListOf<Pair<String, String>>()
 
-    private fun unescape(text: String): String {
-        if ('\\' !in text) return text
-        val output = StringBuilder(text.length)
-        var index = 0
-        while (index < text.length) {
-            val character = text[index]
-            if (character != '\\' || index == text.length - 1) {
-                output.append(character)
-                index++
-                continue
-            }
-            when (val escaped = text[index + 1]) {
-                'n' -> output.append('\n')
-
-                't' -> output.append('\t')
-
-                'r' -> output.append('\r')
-
-                'f' -> output.append('\u000C')
-
-                'u' -> {
-                    val hex = text.substring(index + 2, minOf(index + 6, text.length))
-                    val code = hex.toIntOrNull(16)
-                    if (hex.length == 4 && code != null) {
-                        output.append(code.toChar())
-                        index += 4
-                    } else {
-                        output.append(escaped)
-                    }
-                }
-
-                else -> output.append(escaped)
-            }
-            index += 2
-        }
-        return output.toString()
+    override fun put(key: Any?, value: Any?): Any? {
+        // 值去首尾空白：Java Properties 保留尾随空白，而数值键不容忍尾随空白。
+        recorded += key.toString() to value.toString().trim()
+        return super.put(key, value)
     }
 }
 

@@ -457,4 +457,52 @@ class TermuxPropertiesParserTest {
         assertEquals(TermuxProperties.DEFAULT_EXTRA_KEYS, loaded.properties.extraKeys)
         assertTrue(loaded.errors.any { it.contains("extra-keys") })
     }
+
+    /** 空白也是键值分隔符（Java properties 约定）：`key value` 与 `key = value` 等价。 */
+    @Test
+    fun `a whitespace separated pair is read as key and value`() {
+        assertEquals(100, parse("terminal-transcript-rows 100").properties.terminalTranscriptRows)
+    }
+
+    /**
+     * 注释行以反斜杠结尾时不得吞掉下一行。
+     *
+     * 注释整行丢弃是 Java properties 的约定；把注释当续行会让紧随其后的有效配置
+     * 被静默吃掉——用户在注释里写了个带反斜杠的路径就会踩到。
+     */
+    @Test
+    fun `a comment ending with a backslash does not swallow the next line`() {
+        val loaded = parse(
+            """
+            # 路径以 \ 结尾
+            fullscreen = true
+            """.trimIndent(),
+        )
+        assertTrue(loaded.properties.fullscreen)
+    }
+
+    /**
+     * 非法 `\u` 转义只降级那一个值，整份文件不作废。
+     *
+     * JDK 的 `Properties` 遇到非法 `\u` 会抛异常并拒绝整份文件，而本仓的口径是
+     * 「写坏一个键只废掉那个键」。
+     */
+    @Test
+    fun `a malformed unicode escape only affects its own value`() {
+        val loaded = parse(
+            """
+            default-working-directory = \u12
+            fullscreen = true
+            """.trimIndent(),
+        )
+        assertTrue(loaded.properties.fullscreen)
+        assertEquals("u12", loaded.properties.defaultWorkingDirectory)
+    }
+
+    /** 非 ASCII 值按原文生效：解码路径一旦走 ISO-8859-1，中文路径就成乱码。 */
+    @Test
+    fun `a non ascii value survives parsing`() {
+        val loaded = parse("default-working-directory = /sdcard/我的目录")
+        assertEquals("/sdcard/我的目录", loaded.properties.defaultWorkingDirectory)
+    }
 }
