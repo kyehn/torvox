@@ -330,7 +330,7 @@ class BootstrapInstaller(
     /**
      * 绝对符号链接目标重写到本机 prefix。
      *
-     * 官方包的 SYMLINKS.txt 用旧式绝对路径（`/data/data/com.termux/files/usr/...`）。
+     * 官方包的 SYMLINKS.txt 用旧式绝对路径（`/data/data/<pkg>/files/usr/...`）。
      * 二级用户与多用户设备上本机 prefix 位于 `/data/user/<id>/<pkg>/files/usr`，
      * 归档里的绝对路径并不指向本机 prefix——照抄建链得到的是断链。
      *
