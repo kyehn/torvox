@@ -188,6 +188,9 @@ rules:
       exclude:
         - "/.semgrep/**"
         - "/docs/specification/*"
+        # 参考资料目录要写清「本项目」的源码范围，必然提到项目代号；
+        # 与 no-termux-api-refs / no-bootstrap-sidecar 同口径：照录事实不等于实现它。
+        - "/docs/persistence/*"
         - "/README.md"
   - id: no-nix-store-paths
     pattern-regex: 'nix/store'

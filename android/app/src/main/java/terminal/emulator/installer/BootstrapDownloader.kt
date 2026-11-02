@@ -121,7 +121,7 @@ class BootstrapDownloader(
                     val cachedFile = File(context.cacheDir, "bootstrap-$architecture.zip")
                     cachedFile.delete()
                     // 不做内容完整性校验（DESIGN Bootstrap 节）：归档直接进入解压与
-                    // 换入阶段，不计算摘要、不比对 sidecar 校验文件。https 门控约束的是
+                    // 换入阶段，不计算摘要、不比对单独发布的校验文件。https 门控约束的是
                     // 传输链路，不是归档内容——两者都不当作内容真值。
                     body.byteStream().use { input ->
                         FileOutputStream(cachedFile).use { output ->

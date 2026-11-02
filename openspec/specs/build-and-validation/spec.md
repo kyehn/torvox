@@ -20,7 +20,7 @@ MUST NOT 使用 `which` 做运行时路径探测，也 MUST NOT 另行执行 Zig
 
 ### Requirement: Android 构建顺序与参数
 
-Android 原生库 MUST 使用 `cargo ndk` 构建，MUST NOT 使用 `cargo zigbuild`。构建 MUST
+Android 原生库 MUST 使用 `cargo ndk` 构建，MUST NOT 使用 cargo 的 zig 交叉编译子命令。构建 MUST
 先产出 `.so` 并填充 `jniLibs/`，再构建 APK。Gradle 的 `compileOptions` MUST 使用
 `JavaVersion.VERSION_17`；`minSdkVersion` MUST 为 33、`compileSdkVersion` MUST 为 37、
 `targetSdkVersion` MUST 为 28；`versionCode` MUST 为 2000、`versionName` MUST 为 0.1.0。

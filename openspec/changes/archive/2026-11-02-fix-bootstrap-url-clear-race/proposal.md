@@ -28,7 +28,7 @@
 
 实测（改动前）：
 
-```
+```text
 recordBootstrapUrlEdit("https://…/dropped.zip")
 dropPendingBootstrapUrlEdits()
 rearmBootstrapUrlEdits()   // 清除结束，比防抖到期早

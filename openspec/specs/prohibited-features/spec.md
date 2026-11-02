@@ -10,7 +10,7 @@
 ### Requirement: 不实现禁止的终端能力
 
 应用 MUST NOT 实现选中菜单的 ◀ / ▶ 锚点移动项、粘贴确认对话框、用户可编辑的
-环境变量或 `termux.env`、会话数据持久化与恢复、背景图片/透明背景/背景模糊、
+环境变量（termux 的环境变量文件）、会话数据持久化与恢复、背景图片/透明背景/背景模糊、
 无障碍朗读、内嵌 proot、内嵌 bootstrap 或预装发行版、桌面环境或 X11。
 
 #### Scenario: 粘贴直接写入终端
@@ -26,7 +26,7 @@
 #### Scenario: 不提供环境变量编辑入口
 
 - **WHEN** 用户浏览设置与应用功能
-- **THEN** 不存在环境变量编辑项、接收用户环境变量的入口或 `termux.env` 逻辑
+- **THEN** 不存在环境变量编辑项、接收用户环境变量的入口或 termux 环境变量文件逻辑
 
 #### Scenario: Shell 的标准环境不受影响
 
@@ -36,14 +36,14 @@
 
 ### Requirement: 不实现禁止的外部集成
 
-应用 MUST NOT 提供 Model Context Protocol、termux-api、termux-exec、termux-am、
+应用 MUST NOT 提供 Model Context Protocol、Termux:API、termux-exec、termux-am、
 Termux:Tasker、Termux:Boot 或 Shizuku 集成。实现中 MUST NOT 保留这些功能的占位
 入口、协议处理器或仅为未来预留的配置项。
 
 #### Scenario: 不暴露外部服务入口
 
 - **WHEN** 用户浏览终端菜单与设置
-- **THEN** 不出现 MCP、termux-api、termux-exec、termux-am、Tasker、Boot 或 Shizuku
+- **THEN** 不出现 MCP、Termux:API、termux-exec、termux-am、Tasker、Boot 或 Shizuku
       的启用入口
 
 #### Scenario: 不预置未声明的协议处理器

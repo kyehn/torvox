@@ -152,7 +152,7 @@ class TermuxPropertiesKeyContractTest {
     /** 未声明的键直接跳过：不报错，也不影响任何其他键。 */
     @Test
     fun `unknown keys are skipped without touching the rest`() {
-        val loaded = parse("termux-api = true\nfullscreen = true")
+        val loaded = parse("some-unknown-key = true\nfullscreen = true")
         assertTrue(loaded.properties.fullscreen)
         assertTrue("未知键不得报错：${loaded.errors}", loaded.errors.isEmpty())
     }
