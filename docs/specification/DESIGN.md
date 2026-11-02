@@ -194,7 +194,7 @@
 
 - 应用启动时检查应用数据兼容性：无法解析或引用不存在的主题/字体时清除该项并回退默认；不得清除 `/data/data/com.termux/files`。
 - 实现文档提供器，向系统文件选择器暴露 `/data/data/com.termux/files/home`，可读可写，可执行文件被修改后不丢失权限。
-- 参考 termux-app 实现前台通知常驻，显示会话数量，提供“申请唤醒锁”、“退出”按钮，申请通知权限。
+- 参考 termux-app 实现前台通知常驻，显示会话数量，提供“唤醒锁”、“退出”按钮，申请通知权限。
 - **不得修改用户文件**：`/data/data/com.termux/files` 由用户管理，应用自身不得修改 `/data/data/com.termux/files/home`，不得创建 `/data/data/com.termux/files/home/.termux/fonts` `/data/data/com.termux/files/home/storage` `/data/data/com.termux/files/home/storage/shared` 等路径，对于 `/data/data/com.termux/files/usr` 只有在 Bootstrap 安装阶段可以作为重命名目标，其他情况不得修改。不自动清理 `/data/data/com.termux/files/usr/tmp` 等目录。
 - 适配 Android 软件启动屏动画
 - 遵循 Material Design 3
