@@ -3802,11 +3802,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 并写入 PTY；未启用时在主屏滚动本地回滚，备用屏保持不滚动。
      */
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
-        if (
-            event.action == MotionEvent.ACTION_SCROLL &&
-            (event.isFromSource(InputDevice.SOURCE_MOUSE) ||
-                event.isFromSource(InputDevice.SOURCE_TOUCHPAD))
-        ) {
+        val fromPointer =
+            event.isFromSource(InputDevice.SOURCE_MOUSE) ||
+                event.isFromSource(InputDevice.SOURCE_TOUCHPAD)
+        if (event.action == MotionEvent.ACTION_SCROLL && fromPointer) {
             val runtime = viewModel?.runtime
             val bridge = runtime?.bridge()
             val delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
