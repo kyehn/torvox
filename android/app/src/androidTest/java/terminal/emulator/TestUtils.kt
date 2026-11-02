@@ -210,6 +210,26 @@ fun <T> onUiThread(block: () -> T): T {
 }
 
 /**
+ * 收起输入法并等到确实收起。
+ *
+ * 启动期会自动弹出输入法（`hide-soft-keyboard-on-startup = false`，对齐 termux 上游），
+ * 键盘占据屏幕下半部时修饰键栏被抬到屏幕中部：按窗口几何取落点的用例会落在键栏上，
+ * 手势根本到不了终端内容。只发一次隐藏指令不够——平台可能在收起动画期间再弹，
+ * 故必须等到窗口 inset 里输入法确实不可见。
+ */
+fun AndroidComposeTestRule<*, *>.hideImeAndAwaitHidden(timeoutMs: Long = 10_000L) {
+    val hidden =
+        UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 200) {
+            onUiThread {
+                val decor = activity.window.decorView
+                decor.windowInsetsController?.hide(android.view.WindowInsets.Type.ime())
+                decor.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) != true
+            }
+        }
+    assertNotNull("输入法必须收起（${timeoutMs}ms 内仍未隐藏）", hidden)
+}
+
+/**
  * 触摸一次让窗口真正拿到焦点，并清掉切换余波的抑制窗口。
  *
  * 失焦时输入法写入会被拒收（有界抑制窗口），故须先拿到焦点再提交文本。

@@ -4,9 +4,6 @@ import android.annotation.SuppressLint
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.os.SystemClock
-import android.view.InputDevice
-import android.view.MotionEvent
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
@@ -20,7 +17,12 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import terminal.emulator.ComposeTerminalLogcatTest
+import terminal.emulator.awaitBridge
+import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
+import terminal.emulator.hideImeAndAwaitHidden
+import terminal.emulator.injectLongPress
+import terminal.emulator.terminalCellSizePx
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
@@ -402,25 +404,23 @@ class SelectionEspressoTest : ComposeTerminalLogcatTest() {
      * 真实手势链：按住不动 → 松手 → 菜单留存 → 点「复制」→ 剪贴板拿到被长按那一行的文本。
      *
      * 既有用例经 `startSelection/endSelection` 直调，只覆盖「选区已建立之后」的接缝；
-     * 这条补上用户实际走的那一段。注入刻意不发 MOVE（与手指按住不动同形）：
-     * `adb shell input swipe` 会补 MOVE，被应用正确判成拖动、抬手即收起菜单——
-     * 那是拖动语义而非缺陷，故不能拿那条路径代表「长按」。
+     * 这条补上用户实际走的那一段。
+     *
+     * 落点必须由**网格单元格**推出并直接投递给终端表面：修饰键栏是组合覆盖层，
+     * 走 decorView 的分发会先被它命中（启动期自动弹出的键盘把键栏抬到屏幕中部，
+     * 窗口正中恰在键栏上），手势根本到不了 SurfaceView——长按静默失效、菜单不出现。
      *
      * 铺满整屏：任意落点都是有内容格子，期望词界（整行）与落点无关。
      */
     @Test
     fun realLongPressKeepsMenuAndCopiesPressedLine() {
         composeTestRule.waitForSession()
-        UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
-            composeTestRule.getBridge() != null
-        }
-        val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
-        var rows = 1
-        var cols = 1
-        composeTestRule.activityRule.scenario.onActivity { activity ->
-            rows = activity.terminalViewModel.runtime.state.value.rows
-            cols = activity.terminalViewModel.runtime.state.value.cols
-        }
+        val bridge = composeTestRule.awaitBridge()
+        // 收起输入法：键栏随键盘抬到屏幕中部，网格坐标推出的落点才与屏幕一一对应。
+        composeTestRule.hideImeAndAwaitHidden()
+        val grid = composeTestRule.activity.terminalViewModel.runtime.state.value
+        val rows = grid.rows
+        val cols = grid.cols
         val line = "P".repeat(cols)
         bridge.feedTerminal(
             ("\u001B[2J\u001B[H" + (0 until rows).joinToString("\r\n") { line }).toByteArray(Charsets.UTF_8),
@@ -431,37 +431,21 @@ class SelectionEspressoTest : ComposeTerminalLogcatTest() {
             },
         ) { "整屏填充必须落格: ${rows}x$cols" }
 
-        // 经 decorView 分发真实 MotionEvent：与生产同一条命中测试与分发路径，
+        // 经终端表面分发真实 MotionEvent（本地坐标）：与生产同一条命中测试与手势路径，
         // 只少了 InputManager，故覆盖「长按手势 → 词界扩展 → 菜单挂出」整段。
-        composeTestRule.activityRule.scenario.onActivity { activity ->
-            val decor = activity.window.decorView
-            val centerX = decor.width / 2f
-            val centerY = decor.height / 2f
-            val downTime = SystemClock.uptimeMillis()
-            decor.dispatchTouchEvent(
-                MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, centerX, centerY, 0).apply {
-                    source = InputDevice.SOURCE_TOUCHSCREEN
-                },
-            )
-            decor.postDelayed({
-                decor.dispatchTouchEvent(
-                    MotionEvent.obtain(
-                        downTime,
-                        SystemClock.uptimeMillis(),
-                        MotionEvent.ACTION_UP,
-                        centerX,
-                        centerY,
-                        0,
-                    ).apply {
-                        source = InputDevice.SOURCE_TOUCHSCREEN
-                    },
-                )
-            }, 900L)
-        }
+        val (cellWidth, cellHeight) = terminalCellSizePx(composeTestRule.activity, bridge)
+        val tapCol = cols / 2
+        val tapRow = rows / 2
+        injectLongPress(
+            findTerminalSurface(composeTestRule.activity),
+            (tapCol + 0.5f) * cellWidth,
+            (tapRow + 0.5f) * cellHeight,
+        )
 
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        val copy = device.wait(Until.findObject(By.text("复制")), MENU_POPUP_TIMEOUT_MS)
-        assertTrue("真实长按松手后菜单必须留存并含「复制」", copy != null)
+        val copyLabel = composeTestRule.activity.getString(R.string.copy)
+        val copy = device.wait(Until.findObject(By.text(copyLabel)), MENU_POPUP_TIMEOUT_MS)
+        assertTrue("真实长按松手后菜单必须留存并含「$copyLabel」", copy != null)
         requireNotNull(copy).click()
         assertEquals("长按复制必须把被长按那一行的文本放进剪贴板", line, awaitClipboardText())
     }
