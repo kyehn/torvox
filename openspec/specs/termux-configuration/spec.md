@@ -229,10 +229,10 @@ MUST 把解析位置同步到该对象的闭合符之后，使同一行里其余
 - **WHEN** `extra-keys` 里有一项 `{macro: "CTRL f d"}`
 - **THEN** `d` 不带 Ctrl
 
-#### Scenario: FN 修饰宏按键
+#### Scenario: 含 FN 的宏不渲染
 
-- **WHEN** `extra-keys` 里有一项 `{macro: "FN f"}` 且用户点击它
-- **THEN** 终端收到带 Fn 修饰状态的 `f` 键事件，不影响键栏上的粘滞修饰状态
+- **WHEN** `extra-keys` 里有一项 `{macro: "FN f"}`
+- **THEN** 该项不出现在键栏上，日志里说明该宏不可用，同行其余按键照常渲染
 
 ### Requirement: 宏里的字面量文本
 

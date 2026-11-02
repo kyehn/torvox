@@ -1,5 +1,6 @@
 package terminal.emulator.benchmark
 
+import android.os.SystemClock
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
@@ -42,10 +43,15 @@ class AppStartupBenchmark {
                 pressHome()
             },
             measureBlock = {
-                startActivityAndWait()
                 // 启动耗时只有在界面真的出现时才有意义：首帧到了但被系统对话框
                 // 挡住时，指标测的是「弹窗出现」而不是「终端可用」。
-                assertTerminalVisible(device)
+                val elapsed = elapsedMillis {
+                    startActivityAndWait()
+                    assertTerminalVisible(device)
+                }
+                check(elapsed <= COLD_START_BUDGET_MILLIS) {
+                    "冷启动到终端可用耗时 ${elapsed}ms 超过预算 ${COLD_START_BUDGET_MILLIS}ms"
+                }
             },
         )
     }
@@ -64,15 +70,30 @@ class AppStartupBenchmark {
                 pressHome()
             },
             measureBlock = {
-                startActivityAndWait()
-                assertTerminalVisible(device)
+                val elapsed = elapsedMillis {
+                    startActivityAndWait()
+                    assertTerminalVisible(device)
+                }
+                check(elapsed <= WARM_START_BUDGET_MILLIS) {
+                    "热启动到终端可用耗时 ${elapsed}ms 超过预算 ${WARM_START_BUDGET_MILLIS}ms"
+                }
             },
         )
     }
 
     /** 终端界面必须真的出现；只测到「进程被拉起」而界面没到位，启动耗时没有意义。 */
     private fun assertTerminalVisible(device: UiDevice) {
-        val screen = device.wait(Until.findObject(By.res(TERMINAL_SCREEN_RESOURCE_ID)), UI_TIMEOUT_MILLIS)
+        val screen =
+            device.wait(
+                Until.findObject(By.res(TERMINAL_SCREEN_RESOURCE_ID)),
+                UI_TIMEOUT_MILLIS,
+            )
         checkNotNull(screen) { "启动后未出现终端界面（$TERMINAL_SCREEN_RESOURCE_ID）" }
+    }
+
+    private fun elapsedMillis(block: () -> Unit): Long {
+        val start = SystemClock.elapsedRealtime()
+        block()
+        return SystemClock.elapsedRealtime() - start
     }
 }
