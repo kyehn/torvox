@@ -767,4 +767,3 @@ fn ed2_at_prompt_scrolls_and_removes_kitty_placements() {
         "首次 ED2 后放置集合必须为空"
     );
 }
-
