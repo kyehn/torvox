@@ -165,10 +165,17 @@ class InteractionAnimationBenchmark {
      * `UiObject2` 持有查找那一刻的无障碍节点，状态不会自动刷新；每次重新查询，
      * 拿到的是当下的选中态。
      */
+    /**
+     * 等粘滞修饰态置起。
+     *
+     * Compose 的 `selected` 语义映射到无障碍节点的 **checked** 状态（实测：
+     * `uiautomator dump` 里 `Key_CTRL` 的 `checkable=true`、`checked` 随粘滞态翻转），
+     * 不是 `isSelected`。
+     */
     private fun waitForSelected(device: UiDevice, resourceId: String, timeoutMillis: Long): Boolean {
         val deadline = SystemClock.elapsedRealtime() + timeoutMillis
         while (SystemClock.elapsedRealtime() < deadline) {
-            if (device.findObject(By.res(resourceId))?.isSelected == true) return true
+            if (device.findObject(By.res(resourceId))?.isChecked == true) return true
             device.waitForIdle()
             SystemClock.sleep(SELECTION_POLL_INTERVAL_MILLIS)
         }

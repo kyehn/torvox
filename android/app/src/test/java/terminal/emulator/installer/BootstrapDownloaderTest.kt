@@ -231,33 +231,14 @@ class BootstrapDownloaderTest {
     }
 
     /**
-     * 预设归档的字节与钉住摘要不符时必须失败，且不把归档留给安装器。
-     *
-     * 归档随后会被解压并执行其中的 postinst，摘要不符即放行等于执行任意内容。
+     * 预设归档不做内容完整性校验（DESIGN Bootstrap 节）：字节不与任何摘要比对，
+     * 归档下载后直接交给安装器。状态码与体积门控仍然生效。
      */
     @Test
-    fun pinnedPresetArchiveWithWrongBytesIsRejected() = runBlocking {
+    fun pinnedPresetArchiveIsDownloadedWithoutIntegrityCheck() = runBlocking {
         val downloader = BootstrapDownloader(context(), client = cannedClient())
         val result = downloader.download(TermuxBootstrap.downloadUrl("aarch64"), "aarch64")
-        assertTrue("摘要不符必须失败", result.isFailure)
-        val message = result.exceptionOrNull()?.message.orEmpty()
-        assertTrue("错误信息须说明摘要不符：$message", message.contains("checksum mismatch"))
-        assertTrue(
-            "不符的归档不得留在缓存里",
-            !File(tempDir, "bootstrap-aarch64.zip").exists(),
-        )
-    }
-
-    /**
-     * 自定义 URL 不做摘要比对，但必须放行而不是失败——本仓无从预知其内容。
-     *
-     * 跳过这件事由 `BootstrapDownloader` 记 warn 级日志明示，不静默降级。
-     */
-    @Test
-    fun customUrlIsDownloadedWithoutChecksumVerification() = runBlocking {
-        val downloader = BootstrapDownloader(context(), client = cannedClient())
-        val result = downloader.download("https://example.invalid/bootstrap.zip", "aarch64")
-        assertTrue("自定义 URL 必须放行：${result.exceptionOrNull()}", result.isSuccess)
+        assertTrue("下载必须成功：${result.exceptionOrNull()}", result.isSuccess)
         result.getOrNull()?.delete()
         Unit
     }

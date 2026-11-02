@@ -152,6 +152,9 @@ enum class SessionShortcut(val propertyKey: String) {
     PREVIOUS("shortcut.previous-session"),
 }
 
+/** 上游支持、本应用不支持的会话快捷键：跳过并报告。 */
+private const val UNSUPPORTED_RENAME_SHORTCUT = "shortcut.rename-session"
+
 /**
  * Java Properties 风格的读取器：`key = value` / `key: value`，`#` 与 `!` 起注释，
  * 行尾反斜杠续行，支持 `\n` `\t` `\\` `\ ` `\uXXXX` 转义。
@@ -348,6 +351,12 @@ internal object TermuxPropertiesParser {
                     put(shortcut, codePoint)
                 }
             }
+        }
+        // 上游还有 `shortcut.rename-session`，本应用没有重命名 UI（会话标题不可改）。
+        // 它与「不认识的键」不同：用户从 termux 搬配置时多半带着这个键，静默丢掉会
+        // 让人以为重命名快捷键在生效。故跳过它，但明确报告不支持。
+        if (values.containsKey(UNSUPPORTED_RENAME_SHORTCUT)) {
+            errors += "$UNSUPPORTED_RENAME_SHORTCUT: renaming sessions is not supported; ignored"
         }
 
         val properties =

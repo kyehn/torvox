@@ -46,20 +46,18 @@ class TermuxBootstrapTest {
     }
 
     /**
-     * 两个受支持架构都必须钉住归档摘要。
+     * 归档 URL 必须指向 termux-app 的公开发布路径。
      *
-     * 归档解压后会执行其中的 postinst，摘要是唯一的信任根（https 只防链路篡改）。
-     * 漏钉一个架构＝该架构的安装退化成「只查 https」，正是本能力要堵的口子。
+     * 引导不做内容完整性校验（DESIGN Bootstrap 节），所以下载地址就是唯一的来源
+     * 约束：URL 指错了，用户装到的就是另一份东西，且没有任何机制会发现。
      */
     @Test
-    fun `every supported abi has a pinned sha256`() {
+    fun `download url points at the public release`() {
         listOf("aarch64", "x86_64").forEach { arch ->
-            val digest = requireNotNull(TermuxBootstrap.sha256(arch)) { "arch=$arch 未钉住摘要" }
-            assertTrue(
-                "arch=$arch 的摘要不是 64 位十六进制：$digest",
-                digest.matches(Regex("[0-9a-f]{64}")),
-            )
+            val url = TermuxBootstrap.downloadUrl(arch)
+            assertTrue("arch=$arch 的 URL 必须指向官方发布地址：$url", url.startsWith("https://"))
+            assertTrue("arch=$arch 的 URL 必须带上版本号：$url", url.contains(TermuxBootstrap.RELEASE))
+            assertTrue("arch=$arch 的 URL 必须带上架构：$url", url.contains(arch))
         }
-        assertEquals("未受支持的架构不得有摘要", null, TermuxBootstrap.sha256("arm"))
     }
 }

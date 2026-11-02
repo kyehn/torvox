@@ -73,8 +73,10 @@ class BootstrapInstaller(
     /**
      * 清空 staging 区的实现，返回是否全部删净。
      *
-     * 默认递归删除；测试注入「删不掉」以覆盖中止路径——靠权限位构造该前提在
-     * root 或特殊挂载下不成立，用例只能被静默跳过，等于没测。
+     * 只用于**本次安装失败**后的清理（删掉自己刚建的 staging 区），不用于安装前的
+     * 预处理：staging 已存在时安装直接被拒绝。默认递归删除；测试注入「删不掉」以
+     * 覆盖失败路径——靠权限位构造该前提在 root 或特殊挂载下不成立，用例只能被
+     * 静默跳过，等于没测。
      */
     private val clearStaging: (File) -> Boolean = ::deleteTree,
 ) {
@@ -131,15 +133,21 @@ class BootstrapInstaller(
     fun isInstalled(): Boolean = installedShellEntry() != null
 
     suspend fun install(zipFile: File): Result<Unit> = withContext(TerminalDispatchers.inputOutput) {
+        // staging 区已存在即拒绝执行（DESIGN Bootstrap 节）：上次安装被杀掉留下的
+        // 残留树来源不明，清空它可能删掉用户还没来得及排查的东西，复用它则会把新
+        // 条目写进旧树、再由 atomicRename 发布成一份混血 prefix。
+        //
+        // 拒绝发生在 try 之外：失败路径的清理只针对本次创建的 staging 区，不能把
+        // 别人的残留一起删掉。
+        if (stagingDir.exists()) {
+            LogUtil.error(TAG, "Install refused: staging dir already exists")
+            return@withContext Result.failure(
+                IOException("Bootstrap staging dir already exists"),
+            )
+        }
         try {
-            // 只清空 staging 区。现有 prefix 必须存活到新引导完全解压并原子换入为止
+            // 现有 prefix 必须存活到新引导完全解压并原子换入为止
             // （见 atomicRename），否则安装失败会让用户完全没有可用的引导。
-            //
-            // 清不净就必须中止：继续下去会把新引导写进残留的旧树，再由
-            // atomicRename 发布成一份混血 prefix，而安装一路报成功。
-            if (!clearStaging(stagingDir)) {
-                throw IOException("Bootstrap staging dir could not be fully cleared")
-            }
             createDirectories()
             onProgress?.onProgress(BootstrapProgress.Extracting(0, 0))
             val symlinks = extractZip(zipFile)

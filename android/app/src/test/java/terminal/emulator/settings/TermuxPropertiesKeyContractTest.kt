@@ -19,7 +19,10 @@ class TermuxPropertiesKeyContractTest {
     fun `terminal cursor style accepts the upstream set`() {
         assertEquals(TerminalCursorStyle.BLOCK, parse("terminal-cursor-style = block").properties.terminalCursorStyle)
         assertEquals(TerminalCursorStyle.BAR, parse("terminal-cursor-style = bar").properties.terminalCursorStyle)
-        assertEquals(TerminalCursorStyle.UNDERLINE, parse("terminal-cursor-style = underline").properties.terminalCursorStyle)
+        assertEquals(
+            TerminalCursorStyle.UNDERLINE,
+            parse("terminal-cursor-style = underline").properties.terminalCursorStyle,
+        )
     }
 
     /** 上游没有 `beam`：接受它等于凭空扩了取值集合，别名不算兼容。 */
@@ -97,7 +100,10 @@ class TermuxPropertiesKeyContractTest {
 
     @Test
     fun `default working directory is taken verbatim`() {
-        assertEquals("/data/data/com.termux/files/home", parse("default-working-directory = /data/data/com.termux/files/home").properties.defaultWorkingDirectory)
+        assertEquals(
+            "/data/data/com.termux/files/home",
+            parse("default-working-directory = /data/data/com.termux/files/home").properties.defaultWorkingDirectory,
+        )
         assertEquals("", parse("default-working-directory =").properties.defaultWorkingDirectory)
     }
 
@@ -126,6 +132,21 @@ class TermuxPropertiesKeyContractTest {
         val loaded = parse("extra-keys = [['ESC','CTRL']]")
         assertEquals(listOf(listOf(ExtraKey("ESC"), ExtraKey("CTRL"))), loaded.properties.extraKeys)
         assertTrue("合法键栏不得报错：${loaded.errors}", loaded.errors.isEmpty())
+    }
+
+    /**
+     * 上游的 `shortcut.rename-session` 不在声明键集里：不生效，但要明确报告。
+     *
+     * 用户从 termux 搬配置时多半带着这个键，静默丢掉会让人以为重命名快捷键在生效。
+     */
+    @Test
+    fun `the upstream rename shortcut is skipped and reported`() {
+        val loaded = parse("shortcut.rename-session = Ctrl+r")
+        assertTrue(loaded.properties.sessionShortcuts.isEmpty())
+        assertTrue(
+            "不支持的键必须留痕：${loaded.errors}",
+            loaded.errors.any { it.contains("shortcut.rename-session") },
+        )
     }
 
     /** 未声明的键直接跳过：不报错，也不影响任何其他键。 */

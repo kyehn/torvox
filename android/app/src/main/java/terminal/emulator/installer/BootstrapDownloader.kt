@@ -8,12 +8,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
-import terminal.emulator.util.toLowerHex
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.security.DigestOutputStream
-import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 class BootstrapDownloader(
@@ -30,9 +27,6 @@ class BootstrapDownloader(
         private const val NETWORK_READ_TIMEOUT_MS = 300_000L
         private const val MIN_BOOTSTRAP_SIZE_BYTES = 1_048_576L
         private const val PROGRESS_PERCENT_STEP = 2
-
-        /** 归档校验和算法：`java.security` 保证可用的标准名。 */
-        private const val SHA_256_ALGORITHM = "SHA-256"
 
         /**
          * 进程内唯一的默认客户端。
@@ -126,27 +120,11 @@ class BootstrapDownloader(
                     val body = response.body
                     val cachedFile = File(context.cacheDir, "bootstrap-$architecture.zip")
                     cachedFile.delete()
-                    // 完整性门控的第二道：https 只防链路篡改，不保证拿到的就是声明的那个
-                    // 归档，而引导 URL 在设置里可由用户编辑，故 https 不构成信任根——
-                    // 校验和才是。只对钉住的预设 URL 生效：自定义 URL 的内容本仓无从预知，
-                    // 无从比对，但这次跳过必须留下痕迹，不能静默降级。
-                    val expectedSha256 =
-                        if (url == TermuxBootstrap.downloadUrl(architecture)) {
-                            TermuxBootstrap.sha256(architecture)
-                        } else {
-                            LogUtil.warn(
-                                TAG,
-                                "bootstrap URL is not the pinned preset; checksum not verified",
-                            )
-                            null
-                        }
-                    // 摘要在落盘途中顺带算出，不为校验再读一遍归档。
-                    val digest =
-                        expectedSha256?.let { MessageDigest.getInstance(SHA_256_ALGORITHM) }
+                    // 不做内容完整性校验（DESIGN Bootstrap 节）：归档直接进入解压与
+                    // 换入阶段，不计算摘要、不比对 sidecar 校验文件。https 门控约束的是
+                    // 传输链路，不是归档内容——两者都不当作内容真值。
                     body.byteStream().use { input ->
-                        FileOutputStream(cachedFile).use { rawOutput ->
-                            val output =
-                                digest?.let { DigestOutputStream(rawOutput, it) } ?: rawOutput
+                        FileOutputStream(cachedFile).use { output ->
                             var total = 0L
                             var lastReportedPercent = -100
                             try {
@@ -183,19 +161,6 @@ class BootstrapDownloader(
                             if (total < MIN_BOOTSTRAP_SIZE_BYTES) {
                                 cachedFile.delete()
                                 return@withContext Result.failure(Exception("Download too small: $total bytes"))
-                            }
-                            val actualSha256 = digest?.digest()?.toLowerHex()
-                            if (expectedSha256 != null &&
-                                !expectedSha256.equals(actualSha256, ignoreCase = true)
-                            ) {
-                                cachedFile.delete()
-                                // 摘要本身不含凭据，可以安全地带进日志；归档随后会被解压
-                                // 并执行其 postinst，故不符即删、绝不交给安装器。
-                                return@withContext Result.failure(
-                                    Exception(
-                                        "Bootstrap checksum mismatch: expected $expectedSha256, got $actualSha256",
-                                    ),
-                                )
                             }
                         }
                     }

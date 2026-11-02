@@ -79,6 +79,11 @@ MUST NOT 使整份文件解析失败。
 - **WHEN** 文件里出现本应用不认识的键
 - **THEN** 该行被忽略，其余键照常生效
 
+#### Scenario: 上游有但本应用不支持的键
+
+- **WHEN** 文件里出现 `shortcut.rename-session`（本应用没有重命名 UI）
+- **THEN** 该键不生效，且日志里明确报告不支持；其余键照常生效
+
 #### Scenario: 数值越界
 
 - **WHEN** `terminal-transcript-rows` 写成 99999（有效区间 100–50000）

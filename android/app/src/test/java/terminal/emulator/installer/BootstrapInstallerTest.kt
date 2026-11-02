@@ -374,7 +374,7 @@ class BootstrapInstallerTest {
      * 「旧残留 + 新条目」发布成 prefix，而安装报成功——本例据此与旧行为区分。
      */
     @Test
-    fun install_aborts_when_staging_cannot_be_cleared() {
+    fun install_refuses_when_staging_already_exists() {
         val zipFile = buildFakeBootstrapZip(withSymlinks = true)
         // 模拟「上次安装被杀」留下的残留树。
         val locked = File(stagingDir, "locked")
@@ -386,28 +386,40 @@ class BootstrapInstallerTest {
 
         val result = runBlocking { installer.install(zipFile) }
 
-        assertTrue("staging 删不净时安装必须失败", result.isFailure)
+        assertTrue("staging 已存在时安装必须失败", result.isFailure)
         assertEquals(
-            "失败原因须是清空 staging 区，而不是后续解压步骤",
-            "Bootstrap staging dir could not be fully cleared",
+            "失败原因须是 staging 区已存在，而不是后续解压步骤",
+            "Bootstrap staging dir already exists",
             result.exceptionOrNull()?.message,
         )
         assertFalse("prefix 绝不能被原子换入", installer.isInstalled())
+        assertTrue(
+            "拒绝安装时不得删除用户的残留树",
+            File(stagingDir, "locked/leftover-from-previous-run").exists(),
+        )
     }
 
-    /** 清空 staging 区必须把上次残留整棵树清掉，不能只删顶层目录。 */
+    /**
+     * staging 区已存在即拒绝执行（DESIGN Bootstrap 节）：残留树来源不明，
+     * 清空它会删掉用户还没来得及排查的东西，复用它则会把新条目写进旧树。
+     */
     @Test
-    fun install_clears_deep_stale_staging_tree_before_extracting() {
+    fun install_refuses_instead_of_clearing_a_deep_stale_staging_tree() {
         val zipFile = buildFakeBootstrapZip(withSymlinks = true)
         val deep = File(stagingDir, "a/b/c/stale")
         deep.parentFile?.mkdirs()
         deep.writeText("stale")
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
 
-        assertTrue(runBlocking { installer.install(zipFile) }.isSuccess)
+        val result = runBlocking { installer.install(zipFile) }
 
+        assertTrue("staging 已存在时安装必须失败", result.isFailure)
+        assertTrue(
+            "残留的深层条目不得被清掉——拒绝执行，而不是替用户清理",
+            deep.exists(),
+        )
         assertFalse(
-            "残留的深层条目必须被清掉，否则会与新引导混进同一棵树",
+            "残留条目绝不能混进新 prefix",
             File(prefixDir, "a/b/c/stale").exists(),
         )
     }
