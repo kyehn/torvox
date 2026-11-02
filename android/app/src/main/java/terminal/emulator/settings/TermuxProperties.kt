@@ -192,11 +192,10 @@ private val MALFORMED_UNICODE_ESCAPE = Regex("(\\\\+)u(?![0-9a-fA-F]{4})")
  * JDK 抛「Malformed \uxxxx encoding」拒绝整份文件，把「写坏一个键」升级成「写坏一份
  * 配置」。
  */
-private fun downgradeMalformedUnicodeEscapes(text: String): String =
-    MALFORMED_UNICODE_ESCAPE.replace(text) { match ->
-        val backslashes = match.groupValues[1]
-        if (backslashes.length % 2 == 0) match.value else backslashes.dropLast(1) + "u"
-    }
+private fun downgradeMalformedUnicodeEscapes(text: String): String = MALFORMED_UNICODE_ESCAPE.replace(text) { match ->
+    val backslashes = match.groupValues[1]
+    if (backslashes.length % 2 == 0) match.value else backslashes.dropLast(1) + "u"
+}
 
 /**
  * 记录 [Properties] 的写入顺序与重复。
