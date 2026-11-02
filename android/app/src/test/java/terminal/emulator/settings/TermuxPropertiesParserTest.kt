@@ -505,4 +505,35 @@ class TermuxPropertiesParserTest {
         val loaded = parse("default-working-directory = /sdcard/我的目录")
         assertEquals("/sdcard/我的目录", loaded.properties.defaultWorkingDirectory)
     }
+
+    /**
+     * 转义反斜杠后的 `u` 不是转义符，整份文件照常解析。
+     *
+     * JDK 按两两配对消费反斜杠：`\\` 是字面反斜杠，其后的 `u` 只是普通字符。降级逻辑
+     * 若不区分反斜杠的奇偶，会把 `\\user` 改写成 `\user`，JDK 随即抛
+     * 「Malformed \uxxxx encoding」拒绝整份文件——正好违反「写坏一个键只废掉那个键」。
+     */
+    @Test
+    fun `an escaped backslash before u does not invalidate the file`() {
+        val loaded = parse(
+            """
+            default-working-directory = \\user
+            fullscreen = true
+            """.trimIndent(),
+        )
+        assertTrue(loaded.properties.fullscreen)
+        assertEquals("\\user", loaded.properties.defaultWorkingDirectory)
+    }
+
+    /**
+     * 转义反斜杠 + 不足四位的十六进制，同样不是转义符。
+     *
+     * `\\u12` 里的 `u` 前有两个反斜杠：JDK 消费掉 `\\` 这个字面反斜杠后，`u12` 是
+     * 普通字符。若降级逻辑把它改写成 `\u12`，JDK 会当成非法 `\u` 转义而拒绝整份文件。
+     */
+    @Test
+    fun `an escaped backslash before a malformed unicode escape does not invalidate the file`() {
+        val loaded = parse("default-working-directory = \\\\u12")
+        assertEquals("\\u12", loaded.properties.defaultWorkingDirectory)
+    }
 }

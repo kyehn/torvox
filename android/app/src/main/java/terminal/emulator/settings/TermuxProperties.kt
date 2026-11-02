@@ -172,13 +172,31 @@ private const val UNSUPPORTED_RENAME_SHORTCUT = "shortcut.rename-session"
 internal object PropertiesFile {
     fun parse(text: String): List<Pair<String, String>> {
         val properties = RecordingProperties()
-        properties.load(StringReader(MALFORMED_UNICODE_ESCAPE.replace(text, "u")))
+        properties.load(StringReader(downgradeMalformedUnicodeEscapes(text)))
         return properties.recorded
     }
 }
 
-/** 非法 `\u` 转义（后随不足四位十六进制）：降级成字面量，不让 JDK 拒绝整份文件。 */
-private val MALFORMED_UNICODE_ESCAPE = Regex("\\\\u(?![0-9a-fA-F]{4})")
+/**
+ * 非法 `\u` 转义（后随不足四位十六进制）：降级成字面量，不让 JDK 拒绝整份文件。
+ *
+ * 只认「引出转义的那一个反斜杠」：JDK 按两两配对消费反斜杠，`\\` 是字面反斜杠，其后的
+ * `u` 只是普通字符。故连续 N 个反斜杠后接 `u` 时，只有 N 为奇数才构成 `\u` 转义。
+ */
+private val MALFORMED_UNICODE_ESCAPE = Regex("(\\\\+)u(?![0-9a-fA-F]{4})")
+
+/**
+ * 降级非法 `\u` 转义：只删掉引出转义的那一个反斜杠，前面的成对反斜杠原样保留。
+ *
+ * 反斜杠为偶数时 `u` 不是转义符，一个都不能动——动了反而把 `\\u12` 变成 `\u12`，让
+ * JDK 抛「Malformed \uxxxx encoding」拒绝整份文件，把「写坏一个键」升级成「写坏一份
+ * 配置」。
+ */
+private fun downgradeMalformedUnicodeEscapes(text: String): String =
+    MALFORMED_UNICODE_ESCAPE.replace(text) { match ->
+        val backslashes = match.groupValues[1]
+        if (backslashes.length % 2 == 0) match.value else backslashes.dropLast(1) + "u"
+    }
 
 /**
  * 记录 [Properties] 的写入顺序与重复。
