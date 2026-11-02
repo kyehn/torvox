@@ -142,10 +142,5 @@ class ComposingBaseline {
         return Deletion(text.removeRange(start, end), start, beforeRemoved, afterRemoved)
     }
 
-    internal data class Deletion(
-        val text: String,
-        val cursor: Int,
-        val beforeCount: Int,
-        val afterCount: Int,
-    )
+    internal data class Deletion(val text: String, val cursor: Int, val beforeCount: Int, val afterCount: Int)
 }

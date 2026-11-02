@@ -708,10 +708,8 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 按当前终端状态重建 CellData 并推给渲染线程的通道（未挂消费者时
-    /// 为空操作）。Write/SetTheme/Resize/ScrollViewport 共用的帧推送块
-    /// 只有这一个调用点。
-    /// 终端网格变化后推送一份新的 cell-data 快照。
+    /// 按当前终端状态重建 CellData 并推给渲染线程的帧邮箱。
+    /// Write/SetTheme/Resize/ScrollViewport 共用的帧推送块只有这一个调用点。
     /// [`Self::push_cell_data`] 的薄封装，补齐各命令处理器共用的
     /// 标准 config/状态接线。
     pub(crate) fn refresh_cell_data<'alloc>(
@@ -737,6 +735,7 @@ impl super::GhosttyTerminal {
         );
     }
 
+    /// 重建一份 cell-data 快照并存入帧邮箱（只留最新一帧）。
     pub(crate) fn push_cell_data<'alloc>(
         cell_data_mailbox: &FrameMailbox,
         frame_wake: Option<&crate::terminal::session::OutputWake>,

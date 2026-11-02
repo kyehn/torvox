@@ -15,8 +15,7 @@ import terminal.emulator.waitForSession
 /** 异步 PTY 写入队列必须跟随冷启动与活动会话切换重新绑定。 */
 class PtyWriteQueueBindingInstrumentedTest : ComposeTerminalLogcatTest() {
 
-    private fun surface(): TerminalSurface =
-        findTerminalSurface(composeTestRule.activity) as TerminalSurface
+    private fun surface(): TerminalSurface = findTerminalSurface(composeTestRule.activity) as TerminalSurface
 
     private fun onMain(block: () -> Unit) {
         InstrumentationRegistry.getInstrumentation().runOnMainSync(block)
