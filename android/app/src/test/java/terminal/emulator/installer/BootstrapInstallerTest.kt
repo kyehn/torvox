@@ -506,4 +506,41 @@ class BootstrapInstallerNormalizePathTest {
             installer.escapesStagingDir("./include/ncurses/../term_entry.h"),
         )
     }
+
+    @Test
+    fun absolute_target_under_files_usr_is_rewritten_to_current_prefix() {
+        // 官方包的 SYMLINKS.txt 用旧式绝对路径；二级用户上本机 prefix 在
+        // /data/user/<id>/<pkg>/files/usr，照抄建链得到的是断链。
+        assertEquals(
+            "/data/user/10/com.termux/files/usr/bin/gawk",
+            installer.resolveAbsoluteSymlinkTarget(
+                "/data/data/com.termux/files/usr/bin/gawk",
+                "/data/user/10/com.termux/files/usr",
+            ),
+        )
+    }
+
+    @Test
+    fun absolute_target_without_files_usr_segment_is_kept_as_is() {
+        // 不含该分段的绝对路径不由本函数改写：接受与否由规范路径校验决定。
+        assertEquals(
+            "/opt/other/bin/gawk",
+            installer.resolveAbsoluteSymlinkTarget(
+                "/opt/other/bin/gawk",
+                "/data/user/10/com.termux/files/usr",
+            ),
+        )
+    }
+
+    @Test
+    fun absolute_target_keeps_dot_segments_for_the_escape_check() {
+        // 重写不得消解 `..`：消解后逃逸校验就看不出越界了。
+        assertEquals(
+            "/data/user/10/com.termux/files/usr/../../etc/passwd",
+            installer.resolveAbsoluteSymlinkTarget(
+                "/data/data/com.termux/files/usr/../../etc/passwd",
+                "/data/user/10/com.termux/files/usr",
+            ),
+        )
+    }
 }

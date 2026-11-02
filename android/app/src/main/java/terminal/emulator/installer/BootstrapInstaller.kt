@@ -327,6 +327,21 @@ class BootstrapInstaller(
      */
     internal fun resolvesToStagingRoot(path: String): Boolean = Paths.get(path).normalize() == Paths.get("")
 
+    /**
+     * 绝对符号链接目标重写到本机 prefix。
+     *
+     * 官方包的 SYMLINKS.txt 用旧式绝对路径（`/data/data/com.termux/files/usr/...`）。
+     * 二级用户与多用户设备上本机 prefix 位于 `/data/user/<id>/<pkg>/files/usr`，
+     * 归档里的绝对路径并不指向本机 prefix——照抄建链得到的是断链。
+     *
+     * 取 `files/usr/` 之后的后缀拼到本机 prefix；不含该分段的绝对路径原样返回，
+     * 由调用方的规范路径校验决定接受与否。
+     */
+    internal fun resolveAbsoluteSymlinkTarget(target: String, canonicalPrefix: String): String {
+        val relativeSuffix = target.substringAfter(FILES_USR_SEGMENT, "")
+        return if (relativeSuffix.isNotEmpty()) File(canonicalPrefix, relativeSuffix).path else target
+    }
+
     internal fun parseSymlinks(content: String): List<Pair<String, String>> = content
         .lines()
         .filter { it.isNotBlank() }
@@ -355,44 +370,40 @@ class BootstrapInstaller(
             //     （`<home>/usr/share/...`，即 filesDir 之下），在 staging 期间
             //     是断的，但 staging 目录被原子重命名为 `files/usr` 后即有效。
             //     只允许解析后落在规范 prefix 路径之内的绝对目标。
-            if (target.startsWith("/")) {
-                val canonicalPrefix = prefixDir.canonicalPath
-                // 官方包 SYMLINKS.txt 用旧式绝对路径（…/files/usr/…）：取该分段
-                // 之后缀拼到当前 prefix。拼后仍走下方规范校验，.. 逃逸会被拒绝；
-                // 后缀字面量不含 /data/ 前缀，不触硬编码路径规则。
-                val relativeSuffix = target.substringAfter(FILES_USR_SEGMENT, "")
-                val canonicalTarget =
-                    if (relativeSuffix.isNotEmpty()) {
-                        File(canonicalPrefix, relativeSuffix).path
-                    } else {
-                        target
+            val linkTarget =
+                if (target.startsWith("/")) {
+                    val canonicalPrefix = prefixDir.canonicalPath
+                    val rewritten = resolveAbsoluteSymlinkTarget(target, canonicalPrefix)
+                    val resolvedAbsolute =
+                        try {
+                            File(rewritten).canonicalPath
+                        } catch (exception: Exception) {
+                            throw IOException(
+                                "Unsafe symlink target: $target (${exception.message})",
+                                exception,
+                            )
+                        }
+                    if (
+                        resolvedAbsolute != canonicalPrefix && !resolvedAbsolute.startsWith("$canonicalPrefix/")
+                    ) {
+                        throw IOException("Unsafe symlink target: $target")
                     }
-                val resolvedAbsolute =
-                    try {
-                        File(canonicalTarget).canonicalPath
-                    } catch (exception: Exception) {
-                        throw IOException(
-                            "Unsafe symlink target: $target (${exception.message})",
-                            exception,
-                        )
+                    rewritten
+                } else {
+                    val linkParent = File(linkPath).parent
+                    val resolvedTarget = if (linkParent != null) File(linkParent, target).path else target
+                    // File.path 不消解 ".." 段（File("a/../b").path == "a/../b"），
+                    // 故先用 Path.normalize 消解，再按路径元素判是否逃出 staging。
+                    if (Paths.get(resolvedTarget).normalize().startsWith("..")) {
+                        throw IOException("Unsafe symlink target: $target")
                     }
-                if (
-                    resolvedAbsolute != canonicalPrefix && !resolvedAbsolute.startsWith("$canonicalPrefix/")
-                ) {
-                    throw IOException("Unsafe symlink target: $target")
+                    target
                 }
-            } else {
-                val linkParent = File(linkPath).parent
-                val resolvedTarget = if (linkParent != null) File(linkParent, target).path else target
-                // File.path 不消解 ".." 段（File("a/../b").path == "a/../b"），
-                // 故先用 Path.normalize 消解，再按路径元素判是否逃出 staging。
-                if (Paths.get(resolvedTarget).normalize().startsWith("..")) {
-                    throw IOException("Unsafe symlink target: $target")
-                }
-            }
             val linkFile = File(stagingDir, linkPath)
             linkFile.parentFile?.mkdirs()
-            Os.symlink(target, linkFile.absolutePath)
+            // 建链用重写后的目标：校验与写入必须是同一个路径，否则校验放行、链接却
+            // 指向归档里的旧 prefix（换入本机 prefix 后即断链）。
+            Os.symlink(linkTarget, linkFile.absolutePath)
         }
     }
 

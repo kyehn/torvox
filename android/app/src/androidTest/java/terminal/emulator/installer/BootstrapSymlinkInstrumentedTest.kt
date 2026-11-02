@@ -94,4 +94,32 @@ class BootstrapSymlinkInstrumentedTest : TerminalLogcatTest() {
             (bashMode and android.system.OsConstants.S_IXUSR) != 0,
         )
     }
+
+    @Test
+    fun absolute_symlink_target_is_rewritten_to_the_installed_prefix() {
+        ZipOutputStream(zipFile.outputStream()).use { zipOutputStream ->
+            fun add(name: String, content: String = "x") {
+                zipOutputStream.putNextEntry(ZipEntry(name))
+                zipOutputStream.write(content.toByteArray())
+                zipOutputStream.closeEntry()
+            }
+            add("bin/gawk", "gawk-binary")
+            add(
+                "SYMLINKS.txt",
+                """
+                /data/data/com.termux/files/usr/bin/gawk←bin/awk
+                """.trimIndent(),
+            )
+        }
+
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+        val result = runBlocking { installer.install(zipFile) }
+        assertTrue("install should succeed: ${result.exceptionOrNull()?.message}", result.isSuccess)
+
+        assertEquals(
+            "absolute symlink target must be rewritten to the installed prefix",
+            File(prefixDir.canonicalPath, "bin/gawk").path,
+            Os.readlink(File(prefixDir, "bin/awk").absolutePath),
+        )
+    }
 }
