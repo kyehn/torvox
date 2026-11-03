@@ -53,6 +53,7 @@ class TermuxPropertiesKeysTest {
         assertEquals(BackKeyBehaviour.BACK, defaults.backKey)
         assertEquals(VolumeKeysBehaviour.VIRTUAL, defaults.volumeKeys)
         assertEquals(SoftKeyboardToggleBehaviour.SHOW_HIDE, defaults.softKeyboardToggleBehaviour)
+        assertEquals(BellCharacter.VIBRATE, defaults.bellCharacter)
     }
 
     @Test

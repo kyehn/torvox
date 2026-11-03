@@ -72,7 +72,7 @@
 
 ### 明确不接线（规范已登记，非缺口）
 
-`on_bell`（DESIGN：忽略响铃）、`on_title_changed`/`on_pwd_changed`（改用 Query 拉取）、`on_render_hold`（自建 2026 门控）、`on_desktop_notification`/`on_progress_report`、`on_clipboard_read`（OSC 52 读走异步自研链，避免冻结 VT 线程）、`on_device_attributes`/`on_xtversion`（缺省应答已够）、`set_terminfo_name`、`gesture`/`select_output`/`format_selection_*`/`snapshot decoder` 等。依据：`openspec/specs/upstream-alignment/spec.md`「上游 API 取用判定登记」。
+`on_title_changed`/`on_pwd_changed`（改用 Query 拉取）、`on_render_hold`（自建 2026 门控）、`on_desktop_notification`/`on_progress_report`、`on_clipboard_read`（OSC 52 读走异步自研链，避免冻结 VT 线程）、`on_device_attributes`/`on_xtversion`（缺省应答已够）、`set_terminfo_name`、`gesture`/`select_output`/`format_selection_*`/`snapshot decoder` 等。依据：`openspec/specs/upstream-alignment/spec.md`「上游 API 取用判定登记」。`on_bell` 原判不接线（2026-11-03 已改判接线：无锁标志 + 每帧收割 `Event::Bell`，Kotlin 按 `bell-character` 三态执行，见 `docs/persistence/osc-notifications.md`）。
 
 ## 每个协议的作用（速查）
 
