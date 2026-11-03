@@ -21,13 +21,6 @@
   `SurfaceLossRecoveryInstrumentedTest.backgroundStopKeepsCoverStateAndResumePresentsAgain`
   守住「切回必须重新出帧」。剩余的平台侧代价：surface 被拆到重建这 300ms 只能显示纯底色，
   文字必然短暂消失，要彻底消除需保留最后一帧位图，属另一项改动）
-- 侧边面板过宽，布局不合理
-  （现状：`SessionDrawer` 的宽度是 `fillMaxWidth(0.84f)` 落在 `ModalDrawerSheet` 的
-  宽度上界内（Material3 `DrawerDefaults.MaximumDrawerWidth`，360dp），实际解析为
-  0.84 × min(窗口宽, 360dp)，360dp 屏上约 302dp；紧随其后的
-  `widthIn(240..320)` 在这种写法下不生效——`fillMaxWidth` 交给下游的是「min = max」
-  单点约束。要收窄必须先定一个目标宽度，需真机截图确认是「占屏比例过大」还是「绝对宽度
-  过大」，两种成因的改法不同）
 - 输入光标遮盖文本时可见性差，和 termux 效果不一致（已按 termux 的
   `invertCursorTextColor` 改为整格反色：背景取不透明光标色、文字取该格原背景色，
   取色在 SGR 反显与搜索高亮之后，见 `native/src/render/cell_builder.rs`；竖线/下划线
