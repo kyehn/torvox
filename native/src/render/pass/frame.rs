@@ -50,12 +50,18 @@ impl Renderer {
             return;
         };
         let acquired = self.acquire_texture(surface, config.width, config.height, ACQUIRE_TIMEOUT);
-        // 测试注入与 begin_frame 同口径：注入模拟的是 BufferQueue 被废弃——那对
-        // warmup 的取纹理同样致命。放行会让「无缓冲区」窗口被缓存帧填上，注入
-        // 就拦不出真正无缓冲的稳定态（SurfaceLossRecovery 的开孔量测依赖它）。
+        // 测试注入下 warmup 只清屏、不呈现缓存帧。注入模拟的是 BufferQueue 被废弃
+        // ——渲染循环的帧按 surface 级失败处理（begin_frame 同口径），「无缓冲区」
+        // 的稳定态据此成立；但 warmup 的清屏 present 是生产路径「无内容帧期间的
+        // 兜底底色」，量测开孔像素的用例（SurfaceLossRecovery）量到的就是它：
+        //  - 全跳过（先前的修法）会让开孔连终端底色都没有，透出窗口 windowBackground
+        //    （实测 spread=0 medianDeviation=33）；
+        //  - 缓存帧照常呈现（更早的修法）会把稳定态填上一帧内容，量到的不是纯底色
+        //    （实测 spread=215）。
+        // 清屏帧不算「缓冲区恢复」：surfaceBufferPresent 只由渲染循环的 count>0
+        // 上报，「无缓冲区」轮询断言不受本帧影响。
         if self.surface_loss_injected {
-            log::warn!("surface loss injected for test; warmup present skipped");
-            return;
+            log::warn!("surface loss injected for test; warmup presents background clear only");
         }
         let Some(output) = acquired.into_texture() else {
             return;
@@ -66,12 +72,14 @@ impl Renderer {
                 label: Some("Warmup Encoder"),
             });
         // 上一帧可复现：尺寸与格式都与新交换链一致（copy 合法）且内容有效。
-        let resume = self.frame_texture.as_ref().is_some_and(|texture| {
-            !self.frame_invalidated
-                && texture.width() == config.width
-                && texture.height() == config.height
-                && texture.format() == config.format
-        });
+        // 注入下恒走清屏（见上方注释）：呈现缓存帧会把「无缓冲区」稳定态填上。
+        let resume = !self.surface_loss_injected
+            && self.frame_texture.as_ref().is_some_and(|texture| {
+                !self.frame_invalidated
+                    && texture.width() == config.width
+                    && texture.height() == config.height
+                    && texture.format() == config.format
+            });
         if resume {
             // SAFETY（借用）：累加器与交换链纹理互不重叠，copy 合法。
             if let Some(texture) = self.frame_texture.as_ref() {
