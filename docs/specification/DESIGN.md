@@ -152,8 +152,8 @@
 - 回滚行数和 termux-app 保持一致。
 - 较快的启动速度，能够在启动动画结束后直接显示 Shell 和主题背景，而不是从黑屏花费较长时间过渡。
 - 没有任何内建命令，不内置提供 `termux-setup-storage` `termux-open` 等，也没有替代实现。
-- bell character 实现和
-- 启动后自动弹出输入法 termux-app 一致
+- bell character（`bell-character` 三态：`vibrate` / `beep` / `ignore`）实现和 termux-app 一致
+- 启动后自动弹出输入法和 termux-app 一致
 - 应用位于后台时能够继续活跃，参考 termux-app 实现唤醒锁，包括通知栏按钮
 - 处理 OSC 9 等通知，输出会话序号和通知。应用位于前台时使用 Toast Notification。位于后台时使用“系统通知”，点击后切换到目标会话。
 

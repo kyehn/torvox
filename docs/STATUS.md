@@ -11,6 +11,13 @@
   背景而不是留白，但必须同时保证键位仍落在手势区之外——真机上上滑手势会先被系统认领并
   向应用补发 `ACTION_CANCEL`，键位若落回手势区即重现「按下动画不复位」。3 键导航与手势
   导航两种模式下都要验证，故需真机）
+  （补充核查：键栏背景 `resolvedTerminalTheme.background` 与外层 Box 的
+  `terminalBackground` 是同一条解析链上的同一个值，那条带子的**颜色**与键栏完全一致，
+  所以观感上的「空白」来自**高度**而不是配色：带子宽度恰是
+  `max(navigationBars, safeGestures)`，也就是系统导航/手势区本身。因此「把背景涂进带子」
+  不产生任何可见变化（本就同色）；只剩两条路——让键位进入手势区（会重现
+  `ACTION_CANCEL` 回归，禁止），或让终端网格按含带子的高度排版（末行会被导航条压住）。
+  两者都需真机像素验证后再定）
 - 使用 `kitten icat test.png` 后，输入 clear 回车不会清除图像，图像变大，文本被遮挡，再次盲输入 clear 回车被清除
 - 切换应用返回页面闪烁（已按日志定位到「开孔覆盖状态晚一帧」并改为常驻收集；
   仍需真机确认一闪消失）
@@ -32,6 +39,20 @@
   单点约束。要收窄必须先定一个目标宽度，需真机截图确认是「占屏比例过大」还是「绝对宽度
   过大」，两种成因的改法不同）
 - 输入光标遮盖文本时可见性差，和 termux 效果不一致
+  （termux 的做法见 `docs/persistence/termux-app.md`：`invertCursorTextColor`——光标格
+  背景取光标色、文字取原背景色，整格反色；本仓在
+  `native/src/render/cell_builder.rs` 把光标色按 `BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE`
+  （0.7）叠在格背景上、前景不动，文字与光标色的对比度因此下降。改为整格反色须同步改
+  `native/src/render/tests/cell_pipeline.rs` 的四条断言（「光标色 × 0.7」是其中的取值口径），
+  并核对搜索高亮与选区叠加时的取色顺序）
+- `bell-character` 未接线（`docs/specification/CONFIG.md` 声明该键，`DESIGN.md` 要求
+  实现与 termux-app 一致）
+  （现状：全仓没有注册 `on_bell`，`docs/persistence/osc-notifications.md` 因此只能记
+  「未接线」。上游 `libghostty-vt` 提供 `Terminal::on_bell`；接线要三处一起改：VT 线程
+  注册回调 → `Event::Bell { session_id }` 入队（事件本来就以 JSON 跨 JNI，见
+  `native/src/event.rs`）→ Kotlin 侧按三态响应（`vibrate` 默认，振动 50ms、限频 150ms；
+  `beep`；`ignore`），且仅在界面可见时生效。Rust 侧本机不具备构建条件（缺 ghostty
+  源码与 zig），故未提交无法验证的原生改动）
 - docs/persistence 内容需要重新验证和更新
 - openspec/specs 目录文档需要根据 docs/specification 重写
 - android/benchmark 需要更充分的性能测试并且断言测试结果，使用模拟器检查，优化提高性能
