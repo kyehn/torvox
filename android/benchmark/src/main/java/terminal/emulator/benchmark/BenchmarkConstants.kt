@@ -34,7 +34,15 @@ internal const val WARM_START_BUDGET_MILLIS = 3_000L
 
 internal const val INTERACTION_BUDGET_MILLIS = 4_000L
 
-/** 交互动画至少要出帧；0 帧说明动画根本没跑，测到的只是静止画面。 */
+/**
+ * 交互动画至少要出帧。
+ *
+ * 0 帧说明交互没有产生任何绘制（界面没动，指标测到的只是静止画面）。下限 MUST 取 1，
+ * MUST NOT 取 2：一次点击在软件渲染的模拟器上常在同一帧内完成按下、回弹与落定，
+ * `dumpsys gfxinfo` 只记到 1 帧（CI 实测），按 2 判定会把「动画发生得很快」判成失败。
+ * 「动画真的发生了」由各用例的状态断言兜底（粘滞修饰态置起、抽屉节点出现、输入法真的
+ * 弹出），帧数只用来排除「什么都没画」。
+ */
 internal const val MIN_ANIMATION_FRAME_COUNT = 1
 
 /** 宏基准会重装被测应用并重置运行时权限，需在测量前重新授权。 */

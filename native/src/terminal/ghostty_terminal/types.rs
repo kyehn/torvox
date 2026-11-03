@@ -232,7 +232,9 @@ pub struct KittyGraphicsImageData {
 
 /// 单个 Kitty 放置的可渲染几何 + RGBA8 像素（VT 线程采集，渲染线程组装图集）。
 /// 坐标为视口相对网格列/行（可为负，表示顶部滚出部分）；像素尺寸为上游
-/// placement_render_info 解算值；source 矩形已按 Kitty 语义钳制到图像边界。
+/// placement_render_info 解算值；source 矩形在此按上游口径原样携带，越界部分的
+/// 钳制在组装图集时统一做（见 `render::kitty::clamp_source`）——采集侧再钳一次
+/// 只会让「声明尺寸」与「实际像素」两处判据分叉。
 #[derive(Clone, Debug)]
 pub struct KittyPlacementFrame {
     pub image_id: u32,

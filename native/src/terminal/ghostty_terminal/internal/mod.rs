@@ -205,7 +205,7 @@ struct QueryContext<'term> {
     search: Option<Search<'term, 'term>>,
     /// 命中读出用的存储，跨查询复用（上游按需扩容）。
     match_buffer: MatchBuffer,
-    /// Kitty 放置查询缓存：跨帧复用图像解码与未变化行的占位符扫描。
+    /// Kitty 放置查询缓存：跨帧复用图像解码结果（同一图像被切成多个放置块时只解一次）。
     kitty_cache: KittyPlacementCache,
 }
 

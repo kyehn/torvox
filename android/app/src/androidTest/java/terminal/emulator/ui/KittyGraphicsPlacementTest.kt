@@ -5,6 +5,7 @@ import android.graphics.Rect
 import android.util.Base64
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -48,6 +49,15 @@ class KittyGraphicsPlacementTest : ComposeTerminalLogcatTest() {
 
         /** Unicode 占位符放置的图像颜色（绿）：与普通放置区分开。 */
         const val PLACEHOLDER_COLOR = 0xFF18A558.toInt()
+
+        /** 缩放显示的「大图」颜色（紫）：与另外两种放置区分开。 */
+        const val SCALED_IMAGE_COLOR = 0xFF8C1AF0.toInt()
+
+        /** 大图边长（像素）：远大于 12 列的显示宽度，才能暴露「按原尺寸铺开」。 */
+        const val LARGE_IMAGE_SIZE = 256
+
+        /** 大图占用的列数：缩进这么多列后，显示宽度应约为「列数×单元格宽」。 */
+        const val LARGE_IMAGE_COLS = 12
 
         /** 图像上屏的等待上限（毫秒）。 */
         const val ON_SCREEN_TIMEOUT_MS = 15_000L
@@ -166,6 +176,81 @@ class KittyGraphicsPlacementTest : ComposeTerminalLogcatTest() {
                 shot == null || UxTestUtils.matchColor(shot, IMAGE_COLOR).count == 0
             }
         assertNotNull("ED2 之后图像像素仍在屏幕上（首次 clear 未清除图像）", cleared)
+    }
+
+    /**
+     * 远大于屏幕的图像（`kitten icat` 的常态）按 `c`/`r` 缩进格子，首次 ED2 必须清除，
+     * 且清除前后都不得突然按原图像素尺寸铺开。
+     *
+     * 判别力：用户报障「icat 出图后第一次 clear，图像反而变大把屏幕盖住，盲输第二次
+     * clear 才消失」。64×64 的用例看不出这件事——只有原图远大于格子时，把「原始像素
+     * 尺寸」当成显示尺寸才会表现为「变大盖屏」。故此处按 [LARGE_IMAGE_SIZE] 出图、缩进
+     * 12 列，断言显示宽度落在格子几何附近；清除过程中任何一帧超出该范围即判失败并报出
+     * 实测包围盒，而不是只等「最终消失」而漏掉中间那次放大。
+     */
+    @Test
+    fun large_image_keeps_cell_geometry_through_first_clear() {
+        val bridge = composeTestRule.awaitBridge()
+        val (cellWidth, cellHeight) = cellSize(bridge)
+        // 方图配方形格区：列数取 12，行数按单元格长宽比折算，避免等比缩放把一边留白
+        // 而让「期望尺寸」失真。
+        val displayCols = LARGE_IMAGE_COLS
+        val displayRows =
+            (displayCols * cellWidth / cellHeight).toInt().coerceAtLeast(1)
+        val expectedWidth = displayCols * cellWidth
+        val script =
+            scaledImageScript(
+                imageId = 24,
+                row = IMAGE_ROW,
+                col = 1,
+                cols = displayCols,
+                rows = displayRows,
+                color = SCALED_IMAGE_COLOR,
+            )
+        bridge.writeToPty("sh ${script.absolutePath}\n".toByteArray(Charsets.US_ASCII))
+        val shown = awaitSettledImage(bridge, SCALED_IMAGE_COLOR, minRenderedScrollback = 0)
+        assertNotNull(
+            "缩放显示的大图没有在 ${ON_SCREEN_TIMEOUT_MS}ms 内上屏\n" +
+                "终端文本：\n${bridge.getTerminalText().orEmpty().takeLast(600)}",
+            shown,
+        )
+        val bounds = checkNotNull(shown).bounds
+        UxTestUtils.metric("kitty_large_image_width_px", bounds.width().toLong())
+        assertTrue(
+            "大图必须按 c×r 缩进格子：期望宽约 ${expectedWidth.toInt()}px（$displayCols 列），" +
+                "实际 ${bounds.width()}px。按原图像素 ${LARGE_IMAGE_SIZE}px 显示即为此处失败。",
+            bounds.width() <= (expectedWidth * 1.25f).toInt(),
+        )
+        assertTrue(
+            "大图宽度 ${bounds.width()}px 远小于格子宽 ${expectedWidth.toInt()}px：" +
+                "只画了一个单元格切片，而不是整幅图",
+            bounds.width() >= (expectedWidth * 0.5f).toInt(),
+        )
+
+        assertTrue(
+            "喂入 ED2 失败",
+            bridge.feedTerminal("\u001B[2J".toByteArray(Charsets.US_ASCII)),
+        )
+        val surface = UxTestUtils.terminalSurface(composeTestRule.activity)
+        assertNotNull("拿不到终端 Surface", surface)
+        var grew: Rect? = null
+        val cleared =
+            UxTestUtils.pollUntilTrue(timeoutMs = ON_SCREEN_TIMEOUT_MS, intervalMs = 300) {
+                val shot = UxTestUtils.captureSurface(checkNotNull(surface))
+                if (shot == null) return@pollUntilTrue false
+                val match = UxTestUtils.matchColor(shot, SCALED_IMAGE_COLOR)
+                val current = match.bounds
+                if (current != null && current.width() > (expectedWidth * 1.25f).toInt()) {
+                    grew = current
+                }
+                match.count == 0
+            }
+        assertNull(
+            "首次 ED2 之后图像被放大到 ${grew?.width()}px 宽（格子宽 ${expectedWidth.toInt()}px）：" +
+                "清除路径把原始像素尺寸当成了显示尺寸，屏幕被图像盖住",
+            grew,
+        )
+        assertNotNull("ED2 之后图像像素仍在屏幕上（首次 clear 未清除大图）", cleared)
     }
 
     /**
@@ -313,6 +398,30 @@ class KittyGraphicsPlacementTest : ComposeTerminalLogcatTest() {
     }
 
     /**
+     * 写出「按 `c`/`r` 缩放显示的大图」脚本，返回脚本文件。
+     *
+     * `kitten icat` 显示普通图片时走的就是这条路：一次 `a=T` 传输并显示，用 `c`/`r`
+     * 把图缩进终端格子。原图远大于格子，故「显示尺寸」与「原图像素尺寸」相差一个
+     * 数量级——任何一处把后者当前者，画面都会突然铺满屏幕。
+     */
+    private fun scaledImageScript(
+        imageId: Int,
+        row: Int,
+        col: Int,
+        cols: Int,
+        rows: Int,
+        color: Int,
+    ): File {
+        val payload = base64Png(color, LARGE_IMAGE_SIZE)
+        return writeScript(
+            "kitty-scaled-$imageId.sh",
+            "#!/system/bin/sh\n" +
+                "printf '\\033[2J\\033[H\\033[$row;${col}H" +
+                "\\033_Ga=T,f=100,t=d,i=$imageId,c=$cols,r=$rows,q=1;$payload\\033\\\\'\n",
+        )
+    }
+
+    /**
      * 写出 Unicode 占位符（U=1）的脚本：先传图像，再写 `cols×rows` 个占位单元。
      *
      * 占位单元的编码按 kitty 协议：前景色编码图像 id（RGB 24 位），下划线色编码
@@ -353,8 +462,8 @@ class KittyGraphicsPlacementTest : ComposeTerminalLogcatTest() {
     }
 
     /** 纯色 PNG 的 base64 载荷（kitty 直接传输通道）。 */
-    private fun base64Png(color: Int): String {
-        val bitmap = Bitmap.createBitmap(IMAGE_SIZE, IMAGE_SIZE, Bitmap.Config.ARGB_8888)
+    private fun base64Png(color: Int, size: Int = IMAGE_SIZE): String {
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         bitmap.eraseColor(color)
         val stream = ByteArrayOutputStream()
         check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) { "PNG 编码失败" }

@@ -25,6 +25,27 @@ impl KittyPlacementCache {
     }
 }
 
+/// 放置与视口是否有交集（决定它要不要进图集）。
+///
+/// 网格尺寸来自协议参数（`c`/`r`），客户端可给出 `u32::MAX` 量级的数：直接相加
+/// 在 i32 上溢出，debug 构建直接 panic（JNI 边界上即整进程崩溃），release 构建
+/// 回绕成负数——一个明明可见的放置被判成屏外，图像半边不画。故一律饱和运算。
+fn intersects_viewport(
+    viewport_col: i32,
+    viewport_row: i32,
+    grid_cols: u32,
+    grid_rows: u32,
+    rows: u32,
+    cols: u32,
+) -> bool {
+    let end_row = viewport_row.saturating_add(i32::try_from(grid_rows).unwrap_or(i32::MAX));
+    let end_col = viewport_col.saturating_add(i32::try_from(grid_cols).unwrap_or(i32::MAX));
+    end_row > 0
+        && viewport_row < i32::try_from(rows).unwrap_or(i32::MAX)
+        && end_col > 0
+        && viewport_col < i32::try_from(cols).unwrap_or(i32::MAX)
+}
+
 /// RGB 三元组 → RGBA8（alpha 固定不透明）。
 ///
 /// RGB 图像与 PNG 解码器的 RGB 兜底分支都要这一步：两处各写一遍时，改动只落在
@@ -203,11 +224,7 @@ impl super::GhosttyTerminal {
             };
             // 视口外的放置不进图集：图集按可见放置打包，屏外的图像
             // 只会白占预算与显存。
-            let visible = viewport_row + i32::try_from(grid_rows).unwrap_or(i32::MAX) > 0
-                && viewport_row < i32::try_from(rows).unwrap_or(i32::MAX)
-                && viewport_col + i32::try_from(grid_cols).unwrap_or(i32::MAX) > 0
-                && viewport_col < i32::try_from(cols).unwrap_or(i32::MAX);
-            if !visible {
+            if !intersects_viewport(viewport_col, viewport_row, grid_cols, grid_rows, rows, cols) {
                 continue;
             }
             let Some((image_width, image_height, image_rgba)) =
@@ -239,5 +256,60 @@ impl super::GhosttyTerminal {
         }
         out.sort_by_key(|frame| frame.z);
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::intersects_viewport;
+
+    /// 视口 24×80 的常规判据：四种「有交集」与三种「无交集」。
+    #[test]
+    fn viewport_intersection_covers_edges_and_offscreen_cases() {
+        let (rows, cols) = (24, 80);
+        assert!(
+            intersects_viewport(10, 5, 4, 3, rows, cols),
+            "完全落在视口内的放置必须进图集，否则可见图像永远不上屏"
+        );
+        assert!(
+            intersects_viewport(0, -2, 4, 4, rows, cols),
+            "顶部滚出两行的放置仍有两行可见，按交集判定必须保留"
+        );
+        assert!(
+            intersects_viewport(-1, 0, 2, 2, rows, cols),
+            "左侧滚出一列的放置仍有一列可见，不得因负列号丢弃"
+        );
+        assert!(
+            intersects_viewport(78, 23, 8, 1, rows, cols),
+            "右下角越界的放置仍从格子内开始，必须保留而非整块丢弃"
+        );
+        assert!(
+            !intersects_viewport(0, -4, 4, 4, rows, cols),
+            "整块滚出视口上方的放置没有任何可见像素，必须判为不可见"
+        );
+        assert!(
+            !intersects_viewport(80, 0, 4, 2, rows, cols),
+            "完全在视口右侧的放置没有任何可见像素，必须判为不可见"
+        );
+        assert!(
+            !intersects_viewport(0, 24, 4, 2, rows, cols),
+            "完全在视口下方的放置没有任何可见像素，必须判为不可见"
+        );
+    }
+
+    /// 协议参数的网格尺寸可以大到 u32::MAX：相加必须在 i32 上饱和而不是溢出。
+    ///
+    /// 判别力：未饱和时 debug 构建在此 panic（JNI 边界上等于整进程崩溃），
+    /// release 构建回绕成负数，一个从 (0,0) 开始、覆盖整屏的放置会被判成屏外。
+    #[test]
+    fn extreme_grid_size_is_saturated_not_overflowing() {
+        assert!(
+            intersects_viewport(0, 0, u32::MAX, u32::MAX, 24, 80),
+            "起点在视口内、网格尺寸极大的放置必须可见，不得因饱和判成屏外"
+        );
+        assert!(
+            !intersects_viewport(i32::MAX - 1, i32::MAX - 1, u32::MAX, u32::MAX, 24, 80),
+            "起点在视口之外时只允许判为不可见，且不得溢出 panic"
+        );
     }
 }
