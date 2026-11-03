@@ -46,17 +46,18 @@ class DrawerWidthInstrumentedTest : ComposeTerminalLogcatTest() {
     fun drawerWidthFollowsFractionWithoutMinFloorOverflow() {
         composeTestRule.openDrawer()
         composeTestRule.waitForIdle()
+        // Compose 语义查询必须在测试线程：runOnMainSync 里调 fetchSemanticsNode
+        // 会被框架以「同步函数不得在主线程运行」拒绝（实测 CI 模拟器）。
+        val drawerWidth =
+            composeTestRule
+                .onNodeWithTag("SessionDrawer", useUnmergedTree = true)
+                .fetchSemanticsNode()
+                .boundsInRoot.width
         var decorWidth = 0
         var density = 0f
-        var drawerWidth = 0f
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             density = composeTestRule.activity.resources.displayMetrics.density
             decorWidth = composeTestRule.activity.window.decorView.width
-            drawerWidth =
-                composeTestRule
-                    .onNodeWithTag("SessionDrawer", useUnmergedTree = true)
-                    .fetchSemanticsNode()
-                    .boundsInRoot.width
         }
         assertTrue("抽屉必须有宽度", drawerWidth > 0f)
         assertTrue(

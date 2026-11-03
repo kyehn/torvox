@@ -15,6 +15,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -229,7 +230,7 @@ class ModifierBarTest : ComposeTerminalLogcatTest() {
     }
 
     @Test
-    fun modifier_bar_bottom_position_above_gesture_zone() {
+    fun modifier_bar_bottom_sits_on_navigation_bar() {
         composeTestRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
 
         composeTestRule.waitForIdle()
@@ -242,26 +243,34 @@ class ModifierBarTest : ComposeTerminalLogcatTest() {
                 .windowInsets
                 .getInsets(Type.navigationBars())
                 .bottom
-        // 系统手势区（全面屏上滑返回/多任务）不在导航栏 inset 之内：系统会先
-        // 认领该区域内的触摸再补发 ACTION_CANCEL，键栏压在上面就会把上滑手势
-        // 变成一次按键按下反馈。故键栏底边必须同时避开两者。
-        val systemGestureHeight =
-            maxOf(
-                windowMetrics.windowInsets.getInsets(Type.systemGestures()).bottom,
-                windowMetrics.windowInsets.getInsets(Type.mandatorySystemGestures()).bottom,
-            )
-        val gestureZoneHeight = maxOf(navBarHeight, systemGestureHeight)
 
-        val barSemantics = composeTestRule.onNodeWithTag("ModifierBar").fetchSemanticsNode()
-        val barBounds = barSemantics.boundsInRoot
-        val barBottom = barBounds.bottom.toInt()
+        val barBottom = composeTestRule.onNodeWithTag("ModifierBar").fetchSemanticsNode().boundsInRoot.bottom
+        val contentBottom =
+            composeTestRule
+                .onNodeWithTag("TerminalContent", useUnmergedTree = true)
+                .fetchSemanticsNode()
+                .boundsInRoot
+                .bottom
 
-        val gestureZoneTop = displayHeight - gestureZoneHeight
-        assertTrue(
-            "ModifierBar bottom ($barBottom) should be above gesture zone top ($gestureZoneTop), " +
-                "displayHeight=$displayHeight, navBarHeight=$navBarHeight, " +
-                "systemGestureHeight=$systemGestureHeight, barBounds=$barBounds",
-            barBottom <= gestureZoneTop,
+        // 新规约（底部内缩只按导航栏 inset）：内容盒底边恰在导航栏上沿，键栏贴
+        // 内容盒底边——键栏与内容盒之间不得出现任何内缩带。键栏因此允许落在系统
+        // 手势区内：底部上滑需要位移才会被系统认领，静止轻点不受影响；被认领时的
+        // ACTION_CANCEL 由本文件的取消用例（processCancel 合成 + 按下反馈延迟）钉住
+        // ——与上游 termux ExtraKeysView 的同一取舍。旧的「键栏须避开手势区」
+        // 断言随该规约一并撤销：导航栏 inset=0 的纯手势设备上它会重新制造键栏下空带。
+        assertEquals(
+            "ModifierBar bottom ($barBottom) must sit on the navigation bar top " +
+                "(displayHeight=$displayHeight, navBarHeight=$navBarHeight)",
+            (displayHeight - navBarHeight).toFloat(),
+            barBottom,
+            1f,
+        )
+        assertEquals(
+            "ModifierBar bottom ($barBottom) must be flush with the content bottom " +
+                "($contentBottom) — no inset band between bar and content",
+            contentBottom,
+            barBottom,
+            1f,
         )
     }
 

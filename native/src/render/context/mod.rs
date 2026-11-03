@@ -64,7 +64,8 @@ pub struct Renderer {
     /// 供仪器化用例断言「宿主换新 `SurfaceView` 后画面重新有墨迹」。
     ///
     /// 只经进程内 JNI 暴露，无生产调用方；由调用方显式关闭。
-    surface_loss_injected: bool,
+    /// `pub(crate)`：`pass::frame` 的 `warmup` 须与 `begin_frame` 同口径跳过取纹理。
+    pub(crate) surface_loss_injected: bool,
     pub(crate) cell_pipeline: Option<wgpu::RenderPipeline>,
     pub(crate) quad_vertex_buffer: wgpu::Buffer,
     pub(crate) cell_bind_group: Option<wgpu::BindGroup>,

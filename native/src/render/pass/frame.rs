@@ -49,10 +49,15 @@ impl Renderer {
         let Some(config) = self.surface_config.as_ref() else {
             return;
         };
-        let Some(output) = self
-            .acquire_texture(surface, config.width, config.height, ACQUIRE_TIMEOUT)
-            .into_texture()
-        else {
+        let acquired = self.acquire_texture(surface, config.width, config.height, ACQUIRE_TIMEOUT);
+        // 测试注入与 begin_frame 同口径：注入模拟的是 BufferQueue 被废弃——那对
+        // warmup 的取纹理同样致命。放行会让「无缓冲区」窗口被缓存帧填上，注入
+        // 就拦不出真正无缓冲的稳定态（SurfaceLossRecovery 的开孔量测依赖它）。
+        if self.surface_loss_injected {
+            log::warn!("surface loss injected for test; warmup present skipped");
+            return;
+        }
+        let Some(output) = acquired.into_texture() else {
             return;
         };
         let mut encoder = self

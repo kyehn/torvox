@@ -88,11 +88,22 @@ class ModifierBarBottomInsetInstrumentedTest : ComposeTerminalLogcatTest() {
 
     @Test
     fun barAndSurfaceReachContentBottomWithoutGestureBand() {
+        // Compose 语义查询必须在测试线程：runOnMainSync 里调 fetchSemanticsNode
+        // 会被框架以「同步函数不得在主线程运行」拒绝（实测 CI 模拟器）。
+        // 两组读数同处一次 settle 之后的静止布局，先后取不会互相漂移。
+        val contentBottom =
+            composeTestRule
+                .onNodeWithTag("TerminalContent", useUnmergedTree = true)
+                .fetchSemanticsNode()
+                .boundsInRoot.bottom
+        val barBottom =
+            composeTestRule
+                .onNodeWithTag("ModifierBarOverlay", useUnmergedTree = true)
+                .fetchSemanticsNode()
+                .boundsInRoot.bottom
         var navBottom = 0
         var decorHeight = 0
         var surfaceScreenBottom = 0
-        var contentBottom = 0f
-        var barBottom = 0f
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val activity = composeTestRule.activity
             val decor = activity.window.decorView
@@ -105,16 +116,6 @@ class ModifierBarBottomInsetInstrumentedTest : ComposeTerminalLogcatTest() {
             val location = IntArray(2)
             surface.getLocationOnScreen(location)
             surfaceScreenBottom = location[1] + surface.height
-            contentBottom =
-                composeTestRule
-                    .onNodeWithTag("TerminalContent", useUnmergedTree = true)
-                    .fetchSemanticsNode()
-                    .boundsInRoot.bottom
-            barBottom =
-                composeTestRule
-                    .onNodeWithTag("ModifierBarOverlay", useUnmergedTree = true)
-                    .fetchSemanticsNode()
-                    .boundsInRoot.bottom
         }
         assertTrue("装饰视图必须有高度", decorHeight > 0)
         // 内容盒底边 = 导航栏上沿：手势区附加内缩若被重新引入，导航栏 inset=0 的
