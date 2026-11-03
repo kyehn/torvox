@@ -76,9 +76,7 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
-          # API 35 系统自身占用高；1.5G 时 warmStart 十轮后内存压力累积，
-          # coldStart 阶段 adbd 直接掉线（CI 实录 device offline），3G 保证宏基准完整跑完。
-          ram-size: 3072M
+          ram-size: 1536M
           emulator-boot-timeout: 600
           cores: 2
           disable-animations: true

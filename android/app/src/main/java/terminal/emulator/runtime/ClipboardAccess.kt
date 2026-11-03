@@ -51,16 +51,7 @@ class ClipboardAccess(private val context: Context, private val tag: String = "C
     fun setClipboardText(text: String, label: String = "terminal clipboard") {
         val clipboard = manager() ?: return
         // setPrimaryClip()：无替代方案的弃用 API（API 36）。
-        // Android 10+ 应用失焦时系统拒绝写剪贴板（SecurityException），而 OSC 52 的写入
-        // 恰恰常发生在后台（远端程序输出时用户已切走）。失败必须就地记日志消化：
-        // 若向上抛，渲染循环的外层 catch 会把它记成「pollAll failed」并把同帧
-        // 后续的剪贴板读取应答一并丢弃——那才是真损失。
-        try {
-            clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
-        } catch (exception: Exception) {
-            // 只记异常类名：异常消息可能嵌入剪贴板文本。
-            LogUtil.error(tag, "剪贴板写入失败: ${exception.javaClass.simpleName}")
-        }
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
     }
 
     /**

@@ -170,9 +170,6 @@ rules:
         - "/.semgrep/**"
         - "/docs/specification/*"
         - "/README.md"
-        # logcat 审计表格记录 ROM 内核审计中观察到的进程名（历史证据），
-        # 不是应用代码使用的 shell；与归档台账同口径，不追溯改写。
-        - "/docs/persistence/logcat-audit-*"
   - id: no-torvox-identifier
     pattern-regex: '[Tt]orvox'
     message: "Use generic terms; Torvox only in intro docs."

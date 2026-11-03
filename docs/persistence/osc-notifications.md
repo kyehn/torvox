@@ -2,7 +2,7 @@
 
 ## 来源与口径
 
-- 主源码：termux-app master、ghostty-org/ghostty main、Uzaaft/libghostty-rs（锁定 rev 见 `native/Cargo.toml`）、connectbot/connectbot 与 connectbot/termlib main。
+- 主源码：termux-app master、ghostty-org/ghostty main、Uzaaft/libghostty-rs master 与本仓锁定的 rev 575ed6b、connectbot/connectbot 与 connectbot/termlib main。
 - 官方文档：iTerm2 escape codes、kitty desktop-notifications、WezTerm notification_handling、Ghostty docs/vt/osc/9、Windows Terminal progress-bar tutorial。
 - 自动化矩阵：terminfo.dev extensions/notifications-osc-9（探测 14 个后端）。
 - 本文件是研究记录与外部实现对比，不是行为规范；行为规范以 `docs/specification/` 与 `openspec/specs/` 为准。本仓尚未在 `DESIGN.md` 声明 OSC 通知功能，本文只记录外部实现与可能的接线路径，不构成实现承诺。
@@ -78,7 +78,7 @@ termlib（Compose + libvterm JNI）`TerminalEmulator` 回调集：`onBell`、`on
 
 **现状**：本仓已处理 OSC 0/2（标题）、7（cwd）、8（链接）、52（剪贴板，见 `native/src/terminal/ghostty_terminal/internal/run.rs` 的 `register_clipboard_write_callback`），但全仓无 `desktop_notification` 接线——OSC 9/777/99 目前被 libghostty-vt 静默忽略。BEL 响铃已按 termux 语义接线：`on_bell` 回调 → `Event::Bell` → `runtime/BellPlayer.kt` 三态执行（`vibrate`/`beep`/`ignore`），记录见 `docs/STATUS.md`。
 
-**可行性（已核实锁定 rev 同样具备）**：`crates/libghostty-vt/src/terminal.rs` 提供：
+**可行性（已核实锁定 rev 575ed6b 同样具备）**：`crates/libghostty-vt/src/terminal.rs` 提供：
 
 - `DesktopNotification { title: &[u8], body: &[u8] }`（借用语义、仅回调期内有效、不保证 UTF-8）
 - `Terminal::on_desktop_notification(...)`（OSC 9 或 OSC 777）
@@ -88,7 +88,7 @@ termlib（Compose + libvterm JNI）`TerminalEmulator` 回调集：`onBell`、`on
 
 **建议接线形状**（沿用 OSC 52 既有模式）：VT 线程注册 `on_desktop_notification` → 有界 flume 通道（`try_send`，满则丢弃+日志）→ JNI 事件 → Kotlin 侧 `NotificationManager`。需要配套的策略层：
 
-1. 负载治理：标题/正文长度截断（参照 `truncate_clipboard_payload` 与 Ghostty 的 63/255 上限）、频率限制（参照 BellHandler 的 150ms 限频与窗口限频模式）。
+1. 负载治理：标题/正文长度截断（参照 `truncate_clipboard_payload` 与 Ghostty 的 63/255 上限）、频率限制（参照 BellHandler 的 150ms 限频或 a2066bb4 的窗口限频模式）。
 2. 聚焦抑制：应用在前台/会话可见时不弹通知（WezTerm `SuppressFromFocused*`、ConnectBot 后台才通知、Ghostty 聚焦时 3 秒过期）。
 3. 用户开关：参照 Ghostty `desktop-notifications` 配置与 termux `bell-character` 三态。
 4. Android 特有：Android 13+ 需 `POST_NOTIFICATIONS` 运行时权限；独立 notification channel；点击通知可带回源会话（参照 Ghostty `app.present-surface` 与 ConnectBot 的 host 附加）。
@@ -139,4 +139,4 @@ termlib（Compose + libvterm JNI）`TerminalEmulator` 回调集：`onBell`、`on
 
 ## 来源
 
-主源码：termux-app master、ghostty-org/ghostty main、Uzaaft/libghostty-rs（锁定 rev 见 `native/Cargo.toml`）、connectbot/connectbot 与 connectbot/termlib main。官方文档：iTerm2 escape codes、kitty desktop-notifications、WezTerm notification_handling、Ghostty docs/vt/osc/9、Windows Terminal progress-bar tutorial。自动化矩阵：terminfo.dev extensions/notifications-osc-9。二手参考：termnotify README（kitty 对旧式 OSC 9/777 的支持）、vucica 博客（hterm OSC 9 growl 通知）、tmux issue #5136、foot issue #224/PR #236。
+主源码：termux-app master、ghostty-org/ghostty main、Uzaaft/libghostty-rs master 与锁定 rev 575ed6b、connectbot/connectbot 与 connectbot/termlib main。官方文档：iTerm2 escape codes、kitty desktop-notifications、WezTerm notification_handling、Ghostty docs/vt/osc/9、Windows Terminal progress-bar tutorial。自动化矩阵：terminfo.dev extensions/notifications-osc-9。二手参考：termnotify README（kitty 对旧式 OSC 9/777 的支持）、vucica 博客（hterm OSC 9 growl 通知）、tmux issue #5136、foot issue #224/PR #236。

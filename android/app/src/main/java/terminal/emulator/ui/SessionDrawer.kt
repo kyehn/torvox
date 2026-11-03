@@ -78,14 +78,13 @@ fun SessionDrawer(
         modifier =
         modifier
             .fillMaxHeight()
-            // 抽屉宽度 = 抽屉可用宽度的 84%，上限 320.dp。
-            // `fillMaxWidth(0.84f)` 交给下游的是 min=max=0.84×W 的单点约束，`widthIn`
-            // 把该点夹进区间。下限 MUST NOT 设置：ZTE 折叠屏外屏可用宽度只有约 236dp，
-            // 0.84×236≈198dp 的抽屉会被 240dp 下限强制抬宽到 240dp——比可用宽度还宽
-            // （STATUS「侧边面板过宽，布局不合理」的实测形态）。按钮行与会话项在
-            // 198dp 上不溢出，无需下限保底；上限 320.dp 收窄宽屏（0.84×411dp≈345dp）。
+            // 小屏/横屏可用宽度有限：抽屉占屏幕宽度的 84%，
+            // 上限 320.dp，下限 240.dp，保证按钮行与会话项不溢出。
+            // 顺序 MUST 是先取屏幕 84% 再夹区间：`fillMaxWidth` 取的是**上游给的**
+            // 约束，写在 `widthIn` 之后就只能拿到已被夹到 320dp 的约束，于是宽度恒为
+            // 0.84 × 320 ≈ 269dp，宽屏上抽屉永远达不到屏幕的 84%。
             .fillMaxWidth(0.84f)
-            .widthIn(max = 320.dp)
+            .widthIn(min = 240.dp, max = 320.dp)
             .background(backgroundColor)
             .testTag("SessionDrawer")
             // 需要 AndroidManifest 的 `windowSoftInputMode="adjustNothing"`

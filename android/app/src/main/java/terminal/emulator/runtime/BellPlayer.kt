@@ -90,15 +90,14 @@ class BellPlayer internal constructor(
         private fun beepAction(context: Context): () -> Unit {
             val holder = arrayOfNulls<ToneGenerator>(1)
             return beep@{
-                // runCatching 会吞 CancellationException（slack-lint DenyListedApi），
-                // 此处虽是同步路径也用显式 catch 表明只处理初始化失败。
                 val generator =
-                    holder[0] ?: try {
+                    holder[0] ?: runCatching {
                         ToneGenerator(AudioManager.STREAM_NOTIFICATION, TONE_VOLUME_PERCENT)
-                    } catch (exception: Exception) {
-                        LogUtil.warn(TAG, "ToneGenerator unavailable; bell beep skipped", exception)
-                        null
-                    }?.also { holder[0] = it } ?: return@beep
+                    }
+                        .onFailure { LogUtil.warn(TAG, "ToneGenerator unavailable; bell beep skipped", it) }
+                        .getOrNull()
+                        ?.also { holder[0] = it }
+                        ?: return@beep
                 if (!generator.startTone(ToneGenerator.TONE_PROP_BEEP, BEEP_MILLIS)) {
                     // 音频通道被通话/勿扰占用时 startTone 返回 false。记一条即可：
                     // 这不是应用缺陷，用户此刻也确实听不到提示音。

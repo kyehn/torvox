@@ -17,10 +17,6 @@ private const val IME_STATE_ATTEMPT_COUNT = 10
 private const val EMULATOR_IDLE_TIMEOUT_MILLIS = 2_000L
 private const val IME_SHOWN_STATE = "mInputShown=true"
 
-/** 帧数读取在 0 帧时的重试次数与间隔：覆盖软件渲染的一个 vsync 帧时间。 */
-private const val FRAME_READ_ATTEMPT_COUNT = 3
-private const val FRAME_READ_RETRY_MILLIS = 300L
-
 /** `dumpsys gfxinfo` 的帧计数行。 */
 private val FRAME_COUNT_PATTERN = Regex("Total frames rendered: (\\d+)")
 
@@ -63,7 +59,7 @@ class InteractionAnimationBenchmark {
                     controlKey.click()
                     device.waitForIdle()
                 }
-                val frames = readFrameStatsAfterRender(device)
+                val frames = readFrameStats(device)
                 check(frames >= MIN_ANIMATION_FRAME_COUNT) {
                     "修饰键按下反馈未产生帧：frames=$frames"
                 }
@@ -105,7 +101,7 @@ class InteractionAnimationBenchmark {
                     check(isImeShown(device)) { "点击终端后输入法必须弹出" }
                     device.waitForIdle()
                 }
-                val frames = readFrameStatsAfterRender(device)
+                val frames = readFrameStats(device)
                 check(frames >= MIN_ANIMATION_FRAME_COUNT) {
                     "IME 弹出未产生帧：frames=$frames"
                 }
@@ -134,7 +130,7 @@ class InteractionAnimationBenchmark {
                     drawerKey.click()
                     requireElement(device, SESSION_DRAWER_RESOURCE_ID, "会话抽屉")
                 }
-                val frames = readFrameStatsAfterRender(device)
+                val frames = readFrameStats(device)
                 check(frames >= MIN_ANIMATION_FRAME_COUNT) {
                     "会话抽屉展开未产生帧：frames=$frames"
                 }
@@ -206,24 +202,6 @@ class InteractionAnimationBenchmark {
     private fun readFrameStats(device: UiDevice): Int {
         val output = device.executeShellCommand("dumpsys gfxinfo $TARGET_PACKAGE")
         return FRAME_COUNT_PATTERN.find(output)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-    }
-
-    /**
-     * 等动画帧落地后再读帧数。
-     *
-     * [device.waitForIdle] 只等输入/事件队列空闲，而交互反馈帧由 Choreographer 在
-     * 其后的 vsync 上产出；`dumpsys` 的 shell 往返快于首帧落地时（软件渲染模拟器一帧
-     * 可达数百毫秒），真实跑过的动画会被记成 0 帧——CI 实测同一用例上一轮通过、
-     * 下一轮 frames=0，正是这个竞态。0 帧时按 vsync 周期短暂重读；重试耗尽仍为 0
-     * 才交给断言判失败（动画真的没跑时依然拦得住）。
-     */
-    private fun readFrameStatsAfterRender(device: UiDevice): Int {
-        repeat(FRAME_READ_ATTEMPT_COUNT) { attempt ->
-            val frames = readFrameStats(device)
-            if (frames > 0) return frames
-            if (attempt < FRAME_READ_ATTEMPT_COUNT - 1) SystemClock.sleep(FRAME_READ_RETRY_MILLIS)
-        }
-        return 0
     }
 
     private fun elapsedMillis(block: () -> Unit): Long {
