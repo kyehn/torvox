@@ -145,6 +145,13 @@ pub struct Session {
     /// （见 `logcat-hygiene`）。与渲染洪泛、事件队列溢出共用同一实现。
     clipboard_drop_log: crate::slow_log::CountedLogThrottle,
 
+    /// 待上报的终端响铃（BEL）：`drain_callback_events` 收割，`take_bell` 取走。
+    ///
+    /// 单槽布尔而非队列：响铃是「发生过」语义——UI 侧限频执行（振动/提示音），
+    /// 帧内连响多次折叠成一次恰恰是期望行为；且 BEL 可被远端程序无限刷出，
+    /// 队列只会白耗内存（`yes '\a'` 一秒上万次）。
+    bell_pending: bool,
+
     /// 上一帧因 VT 命令通道满而未能送达的 PTY 输出块。
     ///
     /// 背压的另一半（见 [`GhosttyTerminal::try_pty_write`]）：块留在这里逐帧重试，

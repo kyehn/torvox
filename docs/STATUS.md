@@ -46,14 +46,12 @@
   `cursor_cell_not_affected_by_search_highlight` 与
   `render::tests::gpu_core::cursor_rendering_on_visible_cursor`；规约见
   `openspec/specs/cursor-rendering`「方块光标整格反色」。仍需真机确认对比度观感）
-- `bell-character` 未接线（`docs/specification/CONFIG.md` 声明该键，`DESIGN.md` 要求
-  实现与 termux-app 一致）
-  （现状：全仓没有注册 `on_bell`，`docs/persistence/osc-notifications.md` 因此只能记
-  「未接线」。上游 `libghostty-vt` 提供 `Terminal::on_bell`；接线要三处一起改：VT 线程
-  注册回调 → `Event::Bell { session_id }` 入队（事件本来就以 JSON 跨 JNI，见
-  `native/src/event.rs`）→ Kotlin 侧按三态响应（`vibrate` 默认，振动 50ms、限频 150ms；
-  `beep`；`ignore`），且仅在界面可见时生效。Rust 侧本机不具备构建条件（缺 ghostty
-  源码与 zig），故未提交无法验证的原生改动）
+- `bell-character` 已接线（CONFIG.md 声明、DESIGN.md 要求与 termux-app 一致）
+  （实现：上游 `Terminal::on_bell` 回调置无锁标志（`native/src/terminal/ghostty_terminal/
+  internal/run.rs`），每帧收割为 `Event::Bell { session_id }` 入队（`event.rs`），Kotlin
+  `EventDispatcher` 按 `bell-character` 三态执行（`runtime/BellPlayer.kt`：`vibrate` 默认
+  振动 50ms、`beep` 提示音、`ignore`；执行限频 150ms 防 `yes '\a'` 洪泛）。仍需真机确认
+  振动/提示音观感与 `bell-character` 配置键的解析（`settings/TermuxProperties.kt`））
 - docs/persistence 内容需要重新验证和更新
 - openspec/specs 目录文档需要根据 docs/specification 重写
 - android/benchmark 需要更充分的性能测试并且断言测试结果，使用模拟器检查，优化提高性能

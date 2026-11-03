@@ -201,6 +201,11 @@ impl Session {
     /// 拉取式：每帧重复调用，VT 线程尚未处理完时取到空、下帧再取（见
     /// `harvest_vt_side_effects` 的说明——本路径不 flush）。
     fn drain_callback_events(&mut self) {
+        // 响铃是单槽「发生过」标志：swap 复位即消费，帧内连响折叠成一次
+        //（UI 侧按 bell-character 限频执行，折叠恰是期望行为）。
+        if self.terminal.take_bell() {
+            self.bell_pending = true;
+        }
         let mut dropped = 0u32;
         while let Some((_, text)) = self.terminal.poll_clipboard_event() {
             // FIFO 而非单槽：渲染暂停（pollEvent 停调）期间的连续写入必须全部保留，
@@ -229,6 +234,13 @@ impl Session {
     /// 轮询 OSC 52 转义序列写入的剪贴板文本：每次取走最早的一条。
     pub fn poll_clipboard(&self) -> Option<String> {
         self.clipboard_text.lock().pop_front()
+    }
+
+    /// 取走响铃标志：自上次取走后终端收到过 BEL 返回 `true`，同时复位。
+    /// 推送方（`drain_callback_events`）与取走方（`pump_sessions`）都持会话锁，
+    /// 单槽布尔即可，无需队列。
+    pub fn take_bell(&mut self) -> bool {
+        std::mem::take(&mut self.bell_pending)
     }
 
     /// 取走全部待处理的 OSC 52 剪贴板读取请求（selection 名，按序）。

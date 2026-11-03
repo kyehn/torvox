@@ -76,7 +76,7 @@ termlib（Compose + libvterm JNI）`TerminalEmulator` 回调集：`onBell`、`on
 
 ## 对本仓的落地含义
 
-**现状**：本仓已处理 OSC 0/2（标题）、7（cwd）、8（链接）、52（剪贴板，见 `native/src/terminal/ghostty_terminal/internal/run.rs` 的 `register_clipboard_write_callback`），但全仓无 `desktop_notification` 接线——OSC 9/777/99 目前被 libghostty-vt 静默忽略。`DESIGN.md` 要求 bell character 与 termux-app 一致（`vibrate` / `beep` / `ignore` 三态），而本仓至今未注册 `on_bell`，该缺口记在 `docs/STATUS.md`；libghostty-vt 提供 `on_bell`，接线路径见该条。
+**现状**：本仓已处理 OSC 0/2（标题）、7（cwd）、8（链接）、52（剪贴板，见 `native/src/terminal/ghostty_terminal/internal/run.rs` 的 `register_clipboard_write_callback`），但全仓无 `desktop_notification` 接线——OSC 9/777/99 目前被 libghostty-vt 静默忽略。BEL 响铃已按 termux 语义接线：`on_bell` 回调 → `Event::Bell` → `runtime/BellPlayer.kt` 三态执行（`vibrate`/`beep`/`ignore`），记录见 `docs/STATUS.md`。
 
 **可行性（已核实锁定 rev 575ed6b 同样具备）**：`crates/libghostty-vt/src/terminal.rs` 提供：
 

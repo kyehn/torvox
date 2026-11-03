@@ -52,6 +52,7 @@ class PollEventTest {
             listOf(
                 """{"event":"clipboard","session_id":1,"text":"x"}""",
                 """{"event":"exit","session_id":1,"code":0}""",
+                """{"event":"bell","session_id":1}""",
                 """{"event":"clipboard_read","session_id":1,"request_id":2,"selection":"x"}""",
             )
         samples.forEach { sample ->

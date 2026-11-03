@@ -36,6 +36,25 @@ class TermuxPropertiesKeyContractTest {
         )
     }
 
+    /** 上游 `bell-character` 的三态（`vibrate` 为默认，与 `DEFAULT_IVALUE_BELL_CHARACTER` 一致）。 */
+    @Test
+    fun `bell character accepts the upstream set`() {
+        assertEquals(BellCharacter.VIBRATE, parse("bell-character = vibrate").properties.bellCharacter)
+        assertEquals(BellCharacter.BEEP, parse("bell-character = beep").properties.bellCharacter)
+        assertEquals(BellCharacter.IGNORE, parse("bell-character = ignore").properties.bellCharacter)
+    }
+
+    /** 上游没有 `sound`：termux 的 beep 走内部铃音，不收自由文本别名。 */
+    @Test
+    fun `bell character rejects the non-upstream sound alias`() {
+        val loaded = parse("bell-character = sound")
+        assertEquals(BellCharacter.VIBRATE, loaded.properties.bellCharacter)
+        assertTrue(
+            "非法响铃取值必须留痕：${loaded.errors}",
+            loaded.errors.any { it.contains("bell-character") },
+        )
+    }
+
     @Test
     fun `extra keys style accepts every upstream value`() {
         assertEquals(ExtraKeysStyle.DEFAULT, parse("extra-keys-style = default").properties.extraKeysStyle)

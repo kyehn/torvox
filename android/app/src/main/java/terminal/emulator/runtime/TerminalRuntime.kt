@@ -442,6 +442,9 @@ constructor(
 
     private val clipboardAccess = ClipboardAccess(context, tag = "Runtime")
 
+    /** 终端响铃执行器：按 `bell-character` 三态动作，内部限频防 BEL 洪泛。 */
+    private val bellPlayer = BellPlayer(context)
+
     private val eventDispatcher = EventDispatcher()
 
     private val scope = CoroutineScope(SupervisorJob() + TerminalDispatchers.inputOutput)
@@ -2261,6 +2264,10 @@ constructor(
          * 此处的异常绝不能跳过循环的逐帧簿记（调用方把我们包在外层 try 中）。
          */
         fun handle(poll: Bridge.PollResult) {
+            if (poll.bell) {
+                // 帧内多次响铃已折叠成一个布尔，执行器再按 `bell-character` 限频。
+                bellPlayer.ring(termuxProperties.configuration.value.properties.bellCharacter)
+            }
             if (poll.clipboard != null) {
                 clipboardAccess.setClipboardText(poll.clipboard)
             }

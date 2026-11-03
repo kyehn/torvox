@@ -31,6 +31,10 @@ sealed class PollEvent {
     ) : PollEvent()
 
     @Serializable
+    @SerialName("bell")
+    data class Bell(@SerialName("session_id") val sessionId: Long = 0) : PollEvent()
+
+    @Serializable
     @SerialName("clipboard_read")
     data class ClipboardRead(
         @SerialName("session_id") val sessionId: Long = 0,

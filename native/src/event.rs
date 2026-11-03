@@ -13,7 +13,8 @@ const MAX_QUEUED_EVENTS: usize = 1024;
 const OVERFLOW_WARN_INTERVAL_MS: u64 = 1_000;
 
 /// Rust 发往 Kotlin UI 层的事件。触发来源：`Clipboard` = OSC 52 写入，
-/// `ClipboardRead` = OSC 52 读取请求，`Exit` = `session.is_exited()`；
+/// `ClipboardRead` = OSC 52 读取请求，`Bell` = 终端响铃（BEL，0x07），
+/// `Exit` = `session.is_exited()`；
 /// 均由 `session` 产生（`Exit` 亦可经 `pollEvent` 上报）。
 ///
 /// 跨 JNI 边界前统一序列化为 JSON，用内部标签（`#[serde(tag = "event")]`）供 Kotlin 匹配。
@@ -29,6 +30,9 @@ pub enum Event {
         /// JSON `null`。绝不用 0 顶替——那会把一次原因不明的死亡说成正常退出。
         code: Option<i32>,
     },
+    /// 终端收到 BEL（0x07）：Kotlin 侧按 `bell-character` 设置振动/提示音/忽略。
+    /// 响铃无负载也无归属语义，Kotlin 侧按「本帧发生过」折叠。
+    Bell { session_id: u64 },
     /// OSC 52 剪贴板读取请求（`ESC ] 52 ; c ; ?`）：宿主读系统剪贴板后经
     /// `clipboardResult()` JNI 应答，Rust 写回 PTY。携带请求的 selection 名。
     ClipboardRead {
@@ -109,6 +113,7 @@ impl EventQueue {
         let (kind, session_id) = match dropped {
             Event::Clipboard { session_id, .. } => ("clipboard", *session_id),
             Event::ClipboardRead { session_id, .. } => ("clipboard_read", *session_id),
+            Event::Bell { session_id } => ("bell", *session_id),
             Event::Exit { session_id, .. } => ("exit", *session_id),
         };
         if self.overflow_warn.should_log() {
@@ -310,6 +315,27 @@ mod tests {
             })
         );
         assert_eq!(queue.pop(), None);
+    }
+}
+
+#[cfg(test)]
+mod bell_tests {
+    use super::*;
+
+    #[test]
+    fn bell_serializes_with_snake_case_tag() {
+        // Kotlin `PollEvent.Bell` 的解码契约：`@SerialName("bell")` 匹配事件标签，
+        // `@SerialName("session_id")` 匹配会话字段。标签或字段名漂移会让
+        // kotlinx-serialization 抛 UnknownField/MissingField，事件整批丢弃。
+        let json = serde_json::to_string(&Event::Bell { session_id: 9 }).expect("bell serializes");
+        assert_eq!(json, r#"{"event":"bell","session_id":9}"#);
+    }
+
+    #[test]
+    fn bell_is_evictable_when_queue_full() {
+        // 响铃是「发生过」提示：限频执行器随后还会收窄，丢一条不导致失步，
+        // 故允许被淘汰——队列满时 Exit/ClipboardRead 优先存活。
+        assert!(is_evictable(&Event::Bell { session_id: 1 }));
     }
 }
 

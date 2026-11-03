@@ -4,7 +4,7 @@
 
 上游：<https://github.com/Uzaaft/libghostty-rs>，crate `libghostty-vt`（对 C 库 `libghostty-vt-sys` 的安全 Rust 绑定）。本项目经 `native/Cargo.toml` 跟踪其 master 修订，开启 `log` 与 `png` 两个特性，无本地补丁。
 
-`crates/libghostty-vt/src` 对外公开项 718 个，本项目调用 221 个，其余 497 个未使用。
+`crates/libghostty-vt/src` 对外公开项 718 个，本项目调用 222 个，其余 496 个未使用。
 
 - 已使用：本项目源码（含测试）出现具名引用、构造或方法调用。经字段访问隐含使用的返回类型（`PlacementRenderInfo`、`RowSelection`、`CursorViewport`）计入已使用。
 - 枚举变体随父类型计为一项；`pub const` 常量与 `pub use` 再导出别名各计一项。
@@ -14,7 +14,7 @@
 
 | 模块 | 公开项 | 已使用 | 未使用 |
 | --- | --- | --- | --- |
-| `terminal` | 225 | 55 | 170 |
+| `terminal` | 225 | 56 | 169 |
 | `key` | 36 | 13 | 23 |
 | `mouse` | 30 | 14 | 16 |
 | `paste` | 9 | 1 | 8 |
@@ -36,7 +36,7 @@
 | `snapshot` | 27 | 0 | 27 |
 | `unicode` | 2 | 0 | 2 |
 | `selection::gesture` | 50 | 0 | 50 |
-| 合计 | 718 | 221 | 497 |
+| 合计 | 718 | 222 | 496 |
 
 调用点集中在 `native/src/terminal/ghostty_terminal/internal/`（VT 线程主循环及命令、渲染、选区、Kitty 图像子模块）、`public_api.rs`、`commands.rs`、`theme.rs`、`session.rs` 与 `render/context.rs`；其余模块全未接线。
 
@@ -81,6 +81,7 @@
 | `Terminal::is_mouse_tracking` | 任一鼠标跟踪模式是否启用 |
 | `Terminal::mode` | 查询单个终端模式开关 |
 | `Terminal::new` | 以行列创建终端，VT 线程入口 |
+| `Terminal::on_bell` | BEL（0x07）响铃回调：置无锁标志，收割为 `Event::Bell` |
 | `Terminal::on_clipboard_write` | OSC 52/1337/5522 剪贴板写入回调 |
 | `Terminal::on_pty_write` | 终端应答（DECRPM、DSR、DA）回写 PTY 的回调 |
 | `Terminal::on_size` | XTWINOPS 尺寸查询（CSI 14/16/18 t）应答回调 |
@@ -356,7 +357,7 @@
 
 ## 3. 未使用 API
 
-497 项未用（69%）经聚类验证为正常构成：整域禁用 117 项（`selection::gesture` 50 + `snapshot` 27 + `osc`/`sgr` 17 + `build_info` 11 + `alloc` 5 + 其余 7，均对应 PROHIBITED/DESIGN 禁项或引擎已内化）、枚举常量族 83 项（`Mode` 38 + 设备属性应答族 45，清单型常量按需取用）、同一能力的替代表达 24 项（`*_with_alloc` 分配器变体、`*_buf`/`format_len` 缓冲变体——已用等价形态）、功能域内可选方法/选项 273 项（完整桌面嵌壳方的可选面）。对照：上游官方示例 `ghostling_rs`（约 1kLoC 的完整终端）消费约 50 项，本仓 221 项约为其 4 倍。718 项是上游「完整能力菜单」而非「预期全量消费」。
+496 项未用（69%）经聚类验证为正常构成：整域禁用 117 项（`selection::gesture` 50 + `snapshot` 27 + `osc`/`sgr` 17 + `build_info` 11 + `alloc` 5 + 其余 7，均对应 PROHIBITED/DESIGN 禁项或引擎已内化）、枚举常量族 83 项（`Mode` 38 + 设备属性应答族 45，清单型常量按需取用）、同一能力的替代表达 24 项（`*_with_alloc` 分配器变体、`*_buf`/`format_len` 缓冲变体——已用等价形态）、功能域内可选方法/选项 272 项（完整桌面嵌壳方的可选面）。对照：上游官方示例 `ghostling_rs`（约 1kLoC 的完整终端）消费约 50 项，本仓 222 项约为其 4 倍。718 项是上游「完整能力菜单」而非「预期全量消费」。
 
 ### 3.1 `terminal`（170 项）
 
@@ -507,7 +508,6 @@
 | `Terminal::kitty_keyboard_flags` | kitty 键盘协议标志读取 |
 | `Terminal::mouse_shape` | OSC 22 设置的鼠标形状 |
 | `Terminal::new_with_alloc` | 自定义分配器创建终端 |
-| `Terminal::on_bell` | 振铃回调 |
 | `Terminal::on_clipboard_read` | 剪贴板读取回调 |
 | `Terminal::on_color_scheme` | 配色方案变化回调 |
 | `Terminal::on_desktop_notification` | 桌面通知回调 |
@@ -1027,12 +1027,12 @@ SGR 属性经 `render::CellIteration::style` 直读。
 
 ## 5. 观察
 
-- `Terminal::on_bell` 未接线；当前没有 BEL 事件通道。OSC 52 写回调在 `internal/run.rs` 中经 `ClipboardWrite::reply` 应答，其 `remember` 参数表示是否记住授权，不是 BEL 终止符；本仓没有授权提示流程，固定传 `false`。外部 OSC 通知/响铃实现对比见 `docs/persistence/osc-notifications.md`。
+- `Terminal::on_bell` 已接线（2026-11-03）：回调只置无锁标志（`internal/run.rs`），每帧收割为 `Event::Bell { session_id }`，Kotlin 按 `bell-character` 三态限频执行（`runtime/BellPlayer.kt`）。OSC 52 写回调在 `internal/run.rs` 中经 `ClipboardWrite::reply` 应答，其 `remember` 参数表示是否记住授权，不是 BEL 终止符；本仓没有授权提示流程，固定传 `false`。外部 OSC 通知/响铃实现对比见 `docs/persistence/osc-notifications.md`。
 - `selection::gesture` 一族不采用，理由不止连击计数：其自动滚动按定时器在边缘区持续滚动，与本仓「每次触点移动滚一行、静止不滚」冲突；其手势状态若由 VT 线程持有，则每个触摸帧都需跨线程往返，使拖动快路径的无跨语言调用优势尽失，并与视图侧手势所有权形成双状态机。词派生、跟踪选区、随滚动跟随与复制格式化仍走上游，见 §2.8。
 - OSC 52 的读取请求（`?`）上游明确忽略，仍由本仓 `output_processor` 的最小扫描器拦截；因此 `on_clipboard_read` 与整个 `ClipboardRead` 族不必接线。
 - 鼠标与键盘编码器的所有单选项 setter 都不单独调用，选项一律经 `set_options_from_terminal` 从终端整体同步，这是编码正确的唯一入口。
 - 光标视觉样式取 `render::Snapshot::cursor_visual_style` 而非 `Terminal::cursor_style`，因为快照路径与 CellData 同源，两条路径不会分叉。
-- 未使用的 497 项中，多数是上游为通用嵌壳方提供的可选能力（设备属性应答族、桌面通知、进度上报、快照持久化、手势状态机、自定义分配器）。剩余的配置型 setter 均为上游默认值即足够；需要限流或改协议行为时再启用，届时须先补 DESIGN 声明。
+- 未使用的 496 项中，多数是上游为通用嵌壳方提供的可选能力（设备属性应答族、桌面通知、进度上报、快照持久化、手势状态机、自定义分配器）。剩余的配置型 setter 均为上游默认值即足够；需要限流或改协议行为时再启用，届时须先补 DESIGN 声明。
 - 2026-10-20 全量复核：公开项总数 718 与源码精确吻合（含 `terminal.rs`/`render.rs` 各 2 个 `pub use` 再导出；`io.rs` 为 `pub(crate)` 不计入）；抽查已用项均有真实调用点、抽查未用项确实未接线，本清单分类可信。
 - 同轮复核现有使用无错误：回滚须先 `set_scrollback_max_bytes(None)` 再设行数（上游字节预算默认先于行数触发），`internal.rs` 顺序正确；KGP 存储上限 64 MiB 恰为上游默认值；APC 载荷上游默认 kitty 65 MiB、glyph 1 MiB 且两协议默认全开，大图传输无隐藏截断；光标未知样式回退块、焦点序列直写 PTY 两处实现与文档论断一致。`Terminal::compress` 的条目说明原写成「丢弃最旧内容」，与上游「压缩只改存储表示、从不动逻辑内容或回滚上限」矛盾，已修正；该 API 未用合理——上游注明须与写入/渲染/搜索串行，本仓 2000 行预算内存可控。
 - 二次复核（2026-10-20 晚）：上游 master 领先本仓钉住 rev 仅 1 个提交（2026-10-19，`libghostty-vt-sys` 构建脚本允许经 `ZIG` 环境变量选择 Zig 版本，只改 README 与 build.rs），不触碰 `crates/libghostty-vt/src`，公开面 718 项不变。本次修正两处分类滞后：`RowIteration::dirty` 与 `Snapshot::clean` 随行级脏跟踪接线已实际使用（`internal.rs` 的行级脏判定与整帧抽取后标记），自未用表移入 §2.5，计数订正为已用 203 / 未用 515。候选「可用未用」API 逐项核查（`on_title_changed`/`next_dirty`/`begin_update`/`Update::end`/`viewport_active`/`is_cursor_pending_wrap`/`vt_write_until_ground`/`is_vt_ground`/`track_grid_ref`/`overscan` 家族/`cursor_blinking`/`cursor_password_input`/`set_resize_pull_scrollback`）：生产代码零命中且各有不采用的架构理由（拉取模式、行缓存按行索引对齐、VT 线程独占解析、整行滚动），维持未用。`focus::Event::encode` 判定记入 §3.15：与手写字面量同字节，多一次 FFI 往返，无净收益。

@@ -310,6 +310,31 @@ OSC 7 上报在同一次会话里换名字。
 - **WHEN** `terminal-cursor-style = beam`
 - **THEN** 该值不生效，光标使用默认块状样式
 
+### Requirement: bell-character 的三态执行
+
+`bell-character` MUST 接受 termux 上游的 `vibrate`/`beep`/`ignore`，默认 `vibrate`
+（与上游 `DEFAULT_IVALUE_BELL_CHARACTER` 一致），非法值 MUST 回退 `vibrate` 并记录。
+
+收到 BEL（0x07）时 MUST 按取值执行：`vibrate` 振动约 50ms、`beep` 播放系统提示音、
+`ignore` 什么都不做。执行 MUST 限频（上游 `BellHandler.MIN_PAUSE` 同理由）：BEL 是
+远端程序可无限刷出的字节，`yes '\a'` 一秒上万次，不限频会把振动器与音频通道打成
+持续占用。限频窗口内的重复响铃 MUST 静默丢弃——铃是提示而非状态，丢弃不导致失步。
+
+#### Scenario: 默认振动
+
+- **WHEN** 配置未设置 `bell-character`，前台程序执行 `printf '\\a'`
+- **THEN** 设备振动约 50ms
+
+#### Scenario: BEL 洪泛被限频
+
+- **WHEN** 程序以每秒数千次的速率发 BEL
+- **THEN** 感知动作至多按限频间隔执行，界面与渲染不受影响
+
+#### Scenario: ignore 静默
+
+- **WHEN** `bell-character = ignore`
+- **THEN** 收到 BEL 既不振动也不发声
+
 ### Requirement: 键盘切换键的两种语义
 
 `soft-keyboard-toggle-behaviour` MUST 支持 `show/hide`（默认，切换当次可见性）与

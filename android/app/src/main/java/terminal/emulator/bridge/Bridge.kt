@@ -303,6 +303,8 @@ class Bridge(private val config: TerminalConfig) {
         /** 退出码；`null` 为「原生未能取得」（`waitpid` 失败），不是退出码 0。 */
         val exitCode: Int? = null,
         val sessionId: Long = 0L,
+        /** 本帧有会话收到 BEL（终端响铃）。 */
+        val bell: Boolean = false,
         val clipboardReads: List<ClipboardRequest> = emptyList(),
         // 本帧见到的全部退出事件，按序。上方单槽字段只描述首个退出；
         // 同帧多余退出必须从该列表回收，否则会泄漏（原生 exit_reported 在推送时置位且不重发）。
@@ -317,6 +319,8 @@ class Bridge(private val config: TerminalConfig) {
             // sessionId 只用于退出归属：本帧首个退出获胜，后续非退出事件不得覆盖
             // 正在退出会话的 id（否则会误回收仍存活的会话）。
             sessionId = if (later.exit && !exit) later.sessionId else sessionId,
+            // 响铃是「本帧发生过」的标记：任一事件带响铃即成立。
+            bell = bell || later.bell,
             // 请求事件累加：每个都带不同的 request_id，必须且只能分发一次。
             clipboardReads = clipboardReads + later.clipboardReads,
             exits = exits + later.exits,
@@ -384,6 +388,11 @@ class Bridge(private val config: TerminalConfig) {
                     ),
                 ),
             )
+        }
+
+        is PollEvent.Bell -> {
+            // sessionId 不参与：响铃无归属语义（不回收会话），只标记「这一帧响过」。
+            PollResult(bell = true)
         }
 
         is PollEvent.ClipboardRead -> {

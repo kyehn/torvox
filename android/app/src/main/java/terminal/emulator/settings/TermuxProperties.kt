@@ -28,6 +28,13 @@ data class TermuxProperties(
     val extraKeysTextAllCaps: Boolean = true,
     val terminalMarginHorizontalDp: Int = DEFAULT_MARGIN_HORIZONTAL_DP,
     val terminalMarginVerticalDp: Int = DEFAULT_MARGIN_VERTICAL_DP,
+    /**
+     * 响铃（BEL，`\a`）的处理方式。
+     *
+     * 默认 `VIBRATE` 与上游 `DEFAULT_IVALUE_BELL_CHARACTER` 一致：响铃是「远端程序
+     * 提醒用户」的唯一信号，默认静默会让 `printf '\a'` 这类脚本彻底失去反馈。
+     */
+    val bellCharacter: BellCharacter = BellCharacter.VIBRATE,
     val terminalCursorStyle: TerminalCursorStyle = TerminalCursorStyle.BLOCK,
     /**
      * 回滚行数（`terminal-transcript-rows`）。
@@ -97,6 +104,14 @@ data class TermuxProperties(
             )
     }
 }
+
+/**
+ * `bell-character`：收到 BEL 时做什么。
+ *
+ * 三态与 termux `TerminalEmulator` 的处理一致（`vibrate` / `beep` / `ignore`），
+ * 执行侧见 `runtime/BellPlayer`。
+ */
+enum class BellCharacter { VIBRATE, BEEP, IGNORE }
 
 /** 终端光标样式；与原生 `TerminalCursorStyle` 的取值一一对应。 */
 enum class TerminalCursorStyle(val nativeValue: Int) {
@@ -331,6 +346,19 @@ internal object TermuxPropertiesParser {
                     defaults.terminalMarginVerticalDp,
                     TermuxProperties.MARGIN_RANGE,
                 ),
+                bellCharacter =
+                when ((values["bell-character"] ?: "vibrate").lowercase()) {
+                    "vibrate" -> BellCharacter.VIBRATE
+
+                    "beep" -> BellCharacter.BEEP
+
+                    "ignore" -> BellCharacter.IGNORE
+
+                    else -> {
+                        errors += "bell-character: '${values["bell-character"]}' is unknown; keeping vibrate"
+                        BellCharacter.VIBRATE
+                    }
+                },
                 terminalCursorStyle =
                 when ((values["terminal-cursor-style"] ?: "block").lowercase()) {
                     "block" -> TerminalCursorStyle.BLOCK

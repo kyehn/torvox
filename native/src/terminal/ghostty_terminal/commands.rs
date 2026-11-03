@@ -260,6 +260,10 @@ pub(crate) struct RunConfig {
     /// 触摸拖动每个事件都要判一次「远端要不要滚轮」，走查询通道会把 UI 线程
     /// 钉在 VT 线程的一次应答上；读原子量则是纯本地判断。
     pub(crate) mouse_tracking_active: Arc<AtomicBool>,
+    /// 终端响铃（BEL）的无锁镜像：上游 `on_bell` 回调置位，收割方取走复位。
+    /// 响铃是「发生过」语义——帧内连响多次只报一次，单原子量即足够，
+    /// 不需要像剪贴板那样保序保量的通道。
+    pub(crate) bell_flag: Arc<AtomicBool>,
     /// VT 线程置位表示 `Terminal::resize` 失败（网格未真正改尺寸）。
     pub(crate) resize_failed: Arc<AtomicBool>,
     /// 上游 OSC 52 回调事件通道（VT 线程推送，调用方轮询）：剪贴板写入。

@@ -218,8 +218,8 @@ fn search_highlight_blends_without_swap() {
     assert!((instances[0].background[2] - expected).abs() < 1e-5);
 }
 
-/// 方块光标把背景换成光标色（半透明），
-/// 并保留原前景色，使字形仍可读。
+/// 方块光标整格反色（termux `invertCursorTextColor`）：
+/// 背景取不透明光标色，文字取原格背景色，二者不得同色。
 #[test]
 fn block_cursor_paints_background_keeps_foreground() {
     let cells = vec![cell_data(
@@ -240,13 +240,13 @@ fn block_cursor_paints_background_keeps_foreground() {
     let instances = build(&cells, cursor, &[]);
     assert_eq!(
         instances[0].foreground,
-        [1.0, 0.0, 0.0, 1.0],
-        "block cursor keeps foreground"
+        [0.0, 0.0, 1.0, 1.0],
+        "block cursor text takes the cell background color (inverted)"
     );
     assert_eq!(
         instances[0].background,
-        [0.0, 1.0, 0.0, 0.7],
-        "background = cursor color * 0.7"
+        [0.0, 1.0, 0.0, 1.0],
+        "block cursor background is the opaque cursor color"
     );
 }
 

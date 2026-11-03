@@ -76,6 +76,10 @@ pub struct GhosttyTerminal {
     /// 每帧刷新。触摸拖动每个事件都要判断一次是否转发滚轮给远端，读原子量
     /// 才能让 UI 线程完全不碰查询通道。
     pub(crate) mouse_tracking_active: Arc<AtomicBool>,
+    /// 终端响铃（BEL）的无锁镜像：上游 `on_bell` 回调置位，收割方每帧取走复位。
+    /// 与 [`Self::mouse_tracking_active`] 同款的无锁镜像——VT 写入路径上的回调
+    /// 不得阻塞，原子量恰好满足。
+    pub(crate) bell_flag: Arc<AtomicBool>,
     /// VT 线程上 `Terminal::resize` 失败留下的标记：网格仍是旧尺寸，而
     /// `Session::resize` 已按「命令已入队」把缓存尺寸发布成新值。调用方据此
     /// 让下一次 resize 事件（即使尺寸相同）重试，修复永久分歧。

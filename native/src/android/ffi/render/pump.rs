@@ -25,6 +25,9 @@ pub(crate) fn pump_sessions() {
          session: &mut Session,
          events: &mut Vec<Event>,
          exits: &mut Vec<(u64, crate::terminal::session::ReportedExit)>| {
+            if session.take_bell() {
+                events.push(Event::Bell { session_id });
+            }
             if let Some(text) = session.poll_clipboard() {
                 events.push(Event::Clipboard { session_id, text });
             }

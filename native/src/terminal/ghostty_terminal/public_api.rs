@@ -72,6 +72,8 @@ impl super::GhosttyTerminal {
         let alt_screen_active_for_run = alt_screen_active.clone();
         let mouse_tracking_active = Arc::new(AtomicBool::new(false));
         let mouse_tracking_active_for_run = mouse_tracking_active.clone();
+        let bell_flag = Arc::new(AtomicBool::new(false));
+        let bell_flag_for_run = bell_flag.clone();
         let resize_failed = Arc::new(AtomicBool::new(false));
         let resize_failed_for_run = resize_failed.clone();
         let cell_size_px_for_run = Arc::new((
@@ -112,6 +114,7 @@ impl super::GhosttyTerminal {
                         response_buffer: pty_for_run,
                         alt_screen_active: alt_screen_active_for_run,
                         mouse_tracking_active: mouse_tracking_active_for_run,
+                        bell_flag: bell_flag_for_run,
                         resize_failed: resize_failed_for_run,
                         cell_size_px: cell_size_px_for_run,
                         cell_data_mailbox: cell_data_mailbox_for_run.clone(),
@@ -155,6 +158,7 @@ impl super::GhosttyTerminal {
             last_pty_write_byte: 0,
             alt_screen_active,
             mouse_tracking_active,
+            bell_flag,
             resize_failed,
             latest_scroll_request_id: AtomicU64::new(0),
             cmd_drop_log: crate::slow_log::CountedLogThrottle::new(),
@@ -201,6 +205,13 @@ impl super::GhosttyTerminal {
 
     pub fn poll_clipboard_event(&self) -> Option<(String, String)> {
         self.clipboard_rx.try_recv().ok()
+    }
+
+    /// 取走响铃标志：自上次取走后终端收到过 BEL 返回 `true`，同时复位。
+    /// 收割方每帧调用一次，取走即消费——重复取不会重放。
+    pub(crate) fn take_bell(&self) -> bool {
+        self.bell_flag
+            .swap(false, std::sync::atomic::Ordering::AcqRel)
     }
 
     pub fn vt_write(&mut self, data: &[u8]) {

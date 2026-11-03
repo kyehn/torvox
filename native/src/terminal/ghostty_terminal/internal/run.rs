@@ -371,6 +371,14 @@ impl super::GhosttyTerminal {
         // VT 线程；OSC 52 读取请求（`?`）上游明确忽略，仍由 OutputProcessor
         // 的最小扫描器拦截（FR-036）。
         Self::register_clipboard_write_callback(&mut terminal, config.clipboard_tx.clone());
+        // 终端响铃（BEL，0x07）走上游 on_bell 回调：只置无锁标志，收割方每帧
+        // 取走复位。回调在 VT 写入路径上同步执行，不得阻塞——原子量恰好满足。
+        if let Err(error) = terminal.on_bell({
+            let bell_flag = config.bell_flag.clone();
+            move |_terminal| bell_flag.store(true, std::sync::atomic::Ordering::Release)
+        }) {
+            log::error!("ghostty_terminal: on_bell callback registration failed: {error}");
+        }
         // XTWINOPS 尺寸查询（CSI 14/16/18t）走上游 on_size 回调：行列取终端
         // 实时值，单元格像素取本层回填的共享几何（Resize 填默认，
         // SetCellPixelSize 填真实字形度量）。无锁读取，永不阻塞 VT 线程。
