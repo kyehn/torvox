@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- bell-character=vibrate 的振动执行（runtime/BellPlayer.kt）；正常权限，安装即授予。 -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Wi-Fi 锁：与唤醒锁同生命周期，避免灭屏后长连接被 Wi-Fi 省电冻结。 -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
