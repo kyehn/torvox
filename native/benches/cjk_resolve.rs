@@ -1,7 +1,10 @@
 //! CJK 解析稳态开销：缓存预热后重复解析同一组汉字，度量热路径单字成本。
 //!
-//! 开发期分析用（`cargo bench --manifest-path native/Cargo.toml -p native --bench cjk_resolve`），
-//! 不进门禁：机器字体环境不同，绝对数值不可比，只看同机前后对比。
+//! 开发期分析用（`cargo bench --manifest-path native/Cargo.toml -p native --bench cjk_resolve`）：
+//! 机器字体环境不同，绝对数值不可比，只看同机前后对比。**仍带下限断言**——
+//! 热路径单字解析本该是纳秒级，超过 20ms/行说明缓存已失效或每字都在全库扫描。
+
+mod support;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use native::render::font::FontPipeline;
@@ -18,6 +21,11 @@ fn cjk_resolve_steady_state(criterion: &mut Criterion) {
     for glyph in &line {
         pipeline.glyph_information(*glyph);
     }
+    support::Floor::new("cjk_resolve_warm_per_line", 20.0).assert_within(256, || {
+        for glyph in &line {
+            black_box(pipeline.glyph_information(black_box(*glyph)));
+        }
+    });
     criterion.bench_function("cjk_resolve_warm_per_line", |holder| {
         holder.iter(|| {
             for glyph in &line {

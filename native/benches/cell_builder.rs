@@ -8,6 +8,8 @@
 //! cargo bench --manifest-path native/Cargo.toml -p native --bench cell_builder
 //! ```
 
+mod support;
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use native::render::cell_builder::CellInstanceConfig;
 use native::render::font::FontPipeline;
@@ -58,6 +60,30 @@ fn build_instances(c: &mut Criterion) {
         style: native::terminal::CursorStyle::Block,
         color: [1.0, 1.0, 1.0, 1.0],
     };
+
+    // 下限断言：1920 格纯 CPU 转换，CI 硬阈值是同路径 >100/s（即 <10ms）。
+    // 这里放宽到 50ms/次，只兜住数量级退化（逐格重建字体、O(n²) 查表）。
+    support::Floor::new("build_instances_from_cell_data", 50.0).assert_within(16, || {
+        let mut instances = Vec::new();
+        let config = CellInstanceConfig {
+            rows,
+            cols,
+            grid_cell_width,
+            grid_cell_height,
+            cursor,
+            atlas_width: 2048.0,
+            atlas_height: 2048.0,
+            search_highlights: &[],
+            default_background: [0.0; 4],
+        };
+        black_box(native::render::build_instances_from_cell_data(
+            &cell_data,
+            config,
+            &mut font_pipeline,
+            &mut instances,
+        ));
+        black_box(instances.len());
+    });
 
     c.bench_function("build_instances_from_cell_data", |b| {
         b.iter(|| {

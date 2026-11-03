@@ -8,6 +8,8 @@
 //! cargo bench --manifest-path native/Cargo.toml -p native --bench vt_typing
 //! ```
 
+mod support;
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use native::terminal::ghostty_terminal::GhosttyTerminal;
 use std::hint::black_box;
@@ -21,6 +23,15 @@ fn typing_latency(c: &mut Criterion) {
     terminal.flush();
 
     let keystrokes: [&[u8]; 6] = [b"h", b"e", b"l", b"l", b"o", b"\n"];
+    // 下限断言：六次按键 + 一次排空 + 整帧回传，实测毫秒级。上限放到 200ms，
+    // 只兜住数量级崩塌（VT 线程被同步等待、整帧克隆、每键重排网格）。
+    support::Floor::new("typing_keystroke", 200.0).assert_within(32, || {
+        for key in &keystrokes {
+            terminal.vt_write(key);
+        }
+        terminal.flush();
+        let _ = black_box(terminal.receive_cell_data().map(|(cells, _)| cells.len()));
+    });
     c.bench_function("typing_keystroke", |b| {
         b.iter(|| {
             for key in &keystrokes {

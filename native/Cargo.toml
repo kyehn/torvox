@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 description = "Terminal engine"
+# 基准共用断言工具放在 `benches/support.rs`：它不是基准目标，关掉自动发现，
+# 否则 Cargo 会把它当成一个无 `main` 的 bench 目标去编译。
+autobenches = false
 
 [lints.clippy]
 too_many_arguments = "allow"
