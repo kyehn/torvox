@@ -46,8 +46,9 @@ const BAR_CURSOR_WIDTH_FRACTION: f32 = 0.25;
 const UNDERLINE_CURSOR_HEIGHT_FRACTION: f32 = 0.15;
 /// 光标标记最小厚度像素，保证低分辨率下仍然可见。
 const CURSOR_MARKER_MINIMUM_THICKNESS: f32 = 1.0;
-/// 方块光标背景透明度系数（半透明覆盖保证原文可读）。
-const BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE: f32 = 0.7;
+/// 竖线/下划线光标标记的不透明度系数：细条压在字形之上，半透明保证原文可读。
+/// 方块光标不走这条路径——它整格反色，背景是不透明的光标色。
+const CURSOR_MARKER_ALPHA_SCALE: f32 = 0.7;
 
 use std::collections::HashMap;
 
@@ -82,14 +83,17 @@ pub struct CellCursor {
 }
 
 impl CellCursor {
-    /// 半透明光标标记背景，保证原文可读。
+    /// 竖线/下划线光标标记的半透明背景。
+    ///
+    /// 细条压在字形之上，保持原文可读；方块光标不用它——方块光标整格反色
+    /// （见 `append_row_instances`），背景是不透明的光标色。
     fn marker_background(self) -> [f32; 4] {
         let cursor_color = self.color;
         [
             cursor_color[0],
             cursor_color[1],
             cursor_color[2],
-            cursor_color[3] * BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE,
+            cursor_color[3] * CURSOR_MARKER_ALPHA_SCALE,
         ]
     }
 }
@@ -842,7 +846,7 @@ fn append_row_instances(
         // SGR 8：与 xterm 一致，保留背景与光标，跳过字形及全部前景装饰。
         let concealed = (cell_data_entry.flags >> cell_flags::CONCEAL) & 1 == 1;
         let emitted_flags = if concealed { 0 } else { cell_data_entry.flags };
-        let effective_foreground = foreground;
+        let mut effective_foreground = foreground;
         let mut effective_background = background;
         // 整格四边形：字形、空单元格背景与下划线光标宽度都取它；竖线/下划线
         // 光标标记由 [`cursor_marker_geometry`] 从它收缩。字形四边形**不**用
@@ -853,9 +857,16 @@ fn append_row_instances(
         // 跟随字形位图会让同一光标随格内字符变高变矮、越出本行——空单元格取
         // 'M' 位图高度，文本单元格取该字形位图高度，两者不等。
         if is_cursor && matches!(cursor.style, CursorStyle::Block) {
-            // 方块光标（独占样式）：保留原文前景保证可读，仅把背景
-            // 替换为光标色半透明覆盖。
-            effective_background = cursor.marker_background();
+            // 方块光标整格反色（termux `invertCursorTextColor`，见
+            // `docs/persistence/termux-app.md`）：背景取光标色、文字取原格背景色。
+            // 旧实现把光标色按 0.7 叠在格背景上、前景不动，深色主题下白字压在
+            // 半透明光标上对比度极低，「光标遮住文字」即由此而来。反色后文字与
+            // 光标底的对比度由主题保证（光标色与背景色本就必须可区分）。
+            // 取 `background` 而非 `default_background`：SGR 反显与搜索高亮已把
+            // 该格的目标底色算进 `background`，用默认底色会让高亮格的光标文字
+            // 变成另一种颜色。
+            effective_background = cursor.color;
+            effective_foreground = background;
         }
         if concealed
             || character == ' '

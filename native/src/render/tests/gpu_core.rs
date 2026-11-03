@@ -390,10 +390,15 @@ fn cursor_rendering_on_visible_cursor() {
     );
     assert_eq!(instances.len(), 2);
     let cursor_cell = &instances[0];
-    // Block cursor alpha = cursor_color[3] * 0.7 (CURSOR_BLOCK_ALPHA constant)
+    // 方块光标整格反色（termux `invertCursorTextColor`）：背景为不透明光标色，
+    // 文字取原格背景色，二者不得同色。
     assert!(
-        f32_arrays_equal(&cursor_cell.background, &[1.0, 1.0, 1.0, 0.7]),
-        "cursor cell background should be white with block alpha when cursor_visible=true"
+        f32_arrays_equal(&cursor_cell.background, &[1.0, 1.0, 1.0, 1.0]),
+        "cursor cell background should be the opaque cursor color when cursor_visible=true"
+    );
+    assert!(
+        f32_arrays_equal(&cursor_cell.foreground, &[0.0, 0.0, 0.0, 1.0]),
+        "cursor cell text should take the cell background color (inverted)"
     );
     let non_cursor_cell = &instances[1];
     assert!(

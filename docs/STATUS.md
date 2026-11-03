@@ -38,13 +38,14 @@
   `widthIn(240..320)` 在这种写法下不生效——`fillMaxWidth` 交给下游的是「min = max」
   单点约束。要收窄必须先定一个目标宽度，需真机截图确认是「占屏比例过大」还是「绝对宽度
   过大」，两种成因的改法不同）
-- 输入光标遮盖文本时可见性差，和 termux 效果不一致
-  （termux 的做法见 `docs/persistence/termux-app.md`：`invertCursorTextColor`——光标格
-  背景取光标色、文字取原背景色，整格反色；本仓在
-  `native/src/render/cell_builder.rs` 把光标色按 `BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE`
-  （0.7）叠在格背景上、前景不动，文字与光标色的对比度因此下降。改为整格反色须同步改
-  `native/src/render/tests/cell_pipeline.rs` 的四条断言（「光标色 × 0.7」是其中的取值口径），
-  并核对搜索高亮与选区叠加时的取色顺序）
+- 输入光标遮盖文本时可见性差，和 termux 效果不一致（已按 termux 的
+  `invertCursorTextColor` 改为整格反色：背景取不透明光标色、文字取该格原背景色，
+  取色在 SGR 反显与搜索高亮之后，见 `native/src/render/cell_builder.rs`；竖线/下划线
+  仍是半透明细标记。回归钉：`render::tests::cell_pipeline::cursor_with_text_and_block_style`、
+  `cursor_color_custom_values`、`cursor_at_origin`、
+  `cursor_cell_not_affected_by_search_highlight` 与
+  `render::tests::gpu_core::cursor_rendering_on_visible_cursor`；规约见
+  `openspec/specs/cursor-rendering`「方块光标整格反色」。仍需真机确认对比度观感）
 - `bell-character` 未接线（`docs/specification/CONFIG.md` 声明该键，`DESIGN.md` 要求
   实现与 termux-app 一致）
   （现状：全仓没有注册 `on_bell`，`docs/persistence/osc-notifications.md` 因此只能记

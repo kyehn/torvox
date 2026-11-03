@@ -12,9 +12,9 @@ line gap（理由见 `native/src/render/font/rasterization.rs` 的 `cell_metrics
 故光标高度不等于 termux 的 `mFontLineSpacing`，两者只在「整格」这一点上一致。
 
 实现：`native/src/render/cell_builder.rs` 的 `append_row_instances`——光标盒就是该函数的
-默认 `quad_origin` / `quad_size`，Block 分支只把背景换成光标色；Bar/Underline 在单元盒内
-收缩为细标记（空单元格收缩那唯一的四边形，文本格在字形之后追加一个标记四边形），
-同样不读字形位图。
+默认 `quad_origin` / `quad_size`，Block 分支把该格整格反色（背景取光标色、文字取原背景色）；
+Bar/Underline 在单元盒内收缩为细标记（空单元格收缩那唯一的四边形，文本格在字形之后追加
+一个标记四边形），同样不读字形位图。
 
 ## Requirements
 
@@ -34,6 +34,29 @@ MUST NOT 跟随格内字形位图定尺寸——位图高度随字符变化，�
 
 - **WHEN** 光标停在 `g`、`j`、`中` 等位图高于或低于参考字形的字符上
 - **THEN** 光标盒仍限制在本行整格内，不侵入上一行或下一行
+
+### Requirement: 方块光标整格反色
+
+方块光标格的**文字色** MUST 取该格原背景色、**背景** MUST 取不透明光标色——这是 termux
+`invertCursorTextColor` 的做法（`docs/persistence/termux-app.md`）。MUST NOT 把光标色按
+透明度叠在原背景上而保留原文字色：深色主题下白字压在半透明光标上对比度极低，
+「光标遮住文字」即由此而来；反色后的对比度由主题保证（光标色与背景色本就必须可区分）。
+
+取色 MUST 以该格**已应用** SGR 反显与搜索高亮之后的背景为准，MUST NOT 取默认背景色——
+否则高亮格的光标文字会变成第三种颜色。
+
+竖线/下划线光标 MUST NOT 反色：它们是压在字形之上的细标记，仍用半透明光标色
+（`CURSOR_MARKER_ALPHA_SCALE`），原文颜色不动。
+
+#### Scenario: 白字黑底上的方块光标
+
+- **WHEN** 主题为黑底白字、光标色为白色，光标停在显示 `A` 的单元格上
+- **THEN** 该格背景为不透明白色，`A` 的字形以黑色绘制
+
+#### Scenario: 搜索高亮格上的方块光标
+
+- **WHEN** 光标停在当前搜索命中（已前景/背景交换）的单元格上
+- **THEN** 背景为光标色、文字为该命中格交换后的背景色，不回落成默认背景色
 
 ### Requirement: 光标标记锚在单元盒
 

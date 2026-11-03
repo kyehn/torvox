@@ -183,9 +183,9 @@ impl Renderer {
             // 图集**不是**预乘 alpha：着色器已把覆盖率解算成不透明色
             // （`cell.wgsl` 的 `color = mix(background, foreground, texel.r)`，
             // 两者 alpha 均来自 `color_to_float`，恒为 1.0），故对文字而言混合状态
-            // 等价于覆盖写。它真正需要混合的是那批**半透明**光标标记实例
-            // （块光标背景 alpha 0.7，见 `BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE`）。
-            // 因此不要因为「文字看起来正常」就拆掉它——那是半透明光标在依赖它。
+            // 等价于覆盖写。它真正需要混合的是**半透明**的竖线/下划线光标标记
+            // （alpha 0.7，见 `CellCursor::marker_background`）与带 alpha 的主题色。
+            // 因此不要因为「文字看起来正常」就拆掉它——细光标标记在依赖它。
             Some(wgpu::BlendState::ALPHA_BLENDING),
             format,
         )

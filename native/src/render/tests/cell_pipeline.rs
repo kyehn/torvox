@@ -70,8 +70,8 @@ fn cursor_cell_not_affected_by_search_highlight() {
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
-        f32_arrays_equal(&cell.background, &[0.5, 0.5, 1.0, 0.7]),
-        "cursor cell background should be cursor color (with block alpha), not highlight color"
+        f32_arrays_equal(&cell.background, &[0.5, 0.5, 1.0, 1.0]),
+        "cursor cell background should be the opaque cursor color, not highlight color"
     );
 }
 
@@ -432,10 +432,10 @@ fn cursor_not_rendered_when_visible_false() {
     let instances = build_hidden_cursor_probe_instance(0x20, &mut font_pipeline);
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
-    // 非光标位置的空白格用默认背景色，而非光标色
+    // 非光标位置的空白格用默认背景色，而非（不透明的）光标色
     assert!(
-        !f32_arrays_equal(&cell.background, &[1.0, 1.0, 1.0, 0.7]),
-        "cursor cell should not have block alpha background when cursor_visible=false"
+        !f32_arrays_equal(&cell.background, &[1.0, 1.0, 1.0, 1.0]),
+        "cursor cell should not be filled with the cursor color when cursor_visible=false"
     );
 }
 
@@ -458,8 +458,8 @@ fn cursor_at_origin() {
     );
     let cell = &instances[0];
     assert!(
-        f32_arrays_equal(&cell.background, &[1.0, 1.0, 1.0, 0.7]),
-        "cursor at origin must render with block alpha"
+        f32_arrays_equal(&cell.background, &[1.0, 1.0, 1.0, 1.0]),
+        "cursor at origin must be filled with the opaque cursor color"
     );
 }
 
@@ -477,14 +477,14 @@ fn cursor_with_text_and_block_style() {
     );
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
-    // Block cursor keeps the original foreground readable, background becomes cursor color×alpha.
+    // 整格反色（termux `invertCursorTextColor`）：文字取原格背景色，背景取光标色。
     assert!(
-        f32_arrays_equal(&cell.foreground, &[0.0, 1.0, 0.0, 1.0]),
-        "block cursor on text: foreground should stay the original foreground"
+        f32_arrays_equal(&cell.foreground, &[0.0, 0.0, 1.0, 1.0]),
+        "block cursor on text: foreground must become the cell background color"
     );
     assert!(
-        f32_arrays_equal(&cell.background, &[1.0, 1.0, 1.0, 0.7]),
-        "block cursor on text: background should be cursor color with block alpha"
+        f32_arrays_equal(&cell.background, &[1.0, 1.0, 1.0, 1.0]),
+        "block cursor on text: background must be the opaque cursor color"
     );
 }
 
@@ -509,8 +509,12 @@ fn cursor_color_custom_values() {
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
-        f32_arrays_equal(&cell.background, &[0.5, 0.3, 0.8, 0.7]),
-        "custom cursor color should be reflected with block alpha multiplier"
+        f32_arrays_equal(&cell.background, &[0.5, 0.3, 0.8, 1.0]),
+        "custom cursor color must fill the block cursor cell opaquely"
+    );
+    assert!(
+        f32_arrays_equal(&cell.foreground, &[0.0, 0.0, 0.0, 1.0]),
+        "block cursor text must take the cell background color"
     );
 }
 
