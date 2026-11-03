@@ -12,7 +12,18 @@
   向应用补发 `ACTION_CANCEL`，键位若落回手势区即重现「按下动画不复位」。3 键导航与手势
   导航两种模式下都要验证，故需真机）
 - 使用 `kitten icat test.png` 后，输入 clear 回车不会清除图像，图像变大，文本被遮挡，再次盲输入 clear 回车被清除
-- 切换应用返回页面闪烁
+- 切换应用返回页面闪烁（已按日志定位到「开孔覆盖状态晚一帧」并改为常驻收集；
+  仍需真机确认一闪消失）
+  （证据：切后台时 `setRenderPaused: paused=true` 后约 20ms 系统拆除 surface
+  ——`mali_gralloc` 连续 unregister 交换链缓冲；切回时 `attach_surface: ANativeWindow
+  changed` 重建，从拆到首帧 `presented` 间隔约 300ms。这段里 `SurfaceView` 的开孔没有
+  缓冲，只能靠组合层临时涂终端底色遮住。该标志由渲染线程在 `onSurfaceDestroyed` 写，
+  时机在 `onStop` 之后，而 `collectAsStateWithLifecycle` 在低于 STARTED 时已停止收集，
+  切回的 `ON_START` 重启收集与首帧绘制抢跑——首帧按旧值（有缓冲）绘制，开孔透出上一个
+  应用，即那一闪。已改为常驻 `collectAsState`（见 `TerminalScreen`）并新增用例
+  `SurfaceLossRecoveryInstrumentedTest.backgroundStopKeepsCoverStateAndResumePresentsAgain`
+  守住「切回必须重新出帧」。剩余的平台侧代价：surface 被拆到重建这 300ms 只能显示纯底色，
+  文字必然短暂消失，要彻底消除需保留最后一帧位图，属另一项改动）
 - 侧边面板过宽，布局不合理
   （现状：`SessionDrawer` 的宽度是 `fillMaxWidth(0.84f)` 落在 `ModalDrawerSheet` 的
   宽度上界内（Material3 `DrawerDefaults.MaximumDrawerWidth`，360dp），实际解析为

@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -148,7 +149,14 @@ fun TerminalScreen(
     val viewModelNightThemeName = settings.nightThemeName
     val runtimeState by viewModel.runtime.state.collectAsStateWithLifecycle()
     // 开孔是否已有缓冲区：决定要不要在窗口层涂底色（见 TerminalRuntime.surfaceBufferPresent）。
-    val surfaceBufferPresent by viewModel.runtime.surfaceBufferPresent.collectAsStateWithLifecycle()
+    //
+    // 这一条 MUST NOT 用 `collectAsStateWithLifecycle`：该标志的**关键一次写入发生在
+    // `onStop` 之后**（系统拆除 SurfaceView 的 surface 时），而 `collectAsStateWithLifecycle`
+    // 在生命周期低于 STARTED 时停止收集。切回前台时收集要等 `ON_START` 后的协程重启才
+    // 恢复，第一帧已经按旧值（true）画完——开孔区没有底色，正好透出上一个应用，即
+    // 「切换应用返回一闪」。常驻收集让写入直接落到组合状态上，恢复时的首帧就带底色；
+    // 该标志只在 Surface 交付/拆除时翻转，常驻不产生额外唤醒。
+    val surfaceBufferPresent by viewModel.runtime.surfaceBufferPresent.collectAsState()
     // `~/.termux/termux.properties` 的解析结果。视图只读，不自己读文件——读取时机
     // （启动、设置变化）统一由运行期裁定。
     val termuxProperties by viewModel.termuxConfiguration.collectAsStateWithLifecycle()

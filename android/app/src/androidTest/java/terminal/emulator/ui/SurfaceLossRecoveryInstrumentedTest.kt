@@ -1,6 +1,7 @@
 package terminal.emulator.ui
 
 import androidx.compose.ui.graphics.toArgb
+import androidx.lifecycle.Lifecycle
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
@@ -316,6 +317,46 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
             },
         )
         awaitInk("恢复后：")
+    }
+
+    /**
+     * 切后台再回来：系统拆除 Surface 后必须重新交付、重新出帧，开孔覆盖状态先落回
+     * 「无缓冲区」再随首帧撤掉；回来后画面必须有墨迹（不是永久黑屏）。
+     *
+     * 覆盖状态由 `surfaceBufferPresent` 表达，而它最关键的一次写入（Surface 被拆除）
+     * 发生在 `onStop` 之后。组合层若用生命周期门控的收集方式，`ON_START` 重启收集
+     * 与首帧绘制会抢跑——首帧按旧值（有缓冲区）画完，开孔区便透出上一个应用，
+     * 即「切换应用返回一闪」（见 `docs/STATUS.md`）。
+     */
+    @Test
+    fun backgroundStopKeepsCoverStateAndResumePresentsAgain() {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
+        composeTestRule.waitForIdle()
+        assertNotNull(
+            "正常出帧后必须报告「已有缓冲区」",
+            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
+                runtime.surfaceBufferPresent.value
+            },
+        )
+
+        composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        // Surface 是否在 onStop 被拆除由系统决定（部分配置会保留窗口）：只记录不判红，
+        // 否则用例会因机型的窗口策略而非被测行为失败。
+        val dropped =
+            UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 100) {
+                !runtime.surfaceBufferPresent.value
+            }
+        UxTestUtils.metric("surface_dropped_on_stop", if (dropped != null) 1 else 0)
+
+        composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        assertNotNull(
+            "切回前台后 30s 内必须重新出帧（覆盖层撤掉），否则就是黑屏",
+            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
+                composeTestRule.requireBridge().writeToPty("echo RESUME_TICK\n".toByteArray(Charsets.UTF_8))
+                runtime.surfaceBufferPresent.value
+            },
+        )
+        awaitInk("切回后：")
     }
 
     /** 开孔区域的底色量测：中位色相对终端底色的偏差，以及区域内相对中位色的最大偏差。 */
