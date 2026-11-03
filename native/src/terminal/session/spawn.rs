@@ -266,6 +266,7 @@ impl Session {
             clipboard_text,
             clipboard_read,
             clipboard_drop_log: crate::slow_log::CountedLogThrottle::new(),
+            pending_pty_output: None,
             pty_write_back_queue: VecDeque::new(),
             reader_handle: None,
             wait_handle: None,

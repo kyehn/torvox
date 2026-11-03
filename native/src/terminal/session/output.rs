@@ -39,6 +39,20 @@ impl Session {
     /// 处理来自 PTY 读取线程的终端输出：读取 VT 输出、更新终端状态并排空回写应答。
     /// 处理过任何 VT 数据时返回 true。
     pub(crate) fn poll_pty_output(&mut self, max_chunks: u32) -> bool {
+        // 先补投上一帧因 VT 命令通道满而留下的块。VT 命令通道是 FIFO，跳过去先送
+        // 新块会让终端按错误顺序解析同一段 PTY 流（例如把 CSI 的后半截当前半截）。
+        let mut processed = false;
+        if let Some(pending) = self.pending_pty_output.take() {
+            match self.terminal.resend_pty_write(pending) {
+                Ok(()) => processed = true,
+                Err(pending) => {
+                    // 通道仍满：继续等，不再取新块。
+                    self.pending_pty_output = Some(pending);
+                    self.harvest_vt_side_effects();
+                    return processed;
+                }
+            }
+        }
         let mut count = 0u32;
         while let Ok(data) = self.output_rx.try_recv() {
             let snap = self.output_processor.process(&data);
@@ -46,7 +60,15 @@ impl Session {
             for selection in snap.clipboard_reads {
                 self.clipboard_read.lock().push_back(selection);
             }
-            self.terminal.pty_write(&snap.filtered);
+            if let Err(pending) = self.terminal.try_pty_write(&snap.filtered) {
+                // 通道满不是「可以丢一块」的异常：VT 线程只是暂时忙于长命令。
+                // 把块留到下一帧并停止取新数据，压力经有界 output 通道传回 PTY，
+                // 子进程随之被内核阻塞。丢字节会让屏幕与真实输出永久分叉。
+                self.pending_pty_output = Some(pending);
+                self.harvest_vt_side_effects();
+                return true;
+            }
+            processed = true;
             count += 1;
             // 限制每帧处理量，避免单次渲染调用长时间持有会话锁。剩余块在下一渲染帧处理，
             // 无正确性代价——VT 线程按 FIFO 处理命令。
@@ -64,16 +86,12 @@ impl Session {
         }
         if count > 0 {
             log::trace!("poll_pty_output: processed {count} chunks");
-            self.harvest_vt_side_effects();
-            true
-        } else {
-            // 本帧没有新输出，但 VT 线程可能仍在处理此前投递的命令：其回调事件
-            // （OSC 52 写入）与回写应答此刻可能刚好就绪。仍然收割一次，否则
-            // 这些副作用要一直等到下一批输出到来才上报——终端安静时（恰恰是用户
-            // 复制完内容的那一刻）就永远不发生。
-            self.harvest_vt_side_effects();
-            false
         }
+        // 本帧没有新输出时同样收割：VT 线程可能仍在处理此前投递的命令，其回调事件
+        // （OSC 52 写入）与回写应答此刻可能刚好就绪。不收割则这些副作用要等到下一批
+        // 输出到来才上报——终端安静时（恰恰是用户复制完内容的那一刻）永远不发生。
+        self.harvest_vt_side_effects();
+        processed
     }
 
     /// 收割 VT 侧的副作用：回调事件（OSC 52 写入）与 PTY 回写应答（DECRPM/DSR/DA）。

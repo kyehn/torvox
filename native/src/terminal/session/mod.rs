@@ -145,6 +145,13 @@ pub struct Session {
     /// （见 `logcat-hygiene`）。与渲染洪泛、事件队列溢出共用同一实现。
     clipboard_drop_log: crate::slow_log::CountedLogThrottle,
 
+    /// 上一帧因 VT 命令通道满而未能送达的 PTY 输出块。
+    ///
+    /// 背压的另一半（见 [`GhosttyTerminal::try_pty_write`]）：块留在这里逐帧重试，
+    /// 期间**停止**从 `output_rx` 取新块，使压力经有界通道传到 PTY 读取线程与子进程。
+    /// 必须是单槽而非队列：同一时刻只有一块在途，顺序由「先重试、后取新」保证。
+    pending_pty_output: Option<Vec<u8>>,
+
     /// 本帧未写完的 VT 应答（DECRPM/DSR/DA 等），FIFO。
     ///
     /// 独占性来自会话锁而非某个专属线程：`pollEvent` 会逐帧扫描**全部**会话，
@@ -282,6 +289,9 @@ impl Session {
         // 等于让终端状态与刚重建的网格对不上。VT 侧 `reset` 是异步投递的，引擎缓冲
         // 里尚未收割的应答仍可能随后到达——那属于「重置后仍排队」而非本队列残留。
         self.pty_write_back_queue.clear();
+        // 未送达的 PTY 输出属于重置前的状态：RIS 之后再补投会把旧字节解析进新网格。
+        // 有意丢弃——重置的语义就是抛弃旧终端状态。
+        self.pending_pty_output = None;
         self.terminal.reset();
         // VT 视口已归零：同步清零本会话的滚动记账，否则下一次滚动会按 stale 值算出
         // 错误 delta 误滚视图。

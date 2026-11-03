@@ -215,12 +215,11 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 写入 PTY 输出并把 LF（`\n`）转成 CR+LF（`\r\n`）——Ghostty 的 VT 引擎把 LF 当作
-    /// 无回车的换行，不转换则常规输出的行推进会出错。
+    /// 把一段 PTY 输出按 LF→CRLF 规则成形为命令载荷，返回待入队的字节。
     ///
-    /// 适用于 PTY 输出的文本级 `\n`→`\r\n` 转换；VT 控制序列、DEC 矩形操作与二进制
-    /// VT 数据应改用 [`Self::vt_write`]。
-    pub fn pty_write(&mut self, data: &[u8]) {
+    /// 只做字节变换、不入队：入队失败时需要把**同一份**载荷原样交还调用方重试，
+    /// 再次调用本函数会重复插入 `\r`（`\n` 已变成 `\r\n`，末尾字节也随之改变）。
+    fn build_pty_write_buffer(&mut self, data: &[u8]) -> Vec<u8> {
         let mut buffer = Vec::with_capacity(data.len() + 4);
         // 用上次调用的末字节识别跨块拆分的 `\r`/`\n`（Linux PTY 输出常见）；否则
         // LF→CRLF 转换会多插入一个 `\r`，产生 `\r\r\n`。
@@ -244,10 +243,54 @@ impl super::GhosttyTerminal {
         // CSI/OSC/DCS 分片由上游增量重组，此处不得提前闭合（ST 自动闭合
         // 会截断合法跨块 OSC，实测分片 OSC 52 被截为空内容）。
         self.last_pty_write_byte = prev;
-        // 用 try_send：本方法在持有会话锁的会话/渲染路径上运行，命令通道满（VT 线程
-        // 忙于长命令）时不得无限期阻塞调用方；丢弃一块可接受——VT 引擎是帧式的。
-        if let Err(error) = self.cmd_tx.try_send(Command::Write(buffer)) {
-            self.warn_command_dropped("pty_write", &error);
+        buffer
+    }
+
+    /// 投递**已成形**的 PTY 载荷；通道满时原样交还调用方重试。
+    ///
+    /// 重试路径 MUST 用它而非 [`Self::try_pty_write`]：成形已推进过
+    /// `last_pty_write_byte`，二次成形会把「上块以 `\r` 结尾、本块以 `\n` 开头」的
+    /// 合法 CRLF 重新算一遍并补出一个多余的 `\r`。
+    pub fn resend_pty_write(&mut self, buffer: Vec<u8>) -> Result<(), Vec<u8>> {
+        match self.cmd_tx.try_send(Command::Write(buffer)) {
+            Ok(()) => Ok(()),
+            // flume 把未送达的消息原样带回：正是需要重试的那份载荷，无需重新成形。
+            Err(flume::TrySendError::Full(Command::Write(buffer))) => Err(buffer),
+            Err(flume::TrySendError::Full(_)) => unreachable!("sent Command::Write"),
+            Err(flume::TrySendError::Disconnected(_)) => {
+                // VT 线程已退出：没有重试对象。此处只留一条错误，由会话层按
+                // 「终端已死」处理；静默返回会让调用方误以为数据已送达。
+                log::error!("ghostty_terminal: pty_write: VT command channel disconnected");
+                Ok(())
+            }
+        }
+    }
+
+    /// 入队一段 PTY 输出；通道满时把**成形后的载荷**原样交还给调用方。
+    ///
+    /// 这是 PTY → VT 链路的背压点。调用方（会话的输出收割）把交还的块留到下一帧
+    /// 重试，并停止继续从 PTY 通道取数据——有界通道逐级向上游传递压力，子进程最终
+    /// 因 PTY 缓冲写满而阻塞。绝不丢字节：终端状态与 PTY 流必须逐字节一致，
+    /// 丢一块就是屏幕内容与真实输出永久分叉（旧实现如此，且每丢一块刷一行日志）。
+    ///
+    /// 返回 `Ok(())` 表示已被 VT 线程接收（或通道已断开，重试无意义）。
+    pub fn try_pty_write(&mut self, data: &[u8]) -> Result<(), Vec<u8>> {
+        let buffer = self.build_pty_write_buffer(data);
+        self.resend_pty_write(buffer)
+    }
+
+    /// 写入 PTY 输出（无重试槽的调用方）。
+    ///
+    /// 会话路径 MUST 用 [`Self::try_pty_write`] 把未送达的块留待下一帧重试；本方法
+    /// 供测试与一次性馈入使用，通道满时按窗口累计告警后丢弃——逐次告警会在输出
+    /// 高峰刷出数万行（见 `logcat-hygiene`）。
+    pub fn pty_write(&mut self, data: &[u8]) {
+        if self.try_pty_write(data).is_err()
+            && let Some(count) = self.cmd_drop_log.record_events(1)
+        {
+            log::warn!(
+                "ghostty_terminal: 命令通道已满，丢弃 {count} 次 pty_write（调用方未提供重试槽）"
+            );
         }
     }
 

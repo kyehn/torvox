@@ -94,6 +94,76 @@ fn full_command_channel_counts_every_dropped_command() {
     );
 }
 
+/// 通道满时 `try_pty_write` 必须把**成形后的**载荷交还调用方，且不计入丢弃。
+///
+/// 判别力：若交还的是原始输入，重试会再插一次 `\r`（`a\nb` → `a\r\r\nb`）；
+/// 若直接丢弃并计数，会话层就没有可重试的字节，终端状态与 PTY 流从此分叉。
+#[test]
+fn try_pty_write_hands_back_the_shaped_payload_when_full() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    let (full_tx, full_rx) = flume::bounded::<Command>(1);
+    // 先占满唯一槽位。
+    full_tx.send(Command::Write(Vec::new())).expect("fill slot");
+    terminal_under_test.cmd_tx = full_tx;
+
+    let handed_back = terminal_under_test.try_pty_write(b"a\nb");
+    assert_eq!(
+        handed_back,
+        Err(b"a\r\nb".to_vec()),
+        "交还的必须是已转成 CRLF 的载荷"
+    );
+    assert_eq!(
+        terminal_under_test.cmd_drop_log.pending_count(),
+        0,
+        "数据仍在调用方手里，不得计为丢弃"
+    );
+
+    // 腾出槽位后原样重投：只入队，不得再次成形。
+    full_rx.try_recv().expect("take filler");
+    let handed_back = handed_back.unwrap_err();
+    assert_eq!(terminal_under_test.resend_pty_write(handed_back), Ok(()));
+    match full_rx.try_recv() {
+        Ok(Command::Write(bytes)) => assert_eq!(bytes, b"a\r\nb"),
+        Ok(_) => panic!("通道内应是 Write"),
+        Err(error) => panic!("通道内应有载荷：{error}"),
+    }
+}
+
+/// 重投不得重新成形：跨块 CRLF 的判定依据是**上一块**的末字节。
+///
+/// 判别力：`last_pty_write_byte` 在首次成形时已被推进到本块末字节，重投若再走
+/// `build_pty_write_buffer`，`\n` 就看不见前一块的 `\r`（那是 CRLF 的合法拆法），
+/// 于是被补成 `\r\n` —— 多出的回车把同一行拆到两行。
+#[test]
+fn resend_pty_write_does_not_reshape_payload() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
+    let (tx, rx) = flume::bounded::<Command>(1);
+    terminal_under_test.cmd_tx = tx;
+
+    // 让上一块以 `\r` 结尾：后续裸 `\n` 不该再补回车。
+    assert_eq!(terminal_under_test.try_pty_write(b"x\r"), Ok(()));
+    rx.try_recv().expect("take first block");
+
+    // 占满槽位，迫使裸 `\n` 的成形结果被交还。
+    terminal_under_test
+        .cmd_tx
+        .send(Command::Write(Vec::new()))
+        .expect("fill slot");
+    assert_eq!(
+        terminal_under_test.try_pty_write(b"\n"),
+        Err(b"\n".to_vec())
+    );
+    rx.try_recv().expect("take filler");
+
+    // 重投原样入队。若重新成形，通道里会变成 `\r\n`。
+    assert_eq!(terminal_under_test.resend_pty_write(b"\n".to_vec()), Ok(()));
+    match rx.try_recv() {
+        Ok(Command::Write(bytes)) => assert_eq!(bytes, b"\n", "重投不得补出多余回车"),
+        Ok(_) => panic!("通道内应是 Write"),
+        Err(error) => panic!("通道内应有载荷：{error}"),
+    }
+}
+
 // ── R: pty_write string-mode termination across chunk boundaries ──
 
 /// 分片 OSC 由上游跨调用重组：块 1 未闭合时块 2 作为字符串续接被消费，

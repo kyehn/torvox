@@ -1203,3 +1203,51 @@ fn exit_signal_target_declines_group_kill_when_unsafe() {
     // 子进程组号取不到 —— 直杀子进程。
     assert_eq!(exit_signal_target(pid, None, Some(own)), pid);
 }
+
+/// VT 命令通道满时，输出收割必须停手并把整块留到下一帧重试，而不是丢字节。
+///
+/// 判别力：旧实现每块都 `try_send`，失败即丢并逐块记日志——一次输出高峰实测
+/// 丢两万余块（终端状态与 PTY 永久分叉）并刷出两万余行日志。本用例用容量 1 的
+/// 通道确定性地复现「命令通道满」，断言未送达的块原样滞留、顺序不乱、字节不丢。
+#[test]
+fn full_command_channel_backpressures_output_instead_of_dropping() {
+    let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        .expect("with_pty must succeed");
+    // 容量 1 且无人接收：第一块占满槽位，第二块必然入队失败。
+    let (command_tx, command_rx) = flume::bounded(1);
+    session.terminal.cmd_tx = command_tx;
+    session.inject_output_for_test(b"first\n");
+    session.inject_output_for_test(b"second\n");
+
+    assert!(session.poll_pty_output(10), "首块须已进入命令通道");
+    assert_eq!(
+        session.pending_pty_output.as_deref(),
+        Some(b"second\r\n".as_slice()),
+        "未送达的块必须原样滞留（LF 已按 PTY 语义成形为 CRLF），不得丢弃"
+    );
+    match command_rx.try_recv() {
+        Ok(crate::terminal::ghostty_terminal::Command::Write(bytes)) => {
+            assert_eq!(bytes, b"first\r\n");
+        }
+        Ok(_) => panic!("命令通道内应是首块 Write"),
+        Err(error) => panic!("命令通道内应有首块：{error}"),
+    }
+
+    // 通道空出后下一帧必须先补投滞留块，再取新数据。
+    session.poll_pty_output(10);
+    assert!(
+        session.pending_pty_output.is_none(),
+        "通道腾空后滞留块必须在本帧送达"
+    );
+    match command_rx.try_recv() {
+        Ok(crate::terminal::ghostty_terminal::Command::Write(bytes)) => {
+            assert_eq!(
+                bytes, b"second\r\n",
+                "补投的必须是原块，不得重复成形（否则 CR 翻倍）"
+            );
+        }
+        Ok(_) => panic!("命令通道内应是滞留块 Write"),
+        Err(error) => panic!("命令通道内应有滞留块：{error}"),
+    }
+}
