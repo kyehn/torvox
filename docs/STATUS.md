@@ -15,7 +15,8 @@
 - 切换应用返回页面闪烁
 - 侧边面板过宽，布局不合理
   （现状：`SessionDrawer` 的宽度是 `fillMaxWidth(0.84f)` 落在 `ModalDrawerSheet` 的
-  360dp 上界内，实际解析为 0.84 × min(窗口宽, 360dp)，360dp 屏上约 302dp；紧随其后的
+  宽度上界内（Material3 `DrawerDefaults.MaximumDrawerWidth`，360dp），实际解析为
+  0.84 × min(窗口宽, 360dp)，360dp 屏上约 302dp；紧随其后的
   `widthIn(240..320)` 在这种写法下不生效——`fillMaxWidth` 交给下游的是「min = max」
   单点约束。要收窄必须先定一个目标宽度，需真机截图确认是「占屏比例过大」还是「绝对宽度
   过大」，两种成因的改法不同）
