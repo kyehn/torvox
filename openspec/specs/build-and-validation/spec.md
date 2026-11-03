@@ -83,3 +83,10 @@ Rust 最低版本 MUST 为 1.99，`edition` 最低为 2024。
 
 - **WHEN** 被测界面元素没出现（启动未完成、控件被改掉）
 - **THEN** 基准失败并指出缺失的元素，MUST NOT 继续测量一段无意义的画面
+
+#### Scenario: criterion 趋势基准同样需要下限
+
+- **WHEN** 开发期趋势基准（`native/benches/*.rs`，criterion）只输出统计区间
+- **THEN** 它 MUST 在正式采样前跑一段带阈值的粗粒度吞吐采样，超预算即 panic；
+      阈值 MUST 比实测低一个数量级以上，只兜数量级崩塌，不因机器差异判红
+      （实现见 `native/benches/support.rs` 的 `Floor`）

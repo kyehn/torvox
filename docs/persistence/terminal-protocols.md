@@ -50,7 +50,7 @@
 
 ### Kitty 系协议
 
-- **Kitty 图形协议（APC `ESC_G`）**：完整支持。direct / file / shared memory / temp file 四种介质全部启用（`internal/run.rs` 的 `configure_terminal` 中 `set_kitty_image_from_file_allowed` 等四处配置）；PNG 载荷解码用上游 `kitty::graphics::RustPngDecoder`，进程加载时经 `.init_array` 单次安装（`ghostty_terminal/mod.rs` 的 `install_png_decoder`）；能力探测应答回显被查询的图像 id（`openspec/specs/kitty-graphics/spec.md` 钉住，yazi 等客户端据此判定支持）；z-index 分层、动画（generation 戳）、存储上限（`set_kitty_image_storage_limit`）；**Unicode 虚拟占位符**（U+10EEEE 以 fg 颜色编码图像 id、underline 颜色编码放置 id，组合记号编码图像行列）由 `unicode_placement.rs` 自解码。
+- **Kitty 图形协议（APC `ESC_G`）**：完整支持。direct / file / shared memory / temp file 四种介质全部启用（`internal/run.rs` 的 `configure_terminal` 中 `set_kitty_image_from_file_allowed` 等四处配置）；PNG 载荷解码用上游 `kitty::graphics::RustPngDecoder`，进程加载时经 `.init_array` 单次安装（`ghostty_terminal/mod.rs` 的 `install_png_decoder`）；能力探测应答回显被查询的图像 id（`openspec/specs/kitty-graphics/spec.md` 钉住，yazi 等客户端据此判定支持）；z-index 分层、动画（generation 戳）、存储上限（`set_kitty_image_storage_limit`）；**Unicode 虚拟占位符**（U+10EEEE 以 fg 颜色编码图像 id、underline 颜色编码放置 id，组合记号编码图像行列）由上游解码为放置；本仓只在文本层跳过该码位（`ghostty_terminal/types.rs` 的 `KITTY_PLACEHOLDER`，判定在 `render/cell_builder.rs` 的两处构建路径），否则会画出豆腐块盖住图像。
 - **Kitty 键盘协议**：支持。上游 `key::Encoder` 实现全部五档标志（DISAMBIGUATE / REPORT_EVENTS / REPORT_ALTERNATES / REPORT_ALL / REPORT_ASSOCIATED）；编码选项经 `set_options_from_terminal` 从活体终端读 `kitty_keyboard_flags`（`internal/dispatch.rs` 的 `Query::EncodeKeyEvent` 分支），终端侧 DECSET 推送的标志自动生效。
 - **Kitty 颜色协议**：上游 OSC 解析器支持（`CommandType::KittyColorProtocol`）。
 - **Kitty 剪贴板协议 / DnD / 文本尺寸 / 桌面通知**：上游 OSC 解析器可识别（`osc.rs` 的 `CommandType` 枚举），本仓无消费者。
