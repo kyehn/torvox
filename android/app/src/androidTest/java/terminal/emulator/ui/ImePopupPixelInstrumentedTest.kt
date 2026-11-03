@@ -453,7 +453,6 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
             hideImeAndSettle()
             before = device.takeScreenshot() ?: throw AssertionError("截图失败")
             if (!isImeVisible()) break
-            android.util.Log.w("ImeTest", "DIAG_RACE before 截图时键盘重弹，重试收起 ($attempt/3)")
         }
         val beforeShot = before ?: throw AssertionError("截图失败")
         // 前提钉死：before 必须是无键盘态，否则「位移=0」是 before 已上移的假象
@@ -507,15 +506,6 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         Thread.sleep(1_000)
         val movedFrame = device.takeScreenshot() ?: throw AssertionError("截图失败")
         val diff = shiftedDiff(beforeShot, movedFrame, stripTop, stripHeight, shift)
-        // 位移代价曲线：错位一像素即须明显失配，否则上面的「一致」可能来自整片同色背景。
-        val profile = (0..8).joinToString(",") { d ->
-            "$d=${shiftedDiff(beforeShot, movedFrame, stripTop, stripHeight, shift - 4 + d)}"
-        }
-        android.util.Log.i(
-            "ImeTest",
-            "DIAG shift=$shift stripTop=$stripTop stripHeight=$stripHeight barTopBefore=$barTopBefore " +
-                "barTopAfter=${modifierBarTopPx()} surfaceTop=$surfaceTop imeHeight=$imeHeight diffs=[$profile]",
-        )
         assertTrue(
             "上移后条带必须与上移前同一批像素一致 (差异=$diff)",
             diff <= STRIP_MATCH_MAX_DIFF,

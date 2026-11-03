@@ -143,10 +143,12 @@ impl FontPipeline {
                 face_id = Self::find_font_by_name(self.font_system.db(), family_name);
             }
             let Some(id) = face_id else {
-                log::warn!("FONT_DIAG: set_font_family('{family_name}') NOT FOUND in fontdb");
+                // 用户选中的族未安装（或族名拼错）：保留当前字面并出声，否则界面显示
+                // 已选中、字形却仍是旧的，只剩「设置没生效」这一个可观察事实。
+                log::warn!("字体族 '{family_name}' 不在渲染字体库中，保持当前字面");
                 return false;
             };
-            log::debug!("FONT_DIAG: set_font_family('{family_name}') found id={id:?}");
+            log::debug!("字体族 '{family_name}' 已解析为字面 {id:?}");
             self.font_id = Some(id);
         }
         if self.font_id != previous {
