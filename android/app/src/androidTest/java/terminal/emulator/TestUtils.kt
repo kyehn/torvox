@@ -258,6 +258,8 @@ fun tapToFocus(surface: View) {
 fun AndroidComposeTestRule<*, *>.openDrawer() {
     waitForIdle()
     val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+    // 安装/重活之后的 ANR 对话框会盖住整个窗口：它存在时点击落不到抽屉键上。
+    dismissNotRespondingDialog()
     // 系统权限对话框会遮挡抽屉按钮：存在就点掉，不存在不是错误。
     if (device.hasObject(By.text("Allow")) || device.hasObject(By.text("ALLOW"))) {
         (device.findObject(By.text("Allow")) ?: device.findObject(By.text("ALLOW")))?.click()
@@ -265,15 +267,32 @@ fun AndroidComposeTestRule<*, *>.openDrawer() {
     if (!device.wait(Until.hasObject(By.desc(DRAWER_BUTTON_DESCRIPTION)), DRAWER_BUTTON_TIMEOUT_MS)) {
         fail("会话抽屉按钮未出现，无法继续")
     }
+    // 抽屉键本身在键栏上（屏幕底部），软键盘弹起时正好压住它；而 UiDevice 的
+    // 点击是**屏幕坐标**，被 IME 挡住时事件落在键盘上，抽屉永远不展开。
+    // 引导安装用例实测在此卡满 10 秒（CI 单跑日志只有一行 ComposeTimeout），
+    // 故点击前统一收起键盘。
+    Espresso.closeSoftKeyboard()
+    waitForIdle()
     device.findObject(By.desc(DRAWER_BUTTON_DESCRIPTION))?.click()
         ?: fail("会话抽屉按钮无法点击")
     waitForIdle()
-    waitUntil(timeoutMillis = DRAWER_VISIBLE_TIMEOUT_MS) {
+    // 第一次点击可能正落在 IME 收起动画上（坐标在动画期间仍属键盘）：未展开就重点一次。
+    if (!drawerVisible(device, DRAWER_VISIBLE_TIMEOUT_MS / 2)) {
+        device.findObject(By.desc(DRAWER_BUTTON_DESCRIPTION))?.click()
+        waitForIdle()
+        if (!drawerVisible(device, DRAWER_VISIBLE_TIMEOUT_MS)) {
+            fail("会话抽屉点击后 ${DRAWER_VISIBLE_TIMEOUT_MS}ms 内未展开（已重试一次）")
+        }
+    }
+}
+
+/** 抽屉是否已展开；[timeoutMs] 内轮询，超时返回 false（不抛，便于重试）。 */
+private fun AndroidComposeTestRule<*, *>.drawerVisible(device: UiDevice, timeoutMs: Long): Boolean =
+    UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 200) {
         probeAssertion {
             onNodeWithTag("SessionDrawer", useUnmergedTree = true).assertIsDisplayed()
         } || device.hasObject(By.text("Sessions")) || device.hasObject(By.res("SessionDrawer"))
-    }
-}
+    } != null
 
 /**
  * 关掉抽屉：`SessionDrawer` 是 `ModalNavigationDrawer`，其 `BackHandler` 在展开时
