@@ -29,3 +29,4 @@
 - `back-key`
 - `volume-keys`
 - `soft-keyboard-toggle-behaviour`
+- `bell-character`
