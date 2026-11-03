@@ -99,7 +99,18 @@ unsafe fn attach_window_inner(
         .expect("render_state_mut always initializes")
         .renderer;
     let session_id = _session_id as u64;
-    match renderer.attach_surface(ptr.cast(), surface_width as u32, surface_height as u32) {
+    // 同会话复用判定：surface 归属仍是本会话（销毁重建路径无人 detach，归属保持；
+    // 会话切换/关闭先 detach 把归属清零）才允许把上一帧呈现到新 surface，否则丢弃
+    // ——绝不把上一会话的画面闪给新会话。判据必须在取锁后、attach 前读取：
+    // `attach_surface` 成功后会改写归属。
+    let resume_last_frame =
+        ATTACHED_SESSION_ID.load(std::sync::atomic::Ordering::Acquire) == session_id;
+    match renderer.attach_surface(
+        ptr.cast(),
+        surface_width as u32,
+        surface_height as u32,
+        resume_last_frame,
+    ) {
         Ok(()) => {
             ATTACHED_SESSION_ID.store(session_id, std::sync::atomic::Ordering::Release);
             log::info!("FFI: attachWindow surface attached (session {session_id})");

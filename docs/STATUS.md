@@ -5,22 +5,6 @@
 
 ## 未被解决的问题
 
-- 使用 `kitten icat test.png` 后，输入 clear 回车不会清除图像，图像变大，文本被遮挡，再次盲输入 clear 回车被清除
-  （机制定位与修复：本仓曾自行推导 Unicode 占位符的锚点与尺寸，自推导只能得到图像**原始像素**尺寸——画出来是原图大小而非放置区域，大图因此铺满屏幕盖住文本；且 `clear` 后视口滚动，占位符行的视口坐标变化，自推导路径跟丢，下一帧才等到上游存储真正清空，观感即「第一次 clear 无效、变大覆盖屏幕」。已改为从上游 `RenderState`/`ImageIterator` 采集放置（`native/src/terminal/ghostty_terminal/internal/kitty.rs` 的 `collect_kitty_placements`）：视口位置、显示尺寸（`pixel_width/height`）、源矩形与等比缩放全部取上游口径，视口外与零尺寸放置不进图集。回归钉：instrumented 用例
-  `KittyGraphicsPlacementTest.large_image_keeps_cell_geometry_through_first_clear`（首清前后按单元格几何断言显示区域），CI 模拟器已确认：连续四轮 build（含本轮 41706081172）238 例全过）
-
-- 切换应用返回页面闪烁（已按日志定位到「开孔覆盖状态晚一帧」并改为常驻收集；
-  仍需真机确认一闪消失）
-  （证据：切后台时 `setRenderPaused: paused=true` 后约 20ms 系统拆除 surface
-  ——`mali_gralloc` 连续 unregister 交换链缓冲；切回时 `attach_surface: ANativeWindow
-  changed` 重建，从拆到首帧 `presented` 间隔约 300ms。这段里 `SurfaceView` 的开孔没有
-  缓冲，只能靠组合层临时涂终端底色遮住。该标志由渲染线程在 `onSurfaceDestroyed` 写，
-  时机在 `onStop` 之后，而 `collectAsStateWithLifecycle` 在低于 STARTED 时已停止收集，
-  切回的 `ON_START` 重启收集与首帧绘制抢跑——首帧按旧值（有缓冲）绘制，开孔透出上一个
-  应用，即那一闪。已改为常驻 `collectAsState`（见 `TerminalScreen`）并新增用例
-  `SurfaceLossRecoveryInstrumentedTest.backgroundStopKeepsCoverStateAndResumePresentsAgain`
-  守住「切回必须重新出帧」。剩余的平台侧代价：surface 被拆到重建这 300ms 只能显示纯底色，
-  文字必然短暂消失，要彻底消除需保留最后一帧位图，属另一项改动）
 - 输入光标遮盖文本时可见性差，和 termux 效果不一致（已按 termux 的
   `invertCursorTextColor` 改为整格反色：背景取不透明光标色、文字取该格原背景色，
   取色在 SGR 反显与搜索高亮之后，见 `native/src/render/cell_builder.rs`；竖线/下划线

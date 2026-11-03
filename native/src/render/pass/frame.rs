@@ -31,12 +31,16 @@ pub(super) fn store_attachment(
 }
 
 impl Renderer {
-    /// Present one background-colored frame immediately (启动黑屏防护、
-    /// 渲染稳定性 spec §4)：首个内容帧要等 shell 输出 + 冷启动
-    /// （SwiftShader 上实测数百毫秒），期间交换链一帧未提交，屏幕保持
-    /// 空黑；静默 shell 时甚至永远不会来内容帧。由 attach_surface 在
-    /// 渲染线程启动前调用（无竞争），用带超时的 acquire worker 取回
-    /// 当前纹理、清为背景色并提交，让表面立即可见。
+    /// Present one frame immediately (启动黑屏防护、渲染稳定性 spec §4)：
+    /// 首个内容帧要等 shell 输出 + 冷启动（SwiftShader 上实测数百毫秒），
+    /// 期间交换链一帧未提交，屏幕保持空黑；静默 shell 时甚至永远不会来内容帧。
+    /// 由 attach_surface 在渲染线程启动前调用（无竞争），用带超时的 acquire
+    /// worker 取回当前纹理并提交，让表面立即可见。
+    ///
+    /// 呈现内容按可用性降级：帧累加器里保有**上一帧**且未失效（同会话销毁重建，
+    /// 见 `attach_surface` 的 `resume_last_frame`）时优先呈现它——用户看到的还是
+    /// 离开时的画面，而不是 300ms 的纯底色；累加器缺席或已失效（冷启动、尺寸/
+    /// 格式变化）才退回背景色清屏。
     pub fn warmup(&self) {
         let surface = match self.surface.as_ref() {
             Some(s) => s,
@@ -56,10 +60,30 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Warmup Encoder"),
             });
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        {
+        // 上一帧可复现：尺寸与格式都与新交换链一致（copy 合法）且内容有效。
+        let resume = self.frame_texture.as_ref().is_some_and(|texture| {
+            !self.frame_invalidated
+                && texture.width() == config.width
+                && texture.height() == config.height
+                && texture.format() == config.format
+        });
+        if resume {
+            // SAFETY（借用）：累加器与交换链纹理互不重叠，copy 合法。
+            if let Some(texture) = self.frame_texture.as_ref() {
+                encoder.copy_texture_to_texture(
+                    texture.as_image_copy(),
+                    output.texture.as_image_copy(),
+                    wgpu::Extent3d {
+                        width: config.width,
+                        height: config.height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+        } else {
+            let view = output
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
             let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Warmup Pass"),
                 color_attachments: &store_attachment(&view, wgpu::LoadOp::Clear(self.background)),

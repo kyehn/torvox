@@ -291,6 +291,13 @@ impl Renderer {
     /// 并按给定尺寸重建配置。调用方保证 `ptr` 是有效的 `ANativeWindow*`，存活至
     /// [`Renderer::release_surface`]（或 drop）——所有权转交 wgpu，其在创建时自行持有引用。
     ///
+    /// `resume_last_frame`：本次挂载是否允许把**上一帧缓存**立即呈现到新 surface。
+    /// 调用方（`window.rs`）以「surface 归属仍是本会话」判定——Surface 销毁重建
+    /// （切应用返回、窗口失效自愈）路径上无人 detach，归属保持不变；会话切换则
+    /// 先 detach 旧会话（归属清零），据此拒绝复用，绝不把上一会话的画面闪给新会话。
+    /// 命中时 `warmup` 呈现缓存帧而非纯底色，消除 surface 拆到重建间的内容空白
+    /// （STATUS「切换应用返回页面闪烁」的平台侧残余）。
+    ///
     /// surface 生命周期由 Android SurfaceHolder.Callback 驱动（此处挂载/释放）而非
     /// Activity 生命周期；尺寸每帧重新查询；挂载后须立即渲染一帧。Acquire 失败的
     /// 处理见 `render/pass.rs`：不对 Lost/Outdated 重试，而是重新 configure 后丢弃本帧。
@@ -300,6 +307,7 @@ impl Renderer {
         ptr: *mut std::ffi::c_void,
         width: u32,
         height: u32,
+        resume_last_frame: bool,
     ) -> Result<(), GpuError> {
         use raw_window_handle::{AndroidNdkWindowHandle, RawWindowHandle};
         let non_null = std::ptr::NonNull::new(ptr).ok_or_else(|| {
@@ -355,13 +363,22 @@ impl Renderer {
             );
         }
         let handle = AndroidNdkWindowHandle::new(non_null.cast());
-        // 先丢帧累加器再丢 surface：累加器持有旧 surface 的输出细节（present/discard
-        // 都记在 `SurfaceId` 上），倒过来会让旧纹理去访问已注销的 surface id。
-        // 顺序之外的理由与下一段注释相同：旧 surface 必须死透，才能为同一窗口再建
-        // 一个 Vulkan surface。
-        self.frame_texture = None;
-        self.frame_view = None;
-        self.frame_invalidated = true;
+        // 旧 surface 必须死透，才能为同一窗口再建一个 Vulkan surface。
+        //
+        // 例外（`resume_last_frame`）：同会话的销毁重建路径保留累加器——它是纯设备
+        // 纹理（不引用 surface），其内容正是该会话最后一帧；保留后 `warmup` 立即把它
+        // 呈现到新 surface，用户看到的还是离开时的画面。尺寸/格式不符时
+        // `ensure_frame_texture` 会照常重建并把下一帧标记为全量重绘，陈旧内容不会
+        // 泄漏进新几何。
+        if !resume_last_frame {
+            self.frame_texture = None;
+            self.frame_view = None;
+            self.frame_invalidated = true;
+        } else if self.frame_texture.is_some() {
+            log::info!(
+                "attach_surface: same-session reattach; keeping last frame for warmup present"
+            );
+        }
         // 先释放旧 surface 再建新 surface：Android 上两个 wgpu surface 包裹同一个
         // ANativeWindow，旧 surface 仍存活时无法为该窗口创建 Vulkan swapchain，
         // 随后的 get_current_texture 永远报 “Surface is not configured for presentation”
@@ -525,11 +542,10 @@ impl Renderer {
                 crate::render::pass::ACQUIRE_DRAIN_TIMEOUT.as_millis(),
             );
         }
-        // 同 `attach_surface` 的慢路径：先丢帧累加器再丢 surface，让旧纹理的
-        // present/discard 还能落在活着的 surface 上。
-        self.frame_texture = None;
-        self.frame_view = None;
-        self.frame_invalidated = true;
+        // 帧累加器**保留**：它是纯设备纹理（不引用 surface），内容是最后呈现的
+        // 一帧。同会话的销毁重建（切应用返回、窗口失效自愈）据此在 `warmup` 里
+        // 立即恢复画面；归属判定（`attach_surface` 的 `resume_last_frame`）由
+        // 调用方按会话归属给出，会话切换不会复用上一会话的画面。
         self.retired_window = self.attached_window;
         self.surface = None;
         self.surface_config = None;
