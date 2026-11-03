@@ -660,28 +660,39 @@ fn cjk_glyph_zhong() {
 fn emoji_glyph_grinning() {
     let mut pipeline = FontPipeline::new(512, 512, 14.0);
     let ch = '\u{1F600}';
+    // 先问环境有没有 emoji 字体，再决定**断言什么**。两条分支都必须断言，
+    // 不存在「环境没字体就静默通过」的出口：
+    // - 有字体 ⇒ 必须真的解析出非零度量（回退链/彩色字形路径坏了立刻红）。
+    // - 没字体 ⇒ 必须诚实地报「缺字形」，且不得污染度量（不能返回宽度 0 的
+    //   占位符让上层把光标算到错位置）。
+    //
+    // 此前的写法扫的是 `list_monospace_fonts()`——等宽族列表里永远不会有 emoji
+    // 字体，于是这条「有字体」判定恒假：缺字体时报一句误导性的「系统没有 emoji
+    // 字体」，有字体时又悄悄跳过。
+    let has_emoji_font = pipeline.font_system.db().faces().any(|face| {
+        face.families
+            .iter()
+            .any(|(family, _)| family.to_lowercase().contains("emoji"))
+    });
     let info = pipeline.glyph_information(ch);
-    if info.is_none()
-        || info
-            .as_ref()
-            .is_some_and(|glyph_info| glyph_info.width == 0)
-    {
-        let fonts = pipeline.list_monospace_fonts();
-        let found_emoji = fonts.iter().any(|name| {
-            name.contains("Emoji") || name.contains("Noto") || name.to_lowercase().contains("emoji")
-        });
+    let rendered = info.as_ref().is_some_and(|glyph| glyph.width > 0);
+    if has_emoji_font {
         assert!(
-            found_emoji,
-            "no emoji-supporting font found in system; emoji glyph test requires Noto Emoji or similar"
+            rendered,
+            "系统有 emoji 字体，U+1F600 必须解析出非零度量，实际 {info:?}"
+        );
+        let cached = pipeline.glyph_information(ch).expect("二次解析命中缓存");
+        assert_eq!(
+            info.expect("刚断言过").width,
+            cached.width,
+            "同一码位两次解析的度量必须一致"
+        );
+    } else {
+        assert!(
+            !rendered,
+            "库中没有 emoji 字体却解析出了 U+1F600 的度量，说明字体库来源与判定口径不一致"
         );
     }
-    let info = info.expect("emoji should have glyph info");
-    assert!(
-        info.width > 0 || info.height > 0,
-        "emoji should produce non-zero glyph info: got {}x{}",
-        info.width,
-        info.height
-    );
 }
 
 #[test]
