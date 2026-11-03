@@ -58,6 +58,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -833,16 +834,12 @@ fun TerminalScreen(
                 // 恒位于输入法上方而不被遮挡。它与终端 Surface 取同一个 ime 高度
                 // （`imeInsetFlow`），但生效时刻不同：本偏移要等一次重组，
                 // Surface 的 `translationY` 在 insets 派发的同一拍内生效。
-                //
-                // 偏移取**组合期**的确定值而不是 `offset { }` 的延迟 lambda：
-                // 延迟 lambda 在布局（摆放）阶段读状态，状态变化只重跑布局，
-                // 绘制阶段未必被作废——实测输入法收起后键栏仍按键盘高度画在屏幕中部
-                // （布局已是底部，窗口缓冲里还是旧位置），键栏因此遮住终端内容。
+                // 位移为何必须取组合期确定值，见 `imeLift` 的依据。
                 Box(
                     modifier =
                     Modifier.align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .offset(y = with(density) { (-imeInsetPx).toDp() })
+                        .imeLift(imeInsetPx, density)
                         .background(resolvedTerminalTheme.background)
                         .testTag("ModifierBarOverlay"),
                 ) {
@@ -1009,3 +1006,16 @@ private fun buildModifierBarActions(
     onMacro = { steps -> viewModel.sendMacro(steps) },
     onConsumeModifiers = { viewModel.consumeOneShotModifiers() },
 )
+
+/**
+ * 按输入法高度把键栏整体上移。
+ *
+ * 刻意用**组合期**确定的 `offset(y = …)` 而不是 `offset { }` 延迟 lambda：延迟
+ * lambda 在布局（摆放）阶段读状态，状态变化只重跑布局，绘制阶段未必被作废——
+ * 实测输入法收起后键栏仍按键盘高度画在屏幕中部（布局已在底部，窗口缓冲里还是
+ * 旧位置），键栏因此遮住终端内容。lint 的 `UseOfNonLambdaOffsetOverload` 恰好
+ * 建议换成延迟重载，与本仓实测结论相反，故就地抑制并留下依据。
+ */
+@Suppress("UseOfNonLambdaOffsetOverload")
+private fun Modifier.imeLift(imeInsetPx: Int, density: Density): Modifier =
+    offset(y = with(density) { (-imeInsetPx).toDp() })
