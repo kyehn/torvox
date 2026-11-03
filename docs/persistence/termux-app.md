@@ -16,6 +16,10 @@
 
 `TerminalSession`：JNI `createSubprocess` 建 PTY；双向各一条 `ByteQueue`（进程→终端 64 KiB，终端→进程 4 KiB）；三线程分工——InputReader 读 PTY 写队列、OutputWriter 把队列写回 PTY、Waiter 阻塞 `waitFor` 上报退出码；仿真回调全部经主线程 Handler 消息驱动（`MSG_NEW_INPUT`/`MSG_PROCESS_EXITED`）。工作目录查询走 `/proc/<pid>/cwd` symlink。会话经 `finishIfRunning` 发 SIGKILL 结束。
 
+### 响铃（Bell）
+
+`TerminalEmulator` 处理 BEL（case 7）：在 OSC 序列内 BEL 终止字符串；否则调 `mSession.onBell()` → `TerminalSessionClient.onBell()` → `TermuxTerminalSessionActivityClient.onBell()`：先检查 Activity 可见性，不可见直接返回；可见时按 `bell-character` 属性三态处理——`vibrate`（默认，`BellHandler` 振动 50ms，`MIN_PAUSE` 150ms 限频）、`beep`（`bell.ogg` 经 SoundPool 播放）、`ignore`。外部实现对比与本仓 bell 现状见 `docs/persistence/osc-notifications.md`。
+
 ### bootstrap 安装
 
 `TermuxInstaller`：prefix 存在即跳过；staging 目录先清后用；zip 流式提取（`SYMLINKS.txt` 记录延迟建链，其余条目直接落盘）；完成才 rename 发布；非主用户与 files 目录不可达均有明确的失败对话框。

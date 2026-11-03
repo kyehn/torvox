@@ -1027,7 +1027,7 @@ SGR 属性经 `render::CellIteration::style` 直读。
 
 ## 5. 观察
 
-- `Terminal::on_bell` 未接线；当前没有 BEL 事件通道。OSC 52 写回调在 `internal/run.rs` 中经 `ClipboardWrite::reply` 应答，其 `remember` 参数表示是否记住授权，不是 BEL 终止符；本仓没有授权提示流程，固定传 `false`。
+- `Terminal::on_bell` 未接线；当前没有 BEL 事件通道。OSC 52 写回调在 `internal/run.rs` 中经 `ClipboardWrite::reply` 应答，其 `remember` 参数表示是否记住授权，不是 BEL 终止符；本仓没有授权提示流程，固定传 `false`。外部 OSC 通知/响铃实现对比见 `docs/persistence/osc-notifications.md`。
 - `selection::gesture` 一族不采用，理由不止连击计数：其自动滚动按定时器在边缘区持续滚动，与本仓「每次触点移动滚一行、静止不滚」冲突；其手势状态若由 VT 线程持有，则每个触摸帧都需跨线程往返，使拖动快路径的无跨语言调用优势尽失，并与视图侧手势所有权形成双状态机。词派生、跟踪选区、随滚动跟随与复制格式化仍走上游，见 §2.8。
 - OSC 52 的读取请求（`?`）上游明确忽略，仍由本仓 `output_processor` 的最小扫描器拦截；因此 `on_clipboard_read` 与整个 `ClipboardRead` 族不必接线。
 - 鼠标与键盘编码器的所有单选项 setter 都不单独调用，选项一律经 `set_options_from_terminal` 从终端整体同步，这是编码正确的唯一入口。

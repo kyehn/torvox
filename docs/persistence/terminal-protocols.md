@@ -160,7 +160,7 @@ termux-app 是自研 VT 引擎（Java，`terminal-emulator` 模块），与本�
 
 - **OSC 133 shell 集成标记消费**：上游已解析，接线即可。前置：DESIGN 声明 prompt 分段/退出状态着色语义；消费者为「命令状态高亮」类 UI。
 - **OSC 1337 CurrentDir 纳入 pwd 展示**：上游 pwd 解析已覆盖 OSC 9/1337，只需在会话 pwd 展示侧确认多来源口径。前置：DESIGN 声明 pwd 多来源优先级。
-- **桌面通知/进度上报（OSC 9/1337/777）**：上游 `on_desktop_notification`/`on_progress_report` 回调已存在。前置：DESIGN 声明通知语义（Android 通知栏形态），且注意 DESIGN「忽略 bell」的同源决策。
+- **桌面通知/进度上报（OSC 9/1337/777）**：上游 `on_desktop_notification`/`on_progress_report` 回调已存在。前置：DESIGN 声明通知语义（Android 通知栏形态），且注意 DESIGN「忽略 bell」的同源决策。外部实现对比、协议细节与接线路径见 `docs/persistence/osc-notifications.md`。
 - **跟随上游 master rev**：`upstream-alignment` 要求依赖跟踪 master。计划内例行动作：升级 `native/Cargo.toml` 钉定的 rev，全量 `cargo test` + JNI 驱动的 JVM 测试保持全绿，并把「落后多少」登记进 `upstream-alignment`（提交日期与提交数差口径，不用 hash）。
 
 ### 中期（绑定层/上游依赖）
