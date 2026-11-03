@@ -404,14 +404,7 @@ class KittyGraphicsPlacementTest : ComposeTerminalLogcatTest() {
      * 把图缩进终端格子。原图远大于格子，故「显示尺寸」与「原图像素尺寸」相差一个
      * 数量级——任何一处把后者当前者，画面都会突然铺满屏幕。
      */
-    private fun scaledImageScript(
-        imageId: Int,
-        row: Int,
-        col: Int,
-        cols: Int,
-        rows: Int,
-        color: Int,
-    ): File {
+    private fun scaledImageScript(imageId: Int, row: Int, col: Int, cols: Int, rows: Int, color: Int): File {
         val payload = base64Png(color, LARGE_IMAGE_SIZE)
         return writeScript(
             "kitty-scaled-$imageId.sh",
