@@ -18,6 +18,18 @@ jobs:
         with:
           repository: ${{ github.actor }}/kudzu
           path: result-kudzu
+      # ubuntu-26.04 镜像上 `install-nix` 自带的清理步骤全部 skipped（日志里三个
+      # rm 步骤结论均为 skipped），于是「4.7GB 缓存 + nix 闭包」把根分区吃满，
+      # 闭包解包时 write 直接 ENOSPC。这里显式回收与本次构建无关的预装工具链：
+      # dotnet/ghc/boost/ghcup/mono 都用不到，Android SDK（含 NDK）与系统镜像
+      # 必须保留——构建与模拟器步骤都依赖它们。
+      - name: 释放 runner 磁盘
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/.ghcup /usr/lib/mono
+          sudo apt-get clean
+          sudo docker image prune --all --force || true
+          df -h /
       - uses: ./result-kudzu/.github/actions/install-nix
       - uses: cachix/cachix-action@master
         continue-on-error: true
