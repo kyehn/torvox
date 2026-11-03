@@ -1,0 +1,1521 @@
+[2026-11-03 17:53:51.065 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 4603 frames!  The application may be doing too much work on its main thread.
+
+[2026-11-03 17:53:51.065 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 4603 frames by ZTE_SUPERKILLER_SKIPPED_FRAME_GAUGE, going to report to SuperKiller
+
+[2026-11-03 17:53:52.362 Uid(value=10327):7546:7546 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-03 17:53:52.411 Uid(value=10327):7546:7546 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-03 17:53:52.424 Uid(value=10327):7546:7546 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x76876c2d60 472x776
+
+[2026-11-03 17:53:52.425 Uid(value=10327):7546:7546 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-03 17:53:52.432 Uid(value=10327):7546:7546 I/mali_gralloc]
+unregister: id=0x29300007dda, base=0x0, importpid=7546
+
+[2026-11-03 17:53:52.432 Uid(value=10327):7546:7546 I/mali_gralloc]
+unregister: id=0x29300007ddb, base=0x0, importpid=7546
+
+[2026-11-03 17:53:52.433 Uid(value=10327):7546:7546 I/mali_gralloc]
+unregister: id=0x29300007ddc, base=0x0, importpid=7546
+
+[2026-11-03 17:53:52.433 Uid(value=10327):7546:7546 I/mali_gralloc]
+unregister: id=0x29300007ddd, base=0x0, importpid=7546
+
+[2026-11-03 17:53:52.441 Uid(value=10327):7546:7546 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-03 17:53:52.441 Uid(value=10327):7546:7546 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-03 17:53:52.441 Uid(value=10327):7546:7546 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-03 17:53:52.441 Uid(value=10327):7546:7546 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-03 17:53:52.442 Uid(value=10327):7546:7546 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-03 17:53:52.442 Uid(value=10327):7546:7546 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-03 17:53:52.442 Uid(value=10327):7546:7546 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-03 17:53:52.442 Uid(value=10327):7546:7546 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-03 17:53:52.446 Uid(value=10327):7546:7546 I/mali_gralloc]
+register: id=0x293000081e6, importpid=-1
+
+[2026-11-03 17:53:52.447 Uid(value=10327):7546:7546 I/mali_gralloc]
+register: id=0x293000081e7, importpid=-1
+
+[2026-11-03 17:53:52.448 Uid(value=10327):7546:7546 I/mali_gralloc]
+register: id=0x293000081e8, importpid=-1
+
+[2026-11-03 17:53:52.448 Uid(value=10327):7546:7546 I/mali_gralloc]
+register: id=0x293000081e9, importpid=-1
+
+[2026-11-03 17:53:52.448 Uid(value=10327):7546:7546 I/native::render::context::renderer]
+ensure_frame_texture: creating accumulator 472x776 (Rgba8Unorm)
+
+[2026-11-03 17:53:52.450 Uid(value=10327):7546:7546 I/native::render::context::renderer]
+attach_surface: configured 472x776 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-03 17:53:52.454 Uid(value=10327):7546:7546 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 3)
+
+[2026-11-03 17:53:52.454 Uid(value=10327):7546:7546 I/native::android::ffi::font]
+setRenderPaused: paused=false
+
+[2026-11-03 17:53:52.456 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-11-03 17:53:52.456 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-11-03 17:53:52.456 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=2
+
+[2026-11-03 17:53:52.456 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=3
+
+[2026-11-03 17:53:52.456 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=4
+
+[2026-11-03 17:53:52.465 Uid(value=10327):7546:13128 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 649 instances, partial=false, dirty_bands=1)
+
+[2026-11-03 17:53:52.474 Uid(value=10327):7546:7568 I/mali_gralloc]
+register: id=0x293000081ea, importpid=-1
+
+[2026-11-03 17:53:52.486 Uid(value=10327):7546:7568 I/mali_gralloc]
+register: id=0x293000081eb, importpid=-1
+
+[2026-11-03 17:53:52.490 Uid(value=10327):7546:7568 I/mali_gralloc]
+register: id=0x293000081ec, importpid=-1
+
+[2026-11-03 17:53:52.523 Uid(value=10327):7546:7546 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-03 17:53:52.560 Uid(value=10327):7546:7546 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-03 17:53:53.407 Uid(value=10327):7546:13128 I/Runtime]
+session 3 loop timing window (60 frames): avg=15.839482ms p95=17.373615ms max=17.529731ms pre_max=0.060731ms pre_p95=0.044654ms ≈63fps
+
+[2026-11-03 17:53:53.408 Uid(value=10327):7546:7593 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.202871ms p95=0.063538ms max=9.596539ms scrollback=78 rows
+
+[2026-11-03 17:53:54.174 Uid(value=10327):7546:13128 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 648 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 17:53:54.177 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614524): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:54.201 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614525): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:54.242 Uid(value=10327):7546:13128 I/Runtime]
+session 3 loop timing window (60 frames): avg=13.920659ms p95=17.29ms max=17.406808ms pre_max=0.012193ms pre_p95=0.007307ms ≈71fps
+
+[2026-11-03 17:53:54.243 Uid(value=10327):7546:7574 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.188573ms p95=0.045346ms max=6.216346ms scrollback=78 rows
+
+[2026-11-03 17:53:54.253 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614526): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:54.305 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614527): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:54.353 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614528): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:54.401 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614529): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:54.711 Uid(value=10327):7546:13128 D/native::render::pass::frame]
+render_frame: presented 11 frames (last: 638 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 17:53:54.743 Uid(value=10327):7546:13128 I/Runtime]
+session 3 loop timing window (60 frames): avg=6.465501ms p95=16.800308ms max=17.416577ms pre_max=0.019077ms pre_p95=0.006ms ≈154fps
+
+[2026-11-03 17:53:54.744 Uid(value=10327):7546:7593 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.512227ms p95=4.801ms max=5.307385ms scrollback=78 rows
+
+[2026-11-03 17:53:55.218 Uid(value=10327):7546:13128 D/native::render::pass::frame]
+render_frame: presented 10 frames (last: 630 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 17:53:55.261 Uid(value=10327):7546:13128 I/Runtime]
+session 3 loop timing window (60 frames): avg=8.617179ms p95=16.902077ms max=17.643077ms pre_max=0.062385ms pre_p95=0.006693ms ≈116fps
+
+[2026-11-03 17:53:55.261 Uid(value=10327):7546:7593 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.4664ms p95=2.297423ms max=4.761847ms scrollback=78 rows
+
+[2026-11-03 17:53:56.147 Uid(value=10327):7546:13128 I/Runtime]
+session 3 loop timing window (60 frames): avg=14.758732ms p95=17.584923ms max=17.882ms pre_max=0.015308ms pre_p95=0.011115ms ≈67fps
+
+[2026-11-03 17:53:56.147 Uid(value=10327):7546:7593 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.033289ms p95=0.081731ms max=0.09477ms scrollback=78 rows
+
+[2026-11-03 17:53:56.854 Uid(value=10327):7546:13128 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 633 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 17:53:56.857 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614545): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:56.857 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614546): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:57.015 Uid(value=10327):7546:13128 I/Runtime]
+session 3 loop timing window (60 frames): avg=14.469287ms p95=17.788846ms max=18.058884ms pre_max=0.094ms pre_p95=0.08077ms ≈69fps
+
+[2026-11-03 17:53:57.016 Uid(value=10327):7546:7574 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.168318ms p95=0.244423ms max=2.479731ms scrollback=78 rows
+
+[2026-11-03 17:53:57.981 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614547): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:57.984 Uid(value=10327):7546:13128 I/Runtime]
+session 3 loop timing window (60 frames): avg=16.127048ms p95=17.390346ms max=17.940039ms pre_max=0.018269ms pre_p95=0.017192ms ≈62fps
+
+[2026-11-03 17:53:57.984 Uid(value=10327):7546:7574 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.058326ms p95=0.209577ms max=0.295192ms scrollback=78 rows
+
+[2026-11-03 17:53:57.989 Uid(value=10327):7546:13128 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 644 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 17:53:58.309 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614548): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:58.313 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614549): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:58.677 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614550): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:58.677 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614551): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:58.682 Uid(value=10327):7546:13128 D/native::render::pass::frame]
+render_frame: presented 4 frames (last: 637 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 17:53:58.736 Uid(value=10327):7546:13128 I/Runtime]
+session 3 loop timing window (60 frames): avg=12.523449ms p95=17.203462ms max=17.530346ms pre_max=0.045231ms pre_p95=0.006616ms ≈79fps
+
+[2026-11-03 17:53:58.737 Uid(value=10327):7546:7574 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.348492ms p95=2.436462ms max=5.176539ms scrollback=78 rows
+
+[2026-11-03 17:53:59.133 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614552): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:59.153 Uid(value=10327):13154:13154 W/git]
+type=1400 audit(0.0:614553): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libdl.so.2" dev="dm-38" ino=6821998 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:59.153 Uid(value=10327):13154:13154 W/git]
+type=1400 audit(0.0:614554): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/3g2mlwyf1wkiwkjcv86hi9j9d73r9xz9-pcre2-10.49/lib/libpcre2-8.so.0.16.1" dev="dm-38" ino=7082608 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 17:53:59.289 Uid(value=10327):7546:7593 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(51v1))
+
+[2026-11-03 17:53:59.290 Uid(value=10327):7546:7593 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-03 17:53:59.522 Uid(value=10327):7546:13128 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 668 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 17:53:59.538 Uid(value=10327):7546:13128 I/Runtime]
+session 3 loop timing window (60 frames): avg=13.359727ms p95=17.258307ms max=17.3305ms pre_max=0.010231ms pre_p95=0.006692ms ≈74fps
+
+[2026-11-03 17:53:59.538 Uid(value=10327):7546:7574 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.109628ms p95=0.049847ms max=5.008384ms scrollback=78 rows
+
+[2026-11-03 17:54:00.193 Uid(value=10327):7546:7574 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(51v1))
+
+[2026-11-03 17:54:00.194 Uid(value=10327):7546:7574 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-03 17:54:00.542 Uid(value=10327):7546:7574 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.078525ms p95=0.201577ms max=0.276885ms scrollback=78 rows
+
+[2026-11-03 17:54:00.542 Uid(value=10327):7546:13128 I/Runtime]
+session 3 loop timing window (60 frames): avg=16.719881ms p95=17.431423ms max=18.363923ms pre_max=0.2415ms pre_p95=0.018423ms ≈59fps
+
+[2026-11-03 17:54:01.230 Uid(value=10327):7546:7546 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-03 17:54:01.255 Uid(value=10327):7546:7546 I/native::android::ffi::font]
+setRenderPaused: paused=true
+
+[2026-11-03 17:54:01.268 Uid(value=10327):7546:7546 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-03 17:54:01.275 Uid(value=10327):7546:7568 I/mali_gralloc]
+unregister: id=0x293000081ea, base=0x0, importpid=7546
+
+[2026-11-03 17:54:01.275 Uid(value=10327):7546:7568 I/mali_gralloc]
+unregister: id=0x293000081eb, base=0x0, importpid=7546
+
+[2026-11-03 17:54:01.275 Uid(value=10327):7546:7568 I/mali_gralloc]
+unregister: id=0x293000081ec, base=0x0, importpid=7546
+
+[2026-11-03 17:54:01.282 Uid(value=10327):7546:7546 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-03 17:56:18.245 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 869 frames!  The application may be doing too much work on its main thread.
+
+[2026-11-03 17:56:18.245 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 869 frames by ZTE_SUPERKILLER_SKIPPED_FRAME_GAUGE, going to report to SuperKiller
+
+[2026-11-03 17:56:18.304 Uid(value=10327):7546:7587 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/12376101.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 17:56:18.308 Uid(value=10327):7546:7587 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/12376101.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 17:56:18.316 Uid(value=10327):7546:7587 I/TerminalDocumentsProvider]
+renameDocument 'torvox/docs/specification/DESIGN.md' -> '12376101.rollback' ok (4ms)
+
+[2026-11-03 17:56:18.321 Uid(value=10327):7546:7587 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/DESIGN.md'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 17:56:18.330 Uid(value=10327):7546:7587 I/TerminalDocumentsProvider]
+createDocument 'DESIGN.md' ok (6ms)
+
+[2026-11-03 17:56:18.347 Uid(value=10327):7546:7587 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/docs/specification/12376101.rollback' ok (4ms)
+
+[2026-11-03 17:56:26.723 Uid(value=10327):7546:7554 W/com.termux]
+Reducing the number of considered missed Gc histogram windows from 106 to 100
+
+[2026-11-03 17:56:26.740 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.741 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.741 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.741 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.741 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.741 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.741 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.742 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.742 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.742 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.742 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.742 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.742 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.743 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.743 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.743 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.743 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.743 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.743 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.743 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.743 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.744 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.744 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.744 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.744 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.744 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.744 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.745 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.745 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.745 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.745 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.746 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:56:26.746 Uid(value=10327):7546:7556 W/System]
+A resource failed to call AbstractCursor.close. 
+
+[2026-11-03 17:58:05.057 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 4473 frames!  The application may be doing too much work on its main thread.
+
+[2026-11-03 17:58:05.058 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 4473 frames by ZTE_SUPERKILLER_SKIPPED_FRAME_GAUGE, going to report to SuperKiller
+
+[2026-11-03 17:58:05.118 Uid(value=10327):7546:13085 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/12376102.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 17:58:05.123 Uid(value=10327):7546:13085 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/12376102.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 17:58:05.130 Uid(value=10327):7546:13085 I/TerminalDocumentsProvider]
+renameDocument 'torvox/docs/specification/DESIGN.md' -> '12376102.rollback' ok (4ms)
+
+[2026-11-03 17:58:05.135 Uid(value=10327):7546:13085 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/DESIGN.md'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 17:58:05.143 Uid(value=10327):7546:13085 I/TerminalDocumentsProvider]
+createDocument 'DESIGN.md' ok (4ms)
+
+[2026-11-03 17:58:05.159 Uid(value=10327):7546:13085 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/docs/specification/12376102.rollback' ok (3ms)
+
+[2026-11-03 17:58:19.951 Uid(value=10327):7546:13085 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/12376103.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 17:58:19.955 Uid(value=10327):7546:13085 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/12376103.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 17:58:19.962 Uid(value=10327):7546:13085 I/TerminalDocumentsProvider]
+renameDocument 'torvox/docs/specification/DESIGN.md' -> '12376103.rollback' ok (4ms)
+
+[2026-11-03 17:58:19.967 Uid(value=10327):7546:13085 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/DESIGN.md'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 17:58:19.975 Uid(value=10327):7546:13085 I/TerminalDocumentsProvider]
+createDocument 'DESIGN.md' ok (5ms)
+
+[2026-11-03 17:58:19.990 Uid(value=10327):7546:13085 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/docs/specification/12376103.rollback' ok (5ms)
+
+[2026-11-03 17:58:24.091 Uid(value=10327):7546:13085 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/12376104.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 17:58:24.094 Uid(value=10327):7546:13085 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/12376104.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 17:58:24.104 Uid(value=10327):7546:13085 I/TerminalDocumentsProvider]
+renameDocument 'torvox/docs/specification/DESIGN.md' -> '12376104.rollback' ok (4ms)
+
+[2026-11-03 17:58:24.108 Uid(value=10327):7546:13085 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/DESIGN.md'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 17:58:24.114 Uid(value=10327):7546:13085 I/TerminalDocumentsProvider]
+createDocument 'DESIGN.md' ok (3ms)
+
+[2026-11-03 17:58:24.128 Uid(value=10327):7546:13085 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/docs/specification/12376104.rollback' ok (3ms)
+
+[2026-11-03 17:58:42.958 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 348 frames!  The application may be doing too much work on its main thread.
+
+[2026-11-03 17:58:42.958 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 348 frames by ZTE_SUPERKILLER_SKIPPED_FRAME_GAUGE, going to report to SuperKiller
+
+[2026-11-03 18:00:18.332 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 3789 frames!  The application may be doing too much work on its main thread.
+
+[2026-11-03 18:00:18.332 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 3789 frames by ZTE_SUPERKILLER_SKIPPED_FRAME_GAUGE, going to report to SuperKiller
+
+[2026-11-03 18:02:22.347 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 5504 frames!  The application may be doing too much work on its main thread.
+
+[2026-11-03 18:02:22.347 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 5504 frames by ZTE_SUPERKILLER_SKIPPED_FRAME_GAUGE, going to report to SuperKiller
+
+[2026-11-03 18:02:22.397 Uid(value=10327):7546:14066 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/12376105.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:02:22.399 Uid(value=10327):7546:14066 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/12376105.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:02:22.403 Uid(value=10327):7546:14066 I/TerminalDocumentsProvider]
+renameDocument 'torvox/docs/specification/DESIGN.md' -> '12376105.rollback' ok (3ms)
+
+[2026-11-03 18:02:22.406 Uid(value=10327):7546:14066 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/specification/DESIGN.md'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:02:22.409 Uid(value=10327):7546:14066 I/TerminalDocumentsProvider]
+createDocument 'DESIGN.md' ok (2ms)
+
+[2026-11-03 18:02:22.420 Uid(value=10327):7546:14066 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/docs/specification/12376105.rollback' ok (2ms)
+
+[2026-11-03 18:03:25.384 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 2534 frames!  The application may be doing too much work on its main thread.
+
+[2026-11-03 18:03:25.384 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 2534 frames by ZTE_SUPERKILLER_SKIPPED_FRAME_GAUGE, going to report to SuperKiller
+
+[2026-11-03 18:03:55.202 Uid(value=10327):7546:7587 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/12376106.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:03:55.210 Uid(value=10327):7546:7587 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/12376106.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:03:55.216 Uid(value=10327):7546:7587 I/TerminalDocumentsProvider]
+renameDocument 'torvox/docs/STATUS.md' -> '12376106.rollback' ok (4ms)
+
+[2026-11-03 18:03:55.221 Uid(value=10327):7546:7587 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/STATUS.md'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:03:55.228 Uid(value=10327):7546:7587 I/TerminalDocumentsProvider]
+createDocument 'STATUS.md' ok (4ms)
+
+[2026-11-03 18:03:55.244 Uid(value=10327):7546:7587 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/docs/12376106.rollback' ok (5ms)
+
+[2026-11-03 18:04:11.942 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 867 frames!  The application may be doing too much work on its main thread.
+
+[2026-11-03 18:04:11.942 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 867 frames by ZTE_SUPERKILLER_SKIPPED_FRAME_GAUGE, going to report to SuperKiller
+
+[2026-11-03 18:04:29.746 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 419 frames!  The application may be doing too much work on its main thread.
+
+[2026-11-03 18:04:29.746 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 419 frames by ZTE_SUPERKILLER_SKIPPED_FRAME_GAUGE, going to report to SuperKiller
+
+[2026-11-03 18:04:37.085 Uid(value=10327):7546:14066 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/12376107.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:04:37.092 Uid(value=10327):7546:14066 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/12376107.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:04:37.098 Uid(value=10327):7546:14066 I/TerminalDocumentsProvider]
+renameDocument 'torvox/docs/STATUS.md' -> '12376107.rollback' ok (4ms)
+
+[2026-11-03 18:04:37.104 Uid(value=10327):7546:14066 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/STATUS.md'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:04:37.116 Uid(value=10327):7546:14066 I/TerminalDocumentsProvider]
+createDocument 'STATUS.md' ok (3ms)
+
+[2026-11-03 18:04:37.130 Uid(value=10327):7546:14066 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/docs/12376107.rollback' ok (2ms)
+
+[2026-11-03 18:06:43.950 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 6117 frames!  The application may be doing too much work on its main thread.
+
+[2026-11-03 18:06:43.951 Uid(value=10327):7546:7546 I/Choreographer]
+Skipped 6117 frames by ZTE_SUPERKILLER_SKIPPED_FRAME_GAUGE, going to report to SuperKiller
+
+[2026-11-03 18:06:52.063 Uid(value=10327):7546:13085 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/12376108.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:06:52.068 Uid(value=10327):7546:13085 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/12376108.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:06:52.074 Uid(value=10327):7546:13085 I/TerminalDocumentsProvider]
+renameDocument 'torvox/docs/STATUS.md' -> '12376108.rollback' ok (4ms)
+
+[2026-11-03 18:06:52.080 Uid(value=10327):7546:13085 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/STATUS.md'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:06:52.086 Uid(value=10327):7546:13085 I/TerminalDocumentsProvider]
+createDocument 'STATUS.md' ok (3ms)
+
+[2026-11-03 18:06:52.101 Uid(value=10327):7546:13085 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/docs/12376108.rollback' ok (3ms)
+
+[2026-11-03 18:06:54.560 Uid(value=10327):7546:7546 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-03 18:06:54.591 Uid(value=10327):7546:7546 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-03 18:06:54.594 Uid(value=10327):7546:7546 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x76876b3ef0 472x776
+
+[2026-11-03 18:06:54.594 Uid(value=10327):7546:7546 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-03 18:06:54.594 Uid(value=10327):7546:7546 I/mali_gralloc]
+unregister: id=0x293000081e6, base=0x0, importpid=7546
+
+[2026-11-03 18:06:54.594 Uid(value=10327):7546:7546 I/mali_gralloc]
+unregister: id=0x293000081e7, base=0x0, importpid=7546
+
+[2026-11-03 18:06:54.595 Uid(value=10327):7546:7546 I/mali_gralloc]
+unregister: id=0x293000081e8, base=0x0, importpid=7546
+
+[2026-11-03 18:06:54.595 Uid(value=10327):7546:7546 I/mali_gralloc]
+unregister: id=0x293000081e9, base=0x0, importpid=7546
+
+[2026-11-03 18:06:54.595 Uid(value=10327):7546:7546 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-03 18:06:54.595 Uid(value=10327):7546:7546 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-03 18:06:54.595 Uid(value=10327):7546:7546 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-03 18:06:54.595 Uid(value=10327):7546:7546 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-03 18:06:54.596 Uid(value=10327):7546:7546 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-03 18:06:54.596 Uid(value=10327):7546:7546 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-03 18:06:54.596 Uid(value=10327):7546:7546 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-03 18:06:54.596 Uid(value=10327):7546:7546 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-03 18:06:54.597 Uid(value=10327):7546:7546 I/mali_gralloc]
+register: id=0x2930000841c, importpid=-1
+
+[2026-11-03 18:06:54.597 Uid(value=10327):7546:7546 I/mali_gralloc]
+register: id=0x2930000841d, importpid=-1
+
+[2026-11-03 18:06:54.598 Uid(value=10327):7546:7546 I/mali_gralloc]
+register: id=0x2930000841e, importpid=-1
+
+[2026-11-03 18:06:54.598 Uid(value=10327):7546:7546 I/mali_gralloc]
+register: id=0x2930000841f, importpid=-1
+
+[2026-11-03 18:06:54.599 Uid(value=10327):7546:7546 I/native::render::context::renderer]
+ensure_frame_texture: creating accumulator 472x776 (Rgba8Unorm)
+
+[2026-11-03 18:06:54.599 Uid(value=10327):7546:7546 I/native::render::context::renderer]
+attach_surface: configured 472x776 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-03 18:06:54.600 Uid(value=10327):7546:7546 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 3)
+
+[2026-11-03 18:06:54.600 Uid(value=10327):7546:7546 I/native::android::ffi::font]
+setRenderPaused: paused=false
+
+[2026-11-03 18:06:54.601 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-11-03 18:06:54.601 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-11-03 18:06:54.601 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=2
+
+[2026-11-03 18:06:54.601 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=3
+
+[2026-11-03 18:06:54.601 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=4
+
+[2026-11-03 18:06:54.601 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=5
+
+[2026-11-03 18:06:54.602 Uid(value=10327):7546:14777 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 668 instances, partial=false, dirty_bands=1)
+
+[2026-11-03 18:06:54.608 Uid(value=10327):7546:7568 I/mali_gralloc]
+register: id=0x29300008420, importpid=-1
+
+[2026-11-03 18:06:54.614 Uid(value=10327):7546:7568 I/mali_gralloc]
+register: id=0x29300008421, importpid=-1
+
+[2026-11-03 18:06:54.618 Uid(value=10327):7546:7568 I/mali_gralloc]
+register: id=0x29300008422, importpid=-1
+
+[2026-11-03 18:06:54.677 Uid(value=10327):7546:7546 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-03 18:06:54.717 Uid(value=10327):7546:7546 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-03 18:06:55.520 Uid(value=10327):7546:14777 I/Runtime]
+session 3 loop timing window (60 frames): avg=15.318776ms p95=17.533885ms max=24.067616ms pre_max=0.085077ms pre_p95=0.041654ms ≈65fps
+
+[2026-11-03 18:06:55.520 Uid(value=10327):7546:7593 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.081463ms p95=0.113192ms max=1.997577ms scrollback=78 rows
+
+[2026-11-03 18:06:55.781 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614582): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:06:55.786 Uid(value=10327):7546:14777 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 675 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:06:56.277 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614583): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:06:56.289 Uid(value=10327):14789:14789 W/git]
+type=1400 audit(0.0:614584): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libdl.so.2" dev="dm-38" ino=6821998 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:06:56.289 Uid(value=10327):14789:14789 W/git]
+type=1400 audit(0.0:614585): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/3g2mlwyf1wkiwkjcv86hi9j9d73r9xz9-pcre2-10.49/lib/libpcre2-8.so.0.16.1" dev="dm-38" ino=7082608 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:06:56.289 Uid(value=10327):14789:14789 W/git]
+type=1400 audit(0.0:614586): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/wl3d2qbnjm8h45hi56613zgb1yjd2j0g-zlib-ng-2.3.3/lib/libz-ng.so.2.3.3" dev="dm-38" ino=7094944 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:06:56.304 Uid(value=10327):7546:14777 I/Runtime]
+session 3 loop timing window (60 frames): avg=13.057361ms p95=17.124ms max=17.815692ms pre_max=0.112423ms pre_p95=0.015077ms ≈76fps
+
+[2026-11-03 18:06:56.304 Uid(value=10327):7546:7595 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.129375ms p95=0.079384ms max=3.690654ms scrollback=78 rows
+
+[2026-11-03 18:06:56.305 Uid(value=10327):7546:7593 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(51v1))
+
+[2026-11-03 18:06:56.305 Uid(value=10327):7546:7593 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-03 18:06:56.391 Uid(value=10327):7546:14777 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 706 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:06:57.207 Uid(value=10327):7546:14777 I/Runtime]
+session 3 loop timing window (60 frames): avg=15.046201ms p95=17.453961ms max=18.228192ms pre_max=0.126231ms pre_p95=0.01927ms ≈66fps
+
+[2026-11-03 18:06:57.208 Uid(value=10327):7546:8158 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.131167ms p95=0.086461ms max=5.094ms scrollback=78 rows
+
+[2026-11-03 18:06:57.209 Uid(value=10327):7546:8158 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(51v1))
+
+[2026-11-03 18:06:57.209 Uid(value=10327):7546:8158 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-03 18:06:58.209 Uid(value=10327):7546:14777 I/Runtime]
+session 3 loop timing window (60 frames): avg=16.681578ms p95=17.240154ms max=17.720538ms pre_max=0.129308ms pre_p95=0.020538ms ≈59fps
+
+[2026-11-03 18:06:58.210 Uid(value=10327):7546:7592 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.057805ms p95=0.102116ms max=0.140808ms scrollback=78 rows
+
+[2026-11-03 18:06:58.617 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614595): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:06:58.625 Uid(value=10327):7546:14777 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 707 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:06:59.128 Uid(value=10327):7546:14777 I/Runtime]
+session 3 loop timing window (60 frames): avg=15.297619ms p95=17.4225ms max=17.712769ms pre_max=0.137846ms pre_p95=0.024462ms ≈65fps
+
+[2026-11-03 18:06:59.128 Uid(value=10327):7546:7574 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.170427ms p95=0.144039ms max=4.988923ms scrollback=78 rows
+
+[2026-11-03 18:06:59.490 Uid(value=10327):7546:14777 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 706 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:00.045 Uid(value=10327):7546:14777 I/Runtime]
+session 3 loop timing window (60 frames): avg=15.281464ms p95=17.474193ms max=17.815538ms pre_max=0.024115ms pre_p95=0.019346ms ≈65fps
+
+[2026-11-03 18:07:00.045 Uid(value=10327):7546:7574 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.096073ms p95=0.128654ms max=2.665424ms scrollback=78 rows
+
+[2026-11-03 18:07:00.452 Uid(value=10327):7546:7546 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-03 18:07:00.476 Uid(value=10327):7546:7546 I/native::android::ffi::font]
+setRenderPaused: paused=true
+
+[2026-11-03 18:07:00.491 Uid(value=10327):7546:7546 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-03 18:07:00.499 Uid(value=10327):7546:7568 I/mali_gralloc]
+unregister: id=0x29300008420, base=0x0, importpid=7546
+
+[2026-11-03 18:07:00.499 Uid(value=10327):7546:7568 I/mali_gralloc]
+unregister: id=0x29300008421, base=0x0, importpid=7546
+
+[2026-11-03 18:07:00.499 Uid(value=10327):7546:7568 I/mali_gralloc]
+unregister: id=0x29300008422, base=0x0, importpid=7546
+
+[2026-11-03 18:07:00.503 Uid(value=10327):7546:7546 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-03 18:07:30.462 Uid(value=10327):7546:12515 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/12376109.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:07:30.466 Uid(value=10327):7546:12515 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/12376109.rollback'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:07:30.473 Uid(value=10327):7546:12515 I/TerminalDocumentsProvider]
+renameDocument 'torvox/docs/STATUS.md' -> '12376109.rollback' ok (5ms)
+
+[2026-11-03 18:07:30.478 Uid(value=10327):7546:12515 W/DocumentsProvider]
+Failed during query
+java.io.FileNotFoundException: queryDocument: no such document 'torvox/docs/STATUS.md'
+	at terminal.emulator.DocumentQueries$$ExternalSyntheticBUOutline0.m(SourceFile:0)
+	at terminal.emulator.TerminalDocumentsProvider.queryDocument(SourceFile:323)
+	at android.provider.DocumentsProvider.query(DocumentsProvider.java:924)
+	at android.content.ContentProvider$Transport.query(ContentProvider.java:311)
+	at android.content.ContentProviderNative.onTransact(ContentProviderNative.java:107)
+	at android.os.Binder.execTransactInternal(Binder.java:1297)
+	at android.os.Binder.execTransact(Binder.java:1260)
+
+[2026-11-03 18:07:30.484 Uid(value=10327):7546:12515 I/TerminalDocumentsProvider]
+createDocument 'STATUS.md' ok (4ms)
+
+[2026-11-03 18:07:30.497 Uid(value=10327):7546:12515 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/docs/12376109.rollback' ok (3ms)
+
+[2026-11-03 18:07:31.759 Uid(value=10327):7546:7546 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-03 18:07:31.792 Uid(value=10327):7546:7546 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-03 18:07:31.794 Uid(value=10327):7546:7546 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x768764dbf0 472x776
+
+[2026-11-03 18:07:31.794 Uid(value=10327):7546:7546 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-03 18:07:31.794 Uid(value=10327):7546:7546 I/mali_gralloc]
+unregister: id=0x2930000841c, base=0x0, importpid=7546
+
+[2026-11-03 18:07:31.795 Uid(value=10327):7546:7546 I/mali_gralloc]
+unregister: id=0x2930000841d, base=0x0, importpid=7546
+
+[2026-11-03 18:07:31.795 Uid(value=10327):7546:7546 I/mali_gralloc]
+unregister: id=0x2930000841e, base=0x0, importpid=7546
+
+[2026-11-03 18:07:31.795 Uid(value=10327):7546:7546 I/mali_gralloc]
+unregister: id=0x2930000841f, base=0x0, importpid=7546
+
+[2026-11-03 18:07:31.795 Uid(value=10327):7546:7546 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-03 18:07:31.795 Uid(value=10327):7546:7546 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-03 18:07:31.796 Uid(value=10327):7546:7546 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-03 18:07:31.796 Uid(value=10327):7546:7546 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-03 18:07:31.796 Uid(value=10327):7546:7546 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-03 18:07:31.796 Uid(value=10327):7546:7546 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-03 18:07:31.796 Uid(value=10327):7546:7546 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-03 18:07:31.796 Uid(value=10327):7546:7546 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-03 18:07:31.797 Uid(value=10327):7546:7546 I/mali_gralloc]
+register: id=0x2930000844d, importpid=-1
+
+[2026-11-03 18:07:31.798 Uid(value=10327):7546:7546 I/mali_gralloc]
+register: id=0x2930000844e, importpid=-1
+
+[2026-11-03 18:07:31.798 Uid(value=10327):7546:7546 I/mali_gralloc]
+register: id=0x2930000844f, importpid=-1
+
+[2026-11-03 18:07:31.799 Uid(value=10327):7546:7546 I/mali_gralloc]
+register: id=0x29300008450, importpid=-1
+
+[2026-11-03 18:07:31.799 Uid(value=10327):7546:7546 I/native::render::context::renderer]
+ensure_frame_texture: creating accumulator 472x776 (Rgba8Unorm)
+
+[2026-11-03 18:07:31.799 Uid(value=10327):7546:7546 I/native::render::context::renderer]
+attach_surface: configured 472x776 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-03 18:07:31.800 Uid(value=10327):7546:7546 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 3)
+
+[2026-11-03 18:07:31.800 Uid(value=10327):7546:7546 I/native::android::ffi::font]
+setRenderPaused: paused=false
+
+[2026-11-03 18:07:31.807 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-11-03 18:07:31.807 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-11-03 18:07:31.807 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=2
+
+[2026-11-03 18:07:31.807 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=3
+
+[2026-11-03 18:07:31.807 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=4
+
+[2026-11-03 18:07:31.808 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=5
+
+[2026-11-03 18:07:31.808 Uid(value=10327):7546:7546 E/SurfaceSyncer]
+Failed to find sync for id=6
+
+[2026-11-03 18:07:31.812 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 706 instances, partial=false, dirty_bands=1)
+
+[2026-11-03 18:07:31.814 Uid(value=10327):7546:7568 I/mali_gralloc]
+register: id=0x29300008451, importpid=-1
+
+[2026-11-03 18:07:31.822 Uid(value=10327):7546:7568 I/mali_gralloc]
+register: id=0x29300008452, importpid=-1
+
+[2026-11-03 18:07:31.825 Uid(value=10327):7546:7568 I/mali_gralloc]
+register: id=0x29300008453, importpid=-1
+
+[2026-11-03 18:07:31.889 Uid(value=10327):7546:7546 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-03 18:07:31.922 Uid(value=10327):7546:7546 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-03 18:07:32.738 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=15.550113ms p95=17.171385ms max=24.655308ms pre_max=0.066424ms pre_p95=0.016385ms ≈64fps
+
+[2026-11-03 18:07:32.738 Uid(value=10327):7546:8158 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.166431ms p95=0.071308ms max=7.430923ms scrollback=78 rows
+
+[2026-11-03 18:07:33.741 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=16.698496ms p95=17.431808ms max=17.497884ms pre_max=0.168808ms pre_p95=0.020039ms ≈59fps
+
+[2026-11-03 18:07:33.741 Uid(value=10327):7546:7592 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.073664ms p95=0.1615ms max=0.217846ms scrollback=78 rows
+
+[2026-11-03 18:07:33.917 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614596): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:33.921 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 713 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:34.397 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614597): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:34.409 Uid(value=10327):14898:14898 W/git]
+type=1400 audit(0.0:614598): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libdl.so.2" dev="dm-38" ino=6821998 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:34.409 Uid(value=10327):14898:14898 W/git]
+type=1400 audit(0.0:614599): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/3g2mlwyf1wkiwkjcv86hi9j9d73r9xz9-pcre2-10.49/lib/libpcre2-8.so.0.16.1" dev="dm-38" ino=7082608 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:34.409 Uid(value=10327):14898:14898 W/git]
+type=1400 audit(0.0:614600): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/wl3d2qbnjm8h45hi56613zgb1yjd2j0g-zlib-ng-2.3.3/lib/libz-ng.so.2.3.3" dev="dm-38" ino=7094944 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:34.409 Uid(value=10327):14898:14898 W/git]
+type=1400 audit(0.0:614601): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/c1h1q4h9bfmb5d0w342qwjmhw8cxkxzc-gcc-16.2.0-libgcc/lib/libgcc_s.so.1" dev="dm-38" ino=6819978 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:34.409 Uid(value=10327):14898:14898 W/git]
+type=1400 audit(0.0:614602): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libc.so.6" dev="dm-38" ino=6821988 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:34.409 Uid(value=10327):14898:14898 W/git]
+type=1400 audit(0.0:614603): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libpthread.so.0" dev="dm-38" ino=6822016 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:34.413 Uid(value=10327):14898:14898 W/git]
+type=1400 audit(0.0:614604): avc: denied { open } for path=2F6D656D66643A636E672D70726F633A2F70726F632F31343839382F6D6F756E7473202864656C6574656429 dev="tmpfs" ino=12961069 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:appdomain_tmpfs:s0:c71,c257,c512,c768 tclass=file permissive=0 app=com.termux
+
+[2026-11-03 18:07:34.492 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=12.50978ms p95=17.469ms max=17.573039ms pre_max=0.117961ms pre_p95=0.025115ms ≈79fps
+
+[2026-11-03 18:07:34.492 Uid(value=10327):7546:7592 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.119947ms p95=0.162731ms max=2.640307ms scrollback=78 rows
+
+[2026-11-03 18:07:34.493 Uid(value=10327):7546:8158 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(51v1))
+
+[2026-11-03 18:07:34.494 Uid(value=10327):7546:8158 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-03 18:07:34.503 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 744 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:35.443 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=15.850797ms p95=17.422154ms max=17.795039ms pre_max=0.106077ms pre_p95=0.021192ms ≈63fps
+
+[2026-11-03 18:07:35.444 Uid(value=10327):7546:7592 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.146744ms p95=0.120192ms max=5.765385ms scrollback=78 rows
+
+[2026-11-03 18:07:35.445 Uid(value=10327):7546:8158 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(51v1))
+
+[2026-11-03 18:07:35.445 Uid(value=10327):7546:8158 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-03 18:07:35.853 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614608): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:35.861 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 745 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:36.253 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614609): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:36.260 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=13.605706ms p95=17.338923ms max=17.489193ms pre_max=0.062077ms pre_p95=0.014269ms ≈73fps
+
+[2026-11-03 18:07:36.260 Uid(value=10327):7546:7594 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.303855ms p95=1.986346ms max=5.122923ms scrollback=78 rows
+
+[2026-11-03 18:07:36.485 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614610): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:36.493 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 6 frames (last: 750 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:36.953 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614611): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:36.953 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614612): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:36.997 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=12.274456ms p95=17.449115ms max=18.103538ms pre_max=0.07777ms pre_p95=0.074115ms ≈81fps
+
+[2026-11-03 18:07:36.998 Uid(value=10327):7546:8158 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.347568ms p95=2.581731ms max=4.546077ms scrollback=78 rows
+
+[2026-11-03 18:07:37.205 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614613): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:37.212 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 5 frames (last: 751 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:37.437 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614614): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:37.605 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614615): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:37.833 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=13.92067ms p95=17.35727ms max=17.591499ms pre_max=0.072115ms pre_p95=0.008347ms ≈71fps
+
+[2026-11-03 18:07:37.834 Uid(value=10327):7546:7594 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.318059ms p95=0.225577ms max=6.672462ms scrollback=78 rows
+
+[2026-11-03 18:07:38.641 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614616): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:38.650 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 715 instances, partial=true, dirty_bands=3)
+
+[2026-11-03 18:07:38.784 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=15.848494ms p95=17.350423ms max=17.670231ms pre_max=0.162692ms pre_p95=0.123ms ≈63fps
+
+[2026-11-03 18:07:38.785 Uid(value=10327):7546:8158 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.146758ms p95=0.141231ms max=5.247116ms scrollback=79 rows
+
+[2026-11-03 18:07:38.957 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614617): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:39.393 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614618): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:39.410 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 728 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:39.653 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=14.46721ms p95=17.342308ms max=17.542692ms pre_max=0.0105ms pre_p95=0.007462ms ≈69fps
+
+[2026-11-03 18:07:39.653 Uid(value=10327):7546:7594 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.29205ms p95=0.049539ms max=11.093039ms scrollback=79 rows
+
+[2026-11-03 18:07:40.461 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614619): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:40.461 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614620): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:40.468 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 729 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:40.539 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=14.754817ms p95=17.300808ms max=17.839654ms pre_max=0.024231ms pre_p95=0.022269ms ≈67fps
+
+[2026-11-03 18:07:40.539 Uid(value=10327):7546:7574 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.161305ms p95=0.130962ms max=3.400307ms scrollback=79 rows
+
+[2026-11-03 18:07:41.249 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614621): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:41.253 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 728 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:41.434 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=14.915651ms p95=17.512923ms max=17.732462ms pre_max=0.121039ms pre_p95=0.016039ms ≈67fps
+
+[2026-11-03 18:07:41.433 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614622): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:41.434 Uid(value=10327):7546:7594 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.080357ms p95=0.091885ms max=2.312385ms scrollback=79 rows
+
+[2026-11-03 18:07:42.410 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=16.255517ms p95=17.307538ms max=17.486192ms pre_max=0.021924ms pre_p95=0.015884ms ≈61fps
+
+[2026-11-03 18:07:42.410 Uid(value=10327):7546:7594 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.083364ms p95=0.08ms max=2.391231ms scrollback=79 rows
+
+[2026-11-03 18:07:42.453 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614623): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:42.459 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 729 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:42.461 Uid(value=10327):14918:14918 W/git]
+type=1400 audit(0.0:614624): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libdl.so.2" dev="dm-38" ino=6821998 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:42.461 Uid(value=10327):14918:14918 W/git]
+type=1400 audit(0.0:614625): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/3g2mlwyf1wkiwkjcv86hi9j9d73r9xz9-pcre2-10.49/lib/libpcre2-8.so.0.16.1" dev="dm-38" ino=7082608 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:42.461 Uid(value=10327):14918:14918 W/git]
+type=1400 audit(0.0:614626): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/wl3d2qbnjm8h45hi56613zgb1yjd2j0g-zlib-ng-2.3.3/lib/libz-ng.so.2.3.3" dev="dm-38" ino=7094944 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:42.461 Uid(value=10327):14918:14918 W/git]
+type=1400 audit(0.0:614627): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/c1h1q4h9bfmb5d0w342qwjmhw8cxkxzc-gcc-16.2.0-libgcc/lib/libgcc_s.so.1" dev="dm-38" ino=6819978 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:43.229 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=13.646851ms p95=17.215808ms max=18.009077ms pre_max=0.021423ms pre_p95=0.019693ms ≈73fps
+
+[2026-11-03 18:07:43.230 Uid(value=10327):7546:7594 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.414249ms p95=4.271193ms max=5.843346ms scrollback=83 rows
+
+[2026-11-03 18:07:43.627 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 5 frames (last: 679 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:43.629 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614643): avc: granted { execute } for name="fd" dev="dm-38" ino=7094017 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:43.633 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614644): avc: granted { execute } for name="fish" dev="dm-38" ino=7110135 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:43.633 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614645): avc: granted { execute } for name="fish_indent" dev="dm-38" ino=7110179 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:43.633 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614646): avc: granted { execute } for name="fish_key_reader" dev="dm-38" ino=7110198 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:43.645 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614647): avc: granted { execute } for name="coreutils" dev="dm-38" ino=7097611 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:44.047 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=13.6064ms p95=17.176077ms max=17.458885ms pre_max=0.079615ms pre_p95=0.019615ms ≈73fps
+
+[2026-11-03 18:07:44.047 Uid(value=10327):7546:7594 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.301676ms p95=1.966192ms max=4.848923ms scrollback=83 rows
+
+[2026-11-03 18:07:44.711 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 5 frames (last: 679 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:44.966 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=15.306646ms p95=17.499038ms max=17.849423ms pre_max=0.143ms pre_p95=0.068577ms ≈65fps
+
+[2026-11-03 18:07:44.966 Uid(value=10327):7546:7594 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.15454ms p95=0.221808ms max=2.771538ms scrollback=83 rows
+
+[2026-11-03 18:07:45.757 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614673): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:45.766 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 679 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:45.867 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=15.018305ms p95=17.875ms max=18.344846ms pre_max=0.122654ms pre_p95=0.0795ms ≈66fps
+
+[2026-11-03 18:07:45.868 Uid(value=10327):7546:8158 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.234524ms p95=0.308577ms max=5.580539ms scrollback=83 rows
+
+[2026-11-03 18:07:46.141 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614674): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:46.325 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614675): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:46.334 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 6 frames (last: 685 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:46.619 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=12.519742ms p95=17.393115ms max=17.509ms pre_max=0.082961ms pre_p95=0.027038ms ≈79fps
+
+[2026-11-03 18:07:46.619 Uid(value=10327):7546:7574 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.362843ms p95=2.946654ms max=5.402ms scrollback=83 rows
+
+[2026-11-03 18:07:46.925 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614676): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:46.929 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614677): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:46.932 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 682 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:47.261 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614678): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:47.477 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614679): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:47.477 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614680): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:47.481 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=14.362056ms p95=17.377654ms max=17.835346ms pre_max=0.081539ms pre_p95=0.051ms ≈69fps
+
+[2026-11-03 18:07:47.482 Uid(value=10327):7546:8158 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.212212ms p95=0.184231ms max=5.289462ms scrollback=83 rows
+
+[2026-11-03 18:07:47.486 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 684 instances, partial=true, dirty_bands=1)
+
+[2026-11-03 18:07:47.645 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614681): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:47.645 Uid(value=10327):8569:8569 W/fish]
+type=1400 audit(0.0:614682): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:48.186 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 647 instances, partial=true, dirty_bands=2)
+
+[2026-11-03 18:07:48.265 Uid(value=10327):14946:14946 W/git-remote-http]
+type=1400 audit(0.0:614716): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libm.so.6" dev="dm-38" ino=6822000 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:48.265 Uid(value=10327):14946:14946 W/git-remote-http]
+type=1400 audit(0.0:614717): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libpthread.so.0" dev="dm-38" ino=6822016 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:48.269 Uid(value=10327):14946:14946 W/git-remote-http]
+type=1400 audit(0.0:614718): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/vr8lx1cjz6zw4xhmb4k405v6cqrkslnk-libunistring-1.4.2/lib/libunistring.so.5.2.1" dev="dm-38" ino=6820127 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:48.273 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=13.186528ms p95=17.503653ms max=19.218692ms pre_max=0.058231ms pre_p95=0.028115ms ≈75fps
+
+[2026-11-03 18:07:48.273 Uid(value=10327):7546:8158 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.222954ms p95=0.076154ms max=4.707ms scrollback=84 rows
+
+[2026-11-03 18:07:48.274 Uid(value=10327):7546:7594 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(51v1))
+
+[2026-11-03 18:07:48.274 Uid(value=10327):7546:7594 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-03 18:07:48.273 Uid(value=10327):14946:14946 W/git-remote-http]
+type=1400 audit(0.0:614719): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nw9zbfc171gdsali7fcgl6rayfy5ykkx-zlib-1.3.2/lib/libz.so.1.3.2" dev="dm-38" ino=6824028 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:48.273 Uid(value=10327):14946:14946 W/git-remote-http]
+type=1400 audit(0.0:614720): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/kyc6xi95fbcmb904h346k8k3paygq06l-krb5-1.22.2-lib/lib/libkrb5.so.3.3" dev="dm-38" ino=6834914 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:49.277 Uid(value=10327):7546:7593 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.055771ms p95=0.092269ms max=0.325077ms scrollback=84 rows
+
+[2026-11-03 18:07:49.277 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=16.726318ms p95=17.453192ms max=17.795153ms pre_max=0.072385ms pre_p95=0.017461ms ≈59fps
+
+[2026-11-03 18:07:49.389 Uid(value=10327):14950:14950 W/git]
+type=1400 audit(0.0:614726): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libdl.so.2" dev="dm-38" ino=6821998 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:49.389 Uid(value=10327):14950:14950 W/git]
+type=1400 audit(0.0:614727): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/3g2mlwyf1wkiwkjcv86hi9j9d73r9xz9-pcre2-10.49/lib/libpcre2-8.so.0.16.1" dev="dm-38" ino=7082608 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:49.389 Uid(value=10327):14950:14950 W/git]
+type=1400 audit(0.0:614728): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/wl3d2qbnjm8h45hi56613zgb1yjd2j0g-zlib-ng-2.3.3/lib/libz-ng.so.2.3.3" dev="dm-38" ino=7094944 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:49.389 Uid(value=10327):14950:14950 W/git]
+type=1400 audit(0.0:614729): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/c1h1q4h9bfmb5d0w342qwjmhw8cxkxzc-gcc-16.2.0-libgcc/lib/libgcc_s.so.1" dev="dm-38" ino=6819978 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:49.389 Uid(value=10327):14950:14950 W/git]
+type=1400 audit(0.0:614730): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libc.so.6" dev="dm-38" ino=6821988 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-03 18:07:49.436 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 621 instances, partial=true, dirty_bands=2)
+
+[2026-11-03 18:07:50.196 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=15.287998ms p95=17.509347ms max=20.287461ms pre_max=0.188269ms pre_p95=0.076423ms ≈65fps
+
+[2026-11-03 18:07:50.196 Uid(value=10327):7546:7592 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.899685ms p95=7.240269ms max=19.861769ms scrollback=92 rows
+
+[2026-11-03 18:07:50.400 Uid(value=10327):7546:14879 D/native::render::pass::frame]
+render_frame: presented 4 frames (last: 577 instances, partial=true, dirty_bands=2)
+
+[2026-11-03 18:07:51.013 Uid(value=10327):7546:14879 I/Runtime]
+session 3 loop timing window (60 frames): avg=13.607869ms p95=17.527731ms max=18.247154ms pre_max=0.219385ms pre_p95=0.020692ms ≈73fps
+
+[2026-11-03 18:07:51.014 Uid(value=10327):7546:7592 I/Runtime]
+session 3 frame timing window (60 frames): avg=0.50532ms p95=0.301884ms max=10.065384ms scrollback=96 rows
+
+[2026-11-03 18:07:51.016 Uid(value=10327):7546:7592 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(51v1))
+
+[2026-11-03 18:07:51.017 Uid(value=10327):7546:7592 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-03 18:07:51.873 Uid(value=10327):7546:7546 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-03 18:07:51.905 Uid(value=10327):7546:7546 I/native::android::ffi::font]
+setRenderPaused: paused=true
+
+[2026-11-03 18:07:51.915 Uid(value=10327):7546:7546 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-03 18:07:51.917 Uid(value=10327):7546:7568 I/mali_gralloc]
+unregister: id=0x29300008451, base=0x0, importpid=7546
+
+[2026-11-03 18:07:51.918 Uid(value=10327):7546:7568 I/mali_gralloc]
+unregister: id=0x29300008452, base=0x0, importpid=7546
+
+[2026-11-03 18:07:51.918 Uid(value=10327):7546:7568 I/mali_gralloc]
+unregister: id=0x29300008453, base=0x0, importpid=7546
+
+[2026-11-03 18:07:51.924 Uid(value=10327):7546:7546 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
