@@ -5,19 +5,6 @@
 
 ## 未被解决的问题
 
-- 输入法未弹出时，修饰键栏底部存在过高的空区域背景
-  （机制：内容整体按 `navigationBars` 与 `safeGestures` 内缩，键栏贴在内容下沿，
-  键栏与屏幕底边之间因此留下一条只有背景色的内缩带。修法是把这段内缩纳入键栏**自身**的
-  背景而不是留白，但必须同时保证键位仍落在手势区之外——真机上上滑手势会先被系统认领并
-  向应用补发 `ACTION_CANCEL`，键位若落回手势区即重现「按下动画不复位」。3 键导航与手势
-  导航两种模式下都要验证，故需真机）
-  （补充核查：键栏背景 `resolvedTerminalTheme.background` 与外层 Box 的
-  `terminalBackground` 是同一条解析链上的同一个值，那条带子的**颜色**与键栏完全一致，
-  所以观感上的「空白」来自**高度**而不是配色：带子宽度恰是
-  `max(navigationBars, safeGestures)`，也就是系统导航/手势区本身。因此「把背景涂进带子」
-  不产生任何可见变化（本就同色）；只剩两条路——让键位进入手势区（会重现
-  `ACTION_CANCEL` 回归，禁止），或让终端网格按含带子的高度排版（末行会被导航条压住）。
-  两者都需真机像素验证后再定）
 - 使用 `kitten icat test.png` 后，输入 clear 回车不会清除图像，图像变大，文本被遮挡，再次盲输入 clear 回车被清除
   （机制定位与修复：本仓曾自行推导 Unicode 占位符的锚点与尺寸，自推导只能得到图像**原始像素**尺寸——画出来是原图大小而非放置区域，大图因此铺满屏幕盖住文本；且 `clear` 后视口滚动，占位符行的视口坐标变化，自推导路径跟丢，下一帧才等到上游存储真正清空，观感即「第一次 clear 无效、变大覆盖屏幕」。已改为从上游 `RenderState`/`ImageIterator` 采集放置（`native/src/terminal/ghostty_terminal/internal/kitty.rs` 的 `collect_kitty_placements`）：视口位置、显示尺寸（`pixel_width/height`）、源矩形与等比缩放全部取上游口径，视口外与零尺寸放置不进图集。回归钉：instrumented 用例
   `KittyGraphicsPlacementTest.large_image_keeps_cell_geometry_through_first_clear`（首清前后按单元格几何断言显示区域），CI 模拟器已确认：连续四轮 build（含本轮 41706081172）238 例全过）

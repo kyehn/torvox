@@ -1,0 +1,142 @@
+package terminal.emulator.ui
+
+import android.view.WindowInsets
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.runners.JUnit4
+import terminal.emulator.ComposeTerminalLogcatTest
+import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitBridge
+import terminal.emulator.findTerminalSurface
+import terminal.emulator.waitForSession
+import terminal.emulator.waitForTerminalPixels
+
+/**
+ * 键栏底部内缩口径验收（STATUS「输入法未弹出时，修饰键栏底部存在过高的空区域背景」）。
+ *
+ * 内容盒只按导航栏内缩：ZTE 折叠屏外屏等「导航栏 inset=0 的纯手势设备」上不再出现
+ * safeGestures 附加内缩造成的键栏下空带（修复依据：该设备 logcat 显示
+ * navigationBars 底部为 0，而键栏下仍有背景色空带，即空带来自手势区附加内缩）。
+ *
+ * 输入法隐藏时断言三条结构关系：
+ * 1. 内容盒底边恰在导航栏上沿（无手势区附加内缩，也不欠内缩）；
+ * 2. 终端 Surface 填满内容盒（屏幕坐标下底边与内容盒齐平）；
+ * 3. 键栏覆盖层贴内容盒底边（键栏与内容盒之间不允许出现任何内缩带）。
+ *
+ * 键位因此可能落在全面屏手势区内：底部上滑需要位移才会被系统认领，静止轻点不受
+ * 影响；被认领时的 ACTION_CANCEL 由 ExtraKeyButton 的取消合成与按下反馈延迟复位
+ * （ModifierBarTest 有 Cancel 用例）——与上游 termux ExtraKeysView 的同一取舍。
+ */
+@RunWith(JUnit4::class)
+class ModifierBarBottomInsetInstrumentedTest : ComposeTerminalLogcatTest() {
+    companion object {
+        private const val IME_HIDDEN_TIMEOUT_MS = 10_000L
+
+        /** 视图坐标取整容差：组合边界为浮点，视图为整数像素。 */
+        private const val LAYOUT_TOLERANCE_PX = 1f
+    }
+
+    private lateinit var device: UiDevice
+
+    @Before
+    fun setUp() {
+        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        composeTestRule.waitForSession()
+        composeTestRule.waitForTerminalPixels()
+        composeTestRule.awaitBridge()
+        hideImeAndSettle()
+    }
+
+    /** 收起输入法并复核隐藏：启动期自动弹键盘（hide-soft-keyboard-on-startup=false 路径）会与本用例竞态。 */
+    private fun hideImeAndSettle() {
+        repeat(3) {
+            composeTestRule.activity.runOnUiThread {
+                val inputMethodManager =
+                    composeTestRule.activity.getSystemService(
+                        android.content.Context.INPUT_METHOD_SERVICE,
+                    ) as android.view.inputmethod.InputMethodManager
+                inputMethodManager.hideSoftInputFromWindow(
+                    composeTestRule.activity.window.decorView.windowToken,
+                    0,
+                )
+            }
+            val hidden =
+                UxTestUtils.pollUntilTrue(timeoutMs = IME_HIDDEN_TIMEOUT_MS, intervalMs = 200) {
+                    !isImeVisible()
+                }
+            if (hidden != null) return
+        }
+        assertTrue("输入法必须收起才能测键栏落位", !isImeVisible())
+    }
+
+    private fun isImeVisible(): Boolean {
+        var visible = true
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            visible =
+                findTerminalSurface(composeTestRule.activity)
+                    .rootWindowInsets
+                    ?.isVisible(WindowInsets.Type.ime()) == true
+        }
+        return visible
+    }
+
+    @Test
+    fun barAndSurfaceReachContentBottomWithoutGestureBand() {
+        var navBottom = 0
+        var decorHeight = 0
+        var surfaceScreenBottom = 0
+        var contentBottom = 0f
+        var barBottom = 0f
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = composeTestRule.activity
+            val decor = activity.window.decorView
+            navBottom =
+                decor.rootWindowInsets
+                    ?.getInsets(WindowInsets.Type.navigationBars())
+                    ?.bottom ?: 0
+            decorHeight = decor.height
+            val surface = findTerminalSurface(activity)
+            val location = IntArray(2)
+            surface.getLocationOnScreen(location)
+            surfaceScreenBottom = location[1] + surface.height
+            contentBottom =
+                composeTestRule
+                    .onNodeWithTag("TerminalContent", useUnmergedTree = true)
+                    .fetchSemanticsNode()
+                    .boundsInRoot.bottom
+            barBottom =
+                composeTestRule
+                    .onNodeWithTag("ModifierBarOverlay", useUnmergedTree = true)
+                    .fetchSemanticsNode()
+                    .boundsInRoot.bottom
+        }
+        assertTrue("装饰视图必须有高度", decorHeight > 0)
+        // 内容盒底边 = 导航栏上沿：手势区附加内缩若被重新引入，导航栏 inset=0 的
+        // 手势设备上这里会多出一段（ZTE 外屏实测形态），欠内缩则贴到屏幕底。
+        assertEquals(
+            "内容盒底边必须贴导航栏上沿 (nav=$navBottom decor=$decorHeight)",
+            (decorHeight - navBottom).toFloat(),
+            contentBottom,
+            LAYOUT_TOLERANCE_PX,
+        )
+        // Surface 填满内容盒：屏幕坐标含状态栏，组合根坐标不含，用装饰视图高度统一口径。
+        assertEquals(
+            "终端 Surface 底边必须与内容盒齐平",
+            decorHeight - navBottom,
+            surfaceScreenBottom,
+        )
+        // 键栏贴内容盒底边：键栏与内容盒之间不允许出现任何内缩带。
+        assertEquals(
+            "键栏覆盖层底边必须贴内容盒底边",
+            contentBottom,
+            barBottom,
+            LAYOUT_TOLERANCE_PX,
+        )
+    }
+}
