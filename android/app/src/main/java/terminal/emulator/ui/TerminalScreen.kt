@@ -20,12 +20,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeGestures
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBars
@@ -367,16 +365,14 @@ fun TerminalScreen(
             with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
         }
 
-    // 全面屏手势区（底部上滑返回/多任务）不在导航栏 inset 之内：系统会先认领
-    // 该区域内的触摸，再向应用补发 ACTION_CANCEL，而 Compose 会丢弃这个取消
-    // 事件——指针既不再上报事件也不抬起。修饰键栏若压在该区域上，上滑手势就会
-    // 触发按键的按下动画且永不复位（用户报障）。故底部内边距取导航栏与系统手势
-    // 区的较大者，把键栏与终端一并抬出手势区。
+    // 底部只按导航栏内缩，不再为全面屏手势区（safeGestures 超出导航栏的部分）
+    // 附加内缩：ZTE 折叠屏外屏等「导航栏 inset=0 的纯手势设备」上，那段附加内缩
+    // 会在键栏下留一条只有背景色的空带（STATUS「输入法隐藏时底端辅助按键下空白」）。
+    // 手势冲突的代价已由键栏自身的取消处理吸收：底部上滑需要位移才会被系统认领，
+    // 静止轻点不受影响；被认领时的 ACTION_CANCEL 由
+    // ExtraKeyButton 的 processCancel 合成与按下反馈延迟（PRESS_FEEDBACK_DELAY_MS）
+    // 正确复位——这正是上游 termux（ExtraKeysView 不为手势区留白）的同一取舍。
     val density = LocalDensity.current
-    val navigationBarBottomPx = WindowInsets.navigationBars.getBottom(density)
-    val systemGestureBottomPx = WindowInsets.safeGestures.getBottom(density)
-    val gestureSafeBottom =
-        with(density) { (systemGestureBottomPx - navigationBarBottomPx).coerceAtLeast(0).toDp() }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -412,7 +408,6 @@ fun TerminalScreen(
                 .background(terminalBackground)
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(bottom = gestureSafeBottom)
                 // 裁到安全区内：输入法位移把终端整体上移，位移量可达整个键盘高度，
                 // 而 Compose 默认不裁剪，越过 statusBarsPadding 的内容会直接画到
                 // 状态栏底下——时钟与终端行叠字，即输入法弹出时的内容重叠。

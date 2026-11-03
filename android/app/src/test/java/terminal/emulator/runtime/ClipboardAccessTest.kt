@@ -10,6 +10,10 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.shadows.ShadowClipboardManager
 
 /**
  * ClipboardAccess write/read semantics: a plain-text write round-trips
@@ -91,5 +95,30 @@ class ClipboardAccessTest {
             "clip with no text must not report hasClipboardText",
             access.hasClipboardText(),
         )
+    }
+
+    /**
+     * Android 10+ 应用失焦时系统拒绝写剪贴板（SecurityException），而 OSC 52 的写入
+     * 恰恰常发生在后台。写入失败必须就地记日志消化，不得外抛——渲染循环外层 catch
+     * 会把它记成「pollAll failed」并把同帧后续的剪贴板读取应答一并丢弃。
+     */
+    @Test
+    @Config(shadows = [ClipboardAccessTest.SecurityRejectingClipboard::class])
+    fun `setClipboardText swallows system rejection instead of throwing`() {
+        // shadow 使 setPrimaryClip 抛 SecurityException，模拟系统拒绝后台写入。
+        access.setClipboardText("rejected-content")
+        // 不抛即通过：异常被 runCatching 消化，渲染循环继续。
+        assertTrue(
+            "先前写入的剪贴内容不受被拒写入影响",
+            access.clipboardText().getOrNull() != "rejected-content",
+        )
+    }
+
+    /** 让 [android.content.ClipboardManager.setPrimaryClip] 抛出系统拒绝异常。 */
+    @Implements(android.content.ClipboardManager::class)
+    class SecurityRejectingClipboard : ShadowClipboardManager() {
+        @Implementation
+        override fun setPrimaryClip(clip: android.content.ClipData): Unit =
+            throw SecurityException("Permission Denial: not allowed to set clipboard")
     }
 }

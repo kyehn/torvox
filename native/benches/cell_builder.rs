@@ -61,9 +61,12 @@ fn build_instances(c: &mut Criterion) {
         color: [1.0, 1.0, 1.0, 1.0],
     };
 
-    // 下限断言：1920 格纯 CPU 转换，CI 硬阈值是同路径 >100/s（即 <10ms）。
-    // 这里放宽到 50ms/次，只兜住数量级退化（逐格重建字体、O(n²) 查表）。
-    support::Floor::new("build_instances_from_cell_data", 50.0).assert_within(16, || {
+    // 下限断言：只兜住数量级退化（逐格重建字体、O(n²) 查表），不判绝对快慢。
+    // 上限必须按 **CI 实测**校准：CI runner（2 核慢 CPU）上全量重建 1920 格的
+    // 稳态实测约 750ms，与开发机相差一个数量级，按本地体感拍的 50ms 永远判红。
+    // 2s = 实测的 ~2.7 倍余量，仍能挡住 O(n²)（那将是 50 倍以上的崩塌）。
+    // CI 实测 878ms（[floor] 输出），1.5 倍余量；超出说明网格重建明显劣化。
+    support::Floor::new("build_instances_from_cell_data", 1300.0).assert_within(16, || {
         let mut instances = Vec::new();
         let config = CellInstanceConfig {
             rows,

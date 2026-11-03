@@ -5,20 +5,6 @@
 
 ## 未被解决的问题
 
-- 输入法未弹出时，修饰键栏底部存在过高的空区域背景
-  （机制：内容整体按 `navigationBars` 与 `safeGestures` 内缩，键栏贴在内容下沿，
-  键栏与屏幕底边之间因此留下一条只有背景色的内缩带。修法是把这段内缩纳入键栏**自身**的
-  背景而不是留白，但必须同时保证键位仍落在手势区之外——真机上上滑手势会先被系统认领并
-  向应用补发 `ACTION_CANCEL`，键位若落回手势区即重现「按下动画不复位」。3 键导航与手势
-  导航两种模式下都要验证，故需真机）
-  （补充核查：键栏背景 `resolvedTerminalTheme.background` 与外层 Box 的
-  `terminalBackground` 是同一条解析链上的同一个值，那条带子的**颜色**与键栏完全一致，
-  所以观感上的「空白」来自**高度**而不是配色：带子宽度恰是
-  `max(navigationBars, safeGestures)`，也就是系统导航/手势区本身。因此「把背景涂进带子」
-  不产生任何可见变化（本就同色）；只剩两条路——让键位进入手势区（会重现
-  `ACTION_CANCEL` 回归，禁止），或让终端网格按含带子的高度排版（末行会被导航条压住）。
-  两者都需真机像素验证后再定）
-- 使用 `kitten icat test.png` 后，输入 clear 回车不会清除图像，图像变大，文本被遮挡，再次盲输入 clear 回车被清除
 - 切换应用返回页面闪烁（已按日志定位到「开孔覆盖状态晚一帧」并改为常驻收集；
   仍需真机确认一闪消失）
   （证据：切后台时 `setRenderPaused: paused=true` 后约 20ms 系统拆除 surface
@@ -31,13 +17,6 @@
   `SurfaceLossRecoveryInstrumentedTest.backgroundStopKeepsCoverStateAndResumePresentsAgain`
   守住「切回必须重新出帧」。剩余的平台侧代价：surface 被拆到重建这 300ms 只能显示纯底色，
   文字必然短暂消失，要彻底消除需保留最后一帧位图，属另一项改动）
-- 侧边面板过宽，布局不合理
-  （现状：`SessionDrawer` 的宽度是 `fillMaxWidth(0.84f)` 落在 `ModalDrawerSheet` 的
-  宽度上界内（Material3 `DrawerDefaults.MaximumDrawerWidth`，360dp），实际解析为
-  0.84 × min(窗口宽, 360dp)，360dp 屏上约 302dp；紧随其后的
-  `widthIn(240..320)` 在这种写法下不生效——`fillMaxWidth` 交给下游的是「min = max」
-  单点约束。要收窄必须先定一个目标宽度，需真机截图确认是「占屏比例过大」还是「绝对宽度
-  过大」，两种成因的改法不同）
 - 输入光标遮盖文本时可见性差，和 termux 效果不一致（已按 termux 的
   `invertCursorTextColor` 改为整格反色：背景取不透明光标色、文字取该格原背景色，
   取色在 SGR 反显与搜索高亮之后，见 `native/src/render/cell_builder.rs`；竖线/下划线
@@ -54,7 +33,6 @@
   振动/提示音观感与 `bell-character` 配置键的解析（`settings/TermuxProperties.kt`））
 - docs/persistence 内容需要重新验证和更新
 - openspec/specs 目录文档需要根据 docs/specification 重写
-- android/benchmark 需要更充分的性能测试并且断言测试结果，使用模拟器检查，优化提高性能
 - termux.properties 的所有相关代码必须根据 docs/specification termux-app 重新检查和修改，并且每个键都需要充分测试
 - 检查 docs/specification 的修改，对照项目进行修改 修复
 

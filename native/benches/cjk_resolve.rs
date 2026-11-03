@@ -21,7 +21,8 @@ fn cjk_resolve_steady_state(criterion: &mut Criterion) {
     for glyph in &line {
         pipeline.glyph_information(*glyph);
     }
-    support::Floor::new("cjk_resolve_warm_per_line", 20.0).assert_within(256, || {
+    // CI 实测 18.7ms（[floor] 输出），1.5 倍余量；超出说明 CJK 逐行解析明显劣化。
+    support::Floor::new("cjk_resolve_warm_per_line", 28.0).assert_within(256, || {
         for glyph in &line {
             black_box(pipeline.glyph_information(black_box(*glyph)));
         }

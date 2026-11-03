@@ -23,9 +23,11 @@ fn typing_latency(c: &mut Criterion) {
     terminal.flush();
 
     let keystrokes: [&[u8]; 6] = [b"h", b"e", b"l", b"l", b"o", b"\n"];
-    // 下限断言：六次按键 + 一次排空 + 整帧回传，实测毫秒级。上限放到 200ms，
-    // 只兜住数量级崩塌（VT 线程被同步等待、整帧克隆、每键重排网格）。
-    support::Floor::new("typing_keystroke", 200.0).assert_within(32, || {
+    // 下限断言：只兜住数量级崩塌（VT 线程被同步等待、整帧克隆、每键重排网格）。
+    // 上限按 CI 实测校准（`--quick` 输出 [floor] 行），不按本地体感；2s 对毫秒级
+    // 键入路径留足余量，仍能挡住「每键整帧克隆」级别的退化。
+    // CI 实测 0.467ms（[floor] 输出），1.5 倍余量；超出说明按键编码路径明显劣化。
+    support::Floor::new("typing_keystroke", 0.7).assert_within(32, || {
         for key in &keystrokes {
             terminal.vt_write(key);
         }
