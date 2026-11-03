@@ -82,16 +82,22 @@ fn find_maple_mono_font(font_database: &mut fontdb::Database) -> Option<std::pat
         .next()
 }
 
-/// 取字体库中第一个来自文件的字形字体路径。
+/// 取字体库中第一个来自文件的**常规字重** .ttf 字体路径。
 ///
 /// 开发环境的 `flake.nix` 用 `FONTCONFIG_FILE` 固定了字体集，直接查已加载的
 /// 字体库即可，不再探测文件系统或调用外部进程。
+///
+/// 必须限定 `Style::Normal` / `Weight::NORMAL`：`faces()` 的顺序取决于
+/// fontconfig 的扫描顺序，取「第一个 .ttf」在 CI 上恰好命中了斜体文件，
+/// 于是 `duplicate_regular_face_is_not_taken_as_the_italic_face` 的前提
+/// （隔离库内无斜面）不成立而误红。字重与样式是这条辅助函数的语义，不是巧合。
 fn find_test_font() -> std::path::PathBuf {
     let pipeline = FontPipeline::new(512, 512, 14.0);
     pipeline
         .font_system
         .db()
         .faces()
+        .filter(|face| face.style == fontdb::Style::Normal && face.weight == fontdb::Weight::NORMAL)
         .filter_map(|face| match face.source {
             fontdb::Source::File(ref path) => Some(path.clone()),
             _ => None,
@@ -101,7 +107,7 @@ fn find_test_font() -> std::path::PathBuf {
                 .and_then(|extension| extension.to_str())
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("ttf"))
         })
-        .expect("开发环境固定了系统字体集，其中必有 .ttf 轮廓字体")
+        .expect("开发环境固定了系统字体集，其中必有常规字重的 .ttf 轮廓字体")
 }
 
 /// 提取字形在图集区域的覆盖度字节（RGBA 图集的红色通道）。
