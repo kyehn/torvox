@@ -111,6 +111,30 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
 - **AND** 终端首帧呈现后 MUST 立即撤下
 - **AND** 首帧在 5s 上限内始终未呈现时 MUST 撤下，MUST NOT 永久遮挡界面
 
+### Requirement: 切后台返回时开孔必须被覆盖且重新出帧
+
+`SurfaceView` 的 surface 在 `onStop` 之后被系统拆除时，组合层 MUST 立即回到「无缓冲区」
+状态并在窗口层涂终端底色，直到新 surface 提交首帧。该状态 MUST NOT 依赖随生命周期
+停止收集的订阅方式：写入发生在 `onStop` 之后，`ON_START` 重启收集与返回后的首帧绘制
+会抢跑，首帧按「有缓冲区」绘制时开孔区就透出桌面或上一个应用。
+
+返回前台后 MUST 重新出帧，MUST NOT 停留在渲染暂停状态形成永久黑屏。
+
+#### Scenario: 切后台拆除 surface
+
+- **WHEN** 应用切到后台且系统拆除了 `SurfaceView` 的 surface
+- **THEN** 开孔覆盖状态 MUST 落回「无缓冲区」，窗口层涂终端底色
+
+#### Scenario: 返回前台首帧前不透出上一个应用
+
+- **WHEN** 应用回到前台，新 surface 尚未提交首帧
+- **THEN** 窗口层 MUST 保持终端底色覆盖，MUST NOT 透出桌面或上一个应用
+
+#### Scenario: 返回前台后重新出帧
+
+- **WHEN** 应用回到前台且新 surface 已挂载
+- **THEN** 终端 MUST 在 30s 内重新提交并呈现帧，覆盖状态随首帧撤下
+
 ### Requirement: 冷启动耗时以进程启动为原点被度量
 
 应用 MUST 在进程内度量冷启动耗时并对外暴露：至少包含「进程启动 → 首帧上屏」
