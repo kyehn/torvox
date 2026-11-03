@@ -53,8 +53,8 @@ class KittyGraphicsPlacementTest : ComposeTerminalLogcatTest() {
         /** 缩放显示的「大图」颜色（紫）：与另外两种放置区分开。 */
         const val SCALED_IMAGE_COLOR = 0xFF8C1AF0.toInt()
 
-        /** 大图边长（像素）：远大于任何手机终端的可见区，才能暴露「按原尺寸铺开」。 */
-        const val LARGE_IMAGE_SIZE = 512
+        /** 大图边长（像素）：远大于 12 列的显示宽度，才能暴露「按原尺寸铺开」。 */
+        const val LARGE_IMAGE_SIZE = 256
 
         /** 大图占用的列数：缩进这么多列后，显示宽度应约为「列数×单元格宽」。 */
         const val LARGE_IMAGE_COLS = 12
@@ -184,9 +184,9 @@ class KittyGraphicsPlacementTest : ComposeTerminalLogcatTest() {
      *
      * 判别力：用户报障「icat 出图后第一次 clear，图像反而变大把屏幕盖住，盲输第二次
      * clear 才消失」。64×64 的用例看不出这件事——只有原图远大于格子时，把「原始像素
-     * 尺寸」当成显示尺寸才会表现为「变大盖屏」。故此处按 512×512 出图、缩进 12 列，
-     * 断言显示宽度落在格子几何附近；清除过程中任何一帧超出该范围即判失败并报出实测
-     * 包围盒，而不是只等「最终消失」而漏掉中间那次放大。
+     * 尺寸」当成显示尺寸才会表现为「变大盖屏」。故此处按 [LARGE_IMAGE_SIZE] 出图、缩进
+     * 12 列，断言显示宽度落在格子几何附近；清除过程中任何一帧超出该范围即判失败并报出
+     * 实测包围盒，而不是只等「最终消失」而漏掉中间那次放大。
      */
     @Test
     fun large_image_keeps_cell_geometry_through_first_clear() {
