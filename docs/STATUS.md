@@ -16,6 +16,11 @@
 - 使用 `kitten icat test.png` 后，输入 clear 回车不会清除图像，图像变大，文本被遮挡，再次盲输入 clear 回车被清除
 - 切换应用返回页面闪烁
 - 侧边面板过宽，布局不合理
+  （现状：`SessionDrawer` 的宽度是 `fillMaxWidth(0.84f)` 落在 `ModalDrawerSheet` 的
+  360dp 上界内，实际解析为 0.84 × min(窗口宽, 360dp)，360dp 屏上约 302dp；紧随其后的
+  `widthIn(240..320)` 在这种写法下不生效——`fillMaxWidth` 交给下游的是「min = max」
+  单点约束。要收窄必须先定一个目标宽度，需真机截图确认是「占屏比例过大」还是「绝对宽度
+  过大」，两种成因的改法不同）
 - 输入光标遮盖文本时可见性差，和 termux 效果不一致
 - docs/persistence 内容需要重新验证和更新
 - openspec/specs 目录文档需要根据 docs/specification 重写
