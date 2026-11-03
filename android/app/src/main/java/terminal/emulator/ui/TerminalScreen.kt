@@ -692,7 +692,9 @@ fun TerminalScreen(
                                 // 「一次」由运行期认领（见 TerminalRuntime.claimStartupKeyboardRequest），
                                 // 不由本块计数：宿主换掉整个 SurfaceView 后新实例的 update 块
                                 // 会再跑一次，按块计数会让键盘在换视图后再次弹出。
-                                if (!termuxProperties.properties.hideSoftKeyboardOnStartup) {
+                                if (!termuxProperties.properties.hideSoftKeyboardOnStartup &&
+                                    viewModel.runtime.claimStartupKeyboardRequest()
+                                ) {
                                     surface.requestKeyboardOnStart()
                                 }
                                 // 仅在终端网格尺寸真正变化时（resize / 字体变化）才重新布局。

@@ -3195,21 +3195,23 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /**
      * `hide-soft-keyboard-on-startup = false`：启动时主动请求一次输入法。
      *
-     * 只在首次调用时生效（这是启动策略，不是运行期开关）：把 [keyboardRequested] 置真
-     * 后平台才会在焦点变化时按 [onCheckIsTextEditor] 自动弹出，同时自己再显式 `show`
-     * 一次——只靠自动弹出时，焦点往往早已就位、平台不会再问，键盘永远不出现。
+     * 本函数只做「这一次请求」本身：把 [keyboardRequested] 置真后平台才会在焦点变化时
+     * 按 [onCheckIsTextEditor] 自动弹出，同时自己再显式 `show` 一次——只靠自动弹出时，
+     * 焦点往往早已就位、平台不会再问，键盘永远不出现。
      *
      * 不保证成功：窗口尚未取得焦点时 `show` 会被平台丢弃。该键的语义是「不要主动隐藏」，
      * 不是「强制弹出」。
      *
-     * 「只执行一次」按**应用进程**计，不按视图实例计（见
-     * [TerminalRuntime.claimStartupKeyboardRequest]）：宿主在原生 surface 判死时会
-     * 换掉整个 `SurfaceView`，新实例若把「已请求」当成没请求过，键盘便会在换视图后
-     * 再次弹出——弹出的键盘顺带清掉选区与选区菜单（见 [installImeInsetListener] 的
+     * 「整个进程只请求一次」由**调用方**认领（组合层经
+     * [TerminalRuntime.claimStartupKeyboardRequest]）：宿主在原生 surface 判死时会换掉
+     * 整个 `SurfaceView`，新实例若把「已请求」当成没请求过，键盘便会在换视图后再次弹出
+     * ——弹出的键盘顺带清掉选区与选区菜单（见 [installImeInsetListener] 的
      * `imeVisibilityChanged` 分支），用户看到的是「选中的文字突然没了菜单」。
+     *
+     * 认领留在调用方而非本函数，是为了让「视图从此愿意接收文本输入」这件事可以在没有
+     * 运行期（因而没有会话、没有原生库）的单元测试里被验证。
      */
     fun requestKeyboardOnStart() {
-        if (viewModel?.runtime?.claimStartupKeyboardRequest() != true) return
         keyboardRequested = true
         val runnable =
             object : Runnable {
