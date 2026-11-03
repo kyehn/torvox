@@ -850,7 +850,6 @@ mod kitty_placement_keys_tests;
 #[cfg(test)]
 mod panic_payload_tests;
 #[cfg(test)]
-#[cfg(test)]
 mod render_sample_bits_tests;
 #[cfg(test)]
 mod render_wake_tests;
