@@ -42,7 +42,7 @@ use crate::render::cell_builder::SearchHighlight;
 use crate::render::cell_builder::{SEARCH_HIGHLIGHT_CURRENT_ALPHA, SEARCH_HIGHLIGHT_OTHER_ALPHA};
 use crate::terminal::ShellEnv;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
-use crate::terminal::ghostty_terminal::{placeholder_layout_signature, placeholder_row_signatures};
+
 use crate::terminal::session::Session;
 use crate::terminal::theme;
 use libghostty_vt::key;
@@ -342,9 +342,6 @@ static ATTACHED_SESSION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::At
 /// 放置被增删、移动、随滚动或重排都会推进它，上游文档写明的用法即
 /// 「值变了就读一次列表」。视口滚动同样推进它（可见放置列表变了），
 /// 故滚动、重排、撤下共用这一个信号，不必再拼凑视口差量。
-///
-/// 「占位符签名」是本仓独立算出的第二信号：Unicode 虚拟放置的位置由可见
-/// 占位符单元决定，签名覆盖 TUI 重绘占位符带来的移动。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct KittyPlacementKeys {
     session_id: u64,
@@ -352,7 +349,6 @@ struct KittyPlacementKeys {
     generation: u64,
     /// 放置生成戳：驱动放置重查（图的位置/集合变了吗）。
     placement_generation: u64,
-    placeholder_signature: u64,
     rows: u32,
     cols: u32,
 }
@@ -367,7 +363,6 @@ impl KittyPlacementKeys {
             session_id: 0,
             generation: u64::MAX,
             placement_generation: u64::MAX,
-            placeholder_signature: u64::MAX,
             rows: u32::MAX,
             cols: u32::MAX,
         }
@@ -405,7 +400,6 @@ fn kitty_cache_invalidation(
     let content_changed = session_changed
         || generation_changed
         || current.placement_generation != previous.placement_generation
-        || current.placeholder_signature != previous.placeholder_signature
         || current.rows != previous.rows
         || current.cols != previous.cols;
     if current.generation == 0 {
@@ -856,7 +850,6 @@ mod kitty_placement_keys_tests;
 #[cfg(test)]
 mod panic_payload_tests;
 #[cfg(test)]
-mod placeholder_signature_tests;
 #[cfg(test)]
 mod render_sample_bits_tests;
 #[cfg(test)]

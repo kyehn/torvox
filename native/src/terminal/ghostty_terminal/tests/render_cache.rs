@@ -366,14 +366,19 @@ fn kitty_virtual_placement_uses_placeholder_diacritics() {
     let placement = &placements[0];
     assert_eq!(placement.image_id, 9);
     assert_eq!((placement.viewport_row, placement.viewport_col), (1, 2));
-    assert_eq!((placement.pixel_width, placement.pixel_height), (1, 1));
+    // 1×1 像素的图像放进 8×16 的单元里：按比例放大到铺满单元宽（8px），
+    // 高度等比得 8px，在单元内垂直居中（上边距 4px）。尺寸与偏移取自上游
+    // 渲染状态，与上游画出来的一致。
+    assert_eq!((placement.pixel_width, placement.pixel_height), (8, 8));
+    // 上游把 Unicode 占位符放置统一报成 `z = -1`（层级为「文字之下」），
+    // 客户端在命令里给的 `z=2` 不参与占位符放置的层级。
     assert_eq!(
         (
             placement.z,
             placement.cell_offset_x,
             placement.cell_offset_y
         ),
-        (2, 3, 4)
+        (-1, 0, 4)
     );
     assert_eq!(placement.image_rgba.as_ref(), [255, 0, 0, 255]);
 }
@@ -986,5 +991,93 @@ fn theme_change_recolors_existing_cells() {
     assert_ne!(
         after[0].background, before_bg,
         "existing cells must be recoloured by SetTheme"
+    );
+}
+
+/// `kitten icat` 的虚拟放置必须按占位符占的单元格网格铺开，且第一次 `clear`
+/// 就把图像清掉。
+///
+/// 回归背景：早期实现自己从占位符的组合记号推导放置几何，得出的是图像的
+/// **原始像素尺寸**（20×16），画出来是一幅原图大小的小图；而 `clear` 之后
+/// 占位符被擦除、放置随之消失，图像却不按占位网格收拢，于是表现为「第一次
+/// clear 后图像变大盖住屏幕，再敲一次 clear 才清掉」。
+///
+/// 现在几何取自上游渲染状态：20×16 的图铺进 10 列 4 行（80×64 像素）的
+/// 占位网格，按行切成 4 个放置块，每块 80×16 像素。
+#[test]
+fn kitty_virtual_placement_fills_placeholder_grid_and_erases_on_clear() {
+    use base64::Engine;
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(8, 16);
+    let (width, height) = (20u32, 16u32);
+    let payload =
+        base64::engine::general_purpose::STANDARD
+            .encode(vec![0x80u8; (width * height * 3) as usize]);
+    // kitten icat: 传输 + 虚拟放置（c=10 r=4 表示占 10 列 4 行）
+    terminal.pty_write(
+        format!("\x1b_Ga=T,f=24,s={width},v={height},i=7,U=1,c=10,r=4,p=1,q=2;{payload}\x1b\\")
+            .as_bytes(),
+    );
+    // 占位符单元：10 列 4 行，组合记号编码图像行列。
+    let diacritics: [u32; 10] = [
+        0x0305, 0x030D, 0x030E, 0x0310, 0x0312, 0x033D, 0x033E, 0x033F, 0x0346, 0x034A,
+    ];
+    let mut text = String::new();
+    for row in 0..4u32 {
+        for col in 0..10u32 {
+            text.push('\u{10EEEE}');
+            text.push(char::from_u32(diacritics[row as usize]).unwrap());
+            text.push(char::from_u32(diacritics[col as usize]).unwrap());
+        }
+        text.push('\r');
+        text.push('\n');
+    }
+    terminal
+        .pty_write(format!("\x1b[38;2;0;0;7m\x1b[58;2;0;0;1m{text}\x1b[39m\x1b[59m").as_bytes());
+    terminal.flush();
+    let placements = terminal.take_kitty_placements();
+    assert_eq!(
+        placements.len(),
+        4,
+        "虚拟放置按占位网格的行切成 4 块，实际 {:?}",
+        placements
+            .iter()
+            .map(|p| (
+                p.viewport_col,
+                p.viewport_row,
+                p.pixel_width,
+                p.pixel_height
+            ))
+            .collect::<Vec<_>>()
+    );
+    for (index, placement) in placements.iter().enumerate() {
+        assert_eq!(placement.image_id, 7);
+        assert_eq!(
+            (placement.viewport_col, placement.viewport_row),
+            (0, index as i32),
+            "第 {index} 块必须落在第 {index} 行"
+        );
+        assert_eq!(
+            (placement.pixel_width, placement.pixel_height),
+            (80, 16),
+            "第 {index} 块必须是 10 列宽、1 行高的像素区域"
+        );
+        assert_eq!(
+            (placement.source_x, placement.source_y),
+            (0, index as u32 * (height / 4)),
+            "第 {index} 块必须取原图对应的行"
+        );
+        assert_eq!(
+            (placement.source_width, placement.source_height),
+            (width, height / 4),
+            "第 {index} 块必须取整幅原图宽度与四分之一行高"
+        );
+    }
+    // 第一次 clear 即清掉图像。
+    terminal.pty_write(b"\x1b[H\x1b[2J");
+    terminal.flush();
+    assert!(
+        terminal.take_kitty_placements().is_empty(),
+        "第一次 clear 必须清掉 kitty 图像"
     );
 }

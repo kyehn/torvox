@@ -103,7 +103,7 @@ impl super::GhosttyTerminal {
                 // 写进跨帧行缓存、再 `snapshot.clean()` 标为已消费。为两个整数做这件事
                 // 既浪费，又让「取光标」与「渲染」共用同一份可变抽取状态——此前本查询
                 // 甚至会把抽取结果按调用处的默认色存进缓存。
-                let (render_state, _, _, _) = extractors.parts();
+                let (render_state, _, _, _, _) = extractors.parts();
                 let visible_cursor = render_state
                     .update(terminal)
                     .map(|snapshot| cursor_in_viewport(&snapshot))
@@ -232,11 +232,15 @@ impl super::GhosttyTerminal {
                     "ghostty_terminal: query channel send failed",
                 );
             }
-            Query::TakeKittyPlacements { row_signatures, tx } => {
+            Query::TakeKittyPlacements { tx } => {
+                // 几何取自上游渲染状态的图像列表：它按协议口径给出放置的视口
+                // 位置、显示尺寸与源矩形，含 Unicode 占位符的等比缩放与居中。
+                let (render_state, _, _, image_iter, _) = extractors.parts();
                 let placements = Self::collect_kitty_placements(
                     terminal,
                     &mut query_context.kitty_cache,
-                    row_signatures.as_deref(),
+                    render_state,
+                    image_iter,
                 );
                 try_send(
                     &tx,

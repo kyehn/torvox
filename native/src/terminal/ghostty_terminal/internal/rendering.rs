@@ -64,7 +64,7 @@ impl super::GhosttyTerminal {
         let scroll_shift = extractors.take_scroll_shift();
         // 已处理的滚动请求序号随本帧回传：须在 `parts()` 独占借用之前取值。
         let scroll_request_id = extractors.scroll_request_id;
-        let (render_state, row_iter, cell_iter, row_cache) = extractors.parts();
+        let (render_state, row_iter, cell_iter, _image_iter, row_cache) = extractors.parts();
 
         let snapshot = match render_state.update(terminal) {
             Ok(render_snapshot) => render_snapshot,

@@ -20,6 +20,7 @@ import terminal.emulator.pumpedTerminalText
 import terminal.emulator.requireBridge
 import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
+import kotlin.math.roundToInt
 
 /**
  * 输入法弹出像素验收（TESTING.md 输入法两条）。
@@ -43,8 +44,8 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         /** 单像素三通道差和阈值：低于视为同一内容。 */
         private const val PIXEL_DELTA_THRESHOLD = 40
 
-        /** 行墨量的横向抽样步长：放宽到 12px 仍能精确命中（见 bestUpwardShift）。 */
-        private const val ROW_INK_SAMPLE_STEP_PX = 12
+        /** 墨量统计的横向抽样步长：只用于判断「条带里有没有内容像素」。 */
+        private const val INK_SAMPLE_STEP_PX = 12
 
         /**
          * 稀疏条带覆盖的网格行数：首行标记与提示符所在，且恒在底部键栏行程区之上。
@@ -127,6 +128,10 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         }
         assertTrue("输入法高度必须定居 (末次=$lastHeight)", stableReads >= 3)
         Thread.sleep(SETTLE_MILLIS)
+        // 键栏是组合覆盖层：它按 `imeInsetFlow` 上移，而该流只在重组时才落到
+        // 画面上。不等组合空闲，截图里键栏还停在旧位置，按键栏边界算出的
+        // 条带就会伸进键栏区——比对必然失配（实测键栏悬在屏幕中部）。
+        composeTestRule.waitForIdle()
     }
 
     private fun imeHeightPx(): Int {
@@ -147,15 +152,7 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
      * 窗口可见区上沿在边到边下为 0，状态栏内边距又小于实际绘制带，
      * 两者取大仍会把状态栏图标算进来。用表面屏幕坐标直接避开整条系统栏。
      */
-    private fun contentStripTopPx(): Int {
-        var surfaceTop = 0
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            val location = IntArray(2)
-            findTerminalSurface(composeTestRule.activity).getLocationOnScreen(location)
-            surfaceTop = location[1]
-        }
-        return surfaceTop + SPARSE_STRIP_TOP_MARGIN_PX
-    }
+    private fun contentStripTopPx(): Int = surfaceTopPx() + SPARSE_STRIP_TOP_MARGIN_PX
 
     /** 稀疏条带高度（px）：首 [SPARSE_STRIP_ROWS] 行网格的实际像素高度。 */
     // 缩放须与运行时同口径（密度 × 系统字体缩放，见 terminalCellSizePx）。
@@ -198,85 +195,72 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
     )
 
     /**
-     * 在顶部条带里搜索终端内容的上移量，返回（位移像素，匹配差异）。
-     * 条带取在键盘永远碰不到的高处：键盘扫过只改变底部像素，顶部条带只随终端
-     * 平移而动——扫过恒得位移 0，只有真正的终端上移才能给出显著位移。
+     * 终端表面的实际平移量（px，向上为正）。
      *
-     * 位移逐像素扫描而非按步长抽样：条带差异地形是尖峰——真值 820 处代价 0，
-     * 相邻 818/822 处代价已到 34 万，按步长抽样会整体落空。
-     *
-     * 代价控制：每行压成一个墨量标量（横向抽样求和），位移搜索退化为标量序列的
-     * 逐行绝对差，O(maxShift × 条带行数) 次整数减法。横向分箱或逐像素比对会把
-     * getPixel 的 JNI 调用推到数十万次，在慢模拟器上单次搜索即以分钟计
-     * （实测整类用例卡死 20 分钟以上）。相邻行列的字形分布不同，标量已足以定位；
-     * 实测步长放宽到 12px 仍精确命中（820，代价 0）。
-     *
-     * 索引注意：上移后匹配内容落在条带**上方**，故第二张图必须自 `stripTop - maxShift`
-     * 起建指纹；只取条带自身高度会与位移下界产生「比较行数越少越容易命中」的假解。
+     * 位移取产品施加的平移，而非从像素反推：内容多时各行文本同形（`IME_MANY_*`），
+     * 行墨量在行间几乎相同，按墨量搜索位移的代价曲线在任意行对齐处近乎相同，
+     * 会锁在错误的局部极小值（实测位移=38，真值=225）。平移量是产品行为的权威
+     * 来源，像素比对据此定位：内容没跟着平移量走即判红。
      */
-    private fun bestUpwardShift(
-        first: android.graphics.Bitmap,
-        second: android.graphics.Bitmap,
-        stripTop: Int,
-        stripHeight: Int,
-        maxShift: Int,
-        firstInk: IntArray,
-    ): Pair<Int, Int> {
-        val secondInk = rowInk(second, stripTop - maxShift, maxShift + stripHeight)
-        var bestShift = 0
-        var bestCost = Long.MAX_VALUE
-        for (shift in 0..maxShift) {
-            var cost = 0L
-            var row = 0
-            while (row < stripHeight) {
-                cost +=
-                    kotlin.math.abs(
-                        (firstInk[row] - secondInk[row - shift + maxShift]).toLong(),
-                    )
-                row++
-            }
-            if (cost < bestCost) {
-                bestCost = cost
-                bestShift = shift
-            }
-            if (bestCost == 0L) break
+    private fun surfaceShiftPx(): Int {
+        var shift = 0
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            shift = (-findTerminalSurface(composeTestRule.activity).translationY).roundToInt()
         }
-        // 返回值仍按整幅条带逐像素计分，使 STRIP_MATCH_MAX_DIFF 与旧口径一致。
-        return bestShift to shiftDiff(first, second, stripTop, stripHeight, bestShift)
+        return shift
     }
 
-    /** 条带墨量总和：> 0 表示该条带确有内容像素（非纯背景）。 */
-    private fun stripInk(bitmap: android.graphics.Bitmap, top: Int, height: Int): Int =
-        rowInk(bitmap, top, height).sum()
-
-    /** 每行墨量：从 [top] 起连续 [height] 行，每行抽样像素的亮度之和。 */
-    private fun rowInk(bitmap: android.graphics.Bitmap, top: Int, height: Int): IntArray = IntArray(height) { row ->
-        val row = top + row
-        var pixelSum = 0
-        var column = 0
-        while (column < bitmap.width) {
-            pixelSum += android.graphics.Color.red(bitmap.getPixel(column, row))
-            column += ROW_INK_SAMPLE_STEP_PX
+    /** 终端表面的屏幕上沿（px）：平移会把它一起带走，故须在未位移时取。 */
+    private fun surfaceTopPx(): Int {
+        var surfaceTop = 0
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val location = IntArray(2)
+            findTerminalSurface(composeTestRule.activity).getLocationOnScreen(location)
+            surfaceTop = location[1]
         }
-        pixelSum
+        return surfaceTop
     }
 
-    /** 给定位移下条带内的像素差异数；越界行按跳过处理，避免负下标。 */
-    private fun shiftDiff(
-        first: android.graphics.Bitmap,
-        second: android.graphics.Bitmap,
-        stripTop: Int,
-        stripHeight: Int,
+    /**
+     * 键栏覆盖层的顶边（**屏幕**坐标）。
+     *
+     * 键栏按输入法高度上移，与终端内容的位移量不同：条带含进键栏就不是同一批
+     * 像素，比对必然失配。
+     *
+     * 必须取屏幕坐标：条带的上下边界都按屏幕坐标算（终端表面用
+     * `getLocationOnScreen`），而 `boundsInRoot` 是组合根坐标——两者差一个状态栏
+     * 高度，混用会把键栏算低 24px，条带因此伸进键栏区。
+     */
+    private fun modifierBarTopPx(): Int = composeTestRule
+        .onNodeWithTag("ModifierBarOverlay", useUnmergedTree = true)
+        .fetchSemanticsNode()
+        .positionOnScreen
+        .y
+        .roundToInt()
+
+    /**
+     * 统计「上移后」[moved] 的 [top, top+height) 行与「上移前」[reference] 中
+     * 行号差 [shift] 的同一批像素的差异数。
+     *
+     * 内容上移 [shift] 像素后，[moved] 第 y 行显示的是 [reference] 第 y+shift 行。
+     */
+    private fun shiftedDiff(
+        reference: android.graphics.Bitmap,
+        moved: android.graphics.Bitmap,
+        top: Int,
+        height: Int,
         shift: Int,
     ): Int {
         var diff = 0
         var row = 0
-        while (row < stripHeight) {
-            val sourceY = stripTop + row - shift
-            if (sourceY >= 0) {
+        while (row < height) {
+            val sourceY = top + row + shift
+            if (sourceY < reference.height) {
                 var column = 0
-                while (column < first.width) {
-                    if (pixelDelta(first.getPixel(column, stripTop + row), second.getPixel(column, sourceY)) > 40) {
+                while (column < reference.width) {
+                    if (pixelDelta(moved.getPixel(column, top + row), reference.getPixel(column, sourceY)) >
+                        PIXEL_DELTA_THRESHOLD
+                    ) {
                         diff++
                     }
                     column += PIXEL_SAMPLE_STEP_PX
@@ -285,6 +269,21 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
             row += PIXEL_SAMPLE_STEP_PX
         }
         return diff
+    }
+
+    /** 条带墨量总和：> 0 表示该条带确有内容像素（非纯背景）。 */
+    private fun stripInk(bitmap: android.graphics.Bitmap, top: Int, height: Int): Int {
+        var sum = 0
+        var row = top
+        while (row < top + height) {
+            var column = 0
+            while (column < bitmap.width) {
+                sum += android.graphics.Color.red(bitmap.getPixel(column, row))
+                column += INK_SAMPLE_STEP_PX
+            }
+            row++
+        }
+        return sum
     }
 
     private fun isImeVisible(): Boolean {
@@ -334,6 +333,9 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
             }
             if (!reshown) {
                 Thread.sleep(SETTLE_MILLIS)
+                // 组合必须跟上：键栏按 `imeInsetFlow` 上移，组合没重组时它仍
+                // 停在键盘高度处（悬在屏幕中部），截图与条带边界都按旧位置算。
+                composeTestRule.waitForIdle()
                 return
             }
         }
@@ -460,49 +462,69 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
             "before 截图时输入法必须已收起，否则位移比较无意义",
             !isImeVisible(),
         )
+        // 前提钉死：输入法收起后终端必须回到未位移状态——残留位移既让比较失真，
+        // 也在屏幕上留下键栏下方的空白带（键栏按残留高度上移）。
+        assertTrue(
+            "before 截图时终端必须处于未位移状态 (位移=${surfaceShiftPx()})",
+            surfaceShiftPx() == 0,
+        )
+        // 未位移时的几何：表面顶边（= 状态栏下沿）与键栏顶边。
+        val surfaceTop = surfaceTopPx()
+        val barTopBefore = modifierBarTopPx()
         val beforeText = composeTestRule.pumpedTerminalText() ?: throw AssertionError("弹出前终端文本不可读")
         tapAndAwaitIme()
         val imeHeight = imeHeightPx()
         assertTrue("输入法必须占据高度", imeHeight > 0)
         // 内容较多时终端内容上移：慢模拟器上内边距动画可滞后数秒，固定等待即拍即判必抖动。
-        // 位移在顶部条带里度量（键盘永远碰不到的高处）：旧的底部区域差分口径会被键盘
-        // 扫过动画触发——扫过只改变底部像素，顶部条带只随终端平移而动。
-        // 轮询至上移出现（15s 上限），成功帧留给闪烁/缝线检查。
-        val stripTop = beforeShot.height * 4 / 10
-        val stripHeight = 150
-        val maxShift = minOf(imeHeight, stripTop)
-        // before 逐像素基线在轮询中不变，预先算一次行墨量避免重复采样。
-        val beforeInk = rowInk(beforeShot, stripTop, stripHeight)
-        var moved: android.graphics.Bitmap? = null
-        var bestShift = 0
-        var bestDiff = Int.MAX_VALUE
+        // 轮询至平移生效并稳定（15s 上限）。
+        var shift = 0
+        var stableReads = 0
+        var lastShift = -1
         val moveDeadline = android.os.SystemClock.uptimeMillis() + 15_000L
         while (android.os.SystemClock.uptimeMillis() < moveDeadline) {
-            val shot = device.takeScreenshot() ?: throw AssertionError("截图失败")
-            val (shift, diff) =
-                bestUpwardShift(beforeShot, shot, stripTop, stripHeight, maxShift, beforeInk)
-            if (shift > bestShift || (shift == bestShift && diff < bestDiff)) {
-                bestShift = shift
-                bestDiff = diff
-            }
-            if (bestShift > MOVE_MIN_SHIFT_PX && bestDiff <= STRIP_MATCH_MAX_DIFF) {
-                moved = shot
-                break
-            }
-            Thread.sleep(500)
+            val current = surfaceShiftPx()
+            stableReads = if (current == lastShift) stableReads + 1 else 1
+            lastShift = current
+            shift = current
+            if (current >= MOVE_MIN_SHIFT_PX && stableReads >= 3) break
+            Thread.sleep(300)
         }
         assertTrue(
-            "内容较多时弹出输入法终端内容必须上移 (位移=$bestShift 差异=$bestDiff)",
-            moved != null,
+            "内容较多时弹出输入法终端内容必须上移 (位移=$shift)",
+            shift >= MOVE_MIN_SHIFT_PX,
         )
-        // 动画定居后再取成功帧：移动中途的帧不能作为闪烁/缝线基准。
+        // 条带取终端内容区：两端都不含键栏（键栏按输入法高度上移，与内容位移量
+        // 不同，含进来就不是同一批像素），也不含状态栏（系统栏随输入法状态换色）。
+        val stripTop = surfaceTop + SPARSE_STRIP_TOP_MARGIN_PX
+        val stripBottom =
+            minOf(modifierBarTopPx(), barTopBefore - shift) - SPARSE_STRIP_TOP_MARGIN_PX
+        assertTrue(
+            "比对条带高度必须足够 (顶=$stripTop 底=$stripBottom)",
+            stripBottom - stripTop >= 64,
+        )
+        val stripHeight = stripBottom - stripTop
+        // 动画定居后再取成功帧：移动中途的帧不能作为闪烁基准。
         Thread.sleep(1_000)
         val movedFrame = device.takeScreenshot() ?: throw AssertionError("截图失败")
-        val (settledShift, settledDiff) =
-            bestUpwardShift(beforeShot, movedFrame, stripTop, stripHeight, maxShift, beforeInk)
+        val diff = shiftedDiff(beforeShot, movedFrame, stripTop, stripHeight, shift)
+        // 位移代价曲线：错位一像素即须明显失配，否则上面的「一致」可能来自整片同色背景。
+        val profile = (0..8).joinToString(",") { d ->
+            "$d=${shiftedDiff(beforeShot, movedFrame, stripTop, stripHeight, shift - 4 + d)}"
+        }
+        android.util.Log.i(
+            "ImeTest",
+            "DIAG shift=$shift stripTop=$stripTop stripHeight=$stripHeight barTopBefore=$barTopBefore " +
+                "barTopAfter=${modifierBarTopPx()} surfaceTop=$surfaceTop imeHeight=$imeHeight diffs=[$profile]",
+        )
         assertTrue(
-            "上移必须保持到动画定居 (位移=$settledShift 差异=$settledDiff)",
-            settledShift > MOVE_MIN_SHIFT_PX && settledDiff <= STRIP_MATCH_MAX_DIFF,
+            "上移后条带必须与上移前同一批像素一致 (差异=$diff)",
+            diff <= STRIP_MATCH_MAX_DIFF,
+        )
+        // 反证：错位一像素即须明显失配——否则上面的「一致」可能来自整片同色背景。
+        val wrongDiff = shiftedDiff(beforeShot, movedFrame, stripTop, stripHeight, shift - 1)
+        assertTrue(
+            "错位像素必须明显失配（否则一致来自同色背景）(错位差异=$wrongDiff 一致差异=$diff)",
+            wrongDiff > STRIP_MATCH_MAX_DIFF,
         )
         // 上移后无闪烁：稳定后连续两帧必须一致（仍在顶部条带内比较，不受键盘影响）。
         Thread.sleep(SETTLE_MILLIS)

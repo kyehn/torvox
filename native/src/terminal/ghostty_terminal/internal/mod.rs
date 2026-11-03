@@ -9,7 +9,7 @@ use libghostty_vt::Terminal;
 use libghostty_vt::key::{self, Mods};
 use libghostty_vt::mouse;
 use libghostty_vt::paste;
-use libghostty_vt::render::{CellIterator, RenderState, RowIterator, Snapshot};
+use libghostty_vt::render::{CellIterator, ImageIterator, RenderState, RowIterator, Snapshot};
 use libghostty_vt::screen::{CellWide, GridRef};
 use libghostty_vt::search::{MatchBuffer, Scroll, Search};
 use libghostty_vt::selection::{Order, SelectWordOptions, Selection};
@@ -295,7 +295,7 @@ fn has_visible_underline(underline: libghostty_vt::style::Underline) -> bool {
 
 /// 逐帧渲染迭代器与其宿主行缓存。
 ///
-/// 三者与 VT 线程同生命周期，不逐帧新建：上游 [`RenderState`] 跨帧持有上次快照
+/// 四者与 VT 线程同生命周期，不逐帧新建：上游 [`RenderState`] 跨帧持有上次快照
 /// 状态，逐帧新建会使 `rows = 0` 初值把每次 [`RenderState::update`] 判为
 /// 「维度变化 → 全量重建」，行级脏标记恒为全脏。`RowCache` 只服务于
 /// [`Self::build_cell_data`]（快照路径整帧重建，不做行级缓存）。
@@ -303,6 +303,8 @@ pub(crate) struct RenderExtractors<'alloc> {
     render_state: RenderState<'alloc>,
     row_iter: RowIterator<'alloc>,
     cell_iter: CellIterator<'alloc>,
+    /// 上游渲染状态的图像列表迭代器：Kitty 放置的几何来源。
+    image_iter: ImageIterator<'alloc>,
     row_cache: RowCache,
     /// 上一批命令只有视口滚动时记录的实际行偏移（终端语义：向下为正）。
     /// 下一帧据此平移 `RowCache` 并只逐格抽取露出的边缘行；任何内容变更
@@ -343,10 +345,18 @@ impl<'alloc> RenderExtractors<'alloc> {
                 return None;
             }
         };
+        let image_iter = match ImageIterator::new() {
+            Ok(initialized_images) => initialized_images,
+            Err(image_error) => {
+                log::error!("RenderExtractors: ImageIterator::new() failed: {image_error}");
+                return None;
+            }
+        };
         Some(Self {
             render_state,
             row_iter,
             cell_iter,
+            image_iter,
             row_cache: RowCache::new(),
             scroll_shift: None,
             scroll_request_id: 0,
@@ -357,7 +367,7 @@ impl<'alloc> RenderExtractors<'alloc> {
         })
     }
 
-    /// 三个迭代器字段作为可变引用一次性解出：`build_cell_data` 需要同时独占
+    /// 四个迭代器字段作为可变引用一次性解出：`build_cell_data` 需要同时独占
     /// 借用它们（上游 `RowIteration` 借用 `RowIterator` 与 `Snapshot`，
     /// `CellIteration` 借用 `RowIteration`），逐字段借用会与 `row_cache`
     /// 的可变借用冲突。
@@ -367,12 +377,14 @@ impl<'alloc> RenderExtractors<'alloc> {
         &mut RenderState<'alloc>,
         &mut RowIterator<'alloc>,
         &mut CellIterator<'alloc>,
+        &mut ImageIterator<'alloc>,
         &mut RowCache,
     ) {
         (
             &mut self.render_state,
             &mut self.row_iter,
             &mut self.cell_iter,
+            &mut self.image_iter,
             &mut self.row_cache,
         )
     }

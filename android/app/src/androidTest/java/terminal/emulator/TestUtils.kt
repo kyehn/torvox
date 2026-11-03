@@ -29,6 +29,12 @@ private const val DRAWER_BUTTON_TIMEOUT_MS = 5_000L
 private const val BRIDGE_READY_TIMEOUT_MS = 30_000L
 private const val BRIDGE_POLL_INTERVAL_MS = 200L
 private const val DRAWER_VISIBLE_TIMEOUT_MS = 10_000L
+
+/** 关抽屉时最多按几次返回：一次收键盘，一次关抽屉。 */
+private const val DRAWER_CLOSE_BACK_PRESSES = 3
+
+/** 每次返回后等抽屉收起动画的时间。 */
+private const val DRAWER_CLOSE_SETTLE_MS = 2_000L
 private const val NOT_RESPONDING_DIALOG_WAIT_ID = "android:id/aerr_wait"
 private const val NOT_RESPONDING_DIALOG_CLOSE_ID = "android:id/aerr_close"
 private const val DIALOG_DISMISS_SETTLE_MS = 500L
@@ -272,15 +278,32 @@ fun AndroidComposeTestRule<*, *>.openDrawer() {
 /**
  * 关掉抽屉：`SessionDrawer` 是 `ModalNavigationDrawer`，其 `BackHandler` 在展开时
  * 接管返回键。点抽屉外的遮罩会落在终端上（可能触发选择），返回键是唯一无副作用的路。
+ *
+ * 返回键可能被输入法先吃掉：键盘可见时第一次返回只收起键盘，抽屉原地不动。
+ * 故按下后按「抽屉是否仍显示」决定要不要再按——只按一次就断言，抽屉在键盘
+ * 可见时永远关不掉（实测预览截图用例稳定卡满 10s）。
  */
 fun AndroidComposeTestRule<*, *>.closeDrawer() {
     waitForIdle()
-    Espresso.pressBack()
-    waitUntil(timeoutMillis = DRAWER_VISIBLE_TIMEOUT_MS) {
-        !probeAssertion {
-            onNodeWithTag("SessionDrawer", useUnmergedTree = true).assertIsDisplayed()
-        }
+    val deadline = SystemClock.uptimeMillis() + DRAWER_VISIBLE_TIMEOUT_MS
+    var presses = 0
+    while (SystemClock.uptimeMillis() < deadline && presses < DRAWER_CLOSE_BACK_PRESSES) {
+        Espresso.pressBack()
+        presses++
+        // 每次返回后给动画留时间；抽屉仍在就再按一次（第一次可能只收键盘）。
+        val closed =
+            UxTestUtils.pollUntilTrue(
+                timeoutMs = minOf(DRAWER_CLOSE_SETTLE_MS, deadline - SystemClock.uptimeMillis())
+                    .coerceAtLeast(0),
+                intervalMs = 100,
+            ) {
+                !probeAssertion {
+                    onNodeWithTag("SessionDrawer", useUnmergedTree = true).assertIsDisplayed()
+                }
+            }
+        if (closed != null) return
     }
+    fail("返回键按了 $presses 次仍未关掉抽屉")
 }
 
 /** 当前活跃会话 sessionId（主线程同步读）：会话增删断言的共享读口。 */

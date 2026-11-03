@@ -7,9 +7,9 @@ use crate::slow_log::SlowLogThrottle;
 
 use crate::terminal::CursorStyle;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
+use crate::terminal::ghostty_terminal::KITTY_PLACEHOLDER;
 use crate::terminal::ghostty_terminal::build_row_ranges;
 use crate::terminal::ghostty_terminal::cell_flags;
-use crate::terminal::ghostty_terminal::unicode_placement::PLACEHOLDER;
 
 use foldhash::fast::RandomState;
 
@@ -662,7 +662,7 @@ fn warm_frame_glyphs(
         if character == ' '
             || character == '\0'
             || cell_data_entry.codepoint == 0
-            || cell_data_entry.codepoint == PLACEHOLDER
+            || cell_data_entry.codepoint == KITTY_PLACEHOLDER
         {
             continue;
         }
@@ -861,7 +861,7 @@ fn append_row_instances(
             || character == ' '
             || character == '\0'
             || cell_data_entry.codepoint == 0
-            || cell_data_entry.codepoint == PLACEHOLDER
+            || cell_data_entry.codepoint == KITTY_PLACEHOLDER
         {
             // 与清除色同色的空白格不必发射：全量帧已由 Clear 铺底，
             // 部分帧由脏带清除实例铺底；省略后滚动整屏重绘的实例数按

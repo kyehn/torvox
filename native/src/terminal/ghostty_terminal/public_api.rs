@@ -86,11 +86,6 @@ impl super::GhosttyTerminal {
             (shared.clone(), shared)
         };
         #[cfg(test)]
-        let (kitty_stats_for_run, kitty_stats_for_self) = {
-            let shared = CacheStats::default();
-            (shared.clone(), shared)
-        };
-        #[cfg(test)]
         let (batch_stats_for_run, batch_stats_for_self) = {
             let shared = BatchStats::default();
             (shared.clone(), shared)
@@ -124,8 +119,6 @@ impl super::GhosttyTerminal {
                         clipboard_tx,
                         #[cfg(test)]
                         cache_stats: cache_stats_for_run.clone(),
-                        #[cfg(test)]
-                        kitty_stats: kitty_stats_for_run.clone(),
                         #[cfg(test)]
                         batch_stats: batch_stats_for_run.clone(),
                     })
@@ -168,8 +161,6 @@ impl super::GhosttyTerminal {
             #[cfg(test)]
             cache_stats: cache_stats_for_self,
             #[cfg(test)]
-            kitty_stats: kitty_stats_for_self,
-            #[cfg(test)]
             batch_stats: batch_stats_for_self,
         })
     }
@@ -178,12 +169,6 @@ impl super::GhosttyTerminal {
     #[cfg(test)]
     pub(crate) fn take_cache_stats(&self) -> (u64, u64) {
         self.cache_stats.take()
-    }
-
-    /// 本终端的占位符扫描计数：取出并清零，返回（复用行数，扫描行数）。
-    #[cfg(test)]
-    pub(crate) fn take_kitty_scan_stats(&self) -> (u64, u64) {
-        self.kitty_stats.take()
     }
 
     /// 本终端的批大小计数：取出并清零，返回（批数，最大批条数）。
@@ -448,23 +433,14 @@ impl super::GhosttyTerminal {
     }
 
     pub fn take_kitty_placements(&self) -> Vec<KittyPlacementFrame> {
-        Self::take_kitty_placements_on(&self.query_tx, None)
+        Self::take_kitty_placements_on(&self.query_tx)
     }
 
     /// [`Self::take_kitty_placements`] 的通道外置版，理由同 [`Self::title_on`]。
-    ///
-    /// `row_signatures` 非空时按视口行复用 VT 侧扫描缓存（见 `Query::TakeKittyPlacements`），
-    /// 纯滚动与滚动落定后的重查不再逐格走 FFI；传 `None` 则无条件全量扫描。
-    pub(crate) fn take_kitty_placements_on(
-        query_tx: &Sender<Query>,
-        row_signatures: Option<std::sync::Arc<[u64]>>,
-    ) -> Vec<KittyPlacementFrame> {
+    pub(crate) fn take_kitty_placements_on(query_tx: &Sender<Query>) -> Vec<KittyPlacementFrame> {
         Self::query_on(
             query_tx,
-            |tx| Query::TakeKittyPlacements {
-                row_signatures: row_signatures.clone(),
-                tx,
-            },
+            |tx| Query::TakeKittyPlacements { tx },
             Vec::new(),
             "take_kitty_placements",
         )

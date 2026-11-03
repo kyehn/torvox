@@ -550,6 +550,7 @@ constructor(
      * [clearImeInsetPxIfOwnedBy] 归零，且必须核对发布者而非数值。
      */
     fun publishImeInsetPx(imeInsetPx: Int, owner: Any) {
+        LogUtil.info("Runtime", "DIAG publishImeInsetPx=$imeInsetPx owner=$owner")
         imeInsetFlowInternal.value = imeInsetPx
         imeInsetOwner = owner
     }

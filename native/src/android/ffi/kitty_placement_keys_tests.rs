@@ -5,7 +5,6 @@ fn keys() -> KittyPlacementKeys {
         session_id: 7,
         generation: 3,
         placement_generation: 11,
-        placeholder_signature: 0xabcd,
         rows: 24,
         cols: 80,
     }
@@ -13,7 +12,7 @@ fn keys() -> KittyPlacementKeys {
 
 /// 任一放置键变化都必须重查放置。
 ///
-/// 判别力：键集合此前是渲染状态里的散落字段，逐字段比较易漏——「占位符签名」
+/// 判别力：键集合此前是渲染状态里的散落字段，逐字段比较易漏——放置生成戳
 /// 曾缺失时 TUI 移动图像后仍钉在旧位置；这些变化无法用旧缓存表达，只能重查。
 #[test]
 fn content_key_change_triggers_refetch() {
@@ -29,10 +28,6 @@ fn content_key_change_triggers_refetch() {
         },
         KittyPlacementKeys {
             placement_generation: 12,
-            ..previous
-        },
-        KittyPlacementKeys {
-            placeholder_signature: 0x1234,
             ..previous
         },
         KittyPlacementKeys {

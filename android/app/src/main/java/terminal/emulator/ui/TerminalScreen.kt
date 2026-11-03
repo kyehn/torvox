@@ -283,6 +283,7 @@ fun TerminalScreen(
     }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
+            LogUtil.info("Runtime", "DIAG lifecycle event=$event")
             if (event == Lifecycle.Event.ON_PAUSE) {
                 // 组合顶层的 LocalView.current 是 AndroidComposeView 而非 TerminalSurface；
                 // 故使用从 AndroidView 工厂捕获的 surfaceRef。
@@ -568,6 +569,14 @@ fun TerminalScreen(
             // 最大值——两者**取值**都对，失效的是生效时机：那条链路的终点是 insets
             // 遍历内的组合状态写入，不保证被观察到，故位移从未发生。
             val imeInsetPx by viewModel.runtime.imeInsetFlow.collectAsStateWithLifecycle()
+            LaunchedEffect(imeInsetPx) {
+                LogUtil.info("Runtime", "DIAG compose imeInsetPx=$imeInsetPx")
+            }
+            LaunchedEffect(Unit) {
+                viewModel.runtime.imeInsetFlow.collect {
+                    LogUtil.info("Runtime", "DIAG collected=$it")
+                }
+            }
             val selectedSearchMatch = searchState.selectedMatch
             LaunchedEffect(imeInsetPx, showTextSearch, selectedSearchMatch) {
                 if (showTextSearch && selectedSearchMatch != null) {

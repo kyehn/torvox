@@ -13,7 +13,6 @@ mod frame_mailbox;
 mod internal;
 mod public_api;
 mod types;
-pub(crate) mod unicode_placement;
 
 pub use commands::Command;
 pub use commands::Query;
@@ -93,9 +92,6 @@ pub struct GhosttyTerminal {
     /// 逐次告警会把 logcat 刷成洪水（实测一次输出高峰刷出两万余行），
     /// 故按窗口限频，并带上窗口内累计丢弃次数。
     pub(crate) cmd_drop_log: crate::slow_log::CountedLogThrottle,
-    /// Kitty 占位符扫描计数（复用行 / 扫描行），仅测试使用。
-    #[cfg(test)]
-    pub(crate) kitty_stats: internal::CacheStats,
     /// 批大小计数（批数 / 最大批条数），仅测试使用。
     #[cfg(test)]
     pub(crate) batch_stats: internal::BatchStats,
@@ -131,8 +127,6 @@ impl Drop for GhosttyTerminal {
     }
 }
 
-#[cfg(test)]
-mod kitty_cache_tests;
 #[cfg(test)]
 mod tests;
 

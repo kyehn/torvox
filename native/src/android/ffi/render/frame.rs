@@ -380,19 +380,6 @@ pub(super) fn render_new_frame(
     // 全局锁序：渲染状态锁内绝不嵌套注册表与会话锁。会话查询在锁外完成
     // 后再重取渲染状态锁应用结果，消除渲染线程与主题线程的环形等待。
     let kitty_generation = cursor_info.kitty_generation;
-    // 纯文本会话（生成戳为 0）不做逐格扫描：签名只服务于图像放置缓存。
-    let placeholder_rows = if kitty_generation != 0 {
-        placeholder_row_signatures(&cells, rows)
-    } else {
-        Vec::new()
-    };
-    // 视口顶行的绝对行号取 VT 真值（`CursorInfo.viewport_row`），不取宿主的
-    // 「离实时视图多少行」折算：浏览期间新输出把活动区底边推远，宿主的折算值
-    // 随之漂移，而 VT 视口锚在内容上、行号不动——两者一旦分叉，画面就会在输出
-    // 到达时整体错位（上下滑动晃动）。
-    let absolute_base_row = i64::from(cursor_info.viewport_row);
-    let placeholder_signature =
-        placeholder_layout_signature(&placeholder_rows, absolute_base_row.max(0) as u64);
     // 网格单元格像素（与 render_cell_data 同口径：字体度量×光栅缩放）。
     let (font_width, font_height) = render_state.font_pipeline.cell_metrics();
     let raster_scale = render_state.font_pipeline.get_raster_scale();
@@ -402,7 +389,6 @@ pub(super) fn render_new_frame(
         session_id,
         generation: kitty_generation,
         placement_generation: cursor_info.kitty_placement_generation,
-        placeholder_signature,
         rows,
         cols,
     };
@@ -436,12 +422,7 @@ pub(super) fn render_new_frame(
     // 不再排队，按帧取会话锁的写入路径也不再排队。
     let fetched_kitty_frames = if need_kitty_fetch {
         session_query_channel(session_id)
-            .map(|query_tx| {
-                GhosttyTerminal::take_kitty_placements_on(
-                    &query_tx,
-                    (kitty_generation != 0).then(|| std::sync::Arc::from(placeholder_rows)),
-                )
-            })
+            .map(|query_tx| GhosttyTerminal::take_kitty_placements_on(&query_tx))
             .unwrap_or_default()
     } else {
         Vec::new()

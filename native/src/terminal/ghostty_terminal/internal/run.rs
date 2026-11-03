@@ -46,7 +46,6 @@ impl super::GhosttyTerminal {
         #[cfg(test)]
         {
             extractors.cache_stats = config.cache_stats.clone();
-            query_context.kitty_cache.stats = config.kitty_stats.clone();
         }
 
         // 初始主题：libghostty-vt 不处理 OSC 10/11 默认色转义（默认值归内嵌方所有，
