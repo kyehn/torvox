@@ -178,7 +178,20 @@ class KittyGraphicsPlacementTest : ComposeTerminalLogcatTest() {
     fun unicode_placeholder_cell_is_drawn_as_image() {
         val bridge = composeTestRule.awaitBridge()
         val (cellWidth, cellHeight) = cellSize(bridge)
-        val script = placeholderScript(imageId = 22, row = PLACEHOLDER_ROW, col = PLACEHOLDER_COL)
+        // 协议语义：一个占位字符只对应图像的一个 cell；图像显示多大由占位网格
+        // 的列数×行数决定（`c`/`r`）。真实客户端（kitten icat、yazi）输出的是完整
+        // 网格，故此处同样输出 `c×r` 全套占位符——只发一个字符却断言整幅 64×64，
+        // 量到的是「单格切片」（8px），失败原因与缺陷无关。
+        val cols = kotlin.math.ceil(IMAGE_SIZE / cellWidth).toInt().coerceAtLeast(1)
+        val rows = kotlin.math.ceil(IMAGE_SIZE / cellHeight).toInt().coerceAtLeast(1)
+        val script =
+            placeholderScript(
+                imageId = 22,
+                row = PLACEHOLDER_ROW,
+                col = PLACEHOLDER_COL,
+                cols = cols,
+                rows = rows,
+            )
         bridge.writeToPty("sh ${script.absolutePath}\n".toByteArray(Charsets.US_ASCII))
 
         val shot = awaitSettledImage(bridge, PLACEHOLDER_COLOR, minRenderedScrollback = 0)
@@ -191,7 +204,7 @@ class KittyGraphicsPlacementTest : ComposeTerminalLogcatTest() {
         val bounds = sample.bounds
         UxTestUtils.metric("kitty_placeholder_pixels", sample.pixels.toLong())
 
-        // 图像必须落在占位单元的格子里：左上角 ≈ (列-1)×单元格宽, (行-1)×单元格高。
+        // 图像必须落在占位网格的格子里：左上角 ≈ (列-1)×单元格宽, (行-1)×单元格高。
         val expectedLeft = (PLACEHOLDER_COL - 1) * cellWidth
         val expectedTop = (PLACEHOLDER_ROW - 1) * cellHeight
         assertTrue(
@@ -200,14 +213,19 @@ class KittyGraphicsPlacementTest : ComposeTerminalLogcatTest() {
             kotlin.math.abs(bounds.left - expectedLeft) <= POSITION_TOLERANCE_PX &&
                 kotlin.math.abs(bounds.top - expectedTop) <= POSITION_TOLERANCE_PX,
         )
-        // 按像素尺寸绘制：包围盒宽高都应等于图像边长。
+        // 网格几何：宽 = c×单元格宽，高 = r×单元格高。放大到原图像素 /
+        // 只画一个 cell 都会在这里落红。
+        val expectedWidth = cols * cellWidth
+        val expectedHeight = rows * cellHeight
         assertTrue(
-            "占位符图像宽度必须是 ${IMAGE_SIZE}px，实际 ${bounds.width()}px",
-            kotlin.math.abs(bounds.width() - IMAGE_SIZE) <= POSITION_TOLERANCE_PX,
+            "占位符网格宽度必须是 ${expectedWidth.toInt()}px（${cols}列×${cellWidth}px），" +
+                "实际 ${bounds.width()}px",
+            kotlin.math.abs(bounds.width() - expectedWidth) <= POSITION_TOLERANCE_PX,
         )
         assertTrue(
-            "占位符图像高度必须是 ${IMAGE_SIZE}px，实际 ${bounds.height()}px",
-            kotlin.math.abs(bounds.height() - IMAGE_SIZE) <= POSITION_TOLERANCE_PX,
+            "占位符网格高度必须是 ${expectedHeight.toInt()}px（${rows}行×${cellHeight}px），" +
+                "实际 ${bounds.height()}px",
+            kotlin.math.abs(bounds.height() - expectedHeight) <= POSITION_TOLERANCE_PX,
         )
     }
 
@@ -295,20 +313,42 @@ class KittyGraphicsPlacementTest : ComposeTerminalLogcatTest() {
     }
 
     /**
-     * 写出 Unicode 占位符（U=1）的脚本：先传图像，再写占位单元。
+     * 写出 Unicode 占位符（U=1）的脚本：先传图像，再写 `cols×rows` 个占位单元。
      *
      * 占位单元的编码按 kitty 协议：前景色编码图像 id（RGB 24 位），下划线色编码
-     * 放置 id，组合记号 U+0305 标记占位起点。占位字符 U+10EEEE 是代理对。
+     * 放置 id，占位字符 U+10EEEE 后的两个组合记号分别编码图像行、列索引。一个
+     * 占位字符只画图像的一个 cell，整幅图像由网格覆盖——真实客户端（kitten
+     * icat、yazi）输出的就是完整网格。
      */
-    private fun placeholderScript(imageId: Int, row: Int, col: Int): File {
+    private fun placeholderScript(imageId: Int, row: Int, col: Int, cols: Int, rows: Int): File {
         val payload = base64Png(PLACEHOLDER_COLOR)
-        val placeholder = "\uDBFB\uDEEE\u0305\u0305"
+        // kitty 的 diacritic 表：索引 0..19 对应的组合记号（与 native 侧
+        // `render_cache.rs` 的回归用例同源）。
+        val diacritics =
+            intArrayOf(
+                0x0305, 0x030D, 0x030E, 0x0310, 0x0312, 0x033D, 0x033E, 0x033F, 0x0346, 0x034A,
+                0x034B, 0x034C, 0x0350, 0x0351, 0x0352, 0x0357, 0x035B, 0x0363, 0x0364, 0x0365,
+            )
+        val placeholder = String(Character.toChars(0x10EEEE))
+        val grid = buildString {
+            append("\u001B[2J\u001B[H")
+            append(
+                "\u001B_Ga=T,f=100,t=d,i=$imageId,U=1,c=$cols,r=$rows,p=1,q=1;$payload\u001B\\",
+            )
+            // SGR 是持久的：设一次前景/下划线色，后续每次只做光标定位。
+            append("\u001B[38;2;0;0;${imageId}m\u001B[58;2;0;0;1m")
+            for (r in 0 until rows) {
+                append("\u001B[${row + r};${col}H")
+                for (c in 0 until cols) {
+                    append(placeholder)
+                    append(Character.toChars(diacritics[r]))
+                    append(Character.toChars(diacritics[c]))
+                }
+            }
+        }
         return writeScript(
             "kitty-placeholder-$imageId.sh",
-            "#!/system/bin/sh\n" +
-                "printf '\\033[2J\\033[H" +
-                "\\033_Ga=T,f=100,t=d,i=$imageId,U=1,p=1,q=1;$payload\\033\\\\'\n" +
-                "printf '\\033[$row;${col}H\\033[38;2;0;0;${imageId}m\\033[58;2;0;0;1m$placeholder'\n",
+            "#!/system/bin/sh\nprintf '%s' '$grid'\n",
         )
     }
 
