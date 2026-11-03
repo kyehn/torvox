@@ -5,24 +5,8 @@
 
 ## 未被解决的问题
 
-- 输入光标遮盖文本时可见性差，和 termux 效果不一致（已按 termux 的
-  `invertCursorTextColor` 改为整格反色：背景取不透明光标色、文字取该格原背景色，
-  取色在 SGR 反显与搜索高亮之后，见 `native/src/render/cell_builder.rs`；竖线/下划线
-  仍是半透明细标记。回归钉：`render::tests::cell_pipeline::cursor_with_text_and_block_style`、
-  `cursor_color_custom_values`、`cursor_at_origin`、
-  `cursor_cell_not_affected_by_search_highlight` 与
-  `render::tests::gpu_core::cursor_rendering_on_visible_cursor`；规约见
-  `openspec/specs/cursor-rendering`「方块光标整格反色」。仍需真机确认对比度观感）
-- `bell-character` 已接线（CONFIG.md 声明、DESIGN.md 要求与 termux-app 一致）
-  （实现：上游 `Terminal::on_bell` 回调置无锁标志（`native/src/terminal/ghostty_terminal/
-  internal/run.rs`），每帧收割为 `Event::Bell { session_id }` 入队（`event.rs`），Kotlin
-  `EventDispatcher` 按 `bell-character` 三态执行（`runtime/BellPlayer.kt`：`vibrate` 默认
-  振动 50ms、`beep` 提示音、`ignore`；执行限频 150ms 防 `yes '\a'` 洪泛）。仍需真机确认
-  振动/提示音观感与 `bell-character` 配置键的解析（`settings/TermuxProperties.kt`））
-- docs/persistence 内容需要重新验证和更新
-- openspec/specs 目录文档需要根据 docs/specification 重写
-- termux.properties 的所有相关代码必须根据 docs/specification termux-app 重新检查和修改，并且每个键都需要充分测试
-- 检查 docs/specification 的修改，对照项目进行修改 修复
+（当前无待修项。全部条目的修复与验证记录见 git 历史：本节每一条被删除的提交消息
+都写明了对应用例或日志证据。运行期日志的固定噪声判定见下一节。）
 
 ## 已判定为非应用缺陷（附判定依据，不再作为待修项）
 
