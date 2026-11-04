@@ -21,17 +21,28 @@ TESTING.md 两条要求的直接对象。
 ## What Changes
 
 - 新增 `FrameStats`（gfxinfo 解析：帧数/janky/百分位）与 `printMeasured` 采集通道
-  （`println` 进测试 XML system-out，`Log.i("Benchmark")` 进 logcat）；
-  `scripts/test-emulator.nu` 在宏基准跑完 cat 测试 XML，实测值进构建日志。
+  （`println` 进 instrumentation 输出流、`Log.i("Benchmark")` 进 logcat；连接测试任务
+  按用例把设备 logcat 落进构建产物，实测值因此可复核）。
 - 交互与启动各用例逐轮打印实测耗时与帧统计；新增
   `ScrollPerformanceBenchmark`（`seq 500` 填满回滚区后上滑、下滑各一次）。
-- 规格新增一条 Requirement：宏基准 MUST 在模拟器上运行并断言，实测值 MUST 经
-  采集通道落进 CI；帧百分位与耗时预算 MUST 以 CI 实测校准（约实测 1.5 倍口径，
-  与 Rust 微基准上限断言同口径），MUST NOT 凭空设定。
+- **修正帧级数据面的分工**：终端内容由原生渲染线程直绘 SurfaceView，gfxinfo
+  （HWUI）根本记不到这些帧（实测滚动全程 0 帧），故滚动用例改取原生渲染器的
+  呈现汇总（`render_frame: presented N frames`）。
+- **修正设备侧采集通道的用法**：`UiDevice.executeShellCommand` 走
+  `Runtime.exec(String)`，不经 shell（按空白切词、引号原样传参、管道不生效），
+  logcat 过滤词必须是 POSIX ERE 且不含空白。
+- **补上输入前置条件的判定**：shell 没有提示符可等，用幂等探针命令诱发一次
+  PTY 输出作为「已能吃键」的信号，探针不回显即判红。
+- 规格新增五条 Requirement：宏基准 MUST 在模拟器上运行并断言、帧级数据面 MUST 按
+  绘制主体选源、实测值 MUST 经采集通道可复核、采集通道 MUST 按执行环境真实语义
+  构造、输入前置条件 MUST 可判定；帧级阈值与耗时预算 MUST 以实测校准（约实测
+  1.5 倍口径，与 Rust 微基准上限断言同口径），MUST NOT 凭空设定。
 
 ## Impact
 
-- 规格：`performance-measurement` ADDED 一条 Requirement（本变更）。
-- 代码：`android/benchmark` 五个文件、`scripts/test-emulator.nu`
-  （已在 `e172def4` 落地，与本提案同源）。
-- 待办：CI 恢复运行后按 `[torvox-bench]` 实测值收紧断言（tasks.md 未勾项）。
+- 规格：`performance-measurement` ADDED 五条 Requirement（本变更，已同步进
+  `openspec/specs/performance-measurement/spec.md`）。
+- 代码：`android/benchmark` 下的基准源码；`android/app` 的 `TerminalRuntime` 在首个
+  PTY 输出时记一条 INFO 日志（宏基准据此判定 shell 已开口）。
+- 待办：CI 恢复运行后按 CI 上的 `[bench-measure]` 实测值复核断言阈值（tasks.md
+  未勾项；当前阈值已按本机 AVD 的最差实测校准）。

@@ -3203,7 +3203,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 不是「强制弹出」。
      *
      * 「整个进程只请求一次」由**调用方**认领（组合层经
-     * [TerminalRuntime.claimStartupKeyboardRequest]）：宿主在原生 surface 判死时会换掉
+     * [terminal.emulator.runtime.TerminalRuntime.claimStartupKeyboardRequest]）：
+     * 宿主在原生 surface 判死时会换掉
      * 整个 `SurfaceView`，新实例若把「已请求」当成没请求过，键盘便会在换视图后再次弹出
      * ——弹出的键盘顺带清掉选区与选区菜单（见 [installImeInsetListener] 的
      * `imeVisibilityChanged` 分支），用户看到的是「选中的文字突然没了菜单」。

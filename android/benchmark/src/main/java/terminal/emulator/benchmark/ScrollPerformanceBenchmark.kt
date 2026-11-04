@@ -1,46 +1,66 @@
 package terminal.emulator.benchmark
 
+import android.graphics.Rect
 import android.os.SystemClock
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 private const val SCROLL_ITERATION_COUNT = 3
 
-/** 一次手势的移动步数：决定滑动速度，太快会被识别成 fling，太慢拉长测量窗口。 */
-private const val SWIPE_STEPS = 10
+/** 拖动手势的时长：连续拖动才持续出帧，瞬时滑动只有一帧 fling。 */
+private const val DRAG_DURATION_MILLIS = 1_500L
 
-/** `seq 500` 输出渲染稳定性探测：两次读数的间隔。 */
-private const val OUTPUT_STABLE_POLL_MILLIS = 300L
+/** 呈现静默的判定时长：这么久没有新的呈现汇总即认为渲染已停。 */
+private const val PRESENT_SILENCE_MILLIS = 1_500L
 
-/** 上述探测的总超时：超时说明 shell 未就绪或输入没有送达，必须失败。 */
-private const val OUTPUT_STABLE_TIMEOUT_MILLIS = 20_000L
+/** 静默判定的轮询间隔。 */
+private const val PRESENT_POLL_MILLIS = 300L
 
-/** 帧统计读取在 0 帧时的重试间隔：覆盖软件渲染的一个 vsync 帧时间。 */
-private const val SCROLL_FRAME_READ_RETRY_MILLIS = 300L
+/** 等渲染停摆的上限：超时说明输出或滚动没有真正发生。 */
+private const val PRESENT_SETTLE_TIMEOUT_MILLIS = 30_000L
 
-private const val SCROLL_FRAME_READ_ATTEMPT_COUNT = 3
+/** 等 shell 就绪的上限。 */
+private const val SHELL_READY_TIMEOUT_MILLIS = 30_000L
 
-/** force-stop 后等设备空闲的上限，让软件渲染的图形栈喘口气。 */
-private const val EMULATOR_IDLE_TIMEOUT_MILLIS = 2_000L
+/** 探针的重发间隔：shell 启动时可能冲掉早到的输入，重发即可命中。 */
+private const val SHELL_READY_PROBE_INTERVAL_MILLIS = 3_000L
 
 /**
- * 滚动的帧级宏基准：在回滚区被填满的状态下上滑、下滑各一次。
+ * shell 就绪探针：shell 回显它，输出到达即证明 shell 已经在读输入。
+ *
+ * `/system/bin/sh` 在 PTY 里不回显提示符（实测首启没有任何 PTY 输出），故
+ * 「shell 开口」只能由探针诱发，不能等提示符。`%s` 是 `input text` 的空格转义。
+ */
+private const val SHELL_READY_PROBE = "echo%s__terminal_shell_ready__"
+
+/**
+ * shell 首个 PTY 输出的日志正文片段：宏基准据此判定「可以往终端敲键」。
+ *
+ * 空白用 `.` 代替：该正则既作设备侧 `-e` 过滤词（不经 shell，按空白切词），
+ * 又作本地复核的判据（详见 [readLogcatSince]）。
+ */
+private val SHELL_READY_PATTERN = Regex("""first.output.received""")
+
+/** 填满回滚区的命令：500 行足够把视口顶出历史区。 */
+private const val SCROLLBACK_COMMAND = "seq%s500"
+
+/**
+ * 滚动的帧级宏基准：在回滚区被填满的状态下拖向历史、再拖回底部各一次。
  *
  * TESTING 性能条款把「上滑/下滑正确移动终端，无卡顿」列为覆盖范围，app 侧已有
  * 行为量化测试钉正确性，这里补宏基准侧的流畅度与耗时。内容生成走真实输入链路：
- * `input text` 把 `seq 500` 敲进 shell（应用首启自动创建默认会话，光标不闪烁，
- * 静止终端不出帧，帧计数稳定即可判定输出渲染完毕），随后清零帧统计，只测量
- * 两次滑动手势本身。
+ * `input text` 把 `seq 500` 敲进 shell（应用首启自动创建默认会话），随后拖动
+ * 终端内容本身。
  *
- * 断言与交互基准同构：至少出帧（什么都不画说明滚动没生效）、总耗时在预算内；
- * 帧耗时百分位随 [printMeasured] 落进 CI，作为下一步收紧断言的实测基准。
+ * 帧的来源是原生渲染器的呈现汇总而非 `dumpsys gfxinfo`：终端内容由原生渲染线程
+ * 直绘 SurfaceView，不经过主线程 `ViewRootImpl` 遍历，gfxinfo 记不到这些帧
+ * （实测滚动全程 0 帧，见 [PresentedFrames]）。`FrameTimingMetric` 仍留在指标列表
+ * 里，它记的是 Compose 层的帧。
  */
 @RunWith(AndroidJUnit4::class)
 class ScrollPerformanceBenchmark {
@@ -58,94 +78,133 @@ class ScrollPerformanceBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
+                val startedMillis = System.currentTimeMillis()
                 startActivityAndWait()
-                requireElement(device, TERMINAL_SCREEN_RESOURCE_ID, "终端界面")
-                typeScrollbackCommand(device)
-                resetFrameStats(device)
+                val terminal =
+                    requireElement(device, TERMINAL_SCREEN_RESOURCE_ID, "终端界面")
+                awaitShellReady(device, startedMillis)
+                fillScrollback(device)
+                val scrollStartMillis = System.currentTimeMillis()
                 val elapsed = elapsedMillis {
-                    scrollTerminal(device, towardHistory = true)
-                    scrollTerminal(device, towardHistory = false)
-                    device.waitForIdle()
+                    dragTerminal(device, terminal.visibleBounds, towardHistory = true)
+                    dragTerminal(device, terminal.visibleBounds, towardHistory = false)
                 }
-                val stats = readFrameStatsAfterRender(device)
-                check(stats.frames >= MIN_ANIMATION_FRAME_COUNT) {
-                    "滚动未产生帧：frames=${stats.frames}"
+                awaitPresentedSettle(device, scrollStartMillis)
+                val summaries = readPresentedFrameSummaries(device, scrollStartMillis)
+                val presentedFrames = summaries.sumOf { it.frames }
+                // 实测值先于断言输出：断言失败时构建日志里仍留得下这轮的数字，
+                // 否则门禁只报「低于下限」，排障还得重跑一遍。
+                emitMeasured(
+                    measuredLinePrefix("scroll", elapsed) +
+                        " presentedFrames=$presentedFrames presentedWindows=${summaries.size}",
+                )
+                check(summaries.isNotEmpty()) {
+                    "滚动未产生呈现帧：原生渲染器在滚动窗口内没有汇报任何呈现"
+                }
+                check(summaries.size >= MIN_SCROLL_PRESENTED_WINDOWS) {
+                    "滚动只在 ${summaries.size} 个窗口里出帧，低于下限 $MIN_SCROLL_PRESENTED_WINDOWS：" +
+                        "滚动中途停摆"
+                }
+                check(presentedFrames >= MIN_SCROLL_PRESENTED_FRAMES) {
+                    "滚动呈现帧数 $presentedFrames 低于下限 $MIN_SCROLL_PRESENTED_FRAMES"
                 }
                 check(elapsed <= SCROLL_BUDGET_MILLIS) {
                     "上滑下滑耗时 ${elapsed}ms 超过预算 ${SCROLL_BUDGET_MILLIS}ms"
                 }
-                printMeasured("scroll", elapsed, stats)
             },
         )
     }
 
-    /** 元素缺失 MUST 失败：找不到元素说明界面没到位，继续测量只会产出无意义的数字。 */
-    private fun requireElement(device: UiDevice, resourceId: String, label: String) {
-        val element = device.wait(Until.findObject(By.res(resourceId)), UI_TIMEOUT_MILLIS)
-        checkNotNull(element) { "未找到$label（$resourceId）" }
-    }
-
     /**
-     * 软件渲染的模拟器连续跑长宏基准会耗尽图形栈，任务以输出插件 EOF 崩溃，
-     * 因此每个用例前先强制停止被测应用，再等设备空闲让图形栈恢复。
+     * 等 shell 真的能吃键：反复发探针，直到它的回显到达。
+     *
+     * PTY 建好不等于 shell 在读：shell 初始化 tty 时会冲掉先到的输入，那时敲的
+     * 命令会静默消失，回滚区永远填不满。shell 没有提示符可等，故用探针命令诱发
+     * 一次输出——输出到达即证明 shell 已经在读输入。探针是幂等的（`echo`），重发
+     * 无副作用。
      */
-    private fun recoverEmulator(device: UiDevice) {
-        device.executeShellCommand("am force-stop $TARGET_PACKAGE")
-        device.waitForIdle(EMULATOR_IDLE_TIMEOUT_MILLIS)
+    private fun awaitShellReady(device: UiDevice, sinceMillis: Long) {
+        check(isImeShown(device)) { "输入法未弹出，终端没有输入焦点，敲键不会送达终端" }
+        val deadline = SystemClock.elapsedRealtime() + SHELL_READY_TIMEOUT_MILLIS
+        var nextProbeMillis = 0L
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (readLogcatSince(device, sinceMillis, SHELL_READY_PATTERN).isNotEmpty()) return
+            val now = SystemClock.elapsedRealtime()
+            if (now >= nextProbeMillis) {
+                device.executeShellCommand("input text $SHELL_READY_PROBE")
+                device.executeShellCommand("input keyevent 66")
+                nextProbeMillis = now + SHELL_READY_PROBE_INTERVAL_MILLIS
+            }
+            SystemClock.sleep(PRESENT_POLL_MILLIS)
+        }
+        error("shell 未就绪：${SHELL_READY_TIMEOUT_MILLIS}ms 内没有收到 shell 的任何输出")
     }
 
     /**
-     * 向 shell 敲入 `seq 500` 并等输出渲染完毕。
+     * 敲入 `seq 500` 并等输出渲染完毕。
      *
      * `input text` 走硬件键盘事件通道，不经过输入法，终端像收到物理键盘一样把
      * 字符送进 shell（`%s` 是 `input text` 的空格转义）；回车执行后 500 行输出
-     * 把回滚区填满。判定「渲染完毕」用帧计数稳定：应用没有闪烁光标，渲染循环
-     * 只在内容变化时出帧，静止即计数不再增长——这比等待固定时长快且确定。
+     * 把回滚区填满。判定「渲染完毕」看原生侧的呈现汇总：输出期间持续出帧，输出
+     * 结束后不再有新的汇总行。
      */
-    private fun typeScrollbackCommand(device: UiDevice) {
-        device.executeShellCommand("input text 'seq%s500'")
+    private fun fillScrollback(device: UiDevice) {
+        val commandMillis = System.currentTimeMillis()
+        device.executeShellCommand("input text $SCROLLBACK_COMMAND")
         device.executeShellCommand("input keyevent 66")
-        val deadline = SystemClock.elapsedRealtime() + OUTPUT_STABLE_TIMEOUT_MILLIS
-        var previous = readFrameStats(device).frames
-        while (SystemClock.elapsedRealtime() < deadline) {
-            SystemClock.sleep(OUTPUT_STABLE_POLL_MILLIS)
-            val current = readFrameStats(device).frames
-            if (current == previous && current > 0) return
-            previous = current
-        }
-        error("seq 500 的输出未渲染完成（帧数未增长）：shell 可能未就绪，或输入没有送达终端")
-    }
-
-    /** 一次完整的滑动手势：towardHistory 时手指下滑把视图滚回历史，否则上滑回到底部。 */
-    private fun scrollTerminal(device: UiDevice, towardHistory: Boolean) {
-        val centerX = device.displayWidth / 2
-        val lowerY = (device.displayHeight * 0.7).toInt()
-        val upperY = (device.displayHeight * 0.3).toInt()
-        if (towardHistory) {
-            device.swipe(centerX, upperY, centerX, lowerY, SWIPE_STEPS)
-        } else {
-            device.swipe(centerX, lowerY, centerX, upperY, SWIPE_STEPS)
-        }
+        awaitPresentedSettle(device, commandMillis)
     }
 
     /**
-     * 等滑动帧落地后再读帧统计：waitForIdle 只等事件队列，渲染帧在其后的
-     * vsync 上产出；连续滑动是大渲染负载，多等两轮重试窗口。
+     * 等到终端不再呈现新帧。
+     *
+     * 呈现汇总是原生侧 500ms 窗口的产物，故静默判定取三个窗口：窗口刚交出时
+     * 还有一窗未交出，短于此会把「仍在渲染」误判成「渲染完毕」。拖动的惯性
+     * 也会在这段时间里继续出帧，等它停摆才能把整个滚动的呈现帧都收进来。
      */
-    private fun readFrameStatsAfterRender(device: UiDevice): FrameStats {
-        repeat(SCROLL_FRAME_READ_ATTEMPT_COUNT) { attempt ->
-            val stats = readFrameStats(device)
-            if (stats.frames > 0) return stats
-            if (attempt < SCROLL_FRAME_READ_ATTEMPT_COUNT - 1) {
-                SystemClock.sleep(SCROLL_FRAME_READ_RETRY_MILLIS)
+    private fun awaitPresentedSettle(device: UiDevice, sinceMillis: Long) {
+        val deadline = SystemClock.elapsedRealtime() + PRESENT_SETTLE_TIMEOUT_MILLIS
+        var lastPresentedMillis = sinceMillis
+        var presentedAny = false
+        while (SystemClock.elapsedRealtime() < deadline) {
+            // `-T` 是闭区间：起点取上一条汇总的时刻加一毫秒，否则同一条会被反复
+            // 读出，误判成「没有新汇总」。
+            val newest =
+                readPresentedFrameSummaries(device, lastPresentedMillis + 1)
+                    .lastOrNull()
+                    ?.epochMillis
+            if (newest != null && newest > lastPresentedMillis) {
+                lastPresentedMillis = newest
+                presentedAny = true
+            } else if (
+                presentedAny &&
+                System.currentTimeMillis() - lastPresentedMillis >= PRESENT_SILENCE_MILLIS
+            ) {
+                return
             }
+            SystemClock.sleep(PRESENT_POLL_MILLIS)
         }
-        return readFrameStats(device)
+        error(
+            "呈现未停摆（${PRESENT_SILENCE_MILLIS}ms 内没有新的呈现）：" +
+                "shell 可能未就绪，输入没有送达终端，或滚动没有真正发生",
+        )
     }
 
-    private fun elapsedMillis(block: () -> Unit): Long {
-        val start = SystemClock.elapsedRealtime()
-        block()
-        return SystemClock.elapsedRealtime() - start
+    /**
+     * 一次拖动手势：手指下移把视图拖向历史，上移拖回底部。
+     *
+     * 用 `input swipe` 的显式时长而非瞬时滑动：瞬时滑动只产生一帧 fling，测不出
+     * 连续出帧的节奏；固定时长的拖动在设备之间可比。坐标取终端界面可见范围的
+     * 上半部，避开底部的修饰键栏。
+     */
+    private fun dragTerminal(device: UiDevice, terminalBounds: Rect, towardHistory: Boolean) {
+        val centerX = terminalBounds.centerX()
+        val upperY = terminalBounds.top + (terminalBounds.height() * 0.2).toInt()
+        val lowerY = terminalBounds.top + (terminalBounds.height() * 0.45).toInt()
+        val startY = if (towardHistory) upperY else lowerY
+        val endY = if (towardHistory) lowerY else upperY
+        device.executeShellCommand(
+            "input swipe $centerX $startY $centerX $endY $DRAG_DURATION_MILLIS",
+        )
     }
 }

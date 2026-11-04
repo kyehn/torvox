@@ -1650,6 +1650,10 @@ constructor(
                                 // 慢帧告警同样节流：滚动时每帧都超 30ms，逐帧写 logcat
                                 // 会让诊断本身成为负担；帧时长统计窗口仍保留完整分布。
                                 var lastSlowFrameLogNanos = 0L
+                                // 本会话是否已收到 PTY 输出：首个输出即 shell 真的开始说话，
+                                // 它也是外部驱动（宏基准）判定「可以往终端敲键」的信号——
+                                // shell 就绪前写入会被 tty 初始化冲掉。
+                                var hasReceivedOutput = false
                                 // 每线程帧时长统计：渲染线程重启时重置（新生涯，不带陈旧历史）。
                                 val frameTiming = FrameTimingStats()
                                 // 整循环周期统计（渲染 + pollAll + 事件派发 + waitOutput）：
@@ -1849,6 +1853,13 @@ constructor(
                                             // 500ms 空闲闭锁因而永不生效。持续输出流
                                             // （tail -f、ping、gradle）总是携带 newOutput，故保持活跃。
                                             entry.lastSignalNanos = System.nanoTime()
+                                            if (!hasReceivedOutput) {
+                                                hasReceivedOutput = true
+                                                LogUtil.info(
+                                                    TAG,
+                                                    "session ${entry.sessionId} first output received",
+                                                )
+                                            }
                                             // 首个 PTY 输出 = shell 真的开始说话了（提示符已落格）：
                                             // 「进程启动 → 这一刻」是用户口径的「shell 启动慢」。
                                             publishStartupMetrics(startupToFirstOutputMs = elapsedSinceProcessStartMs())
@@ -4713,11 +4724,13 @@ internal fun shouldCloseDeadRender(restartAttempts: Int, maxAttempts: Int): Bool
  *
  * 监视器据此把条目分成「待重启」与「健康」两组，两组 MUST 互斥。此前「健康」只要求
  * `!renderThreadExited`，而线程刚死时该标志尚未置位——同一条目因此同时落入两组，
- * [RenderSupervisor.decayRestartCounts] 随即把它的 [SessionEntry.restartAttempts] 清零，
+ * [TerminalRuntime.RenderSupervisor.decayRestartCounts] 随即把它的
+ * [SessionEntry.restartAttempts] 清零，
  * 重启预算永不耗尽（每 500ms 重启一轮，`RENDER_MAX_RESTART_ATTEMPTS` 形同虚设，
  * 最终表现为渲染循环反复重建而会话永不关闭）。
  *
- * 线程引用缺失（null）**不算死**：条目插入映射到 [RenderSupervisor.startRenderThread]
+ * 线程引用缺失（null）**不算死**：条目插入映射到
+ * [TerminalRuntime.RenderSupervisor.startRenderThread]
  * 真正把线程写入之间，`running` 已为真而引用仍为空。把这段正常的启动窗口判成死亡
  * 会让监视器抢先重启，与即将启动的线程争同一会话（两条线程消费唯一事件队列）。
  * 真正的孤儿条目由失败回滚按 bridge 身份移除。

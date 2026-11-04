@@ -14,8 +14,8 @@ private const val FRAME_READ_RETRY_MILLIS = 300L
  *
  * 比 `FrameTimingMetric` 多一层用途：Metric 的百分位只进 instrumentation 结果
  * bundle（Studio/IDE 可见，CI 控制台看不到），而 [FrameStats] 来自 shell 输出，
- * 可以 `println` 进测试 XML 的 system-out，让 CI 直接拿到实测帧耗时做基准校准，
- * 也可以直接对字段断言拦住卡顿回归。
+ * 可以 `println` 进设备 logcat（连接测试按用例把 logcat 落进构建产物），让 CI
+ * 拿到实测帧耗时做基准校准，也可以直接对字段断言拦住卡顿回归。
  */
 internal data class FrameStats(
     /** 清零以来渲染的帧总数。 */
@@ -71,19 +71,16 @@ internal fun parseFrameStats(output: String): FrameStats? {
 }
 
 /**
- * 把实测值打进测试输出：`println` 进 instrumentation 输出流（AGP 收进测试 XML 的
- * system-out，CI 可 grep），`Log.i("Benchmark")` 进 logcat（与 androidx 基准库同
- * tag，本地调试 `adb logcat -s Benchmark` 直达）。
+ * 把实测值打进测试输出：`println` 进 instrumentation 输出流（logcat 的
+ * `System.out` 标签），`Log.i("Benchmark")` 进 logcat（与 androidx 基准库同 tag，
+ * 本地调试 `adb logcat -s Benchmark` 直达）。连接测试任务按用例把设备 logcat 落进
+ * 构建产物，故实测值在 CI 里可复核。
  *
  * 这是「实际测试获得基准值」的采集通道：断言预算必须先有实测，再按实测收紧。
  */
 internal fun printMeasured(label: String, elapsedMillis: Long, stats: FrameStats?) {
     val line = buildString {
-        append("[torvox-bench] ")
-        append(label)
-        append(" elapsed=")
-        append(elapsedMillis)
-        append("ms")
+        append(measuredLinePrefix(label, elapsedMillis))
         if (stats != null) {
             append(" frames=")
             append(stats.frames)
@@ -100,6 +97,15 @@ internal fun printMeasured(label: String, elapsedMillis: Long, stats: FrameStats
             append("ms")
         }
     }
+    emitMeasured(line)
+}
+
+/** 实测行的公共前缀：统一标签与耗时字段，CI 按 `[bench-measure]` grep。 */
+internal fun measuredLinePrefix(label: String, elapsedMillis: Long): String =
+    "[bench-measure] $label elapsed=${elapsedMillis}ms"
+
+/** 实测行的输出通道：`println` 进测试输出流，`Log.i` 进 logcat。 */
+internal fun emitMeasured(line: String) {
     println(line)
     Log.i("Benchmark", line)
 }

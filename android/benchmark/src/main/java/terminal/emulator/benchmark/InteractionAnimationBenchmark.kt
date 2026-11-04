@@ -6,16 +6,11 @@ import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.UiObject2
-import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 private const val ANIMATION_ITERATION_COUNT = 3
-private const val IME_STATE_ATTEMPT_COUNT = 10
-private const val EMULATOR_IDLE_TIMEOUT_MILLIS = 2_000L
-private const val IME_SHOWN_STATE = "mInputShown=true"
 
 /** 等修饰键状态生效的上限。 */
 private const val SELECTION_TIMEOUT_MILLIS = 3_000L
@@ -57,6 +52,8 @@ class InteractionAnimationBenchmark {
                     device.waitForIdle()
                 }
                 val frames = readFrameStatsAfterRender(device)
+                // 实测值先于断言输出：断言失败时构建产物里仍留得下这轮的数字。
+                printMeasured("modifierKeyPress", elapsed, frames)
                 check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
                     "修饰键按下反馈未产生帧：frames=${frames.frames}"
                 }
@@ -66,7 +63,6 @@ class InteractionAnimationBenchmark {
                 check(waitForSelected(device, CONTROL_KEY_RESOURCE_ID, SELECTION_TIMEOUT_MILLIS)) {
                     "点击 CTRL 后应进入粘滞修饰状态"
                 }
-                printMeasured("modifierKeyPress", elapsed, frames)
                 // 复位粘滞态，别把 Once 态留给下一次迭代。
                 device.findObject(By.res(CONTROL_KEY_RESOURCE_ID))?.click()
                 device.waitForIdle()
@@ -100,13 +96,13 @@ class InteractionAnimationBenchmark {
                     device.waitForIdle()
                 }
                 val frames = readFrameStatsAfterRender(device)
+                printMeasured("imeShow", elapsed, frames)
                 check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
                     "IME 弹出未产生帧：frames=${frames.frames}"
                 }
                 check(elapsed <= INTERACTION_BUDGET_MILLIS) {
                     "IME 弹出耗时 ${elapsed}ms 超过预算 ${INTERACTION_BUDGET_MILLIS}ms"
                 }
-                printMeasured("imeShow", elapsed, frames)
             },
         )
     }
@@ -130,33 +126,17 @@ class InteractionAnimationBenchmark {
                     requireElement(device, SESSION_DRAWER_RESOURCE_ID, "会话抽屉")
                 }
                 val frames = readFrameStatsAfterRender(device)
+                printMeasured("sessionDrawer", elapsed, frames)
                 check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
                     "会话抽屉展开未产生帧：frames=${frames.frames}"
                 }
                 check(elapsed <= INTERACTION_BUDGET_MILLIS) {
                     "会话抽屉展开耗时 ${elapsed}ms 超过预算 ${INTERACTION_BUDGET_MILLIS}ms"
                 }
-                printMeasured("sessionDrawer", elapsed, frames)
                 device.pressBack()
                 device.waitForIdle()
             },
         )
-    }
-
-    /** 元素缺失 MUST 失败：找不到元素说明界面没到位，继续测量只会产出无意义的数字。 */
-    private fun requireElement(device: UiDevice, resourceId: String, label: String): UiObject2 {
-        val element = device.wait(Until.findObject(By.res(resourceId)), UI_TIMEOUT_MILLIS)
-        checkNotNull(element) { "未找到$label（$resourceId）" }
-        return element
-    }
-
-    /**
-     * 软件渲染的模拟器连续跑长宏基准会耗尽图形栈，任务以输出插件 EOF 崩溃，
-     * 因此每个用例前先强制停止被测应用，再等设备空闲让图形栈恢复。
-     */
-    private fun recoverEmulator(device: UiDevice) {
-        device.executeShellCommand("am force-stop $TARGET_PACKAGE")
-        device.waitForIdle(EMULATOR_IDLE_TIMEOUT_MILLIS)
     }
 
     /**
@@ -176,11 +156,6 @@ class InteractionAnimationBenchmark {
         return false
     }
 
-    /** 反复查询输入法状态直到弹出；每次 shell 调用本身已提供间隔。 */
-    private fun isImeShown(device: UiDevice) = (0 until IME_STATE_ATTEMPT_COUNT).any {
-        device.executeShellCommand("dumpsys input_method | grep mInputShown").contains(IME_SHOWN_STATE)
-    }
-
     /**
      * 收起输入法。
      *
@@ -190,12 +165,6 @@ class InteractionAnimationBenchmark {
     private fun hideIme(device: UiDevice) {
         device.pressBack()
         device.waitForIdle()
-        check(!isImeShown(device)) { "输入法未能收起，无法测量弹出动画" }
-    }
-
-    private fun elapsedMillis(block: () -> Unit): Long {
-        val start = SystemClock.elapsedRealtime()
-        block()
-        return SystemClock.elapsedRealtime() - start
+        check(isImeHidden(device)) { "输入法未能收起，无法测量弹出动画" }
     }
 }
