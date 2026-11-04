@@ -538,6 +538,45 @@ fn first_build_leaves_pending_dirty_rect_covering_all_glyphs() {
     );
 }
 
+/// 管线重建后的图集重传只覆盖缓存字形的包围盒（spec render-stability）：
+/// GPU 侧图集纹理被重建为空纹理，CPU 侧的字形像素必须重新上传——否则终端只剩
+/// 背景、无文字。但重传只该覆盖实际用到的那块：整幅图集是 2048×2048×4B =
+/// 16MB，而实际用到的字形通常只有几十 KB。
+#[test]
+fn pipeline_rebuild_reuploads_only_cached_glyph_bounds() {
+    let mut font_pipeline = ascii_font();
+    // 先取走 ASCII 预热字形的脏区，模拟「已上传」。
+    let _ = font_pipeline.take_dirty_rect();
+
+    // 模拟管线重建：GPU 侧纹理是空的，CPU 侧的字形像素还在。
+    assert!(
+        font_pipeline.reset_dirty_rect_to_cached_glyphs(),
+        "有缓存字形时必须有重传脏区"
+    );
+    let (rect_x, rect_y, rect_w, rect_h) = font_pipeline
+        .take_dirty_rect()
+        .expect("重建后必须有重传脏区");
+    let (atlas_width, atlas_height) = font_pipeline.atlas_dimensions();
+    assert!(
+        rect_w < atlas_width || rect_h < atlas_height,
+        "重传区域 ({rect_x},{rect_y} {rect_w}x{rect_h}) 不得是整幅图集 ({atlas_width}x{atlas_height})"
+    );
+    for ch in "aA0".chars() {
+        let info = font_pipeline.glyph_information(ch).expect("字形必须可解析");
+        assert!(
+            info.atlas_x as u32 >= rect_x
+                && info.atlas_y as u32 >= rect_y
+                && (info.atlas_x as u32 + info.width as u32) <= rect_x + rect_w
+                && (info.atlas_y as u32 + info.height as u32) <= rect_y + rect_h,
+            "字形 '{ch}' 区域 ({},{} {}x{}) 必须落在重传脏区 ({rect_x},{rect_y} {rect_w}x{rect_h}) 内",
+            info.atlas_x,
+            info.atlas_y,
+            info.width,
+            info.height
+        );
+    }
+}
+
 /// 重复渲染一致性（spec render-stability 1：幂等）：同一批单元格第二次
 /// 构建必须全部命中字形缓存——不产生新脏区（GPU 纹理无需更新）、实例
 /// 与首帧逐字节一致、已上传字形像素不被改写。

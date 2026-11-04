@@ -110,6 +110,47 @@ fn draw_cached_frame(
     )
 }
 
+/// 建立单元管线与图集纹理（一次性）。
+///
+/// 返回 false 表示 surface 尺寸尚未就绪（此时不建管线，等尺寸可用后再来）。
+///
+/// 管线的建立要编译着色器并分配 2048×2048 图集纹理：软件 Vulkan 上实测数十毫秒
+/// （真机 Mali 上同样以毫秒计）。这笔开销是**一次性**的，与帧内容无关。放在渲染
+/// 循环里做，首帧就得背着它，被慢帧诊断记成一次「渲染回归」——真机与模拟器每次
+/// 启动都会多出一条 SLOW_FRAME，而根因（管线建立）根本不在渲染路径上。
+///
+/// 故改由挂载路径（[`attach_window_inner`]，不在 UI 线程）主动调用一次：首帧只做
+/// 真正的绘制，慢帧诊断恢复成它本来的用途——抓稳态下的渲染回归。
+pub(super) fn ensure_cell_pipeline(render_state: &mut RenderState) -> bool {
+    if render_state.renderer.cell_pipeline.is_some() {
+        return true;
+    }
+    let (surface_width, surface_height) = render_state
+        .renderer
+        .surface_config
+        .as_ref()
+        .map_or((0, 0), |config| (config.width, config.height));
+    if surface_width == 0 || surface_height == 0 {
+        return false;
+    }
+    render_state.renderer.initialize_pipeline_and_bind_group(
+        ATLAS_SIZE,
+        ATLAS_SIZE,
+        surface_width,
+        surface_height,
+    );
+    // initialize_pipeline_and_bind_group 重建了**空的**图集纹理，而 CPU 侧的
+    // 字形缓存仍全部命中 → 没有任何字形会被重新 blit，终端只剩背景、无文字，
+    // 且不会自愈（重建路径只在 surface 格式变化时触发）。故标脏重传——只传缓存
+    // 字形的包围盒（整幅图集是 16MB，而实际用到的是几十 KB）。
+    render_state
+        .font_pipeline
+        .reset_dirty_rect_to_cached_glyphs();
+    render_state.renderer.cell_cache = None;
+    render_state.renderer.frame_invalidated = true;
+    true
+}
+
 /// 阶段 0 + 阶段 1：切会话后索要一帧，并完成渲染前准备（单次持有 `RENDER_STATE` 锁）。
 ///
 /// 返回 false 表示本帧不渲染（无渲染态、无 surface 或管线尺寸未知）。
@@ -144,28 +185,9 @@ pub(super) fn prepare_render(session_id: u64) -> bool {
     // 切会话时按会话键丢弃上一会话的搜索高亮（见 `SessionScoped`）：在阶段 1 这一次
     // 加锁内完成，两条帧路径共用同一份结论。
     render_state.search_highlights.enter_session(session_id);
-    // 惰性一次性创建管线。
-    if render_state.renderer.cell_pipeline.is_none() {
-        let (surface_width, surface_height) = render_state
-            .renderer
-            .surface_config
-            .as_ref()
-            .map_or((0, 0), |config| (config.width, config.height));
-        if surface_width == 0 || surface_height == 0 {
-            return false;
-        }
-        render_state.renderer.initialize_pipeline_and_bind_group(
-            ATLAS_SIZE,
-            ATLAS_SIZE,
-            surface_width,
-            surface_height,
-        );
-        // initialize_pipeline_and_bind_group 重建了**空的**图集纹理，而 CPU 侧的
-        // 字形缓存仍全部命中 → 没有任何字形会被重新 blit，终端只剩背景、无文字，
-        // 且不会自愈（重建路径只在 surface 格式变化时触发）。故整幅标脏重传。
-        render_state.font_pipeline.reset_dirty_rect_full();
-        render_state.renderer.cell_cache = None;
-        render_state.renderer.frame_invalidated = true;
+    // 惰性一次性创建管线（挂载路径已提前建好时此处无事可做）。
+    if !ensure_cell_pipeline(render_state) {
+        return false;
     }
     // 上传字形图集的脏区（即便在空闲帧：新光栅化的字形必须在下次绘制前抵达 GPU 纹理）。
     if let Some(rect) = render_state.font_pipeline.take_dirty_rect() {

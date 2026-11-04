@@ -350,7 +350,9 @@ impl FontPipeline {
         ));
         self.atlas_bitmap.fill(0);
         self.atlas_generation = self.atlas_generation.wrapping_add(1);
-        self.reset_dirty_rect_full();
+        // 位图已清空，只有重新光栅化的字形才有像素：脏区交给 rasterize_ascii 逐个
+        // 登记即可，不必整幅重传（整幅是 2048×2048×4B = 16MB）。
+        self.dirty_rect = None;
         self.rasterize_ascii();
     }
 

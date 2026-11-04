@@ -235,6 +235,9 @@ impl FontPipeline {
         ));
         self.atlas_bitmap.fill(0);
         self.caches.glyph_cache.clear();
+        // 重建后逐个字形重新入图集，每次入图都登记脏区：先清掉旧脏区，让脏区正好
+        // 等于重新落位的字形包围盒，而不是整幅图集（2048×2048×4B = 16MB 的白传）。
+        self.dirty_rect = None;
         for (key, _old_info) in &entries {
             let synthesis = GlyphSynthesis::from_bits(key.synthesis);
             self.glyph_information_from_font_with_synthesis(key.font_id, key.glyph_id, synthesis);
@@ -243,7 +246,6 @@ impl FontPipeline {
         // 判据是 `!=`。saturating_add 一旦停在 u64::MAX 就不再变化，于是上一代的
         // 代际会与它判为相等、缓存里的旧 UV 被当成仍然有效；回绕则永不与前一值相同。
         self.atlas_generation = self.atlas_generation.wrapping_add(1);
-        self.reset_dirty_rect_full();
     }
 
     /// 图集代际：图集内容每次变化即推进，供增量上传门控。
@@ -256,9 +258,51 @@ impl FontPipeline {
         self.dirty_rect.take()
     }
 
-    /// 把脏区重置为整幅图集（下次上传整张）。
-    pub fn reset_dirty_rect_full(&mut self) {
-        self.dirty_rect = Some((0, 0, self.atlas_width, self.atlas_height));
+    /// 把脏区重置为「已缓存字形的包围盒」（下次只上传这一块）。
+    ///
+    /// 管线重建后 GPU 侧的图集纹理是新建的空纹理，CPU 侧的字形像素却还在：此时
+    /// 必须把这些像素重新传上去，否则终端只剩背景、无文字。按整幅图集上传是
+    /// 2048×2048×4B = 16MB，而实际用到的字形通常只占图集的一小块（ASCII 一百来个
+    /// 字形约几十 KB）。故取缓存字形的包围盒，只把这块传上去。
+    ///
+    /// 返回是否需要上传：无缓存字形时图集本来就是空的，没有像素可传。
+    pub fn reset_dirty_rect_to_cached_glyphs(&mut self) -> bool {
+        let Some((min_x, min_y, width, height)) = self.cached_glyph_bounds() else {
+            self.dirty_rect = None;
+            return false;
+        };
+        self.dirty_rect = Some((min_x, min_y, width, height));
+        true
+    }
+
+    /// 已缓存字形在图集内的包围盒 `(x, y, w, h)`；无缓存字形时 None。
+    ///
+    /// 包围盒而非逐字形上传：图集分配器把字形散落在各处，逐个上传要发很多次
+    /// `write_texture`，而一次包围盒上传即可覆盖全部存活字形。
+    fn cached_glyph_bounds(&self) -> Option<(u32, u32, u32, u32)> {
+        let mut min_x = u32::MAX;
+        let mut min_y = u32::MAX;
+        let mut max_x = 0u32;
+        let mut max_y = 0u32;
+        let mut found = false;
+        for (_, info) in self.caches.glyph_cache.iter() {
+            if info.width <= 0 || info.height <= 0 {
+                continue;
+            }
+            let x = u32::try_from(info.atlas_x).unwrap_or(0);
+            let y = u32::try_from(info.atlas_y).unwrap_or(0);
+            let right = x.saturating_add(u32::try_from(info.width).unwrap_or(0));
+            let bottom = y.saturating_add(u32::try_from(info.height).unwrap_or(0));
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(right);
+            max_y = max_y.max(bottom);
+            found = true;
+        }
+        if !found {
+            return None;
+        }
+        Some((min_x, min_y, max_x - min_x, max_y - min_y))
     }
 
     /// 字形缓存条目数。

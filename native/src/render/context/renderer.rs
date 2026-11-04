@@ -751,6 +751,7 @@ impl Renderer {
         config_width: u32,
         config_height: u32,
     ) {
+        let started = std::time::Instant::now();
         let format = self
             .surface_config
             .as_ref()
@@ -771,13 +772,16 @@ impl Renderer {
             config_height as f32,
         );
 
+        // 记下耗时：着色器编译与图集分配是一次性开销，把它挪出渲染循环后，
+        // 这笔账就得挂在这里才看得见（否则只是从「慢帧」挪成了「无影无踪」）。
         log::info!(
-            "initialize_pipeline_and_bind_group: pipeline={} atlas={}x{} surface={}x{}",
+            "initialize_pipeline_and_bind_group: pipeline={} atlas={}x{} surface={}x{} elapsed={:.3}ms",
             self.cell_pipeline.is_some(),
             atlas_width,
             atlas_height,
             config_width,
             config_height,
+            started.elapsed().as_secs_f64() * 1000.0,
         );
     }
 }

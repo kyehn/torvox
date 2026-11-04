@@ -113,6 +113,22 @@ unsafe fn attach_window_inner(
     ) {
         Ok(()) => {
             ATTACHED_SESSION_ID.store(session_id, std::sync::atomic::Ordering::Release);
+            // 立刻建好单元管线：着色器编译与 2048×2048 图集分配是**一次性**开销，
+            // 放在挂载路径（IO 调度器线程，不占 UI 线程）而不是渲染循环里，首帧就
+            // 不必背着它——否则慢帧诊断每次启动都会记一条假的「渲染回归」。
+            // 尺寸未知时推迟到尺寸就绪后由渲染路径补建（见 `ensure_cell_pipeline`）。
+            match state.as_mut() {
+                Some(render_state) => {
+                    if !super::frame::ensure_cell_pipeline(render_state) {
+                        log::warn!(
+                            "FFI: attachWindow — surface 尺寸未知，单元管线推迟到尺寸就绪后建立"
+                        );
+                    }
+                }
+                None => {
+                    log::error!("FFI: attachWindow — render state missing，单元管线无法建立");
+                }
+            }
             log::info!("FFI: attachWindow surface attached (session {session_id})");
         }
         Err(error) => {
