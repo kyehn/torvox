@@ -16,5 +16,9 @@
 
 ## 3. 规范同步
 
-- [ ] 3.1 归档本变更，使 `openspec/specs/termux-configuration` 的「启动时的软键盘」条款
+- [x] 3.1 归档本变更，使 `openspec/specs/termux-configuration` 的「启动时的软键盘」条款
       反映新默认值；验证 `openspec validate --all --strict` 全绿
+      —— 2026-11-04 复核：本变更已归档；`openspec/specs/termux-configuration/spec.md`
+      的「启动时的软键盘」条款写明 `hide-soft-keyboard-on-startup` MUST 默认为 `false`
+      （与上游同值），并配「默认启动」「要求启动即弹」「明确要求启动不弹」三条场景；
+      `openspec validate --all --strict` 48 项全绿。

@@ -67,5 +67,11 @@
 
 ## 遗留
 
-- [ ] `PROHIBITED.md` 中「禁止解析 termux.properties/colors.properties」与现状冲突，
+- [x] `PROHIBITED.md` 中「禁止解析 termux.properties/colors.properties」与现状冲突，
       属受保护文件，待用户决定是否删除该条（已记入 `docs/termux-config-review.md`）
+      —— 2026-11-04 复核：冲突已由后续变更消解，受保护文件无需再动。
+      `PROHIBITED.md` 的「配置文件」条目现只禁 `colors.properties` 与 `termux.float.properties`，
+      两者至今都没有读取路径（`prohibited-features` 与 `termux-configuration` 两份常驻
+      spec 均如此声明，代码中亦无解析入口）；`termux.properties` 不在禁列，其解析能力
+      按 `termux-configuration` 落地。现状与禁条一致。
+      另：此处引用的 `docs/termux-config-review.md` 在仓库中并不存在，该指针已失效。

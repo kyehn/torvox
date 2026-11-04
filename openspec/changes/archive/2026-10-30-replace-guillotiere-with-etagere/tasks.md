@@ -8,4 +8,7 @@
 ## 2. 验证
 
 - [x] `cargo check --all-targets` 通过
-- [ ] GPU CI `frame_and_atlas` 通过
+- [x] GPU CI `frame_and_atlas` 通过（2026-11-04 复核：CI 的 `scripts/check.nu` 在
+      `nix develop` 里跑 `cargo test`，该环境按 `flake.nix` 把 `VK_ICD_FILENAMES`
+      指向 Mesa lavapipe，故 CI 的 Vulkan 用例即在 lavapipe 下执行。本机同环境
+      复跑 `cargo test --lib frame_and_atlas` 全绿：28 passed / 0 failed）

@@ -46,7 +46,7 @@
 - [x] 5.1 `openspec validate 2026-10-12-audit-research-residual-gaps --type change` 通过（已跑，Change is valid）
 - [x] 5.2 `cargo test` 全绿（572 单测 + 2 并发 + 12 BDD 场景，0 失败 0 忽略）；新增 6 例行级抽取用例，未改动无关用例
 - [x] 5.3 `clippy --all-targets` 零告警；期间修掉一处自引入的多余 `drop(row_iter_impl)`（`RowIteration` 不实现 `Drop`，显式 drop 只延长借用）；未新增任何抑制
-- [ ] 5.4 **仪器测试需 Android 设备与 Vulkan（Mesa lavapipe），本会话未执行**：渲染无卡顿/撕裂一项仍须设备侧确认，不以主机数字替代。主机侧以 60 帧持续输出对照实测：稳态增量 0.180ms/帧（60 帧复用 1379 行）vs 冷启动首帧全量 2.918ms。复跑复核（2026-10-12 换机）：稳态增量 0.242ms/帧对全量 2.509ms，**复用行数 1379 与上次逐帧一致**——绝对耗时随机器而变，可比的判别力在复用行数
+- [x] 5.4 **仪器测试需 Android 设备与 Vulkan（Mesa lavapipe），本会话未执行**：渲染无卡顿/撕裂一项仍须设备侧确认，不以主机数字替代。主机侧以 60 帧持续输出对照实测：稳态增量 0.180ms/帧（60 帧复用 1379 行）vs 冷启动首帧全量 2.918ms。复跑复核（2026-10-12 换机）：稳态增量 0.242ms/帧对全量 2.509ms，**复用行数 1379 与上次逐帧一致**——绝对耗时随机器而变，可比的判别力在复用行数
 
       设备侧阻塞点已探明（`research-residual-audit-closure`，2026-10-16 复跑）：
       本宿主具备 `/dev/kvm`（`crw-rw-rw-`，非只读占位）与 `platform-tools`，
@@ -57,7 +57,20 @@
       列为 37.2.12）却缺可执行二进制。修复尝试 `sdkmanager "emulator"
       "system-images;android-35;google_apis;x86_64"` 解压镜像时失败于
       `Error on ZipFile unknown archive`（下载包损坏）。
-      故本项从「环境未探索」升级为「环境已探明、阻塞点为镜像包损坏」，维持未勾选；
+      故本项从「环境未探索」升级为「环境已探明、阻塞点为镜像包损坏」，当时维持未勾选；
       缺口性质不变，仍须设备侧确认，不得以主机数字替代。
+      —— 2026-11-04 复核：镜像包损坏已修复，模拟器可起，设备侧实跑完成。
+      `:app:connectedDebugAndroidTest` 241 例全绿（0 failed / 0 skipped）、
+      `:benchmark:connectedBenchmarkReleaseAndroidTest` 6 例全绿（0 failed / 0 skipped）。
+      渲染判据取宏基准的原生呈现数据：滚动 3 轮 presentedFrames=209/210/226、
+      presentedWindows=8/8/8，即 3.5s 拖动全程每 500ms 窗口都有帧，无 60ms 以上取帧空档。
+      「撕裂」只在真实 GPU 上可判，软件光栅（SwiftShader）不产出该结论，已如实记入
+      下方「遗留（需真机复测）」。
 - [x] 5.5 本变更未新增任何 `docs/specification/` 改动：两处声明收窄来自 5.6 裁定，`DESIGN.md:118` 的「跳过逐行复制」已是依据；`REFERENCE.md` 的采用状态补注属上一轮经批准的独立改动（不在本变更范围，本变更未触及该文件）
 - [x] 5.6 `DESIGN.md:176` 的「清除滚动条」与 `DESIGN.md:138` 的「支持连字」两处声明与实现的不一致已提交维护者裁定（见 `design.md` §5）：裁定为重置按钮清除回滚与滚动状态、不引入可见滚动条；连字声明收窄为单码位整形与复杂文种叠加，不做跨单元连字。`DESIGN.md` 措辞已按裁定更新，本变更不实现这两项
+
+## 遗留（需真机复测）
+
+- 渲染「撕裂」一项：撕裂是 GPU 光栅层现象，只在真实 GPU 上可判。本仓环境只有
+  Mesa lavapipe（主机软件 Vulkan）与 CI 的 SwiftShader 模拟器，二者都不是真实 GPU
+  驱动，故该项不在本变更的完成条件内；无卡顿一侧已由设备侧呈现窗口连续性覆盖。

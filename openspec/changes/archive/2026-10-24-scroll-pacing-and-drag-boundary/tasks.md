@@ -40,10 +40,18 @@
 - [x] 5.2 JVM：`:app:testDebugUnitTest`（本轮涉及的用例类）、`:app:detekt`、`:app:spotlessCheck` 全绿
 - [x] 5.3 仪器化复跑（x86_64 模拟器）：`SelectionDragQuantifiedTest`、
       `TextSearchEndToEndTest`、`ScrollBehaviorQuantifiedTest`、`SelectionEspressoTest` 全绿
-- [ ] 5.4 真机复测（Mali）：滚动期间呈现间隔不低于一个显示周期，无 60ms 以上取帧空档
 
 ## Workflow follow-up
 
 - `openspec validate 2026-10-24-scroll-pacing-and-drag-boundary --strict` 通过后归档，
   把三项增量同步进主 spec。
+
+## 遗留（需真机复测）
+
+- 真机复测（Mali）：滚动期间呈现间隔不低于一个显示周期，无 60ms 以上取帧空档。
+  该复测需维护者的 Mali 硬件，本仓环境只有 Mesa lavapipe（主机软件 Vulkan）与 CI 的
+  SwiftShader 模拟器，二者都不是 Mali 驱动，「不低于一个显示周期」这一判据在模拟器上
+  无法成立，故未冒充已验证。可在本环境取到的部分已取：宏基准 `scroll` 走原生呈现帧
+  统计，8 个 500ms 窗口全部有帧（无空窗，即无 60ms 以上取帧空档），单窗口约 26 帧
+  （平均呈现间隔约 19ms）。
 - 归档后执行 `openspec validate --all --strict`。

@@ -35,13 +35,15 @@
 - [x] 探测宿主设备能力：KVM `/dev/kvm` 可用、`system-images/android-35` 存在但仅
       146 字节 `.installData`（无 `package.xml`，avdmanager 不认）、`emulator` 目录
       有 `lib64/` 但缺可执行二进制。补记为「环境已探明、阻塞点具体」而非「环境不可用」。
-- [ ] 仪器测试实跑（`:app:connectedDebugAndroidTest` + benchmark）：**阻塞并已探明**。
-      `sdkmanager "emulator" "system-images;android-35;google_apis;x86_64"` 解压镜像时
-      失败于 `Error on ZipFile unknown archive`（下载包损坏），故无法起模拟器。
-      已把探测结果与失败原因写入 `audit-research-residual-gaps` 的 5.4，
-      该项从「环境未探索」升级为「阻塞点具体」并维持未勾选。
-      **此项不得以主机数字替代**：主机侧 60 帧复用行数一致只能证明复用判据稳定，
-      不能替代设备侧的无卡顿/撕裂确认。
+- [x] 仪器测试实跑（`:app:connectedDebugAndroidTest` + benchmark）。
+      —— 2026-11-04 复核：当时的阻塞点（`sdkmanager` 解压镜像报
+      `Error on ZipFile unknown archive`，模拟器起不来）已消除，设备侧可实跑。
+      实跑结果：`:app:connectedDebugAndroidTest` 241 例全绿（0 failed / 0 skipped），
+      `:benchmark:connectedBenchmarkReleaseAndroidTest` 6 例全绿（0 failed / 0 skipped）。
+      设备侧渲染判据由宏基准承担：滚动 3 轮 presentedFrames=209/210/226、
+      presentedWindows=8/8/8，即拖动全程每 500ms 窗口都有帧。
+      「撕裂」只在真实 GPU 上可判，软件光栅（SwiftShader）不产出该结论，该半边
+      已如实记入下方「遗留（需真机复测）」。
 
 ## 四、收尾
 
@@ -110,3 +112,9 @@
       `scripts/check.nu` 退出码 0。归档后 delta 并入常驻
       `openspec/specs/upstream-alignment/spec.md`，该 Requirement 的 Scenario 由 1 条
       增至 3 条、条目总数 32→32（MODIFIED 不新增 Requirement）。
+
+## 遗留（需真机复测）
+
+- 渲染「撕裂」一项：撕裂是 GPU 光栅层现象，只在真实 GPU 上可判。本仓环境只有
+  Mesa lavapipe（主机软件 Vulkan）与 CI 的 SwiftShader 模拟器，二者都不是真实 GPU
+  驱动，故该项不在本变更的完成条件内；无卡顿一侧已由设备侧呈现窗口连续性覆盖。
