@@ -626,3 +626,44 @@ fn atlas_defrag_recovers_from_full_atlas() {
         "atlas should have content after defrag"
     );
 }
+
+/// 回归钉：全库扫描的结论必须被记住——同一个码位只扫一次全库。
+///
+/// `find_glyph_anywhere` 要遍历 fontdb 全部 face 并逐个 `with_face_data` 重建
+/// charmap，是毫秒级开销。没装 CJK 回退层时（设备上「主字体已覆盖 CJK」即走
+/// 这条路）全库扫描是唯一出路，而扫描结论原先只写进 `cjk_glyph_cache`——那张表
+/// 恰恰在「没装回退层」时不被读，于是同一个码位每出现一次就重扫一次。
+/// 真机实测：同一个 U+23CE 被扫了 9 次，单帧构建因此多花 128ms。
+///
+/// 判别力：数扫描次数（`scan_count`），而不只是看缓存里有没有键——「记了」与
+/// 「没重扫」是两回事，后者才是这条回归钉要钉住的行为。
+#[test]
+fn database_scan_conclusion_is_reused_for_the_same_codepoint() {
+    let mut pipeline = FontPipeline::new(512, 512, 14.0);
+    assert!(
+        pipeline.set_font_family("Liberation Mono", &[]),
+        "switch to Liberation Mono"
+    );
+    // 前置：本用例走的是「全库扫描」这条路——主字体不覆盖该符号，且没有回退层。
+    pipeline.cjk_fallback_ids.clear();
+    let primary = pipeline.font_id.expect("primary font");
+    let symbol = '▶';
+    assert!(
+        !crate::render::font::font_db::face_covers(pipeline.font_system.db(), primary, symbol),
+        "前置：主字体必须不覆盖该符号，否则走不到全库扫描"
+    );
+
+    pipeline.glyph_information(symbol);
+    assert_eq!(pipeline.scan_count, 1, "第一次解析必须扫一次全库");
+    assert!(
+        pipeline.caches.cjk_glyph_cache.contains(&symbol),
+        "扫描结论必须入解析结论缓存"
+    );
+
+    pipeline.glyph_information(symbol);
+    assert_eq!(pipeline.scan_count, 1, "同一码位再次解析不得重扫全库");
+
+    // 合成运行（粗体）用的是同一个字形号：结论表与样式无关，同样不得重扫。
+    pipeline.glyph_information_styled(symbol, true, false);
+    assert_eq!(pipeline.scan_count, 1, "合成运行同样不得重扫全库");
+}

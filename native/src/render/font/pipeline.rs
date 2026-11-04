@@ -126,6 +126,11 @@ pub struct FontPipeline {
     /// fontdb 的库只增不删：同一路径的字体文件被替换后旧面仍留在库里，
     /// 按族名扫库取首个会选回旧面（用户看到「换了字体却不生效」）。
     pub(crate) user_font_faces: std::collections::HashMap<String, fontdb::ID>,
+    /// 全库扫描次数（仅测试用）：`find_glyph_anywhere` 要遍历库里每个面并逐个
+    /// `with_face_data` 重建 charmap，是毫秒级开销。回归钉要能「数」它，
+    /// 否则只能断言缓存里有某个键——那只证明「记了」，证不了「没重扫」。
+    #[cfg(test)]
+    pub(crate) scan_count: u64,
 }
 
 /// 字形位图在单元格内的竖向定位：返回 `(bearing_y, raw_bearing_y)`。
@@ -308,6 +313,8 @@ impl FontPipeline {
             shaping_buffer: None,
             raster_scale: 1.0,
             user_font_faces: std::collections::HashMap::new(),
+            #[cfg(test)]
+            scan_count: 0,
         };
 
         if pipeline.font_id.is_none() {
@@ -679,14 +686,26 @@ impl FontPipeline {
             return Some(info);
         }
 
-        // ── CJK 缓存：已解析过的字跳过 swash 与回退 ──
-        // 合成时不用：缓存的 (字体, 字形) 是按常规样式解析的，不适用于样式运行。
-        // 不按码点设限：回退与全库扫描的写入本就不设限，符号字形同样受益；
-        // 缓存是有界 LRU，不会无界增长。
-        if !synthesized
-            && has_cjk_fallback
-            && let Some(&(cached_font_id, cached_glyph_id)) = self.caches.cjk_glyph_cache.get(&ch)
-            && let Some(info) = self.lookup_glyph(cached_font_id, cached_glyph_id, synthesis)
+        // ── 解析结论缓存：已解析过的码位直接用结论 ──
+        // 缓存记的是「这个码位由哪个面的哪个字形解析」——**与样式无关**：粗体/斜体
+        // 是对光栅化后的遮罩做的后处理，用的还是同一个字形号。故读写都不看粗斜，
+        // 光栅化按当前样式现做（`glyph_information_from_font_with_synthesis`）。
+        //
+        // 也不看「装没装 CJK 回退层」：回退层只是解析途径之一，而这张表记的是
+        // **结论**。原先把读取挂在 `has_cjk_fallback` 上，而没装回退层时（设备上
+        // 「主字体已覆盖 CJK」即走这条路）全库扫描是唯一出路——扫描结论只写进
+        // 这张表、却不被读，于是同一个码位每出现一次就重扫一遍全库。真机实测：
+        // 同一个 U+23CE 被扫了 9 次，单帧构建因此多花 128ms。
+        //
+        // 字形号 0 一律不走：`.notdef` 是非空的空心方框，一旦入缓存，
+        // 「主字体没有这个码位」就会被当成已解析，整条回退链被跳过。
+        if let Some(&(cached_font_id, cached_glyph_id)) = self.caches.cjk_glyph_cache.get(&ch)
+            && cached_glyph_id != 0
+            && let Some(info) = self.glyph_information_from_font_with_synthesis(
+                cached_font_id,
+                cached_glyph_id,
+                synthesis,
+            )
         {
             return Some(info);
         }
@@ -764,18 +783,24 @@ impl FontPipeline {
                         result.width,
                         result.height,
                     );
-                    if !synthesized {
-                        self.caches.cjk_glyph_cache.put(ch, (fallback_id, fid));
-                    }
+                    // 结论与样式无关（同一个字形号，粗斜是光栅化时的后处理），
+                    // 故合成运行也记：否则粗体文本里的同一个码位每帧都要重走
+                    // 整条链。
+                    self.caches.cjk_glyph_cache.put(ch, (fallback_id, fid));
                     return Some(result);
                 }
             }
-            // 链尾的全库扫描（spec d7：以全字体库扫描结束）。结果进
-            // cjk_glyph_cache，故每个字只跑一次。
+            // 链尾的全库扫描（spec d7：以全字体库扫描结束）。
             //
-            // 已知解析不出的码位直接跳过扫描：`find_glyph_anywhere` 要遍历 fontdb
-            // 全部 face 并逐个 `with_face_data` 解压字体，罕见汉字（设备未装对应
-            // CJK 字体）每次脏行重建都要付一次。跳过后照常落到下方主字体回退，由
+            // 结论必须缓存：`find_glyph_anywhere` 要遍历 fontdb 全部 face 并逐个
+            // `with_face_data` 重建 charmap，代价是毫秒级；而没装 CJK 回退层时
+            // （设备上「主字体已覆盖 CJK」即走这条路）全库扫描是唯一出路，不缓存
+            // 就等于同一个码位每出现一次重扫一次——真机实测 U+23CE 被扫了 9 次，
+            // 单帧构建因此多花 128ms。结论写进与样式无关的「解析结论缓存」
+            // （见函数开头），故粗体/斜体文本同样不再重扫。
+            //
+            // 已知解析不出的码位直接跳过扫描：罕见汉字（设备未装对应 CJK 字体）
+            // 每次脏行重建都要付一次扫描代价。跳过后照常落到下方主字体回退，由
             // .notdef 出图——与扫描失败时的可见结果完全一致，只是省掉了扫描。
             if !self.caches.unresolvable_glyphs.contains(&ch)
                 && let Some((scan_id, scan_gid)) = self.find_glyph_anywhere(ch)
@@ -784,9 +809,7 @@ impl FontPipeline {
                 && result.width > 0
                 && result.height > 0
             {
-                if !synthesized {
-                    self.caches.cjk_glyph_cache.put(ch, (scan_id, scan_gid));
-                }
+                self.caches.cjk_glyph_cache.put(ch, (scan_id, scan_gid));
                 return Some(result);
             }
             // 负缓存与合成无关：`find_glyph_anywhere` 只回答「库里有哪个面能解析
@@ -798,7 +821,11 @@ impl FontPipeline {
         // ── 回退到主字体 ────────────────────────────────────────────────────
         let result =
             self.glyph_information_from_font_with_synthesis(primary_font_id, glyph_id, synthesis)?;
-        if !synthesized && code_point >= CJK_IDEOGRAPHIC_START {
+        // 只记真字形：字形号 0 是 .notdef（空心方框），记进去会让后续命中缓存时
+        // 直接返回豆腐块，把本该由回退层/全库扫描给出的真字形顶掉。
+        // 私用区同样不记：那里的主字体字形多半也是 .notdef，而私用区的正解在
+        // 回退链/全库扫描那边（上面的分支已经先走过一遍）。
+        if code_point >= CJK_IDEOGRAPHIC_START && glyph_id != 0 && !is_nerd_private_use {
             self.caches
                 .cjk_glyph_cache
                 .put(ch, (primary_font_id, glyph_id));

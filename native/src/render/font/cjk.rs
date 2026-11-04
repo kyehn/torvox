@@ -137,6 +137,10 @@ impl FontPipeline {
     }
 
     pub(crate) fn find_glyph_anywhere(&mut self, ch: char) -> Option<(fontdb::ID, u16)> {
+        #[cfg(test)]
+        {
+            self.scan_count += 1;
+        }
         let primary = self.font_id?;
         let font_database = self.font_system.db();
         let mut candidates: Vec<(fontdb::ID, u16)> = Vec::new();

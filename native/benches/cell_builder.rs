@@ -62,11 +62,14 @@ fn build_instances(c: &mut Criterion) {
     };
 
     // 下限断言：只兜住数量级退化（逐格重建字体、O(n²) 查表），不判绝对快慢。
-    // 上限必须按 **CI 实测**校准：CI runner（2 核慢 CPU）上全量重建 1920 格的
-    // 稳态实测约 750ms，与开发机相差一个数量级，按本地体感拍的 50ms 永远判红。
-    // 2s = 实测的 ~2.7 倍余量，仍能挡住 O(n²)（那将是 50 倍以上的崩塌）。
-    // CI 实测 878ms（[floor] 输出），1.5 倍余量；超出说明网格重建明显劣化。
-    support::Floor::new("build_instances_from_cell_data", 1300.0).assert_within(16, || {
+    //
+    // 上限按 **CI 实测**校准（CI runner 2 核，比开发机慢一截）。修掉「全库扫描
+    // 结论没被复用」那个缺陷前，本用例稳态就要 750ms（CI 878ms）——那不是构建器
+    // 的成本，是同一个码位每格重扫一遍全库。修复后本地实测 0.26ms（[floor] 输出），
+    // 按 CI 约 3 倍估 0.8ms，取 25 倍余量 = 20ms：
+    //  - 回归到「每格重扫全库」是 740ms 量级，必然判红；
+    //  - 25 倍余量足以吸收 CI 调度抖动与字体集差异。
+    support::Floor::new("build_instances_from_cell_data", 20.0).assert_within(16, || {
         let mut instances = Vec::new();
         let config = CellInstanceConfig {
             rows,

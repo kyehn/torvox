@@ -2,7 +2,7 @@
 //!
 //! 开发期分析用（`cargo bench --manifest-path native/Cargo.toml -p native --bench cjk_resolve`）：
 //! 机器字体环境不同，绝对数值不可比，只看同机前后对比。**仍带下限断言**——
-//! 热路径单字解析本该是纳秒级，超过 20ms/行说明缓存已失效或每字都在全库扫描。
+//! 热路径单字解析本该是纳秒级，超过 1ms/行说明缓存已失效或每字都在全库扫描。
 
 mod support;
 
@@ -21,8 +21,13 @@ fn cjk_resolve_steady_state(criterion: &mut Criterion) {
     for glyph in &line {
         pipeline.glyph_information(*glyph);
     }
-    // CI 实测 18.7ms（[floor] 输出），1.5 倍余量；超出说明 CJK 逐行解析明显劣化。
-    support::Floor::new("cjk_resolve_warm_per_line", 28.0).assert_within(256, || {
+    // 上限按 **CI 实测**校准。这条基准的稳态成本原先是 18.7ms/行（CI [floor] 输出），
+    // 那是「解析结论没被复用」那个缺陷的代价——同一行汉字每解析一个字就重扫一遍
+    // 全库。修复后本地实测 0.0005ms/行（[floor] 输出），按 CI 约 3 倍估 0.002ms，
+    // 取 500 倍余量 = 1ms：
+    //  - 回归到「每字重扫全库」是 18.7ms 量级，必然判红；
+    //  - 500 倍余量足以吸收 CI 调度抖动。
+    support::Floor::new("cjk_resolve_warm_per_line", 1.0).assert_within(256, || {
         for glyph in &line {
             black_box(pipeline.glyph_information(black_box(*glyph)));
         }
