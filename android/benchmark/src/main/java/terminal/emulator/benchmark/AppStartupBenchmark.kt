@@ -49,6 +49,7 @@ class AppStartupBenchmark {
                     startActivityAndWait()
                     assertTerminalVisible(device)
                 }
+                printMeasured("coldStart", elapsed, null)
                 check(elapsed <= COLD_START_BUDGET_MILLIS) {
                     "冷启动到终端可用耗时 ${elapsed}ms 超过预算 ${COLD_START_BUDGET_MILLIS}ms"
                 }
@@ -74,6 +75,7 @@ class AppStartupBenchmark {
                     startActivityAndWait()
                     assertTerminalVisible(device)
                 }
+                printMeasured("warmStart", elapsed, null)
                 check(elapsed <= WARM_START_BUDGET_MILLIS) {
                     "热启动到终端可用耗时 ${elapsed}ms 超过预算 ${WARM_START_BUDGET_MILLIS}ms"
                 }

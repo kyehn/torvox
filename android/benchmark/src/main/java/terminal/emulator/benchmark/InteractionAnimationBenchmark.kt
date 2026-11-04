@@ -17,13 +17,6 @@ private const val IME_STATE_ATTEMPT_COUNT = 10
 private const val EMULATOR_IDLE_TIMEOUT_MILLIS = 2_000L
 private const val IME_SHOWN_STATE = "mInputShown=true"
 
-/** 帧数读取在 0 帧时的重试次数与间隔：覆盖软件渲染的一个 vsync 帧时间。 */
-private const val FRAME_READ_ATTEMPT_COUNT = 3
-private const val FRAME_READ_RETRY_MILLIS = 300L
-
-/** `dumpsys gfxinfo` 的帧计数行。 */
-private val FRAME_COUNT_PATTERN = Regex("Total frames rendered: (\\d+)")
-
 /** 等修饰键状态生效的上限。 */
 private const val SELECTION_TIMEOUT_MILLIS = 3_000L
 
@@ -64,8 +57,8 @@ class InteractionAnimationBenchmark {
                     device.waitForIdle()
                 }
                 val frames = readFrameStatsAfterRender(device)
-                check(frames >= MIN_ANIMATION_FRAME_COUNT) {
-                    "修饰键按下反馈未产生帧：frames=$frames"
+                check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
+                    "修饰键按下反馈未产生帧：frames=${frames.frames}"
                 }
                 check(elapsed <= INTERACTION_BUDGET_MILLIS) {
                     "修饰键按下反馈耗时 ${elapsed}ms 超过预算 ${INTERACTION_BUDGET_MILLIS}ms"
@@ -73,6 +66,7 @@ class InteractionAnimationBenchmark {
                 check(waitForSelected(device, CONTROL_KEY_RESOURCE_ID, SELECTION_TIMEOUT_MILLIS)) {
                     "点击 CTRL 后应进入粘滞修饰状态"
                 }
+                printMeasured("modifierKeyPress", elapsed, frames)
                 // 复位粘滞态，别把 Once 态留给下一次迭代。
                 device.findObject(By.res(CONTROL_KEY_RESOURCE_ID))?.click()
                 device.waitForIdle()
@@ -106,12 +100,13 @@ class InteractionAnimationBenchmark {
                     device.waitForIdle()
                 }
                 val frames = readFrameStatsAfterRender(device)
-                check(frames >= MIN_ANIMATION_FRAME_COUNT) {
-                    "IME 弹出未产生帧：frames=$frames"
+                check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
+                    "IME 弹出未产生帧：frames=${frames.frames}"
                 }
                 check(elapsed <= INTERACTION_BUDGET_MILLIS) {
                     "IME 弹出耗时 ${elapsed}ms 超过预算 ${INTERACTION_BUDGET_MILLIS}ms"
                 }
+                printMeasured("imeShow", elapsed, frames)
             },
         )
     }
@@ -135,12 +130,13 @@ class InteractionAnimationBenchmark {
                     requireElement(device, SESSION_DRAWER_RESOURCE_ID, "会话抽屉")
                 }
                 val frames = readFrameStatsAfterRender(device)
-                check(frames >= MIN_ANIMATION_FRAME_COUNT) {
-                    "会话抽屉展开未产生帧：frames=$frames"
+                check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
+                    "会话抽屉展开未产生帧：frames=${frames.frames}"
                 }
                 check(elapsed <= INTERACTION_BUDGET_MILLIS) {
                     "会话抽屉展开耗时 ${elapsed}ms 超过预算 ${INTERACTION_BUDGET_MILLIS}ms"
                 }
+                printMeasured("sessionDrawer", elapsed, frames)
                 device.pressBack()
                 device.waitForIdle()
             },
@@ -195,35 +191,6 @@ class InteractionAnimationBenchmark {
         device.pressBack()
         device.waitForIdle()
         check(!isImeShown(device)) { "输入法未能收起，无法测量弹出动画" }
-    }
-
-    /** 清零被测应用的帧计数，让随后的读数只覆盖本次交互。 */
-    private fun resetFrameStats(device: UiDevice) {
-        device.executeShellCommand("dumpsys gfxinfo $TARGET_PACKAGE reset")
-    }
-
-    /** 读取被测应用自上次清零以来渲染的帧数；读不到时按 0 处理，交给断言判失败。 */
-    private fun readFrameStats(device: UiDevice): Int {
-        val output = device.executeShellCommand("dumpsys gfxinfo $TARGET_PACKAGE")
-        return FRAME_COUNT_PATTERN.find(output)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-    }
-
-    /**
-     * 等动画帧落地后再读帧数。
-     *
-     * [device.waitForIdle] 只等输入/事件队列空闲，而交互反馈帧由 Choreographer 在
-     * 其后的 vsync 上产出；`dumpsys` 的 shell 往返快于首帧落地时（软件渲染模拟器一帧
-     * 可达数百毫秒），真实跑过的动画会被记成 0 帧——CI 实测同一用例上一轮通过、
-     * 下一轮 frames=0，正是这个竞态。0 帧时按 vsync 周期短暂重读；重试耗尽仍为 0
-     * 才交给断言判失败（动画真的没跑时依然拦得住）。
-     */
-    private fun readFrameStatsAfterRender(device: UiDevice): Int {
-        repeat(FRAME_READ_ATTEMPT_COUNT) { attempt ->
-            val frames = readFrameStats(device)
-            if (frames > 0) return frames
-            if (attempt < FRAME_READ_ATTEMPT_COUNT - 1) SystemClock.sleep(FRAME_READ_RETRY_MILLIS)
-        }
-        return 0
     }
 
     private fun elapsedMillis(block: () -> Unit): Long {

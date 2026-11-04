@@ -35,6 +35,13 @@ internal const val WARM_START_BUDGET_MILLIS = 3_000L
 internal const val INTERACTION_BUDGET_MILLIS = 4_000L
 
 /**
+ * 回滚区填满后上滑、下滑各一次（含事件队列等待）的粗粒度上限，同样只拦
+ * 「卡死级」回归。滚动是连续出帧的重活，软件渲染上单次手势就是数百毫秒级，
+ * 初值取得宽松；`printMeasured` 落进 CI 的实测值出来后按基准收紧。
+ */
+internal const val SCROLL_BUDGET_MILLIS = 10_000L
+
+/**
  * 交互动画至少要出帧。
  *
  * 0 帧说明交互没有产生任何绘制（界面没动，指标测到的只是静止画面）。下限 MUST 取 1，
