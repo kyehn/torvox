@@ -12,7 +12,7 @@ fn probe_font_file() -> std::path::PathBuf {
         .find_map(|face| {
             super::face_source_path(face)
                 .filter(|path| path.is_file())
-                .map(|path| path.to_path_buf())
+                .map(std::path::Path::to_path_buf)
         })
         .expect("宿主字体库须有可加载的字体文件（run inside nix develop）")
 }
@@ -40,7 +40,7 @@ fn region_family_missing_until_loaded() {
     let mut font_database = fontdb::Database::new();
     assert_eq!(
         super::missing_region_fallback_faces(&font_database, &families, "zh-CN"),
-        vec![(filename.clone(), 2)],
+        vec![(filename, 2)],
         "库在 locale 之前定型时区域族必须报为缺失，否则 zh-CN 用户无 CJK 可用"
     );
 
@@ -403,7 +403,7 @@ fn parse_fonts_xml_accepts_hyphenated_monospace_family_names() {
 }
 
 /// 真机 测试设备 / Android 13 的 `fonts.xml` 结构：等宽族必须仍以
-/// DroidSansMono 打头（主字体选择据此 stem 匹配，改动顺序即改渲染字形），
+/// `DroidSansMono` 打头（主字体选择据此 stem 匹配，改动顺序即改渲染字形），
 /// 而 zh-Hans 必须以常规字重的 Sans 面打头且不含 `fallbackFor="serif"` 的 Serif 面。
 ///
 /// 片段逐条摘自真机 `fonts.xml`：等宽族只一个 `DroidSansMono.ttf`，`serif-monospace`
@@ -412,7 +412,7 @@ fn parse_fonts_xml_accepts_hyphenated_monospace_family_names() {
 ///
 /// 这份结构还决定真机 SIGABRT 会不会发生：真机 14 个族共声明 37 个文件，其中 7 个
 /// 在 `/system/fonts/` 里并不存在（`DancingScript-Regular.ttf` 与 OEM 的
-/// RedMagic/ICN ZDigit 系列）。但等宽族声明非空，所以
+/// RedMagic/ICN `ZDigit` 系列）。但等宽族声明非空，所以
 /// `resolve_system_monospace_files` 绝不会走「fonts.xml 不可用」的 fatal；
 /// 历史崩溃来自「声明的文件装不进库就按 fonts.xml 解析失败处理」的旧口径，
 /// 已由 2026-10-01 的降级梯次变更修掉。本用例把「等宽目标非空」这个前置条件钉住。

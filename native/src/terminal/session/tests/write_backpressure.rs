@@ -56,8 +56,8 @@ fn pty_write_does_not_hold_the_session_lock() {
     let session = Arc::new(std::sync::Mutex::new(
         Session::with_pty_for_test(
             Box::new(BlockingPty {
-                entered: entered.clone(),
-                released: released.clone(),
+                entered: Arc::clone(&entered),
+                released: Arc::clone(&released),
             }) as Box<dyn Pty>,
             24,
             80,
@@ -227,7 +227,7 @@ fn child_pid_stays_readable_while_a_write_holds_the_master_lock() {
 
     let (mut pty, _handle) = MockPty::new(24, 80);
     let gate = WriteGate::new();
-    pty.gate_writes(gate.clone());
+    pty.gate_writes(Arc::clone(&gate));
     let master = PtyMaster::new(Box::new(pty), Arc::new(AtomicBool::new(false)));
 
     let writer = {
@@ -242,7 +242,7 @@ fn child_pid_stays_readable_while_a_write_holds_the_master_lock() {
     // 后者是本轮由「与写入争锁」改为无锁的那一条。
     let (sender, receiver) = mpsc::channel();
     let reader = {
-        let master = master.clone();
+        let master = master;
         std::thread::spawn(move || {
             let _ = sender.send((master.child_pid(), master.resize(30, 100)));
         })
@@ -284,7 +284,7 @@ fn write_back_yields_the_frame_when_a_user_write_holds_the_master_lock() {
     let (locked_sender, locked_receiver) = mpsc::channel();
     let (release_sender, release_receiver) = mpsc::channel();
     let user_write = {
-        let session = session.clone();
+        let session = Arc::clone(&session);
         std::thread::spawn(move || {
             // 写入面克隆出来再取锁：生产路径（`feedPty`）正是如此，
             // 否则持锁的是会话锁而非主端写入锁，两条就不是同一个状态。
@@ -301,16 +301,13 @@ fn write_back_yields_the_frame_when_a_user_write_holds_the_master_lock() {
     // 收割在另一个线程里做：取不到写入锁的实现会一直等下去，直接在本线程调用
     // 会把用例挂死而不是判红——挂死的用例比判红的更难排查。
     let (sender, receiver) = mpsc::channel();
-    let worker = std::thread::spawn({
-        let session = session.clone();
-        move || {
-            let mut session = session.lock();
-            session
-                .pty_write_back_queue
-                .push_back(b"\x1b[1;1R".to_vec());
-            session.drain_pty_write_back();
-            let _ = sender.send(session.pty_write_back_queue.len());
-        }
+    let worker = std::thread::spawn(move || {
+        let mut session = session.lock();
+        session
+            .pty_write_back_queue
+            .push_back(b"\x1b[1;1R".to_vec());
+        session.drain_pty_write_back();
+        let _ = sender.send(session.pty_write_back_queue.len());
     });
     let received = receiver.recv_timeout(READ_BUDGET);
 
@@ -357,7 +354,7 @@ fn write_back_budget_covers_lock_wait_and_write_as_one_whole() {
     // 用户输入持写入锁 200ms。
     let (locked_sender, locked_receiver) = mpsc::channel();
     let holder = {
-        let session = session.clone();
+        let session = Arc::clone(&session);
         std::thread::spawn(move || {
             let pty_master = session.lock().pty_master();
             let _order = pty_master.pty_write_order();

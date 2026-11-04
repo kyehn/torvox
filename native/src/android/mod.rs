@@ -7,10 +7,10 @@ pub(crate) mod text_utils;
 #[cfg(target_os = "android")]
 pub mod logging;
 
-/// 参照 wgpu-in-app 的 init_logger() 模式：将 wgpu_hal / naga 降到 Error，
+/// 参照 wgpu-in-app 的 `init_logger()` 模式：将 `wgpu_hal` / naga 降到 Error，
 /// 避免逐帧后端日志淹没 logcat；其余模块仍为 Debug。
 #[cfg(any(target_os = "android", test))]
-pub(crate) fn module_filtered(metadata: &log::Metadata) -> bool {
+pub(crate) fn module_filtered(metadata: &log::Metadata<'_>) -> bool {
     if metadata.level() <= log::Level::Debug {
         let target = metadata.target();
         if target.starts_with("wgpu_hal") || target.starts_with("naga") {

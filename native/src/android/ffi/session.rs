@@ -1,5 +1,9 @@
 use super::query::session_handle;
-use super::*;
+use super::{
+    ACTIVE_SESSION_ID, Arc, Env, EnvUnowned, JClass, JNI_FALSE, JNI_TRUE, JNIString, JString,
+    Mutex, RenderWake, Session, SessionEntry, ShellEnv, ThrowRuntimeExAndFailure, jboolean, jint,
+    jlong, jni_str, next_session_id, throw_session_missing, wlock_session_registry,
+};
 
 // ── 会话生命周期 ──────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
@@ -7,16 +11,16 @@ use super::*;
 // ══════════════════════════════════════════════════════════════════════════
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     rows: jint,
     cols: jint,
-    shell: JString,
-    home: JString,
-    working_directory: JString,
-    prefix: JString,
-    mkshrc_path: JString,
+    shell: JString<'_>,
+    home: JString<'_>,
+    working_directory: JString<'_>,
+    prefix: JString<'_>,
+    mkshrc_path: JString<'_>,
     scrollback_lines: jint,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, 0, |env| {
@@ -44,8 +48,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
 /// `Bridge.onSession` 记一条警告后继续，后者则零日志——而解码失败
 /// 是 Kotlin 传了非法字符串的编程错误，静默返回会让它伪装成配置正常。
 pub(super) fn read_jni_string(
-    env: &mut Env,
-    value: &JString,
+    env: &mut Env<'_>,
+    value: &JString<'_>,
     caller: &str,
     name: &str,
 ) -> Option<String> {
@@ -62,14 +66,14 @@ pub(super) fn read_jni_string(
 }
 
 pub(super) fn init_session_inner(
-    env: &mut Env,
+    env: &mut Env<'_>,
     rows: jint,
     cols: jint,
-    shell: JString,
-    home: JString,
-    working_directory: JString,
-    prefix: JString,
-    mkshrc_path: JString,
+    shell: JString<'_>,
+    home: JString<'_>,
+    working_directory: JString<'_>,
+    prefix: JString<'_>,
+    mkshrc_path: JString<'_>,
     scrollback_lines: jint,
 ) -> jlong {
     let Ok(rows) = u32::try_from(rows) else {
@@ -197,17 +201,17 @@ pub(super) fn init_session_inner(
 // ══════════════════════════════════════════════════════════════════════════
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_destroySession(
-    mut _unowned: EnvUnowned<'_>,
-    _class: JClass,
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_destroySession(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
     session_id: jlong,
 ) -> jboolean {
-    jni_export_guard!(&mut _unowned, JNI_FALSE, |env| {
+    jni_export_guard!(&mut unowned_env, JNI_FALSE, |env| {
         destroy_session_inner(env, session_id)
     })
 }
 
-pub(super) fn destroy_session_inner(_env: &mut Env, session_id: jlong) -> jboolean {
+pub(super) fn destroy_session_inner(_env: &mut Env<'_>, session_id: jlong) -> jboolean {
     let id = session_id as u64;
     // 先把条目从注册表取出并在**丢弃之前**释放写锁：`Session::drop` 会杀死子进程并 join
     // 其读取/等待线程（数十至数百毫秒），期间持有全局注册表锁会阻塞所有会话的
@@ -259,17 +263,17 @@ pub(super) fn destroy_session_inner(_env: &mut Env, session_id: jlong) -> jboole
 // ══════════════════════════════════════════════════════════════════════════
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_switchSession(
-    mut _unowned: EnvUnowned<'_>,
-    _class: JClass,
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_switchSession(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
     session_id: jlong,
 ) -> jboolean {
-    jni_export_guard!(&mut _unowned, JNI_FALSE, |env| {
+    jni_export_guard!(&mut unowned_env, JNI_FALSE, |env| {
         switch_session_inner(env, session_id)
     })
 }
 
-pub(super) fn switch_session_inner(_env: &mut Env, session_id: jlong) -> jboolean {
+pub(super) fn switch_session_inner(_env: &mut Env<'_>, session_id: jlong) -> jboolean {
     let id = session_id as u64;
     // 在**写锁**下原子地检查并写入：先读锁检查再无锁写入会留下 TOCTOU 窗口——
     // 并发的 `destroySession` 可能在其间删除该 id，导致存入陈旧的活跃 id。
@@ -291,9 +295,9 @@ pub(super) fn switch_session_inner(_env: &mut Env, session_id: jlong) -> jboolea
 
 /// RIS 全重置指定会话：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resetTerminal(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resetTerminal(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {

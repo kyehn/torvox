@@ -1,5 +1,10 @@
 use super::super::query::session_handle;
-use super::super::*;
+use super::super::{
+    Env, EnvUnowned, Event, JClass, JString, MAX_FLOOD_SHED_ANSWERS_PER_FRAME,
+    MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION, REQUEST_REGISTRY, ThrowRuntimeExAndFailure,
+    cancel_request, flood_shed_warn_throttled, jlong, register_request, unanswered_clipboard_reads,
+    wait_for_clipboard_answer,
+};
 
 use crate::terminal::session::SessionError;
 
@@ -21,16 +26,16 @@ pub(super) fn handle_clipboard_reads(
     // `MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION` 条走这条路径）。
     let mut shed_counts: Vec<(u64, usize)> = Vec::new();
     for (session_id, selection) in pending_clipboard_reads {
-        let unanswered = match shed_counts.iter().find(|(id, _)| *id == session_id) {
-            Some((_, count)) => *count,
-            None => {
+        let unanswered =
+            if let Some((_, count)) = shed_counts.iter().find(|(id, _)| *id == session_id) {
+                *count
+            } else {
                 let count = unanswered_clipboard_reads(session_id);
                 if count >= MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION {
                     shed_counts.push((session_id, count));
                 }
                 count
-            }
-        };
+            };
         if unanswered >= MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION {
             // 洪泛削减：就地显式作答空串，不注册、不推事件、不起应答线程。
             // 槽位、线程与保护事件三者都不再增长，Exit 永远有位置。
@@ -90,7 +95,7 @@ pub(super) fn handle_clipboard_reads(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clipboardResult<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clipboardResult<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,

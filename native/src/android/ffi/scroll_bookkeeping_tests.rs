@@ -20,16 +20,17 @@ fn scroll_bookkeeping_lives_on_the_session_and_reset_clears_it() {
     let session_id = 98_090_101u64;
     wlock_session_registry().insert(
         session_id,
-        SessionEntry::new(session.clone(), Arc::new(RenderWake::default())),
+        SessionEntry::new(Arc::clone(&session), Arc::new(RenderWake::default())),
     );
 
     session.lock().set_last_scroll_offset(37);
     // 经注册表读锁取回的句柄看到的是同一份记账（两个会话各自独立，见下一条）。
-    let through_registry = rlock_session_registry()
-        .get(&session_id)
-        .expect("已登记")
-        .session
-        .clone();
+    let through_registry = Arc::clone(
+        &rlock_session_registry()
+            .get(&session_id)
+            .expect("已登记")
+            .session,
+    );
     assert_eq!(through_registry.lock().last_scroll_offset(), 37);
 
     through_registry.lock().reset_terminal();

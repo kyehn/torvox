@@ -3,7 +3,7 @@ use super::*;
 /// 最新帧必须送达消费者：突发覆写后不能停在旧帧。
 ///
 /// 帧交付走「最新帧邮箱」：后到的帧覆盖先到的帧，消费者取到的必是当前最新画面。
-/// `flush()` 的契约保证返回时其前的 CellData 推送已完成，故一次取帧即可。
+/// `flush()` 的契约保证返回时其前的 `CellData` 推送已完成，故一次取帧即可。
 #[test]
 fn latest_frame_reaches_the_consumer() {
     let mut terminal_under_test = terminal();
@@ -22,7 +22,7 @@ fn latest_frame_reaches_the_consumer() {
 }
 
 /// OSC 8 hyperlink query (termux TerminalView.openLinkAt equivalent):
-/// after writing an OSC 8 link, hyperlink_at returns the URI at the link
+/// after writing an OSC 8 link, `hyperlink_at` returns the URI at the link
 /// cells and None outside them.
 #[test]
 fn hyperlink_at_returns_uri_inside_link() {
@@ -104,7 +104,7 @@ fn kitty_graphics_query_echoes_the_requested_image_id() {
 
 /// Kitty 图像协议像素回读（ghostty-android-terminal
 /// kittyGraphicsPlacementAndPixelReadback 对等）：传输 1x1 红色 RGB 图像后，
-/// take_kitty_graphics_image 返回 Some 且宽高为 1x1。
+/// `take_kitty_graphics_image` 返回 Some 且宽高为 1x1。
 #[test]
 fn kitty_graphics_transmit_returns_1x1_image() {
     let mut terminal_under_test = terminal();
@@ -141,7 +141,7 @@ fn kitty_graphics_png_decodes_to_rgba() {
     assert_eq!(image.data.len(), 4, "解码输出为 RGBA8");
 }
 
-/// PNG 调色板/16bit 灰度经解码器展开为 8bit RGBA（解码器 EXPAND/STRIP_16 路径回归）。
+/// PNG 调色板/16bit 灰度经解码器展开为 8bit RGBA（解码器 `EXPAND/STRIP_16` 路径回归）。
 #[test]
 fn kitty_graphics_png_palette_and_gray16_decode() {
     let mut terminal = terminal();
@@ -435,10 +435,10 @@ fn kitty_graphics_absent_when_no_images() {
 // ── : cursor/row coordinate consistency (D1 deterministic leg) ──
 
 /// shell 回显路径（提示文本 + 已键入字符，无换行）上报的光标 MUST 落在最后
-/// 打印行的文本之后一列——即 CellData 各行所占据的同一行。此处一旦不符，
+/// 打印行的文本之后一列——即 `CellData` 各行所占据的同一行。此处一旦不符，
 /// 光标会渲染在文本下方一行 ("输入指针出现在当前文本的正下",
 /// emulator evidence). Mirrors the exact production path: VT loop auto-push →
-/// build_cell_data → (cells, CursorInfo).
+/// `build_cell_data` → (cells, `CursorInfo`).
 #[test]
 fn cursor_matches_last_printed_row_after_echo_print() {
     let mut terminal_under_test = terminal();
@@ -476,7 +476,7 @@ fn cursor_matches_last_printed_row_after_echo_print() {
     assert!(cursor.visible, "cursor must be visible after print");
 }
 
-/// CUP-positioned cursor (the path CursorGeometryQuantifiedTest parks with)
+/// CUP-positioned cursor (the path `CursorGeometryQuantifiedTest` parks with)
 /// must agree with the echo path — one coordinate contract for both.
 #[test]
 fn cursor_matches_cell_rows_after_cup_positioning() {
@@ -503,10 +503,10 @@ fn cursor_matches_cell_rows_after_cup_positioning() {
     );
 }
 
-/// CursorInfo 必须携带产出本帧时的真实网格行列，与同批 CellData 同源。
+/// `CursorInfo` 必须携带产出本帧时的真实网格行列，与同批 `CellData` 同源。
 /// resize 入队时会话侧原子缓存提前发布新尺寸，而 VT 尚未应用；渲染线程若读缓存，
 /// 收缩帧会被 `build_row_ranges` 判空丢弃（IME 弹出/旋转必现）。
-/// 断言默认网格下推送的 CursorInfo 与单元数一致。
+/// 断言默认网格下推送的 `CursorInfo` 与单元数一致。
 #[test]
 fn cursor_info_carries_producing_frame_grid_dimensions() {
     let mut terminal_under_test = terminal();
@@ -547,10 +547,10 @@ fn cursor_info_carries_resized_grid_dimensions() {
     );
 }
 
-/// SGR31 红色必须到达渲染 CellData 的前景（设备渲染通路的精确复刻）。
+/// SGR31 红色必须到达渲染 `CellData` 的前景（设备渲染通路的精确复刻）。
 /// 背景：设备像素验收曾报 SGR 无红色，后证实为测试 harness 自废武功
 ///（全局暂停与直接呈现互斥）；本测试在 host 复刻设备渲染输入
-///（receive_cell_data），锁定颜色通路。
+///（`receive_cell_data`），锁定颜色通路。
 #[test]
 fn sgr31_red_reaches_cell_data_foreground() {
     // 1) 默认配置：基线（默认主题）。
@@ -570,7 +570,7 @@ fn sgr31_red_reaches_cell_data_foreground() {
     assert_sgr31_red_foreground(&cells, "Dracula 配置 SGR31");
 }
 
-/// FFI 默认主题下 SGR31 必须到达 CellData 前景。
+/// FFI 默认主题下 SGR31 必须到达 `CellData` 前景。
 /// 背景：设备像素验收曾报 SGR 无显色，后证实为 harness 问题；
 /// 复刻其精确主题与几何，锁定颜色通路。
 /// 回归钉：取光标查询不得触发整网格抽取。
@@ -721,7 +721,7 @@ fn sgr_same_text_tricolor_rows_all_present() {
     }
 }
 
-/// 默认主题下 SGR31/32/34 三色必须各自到达 CellData 前景。
+/// 默认主题下 SGR31/32/34 三色必须各自到达 `CellData` 前景。
 /// 背景：设备像素验收红绿显色而蓝计数为 0；先在 host 判定蓝是映射问题
 /// 还是设备侧问题（计数/呈现），再定跟进方向。
 #[test]
@@ -746,7 +746,7 @@ fn sgr_tricolor_default_theme_reaches_foreground() {
 
 /// 256 色 SGR（`38;5;n` / `48;5;n`）必须落到 xterm 标准色：6×6×6 色立方与
 /// 24 级灰阶由上游调色板生成，本仓不得另造公式。取色立方顶点、灰阶首格与
-/// 一个中间绿做外部基准，证明 16..255 槽位真的进了 CellData。
+/// 一个中间绿做外部基准，证明 16..255 槽位真的进了 `CellData`。
 #[test]
 fn palette_256_cube_and_grayscale_match_xterm() {
     let mut terminal =
@@ -781,9 +781,9 @@ fn palette_256_cube_and_grayscale_match_xterm() {
     assert_eq!(rgb(cell('E').background), [0, 255, 0], "E 背景");
 }
 
-/// SGR 3/4/9（斜体/下划线/删除线）必须到达快照层与 CellData 标志位。
+/// SGR 3/4/9（斜体/下划线/删除线）必须到达快照层与 `CellData` 标志位。
 /// 背景：用户报告斜体等文本缺失无法显示；颜色有 VT 端到端覆盖
-///（sgr_tricolor_mocha_reaches_foreground），样式属性只有 pack_style_flags
+///（`sgr_tricolor_mocha_reaches_foreground`），样式属性只有 `pack_style_flags`
 /// 单元测试（Style 结构体→bits），无 VT 解析端到端。
 #[test]
 fn sgr_style_attributes_reach_snapshot_and_cell_data() {
@@ -809,7 +809,7 @@ fn sgr_style_attributes_reach_snapshot_and_cell_data() {
         let snap_cell = snapshot
             .cells
             .iter()
-            .find(|cell| cell.codepoint == marker as u32)
+            .find(|cell| cell.codepoint == u32::from(marker))
             .expect("marked snapshot cell present");
         let snapshot_set = match code {
             3 => snap_cell.italic,
@@ -820,7 +820,7 @@ fn sgr_style_attributes_reach_snapshot_and_cell_data() {
     }
 }
 
-/// SGR 8 隐藏状态必须同时到达快照与生产 CellData。
+/// SGR 8 隐藏状态必须同时到达快照与生产 `CellData`。
 #[test]
 fn sgr8_conceal_reaches_snapshot_and_cell_data() {
     use crate::terminal::ghostty_terminal::cell_flags;
@@ -933,7 +933,7 @@ fn underline_styles_reach_cell_data_and_snapshot() {
         let snap_cell = snapshot
             .cells
             .iter()
-            .find(|cell| cell.codepoint == marker as u32)
+            .find(|cell| cell.codepoint == u32::from(marker))
             .expect("marked snapshot cell present");
         assert!(
             snap_cell.underline,

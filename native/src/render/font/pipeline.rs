@@ -10,7 +10,7 @@ use super::{
 mod families;
 
 /// 叠加字形（字素簇延续部分）绘制在基础单元四边形之上的位置与配色。
-/// 整个 FontInfo 系列仅承载数据，全部显示格式由 Kotlin 的字符串资源完成。
+/// 整个 `FontInfo` 系列仅承载数据，全部显示格式由 Kotlin 的字符串资源完成。
 pub(crate) struct OverlayQuad {
     pub origin: [f32; 2],
     pub size: [f32; 2],
@@ -30,7 +30,7 @@ pub struct FontInfo {
     pub cell_width_px: f32,
     pub cell_height_px: f32,
     /// 逻辑字号（sp，Kotlin 侧传入 setFontSizeInPlace 的值）。
-    /// 设备像素 = font_size * raster_scale——`raster_scale` 本身已是「显示密度 ×
+    /// 设备像素 = `font_size` * `raster_scale`——`raster_scale` 本身已是「显示密度 ×
     /// 系统字体缩放」，不再另乘 density。
     pub font_size: f32,
 }
@@ -127,7 +127,7 @@ pub struct FontPipeline {
 /// 不是 bearing）。故收成一处，由两边各自调用。
 ///
 /// - `bearing_y`：常规取「基线减放置顶部」；位图高于单元格时退化为竖向居中。
-///   CJK 回退面常出现 `placement.top > ascent`，此时 bearing_y 为负，正是设计意图。
+///   CJK 回退面常出现 `placement.top > ascent`，此时 `bearing_y` 为负，正是设计意图。
 /// - `raw_bearing_y`：未作居中回退的原值。Bar/Underline 光标标记靠它对齐字形盒顶边。
 ///
 /// 单位统一为物理像素：`glyph_h_px` 已含光栅缩放，`ascent_px * raster_scale` 同。

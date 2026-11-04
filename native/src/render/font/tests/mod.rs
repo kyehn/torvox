@@ -14,8 +14,7 @@ fn bearing_fits_inside_cell(glyph: char, label: &str) {
     let glyph_h = info.placement.height as f32;
     assert!(
         bearing_y >= -cell_height,
-        "{label} glyph starts way above cell: bearing_y={} < -cell_height",
-        bearing_y
+        "{label} glyph starts way above cell: bearing_y={bearing_y} < -cell_height"
     );
     assert!(glyph_h > 0.0, "{label} glyph has zero height");
     assert!(cell_height > 0.0, "{label} cell has zero height");

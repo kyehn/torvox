@@ -89,7 +89,7 @@ fn write_all_retries_after_eintr_instead_of_failing() {
     assert_eq!(handle.written(), b"hello", "字节必须全部送出，一个都不能少");
 }
 
-/// 主端是 O_NONBLOCK：PTY 输入缓冲（~4KB）满时 `write` 失败并返回 EAGAIN。
+/// 主端是 `O_NONBLOCK`：PTY 输入缓冲（~4KB）满时 `write` 失败并返回 EAGAIN。
 /// 旧实现据此返回 `WouldBlock` 并丢弃剩余字节——粘贴被静默截断、子进程执行
 /// 半条命令，VT 应答也会被截断在转义序列中间使子应用永久等待。
 ///

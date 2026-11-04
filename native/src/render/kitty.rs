@@ -16,7 +16,7 @@ pub(crate) struct AtlasEntry {
     atlas_y: u32,
 }
 
-/// 图集字节预算：取图像存储上限（KGP_STORAGE_LIMIT）。
+/// 图集字节预算：取图像存储上限（`KGP_STORAGE_LIMIT`）。
 ///
 /// 图集是图像像素的**重排副本**：条带布局把每个放置的源矩形并排铺开，同一幅图像
 /// 被放置 N 次就在图集里铺 N 份，故图集可以远大于图像存储。PTY 同时控制图像尺寸
@@ -92,7 +92,7 @@ fn atlas_byte_size(width: u32, height: u32) -> Option<usize> {
 }
 
 /// 组装图集：源矩形钳制到图像边界；无有效帧返回 None（调用方清空实例与图集）。
-/// 输入总量由上游存储上限约束（KGP_STORAGE_LIMIT=64MiB，见 types.rs）；
+/// 输入总量由上游存储上限约束（`KGP_STORAGE_LIMIT`=64MiB，见 `types.rs`）；
 /// 横条带布局存在矩形空洞，故输出像素数可大于输入面积和——图集字节数用受检算术
 /// 计算，超出预算（[`MAX_ATLAS_BYTES`]）时明确记日志后放弃该图集，绝不先分配。
 fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
@@ -218,7 +218,7 @@ fn copy_sub_rect(
 
 /// 构建 KGP 实例：视口网格坐标映射为像素 quad，UV 归一化。
 /// 屏外剔除由上游 `viewport_visible` 在采集侧完成，本函数仅跳过零尺寸/
-/// 零钳制条目；顶部滚出（负行）保留，由 GPU 裁剪（上游 viewport_pos 语义）。
+/// 零钳制条目；顶部滚出（负行）保留，由 GPU 裁剪（上游 `viewport_pos` 语义）。
 /// entries 须与 frames 等长（`layout_entries` 产出，无效帧为 None）。
 pub(crate) fn build_kitty_instances(
     frames: &[KittyPlacementFrame],
@@ -283,11 +283,11 @@ type AtlasInstances<'a> = (Cow<'a, [u8]>, u32, u32, Vec<KittyGraphicsInstance>);
 
 /// 一站式：打包图集 + 构建实例（FFI 渲染线程入口）。
 /// 无可见放置时返回 None（调用方清空实例与图集）。
-pub fn pack_and_build<'a>(
-    frames: &'a [KittyPlacementFrame],
+pub fn pack_and_build(
+    frames: &[KittyPlacementFrame],
     grid_cell_width: f32,
     grid_cell_height: f32,
-) -> Option<AtlasInstances<'a>> {
+) -> Option<AtlasInstances<'_>> {
     let (atlas, atlas_width, atlas_height, entries) = pack_atlas(frames)?;
     let instances = build_kitty_instances(
         frames,

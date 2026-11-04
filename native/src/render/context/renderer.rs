@@ -55,7 +55,7 @@ impl Renderer {
     /// GPU 卡死）时返回 `None`。
     ///
     /// 取纹理结局（拿到纹理 / 本帧跳过 / surface 级失败）在此汇总并驱动
-    /// [Self::surface_invalidated]：连续 [SURFACE_LOSS_STREAK_LIMIT] 次 surface 级
+    /// [`Self::surface_invalidated`]：连续 [`SURFACE_LOSS_STREAK_LIMIT`] 次 surface 级
     /// 失败即判死窗口，使下一次 `attach_surface` 走重建慢路径。
     pub(crate) fn begin_frame(&mut self) -> Option<FrameContext> {
         let config_width = self
@@ -182,7 +182,7 @@ impl Drop for Renderer {
     }
 }
 
-/// [Renderer::can_reuse_attached_surface] 的判定本体：四个条件缺一不可——已建 surface、
+/// [`Renderer::can_reuse_attached_surface`] 的判定本体：四个条件缺一不可——已建 surface、
 /// 已配置、未判死、且送来的正是当前挂载的那个 `ANativeWindow`。抽成自由函数以便单测
 /// 穷举：设备上判错的代价是整屏停帧（见 `Renderer::attached_window`）。
 #[cfg(any(target_os = "android", test))]
@@ -580,7 +580,7 @@ impl Renderer {
         self.surface_invalidated = true;
     }
 
-    /// 当前缓存的 surface 是否已判死（见 [Self::surface_invalidated]）。
+    /// 当前缓存的 surface 是否已判死（见 [`Self::surface_invalidated`]）。
     pub fn surface_invalidated(&self) -> bool {
         self.surface_invalidated
     }
@@ -592,8 +592,8 @@ impl Renderer {
     }
 
     /// 按单帧取纹理结局推进失效判定：拿到纹理或仅本帧跳过都清零计数，
-    /// surface 级失败（`Lost`/`Outdated`）连续达 [SURFACE_LOSS_STREAK_LIMIT] 次即
-    /// 置失效——单次可由 SurfaceFlinger 缩放竞态引起（实测 `Outdated` 可自愈），
+    /// surface 级失败（`Lost`/`Outdated`）连续达 [`SURFACE_LOSS_STREAK_LIMIT`] 次即
+    /// 置失效——单次可由 `SurfaceFlinger` 缩放竞态引起（实测 `Outdated` 可自愈），
     /// 而死窗口每帧必失败，故以连续次数区分二者。置位幂等：已失效时不再重复记日志。
     fn note_surface_acquire(&mut self, outcome: &AcquireOutcome) {
         let (streak, invalidated) = surface_loss_transition(

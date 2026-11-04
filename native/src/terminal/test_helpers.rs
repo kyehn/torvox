@@ -2,11 +2,11 @@ use crate::terminal::ghostty_terminal::{GhosttyTerminal, GridSnapshot};
 
 /// Maximum allowed per-channel difference for color equality.
 /// Corresponds to ±5 in u8 space (~0.0196 in f32).
-pub const COLOR_TOLERANCE: f32 = 5.0 / 255.0;
+pub(crate) const COLOR_TOLERANCE: f32 = 5.0 / 255.0;
 
 /// Individual terminal effects/attributes that can be asserted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EffectFlag {
+pub(crate) enum EffectFlag {
     Bold,
     Italic,
     Underline,
@@ -14,7 +14,7 @@ pub enum EffectFlag {
 }
 
 /// Compare two `[f32; 4]` colors channel-by-channel with tolerance.
-pub fn colors_approx_eq(left: &[f32; 4], right: &[f32; 4]) -> bool {
+pub(crate) fn colors_approx_eq(left: &[f32; 4], right: &[f32; 4]) -> bool {
     left.iter()
         .zip(right.iter())
         .all(|(left_channel, right_channel)| {
@@ -50,7 +50,7 @@ pub(crate) fn row_text(snap: &GridSnapshot, row: u32) -> String {
 }
 
 /// Untrimmed row text — includes trailing spaces and null codepoints as `'\0'`.
-pub fn row_text_raw(snap: &GridSnapshot, row: u32) -> String {
+pub(crate) fn row_text_raw(snap: &GridSnapshot, row: u32) -> String {
     let mut text = String::new();
     for col in 0..snap.cols {
         if let Some(cell) = cell_at(snap, row, col) {
@@ -65,7 +65,7 @@ pub fn row_text_raw(snap: &GridSnapshot, row: u32) -> String {
 }
 
 /// Structural invariants every snapshot must satisfy.
-pub fn assert_invariants(snap: &GridSnapshot) {
+pub(crate) fn assert_invariants(snap: &GridSnapshot) {
     let cell_count = snap.cells.len();
     let expected = (snap.rows * snap.cols) as usize;
     assert_eq!(
@@ -102,13 +102,13 @@ pub fn assert_invariants(snap: &GridSnapshot) {
 ///
 /// Provides chainable assertions that consume and return `Self`,
 /// enabling the Termux-style `.write().assert_lines_are().assert_cursor_at()` pattern.
-pub struct TermTestCase<'a> {
+pub(crate) struct TermTestCase<'a> {
     terminal: &'a mut GhosttyTerminal,
     before: Option<GridSnapshot>,
 }
 
 impl<'a> TermTestCase<'a> {
-    pub fn new(terminal: &'a mut GhosttyTerminal) -> Self {
+    pub(crate) fn new(terminal: &'a mut GhosttyTerminal) -> Self {
         Self {
             terminal,
             before: None,
@@ -119,7 +119,7 @@ impl<'a> TermTestCase<'a> {
     /// flush synchronously, and verify structural invariants.
     /// Uses `pty_write` which converts LF to CR+LF for correct
     /// terminal text behavior.
-    pub fn write(self, data: &[u8]) -> Self {
+    pub(crate) fn write(self, data: &[u8]) -> Self {
         self.terminal.pty_write(data);
         self.terminal.flush();
         let snap = self.terminal.take_snapshot();
@@ -128,7 +128,7 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Write bytes followed by a newline, then flush.
-    pub fn writeln(self, data: &[u8]) -> Self {
+    pub(crate) fn writeln(self, data: &[u8]) -> Self {
         let mut buf = data.to_vec();
         buf.push(b'\n');
         self.terminal.pty_write(&buf);
@@ -139,13 +139,13 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Capture a snapshot *before* the next write for `assert_content_preserved`.
-    pub fn capture_before(mut self) -> Self {
+    pub(crate) fn capture_before(mut self) -> Self {
         self.before = Some(self.terminal.take_snapshot());
         self
     }
 
     /// Assert a specific row's trimmed text matches.
-    pub fn assert_row_text(self, row: u32, expected: &str) -> Self {
+    pub(crate) fn assert_row_text(self, row: u32, expected: &str) -> Self {
         let snap = self.terminal.take_snapshot();
         let actual = row_text(&snap, row);
         assert_eq!(
@@ -156,7 +156,7 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert that given rows contain expected text (trimmed).
-    pub fn assert_lines_are(self, expected: &[&str]) -> Self {
+    pub(crate) fn assert_lines_are(self, expected: &[&str]) -> Self {
         let snap = self.terminal.take_snapshot();
         for (row_index, &expected_row) in expected.iter().enumerate() {
             let actual = row_text(&snap, row_index as u32);
@@ -169,7 +169,7 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert cursor position using snapshot cursor info.
-    pub fn assert_cursor_at(self, row: u32, col: u32) -> Self {
+    pub(crate) fn assert_cursor_at(self, row: u32, col: u32) -> Self {
         let snap = self.terminal.take_snapshot();
         assert_eq!(
             snap.cursor_row, row,
@@ -185,7 +185,7 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert foreground color of the cell at (row, col) approximates `expected`.
-    pub fn assert_foreground(self, row: u32, col: u32, expected: [f32; 4]) -> Self {
+    pub(crate) fn assert_foreground(self, row: u32, col: u32, expected: [f32; 4]) -> Self {
         let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         assert!(
@@ -197,7 +197,14 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert foreground color of the cell at (row, col) using exact u8 RGB values.
-    pub fn assert_foreground_exact(self, row: u32, col: u32, red: u8, green: u8, blue: u8) -> Self {
+    pub(crate) fn assert_foreground_exact(
+        self,
+        row: u32,
+        col: u32,
+        red: u8,
+        green: u8,
+        blue: u8,
+    ) -> Self {
         let expected = [
             GhosttyTerminal::byte_to_float(red),
             GhosttyTerminal::byte_to_float(green),
@@ -207,7 +214,14 @@ impl<'a> TermTestCase<'a> {
         self.assert_foreground(row, col, expected)
     }
 
-    pub fn assert_background_exact(self, row: u32, col: u32, red: u8, green: u8, blue: u8) -> Self {
+    pub(crate) fn assert_background_exact(
+        self,
+        row: u32,
+        col: u32,
+        red: u8,
+        green: u8,
+        blue: u8,
+    ) -> Self {
         let expected = [
             GhosttyTerminal::byte_to_float(red),
             GhosttyTerminal::byte_to_float(green),
@@ -218,7 +232,7 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert background color of the cell at (row, col) approximates `expected`.
-    pub fn assert_background(self, row: u32, col: u32, expected: [f32; 4]) -> Self {
+    pub(crate) fn assert_background(self, row: u32, col: u32, expected: [f32; 4]) -> Self {
         let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         assert!(
@@ -230,7 +244,7 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert the cell at (row, col) has all given effect flags set.
-    pub fn assert_effects(self, row: u32, col: u32, effects: &[EffectFlag]) -> Self {
+    pub(crate) fn assert_effects(self, row: u32, col: u32, effects: &[EffectFlag]) -> Self {
         let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         for effect in effects {
@@ -238,7 +252,7 @@ impl<'a> TermTestCase<'a> {
                 EffectFlag::Bold => assert!(cell.bold, "expected Bold at ({row},{col})"),
                 EffectFlag::Italic => assert!(cell.italic, "expected Italic at ({row},{col})"),
                 EffectFlag::Underline => {
-                    assert!(cell.underline, "expected Underline at ({row},{col})")
+                    assert!(cell.underline, "expected Underline at ({row},{col})");
                 }
                 EffectFlag::Reverse => assert!(cell.reverse, "expected Reverse at ({row},{col})"),
             }
@@ -247,7 +261,7 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert strikethrough is set at (row, col).
-    pub fn assert_strikethrough(self, row: u32, col: u32) -> Self {
+    pub(crate) fn assert_strikethrough(self, row: u32, col: u32) -> Self {
         let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         assert!(
@@ -258,7 +272,7 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert blink is set at (row, col).
-    pub fn assert_blink(self, row: u32, col: u32) -> Self {
+    pub(crate) fn assert_blink(self, row: u32, col: u32) -> Self {
         let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         assert!(cell.blink, "expected blink at ({row},{col})");
@@ -266,7 +280,7 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert hidden (concealed) at (row, col).
-    pub fn assert_hidden(self, row: u32, col: u32) -> Self {
+    pub(crate) fn assert_hidden(self, row: u32, col: u32) -> Self {
         let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         assert!(cell.hidden, "expected hidden at ({row},{col})");
@@ -274,7 +288,7 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert the terminal's current title matches `expected`.
-    pub fn assert_title(self, expected: &str) -> Self {
+    pub(crate) fn assert_title(self, expected: &str) -> Self {
         let title = self.terminal.title();
         assert!(
             title.contains(expected),
@@ -284,7 +298,7 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert that DEC private mode N is in the expected state.
-    pub fn assert_mode(self, mode_num: u16, expected: bool) -> Self {
+    pub(crate) fn assert_mode(self, mode_num: u16, expected: bool) -> Self {
         let actual = mode_is_set(
             self.terminal,
             libghostty_vt::terminal::Mode::new(mode_num, libghostty_vt::terminal::ModeKind::Dec),
@@ -297,7 +311,7 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert the cell at (row, col) does NOT have given effect flags.
-    pub fn assert_no_effects(self, row: u32, col: u32, effects: &[EffectFlag]) -> Self {
+    pub(crate) fn assert_no_effects(self, row: u32, col: u32, effects: &[EffectFlag]) -> Self {
         let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         for effect in effects {
@@ -305,10 +319,10 @@ impl<'a> TermTestCase<'a> {
                 EffectFlag::Bold => assert!(!cell.bold, "unexpected Bold at ({row},{col})"),
                 EffectFlag::Italic => assert!(!cell.italic, "unexpected Italic at ({row},{col})"),
                 EffectFlag::Underline => {
-                    assert!(!cell.underline, "unexpected Underline at ({row},{col})")
+                    assert!(!cell.underline, "unexpected Underline at ({row},{col})");
                 }
                 EffectFlag::Reverse => {
-                    assert!(!cell.reverse, "unexpected Reverse at ({row},{col})")
+                    assert!(!cell.reverse, "unexpected Reverse at ({row},{col})");
                 }
             }
         }
@@ -317,7 +331,7 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert content is preserved: compare current snapshot against `before`.
     /// Fails if any cell's codepoint changed.
-    pub fn assert_content_preserved(self) -> Self {
+    pub(crate) fn assert_content_preserved(self) -> Self {
         let before = self
             .before
             .as_ref()
@@ -350,7 +364,7 @@ impl<'a> TermTestCase<'a> {
     /// Assert that a sequence leaves the terminal in a clean state.
     /// Writes `sequence`, flushes, writes a known token, then asserts
     /// the token appears at the expected cursor position.
-    pub fn assert_sequence_clean(
+    pub(crate) fn assert_sequence_clean(
         self,
         sequence: &[u8],
         token: &[u8],
@@ -377,7 +391,7 @@ impl<'a> TermTestCase<'a> {
 /// 上游 `search::Search` 按「命中总数 + 视口命中 + 选中态」分工，不提供一次性全量
 /// 列表；小终端用例里视口即全屏，故视口命中就是全部命中。命中取自高亮查询的
 /// `matches` 字段——那是 JNI 侧真正消费的那一条路径，不另开只读口。
-pub fn search_viewport_matches(
+pub(crate) fn search_viewport_matches(
     terminal_under_test: &GhosttyTerminal,
     needle: &str,
 ) -> Vec<crate::terminal::ghostty_terminal::SearchMatch> {

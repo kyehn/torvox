@@ -1,7 +1,13 @@
 use super::query::session_query_channel;
 use super::render::string_to_jstring;
 use super::session::read_jni_string;
-use super::*;
+use super::{
+    Env, EnvUnowned, GhosttyTerminal, JClass, JNI_FALSE, JNI_TRUE, JNIString, JObject, JString,
+    Ordering, SEARCH_HIGHLIGHT_CURRENT_ALPHA, SEARCH_HIGHLIGHT_OTHER_ALPHA, SearchHighlight,
+    ThrowRuntimeExAndFailure, jboolean, jbyteArray, jfloat, jfloatArray, jint, jintArray, jlong,
+    jni_str, jobjectArray, jsize, jstring, render_state_mut, rendered_viewport_row,
+    rlock_session_registry, theme, throw_session_missing, with_render_state,
+};
 
 // ── 字体与主题 ──────────────────────────────────────────────────
 /// 空族文件列表：字族已在渲染字体库中时无需按需装入。
@@ -9,7 +15,9 @@ const NO_FAMILY_FILES: &[String] = &[];
 
 /// 返回字体库的族名列表（fonts.xml 声明的文件集 + 用户投放目录）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamilies<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamilies<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jobjectArray {
@@ -58,7 +66,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamili
 
 /// 返回默认字体族名。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultFontName<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultFontName<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jstring {
@@ -74,7 +84,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultFont
 
 /// 搜索查询串长度上限（原生为唯一真源，UI 侧据此截断输入）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchQueryMaxChars<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchQueryMaxChars<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jint {
@@ -88,9 +100,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchQueryMax
 /// 一次同步调用取代「逐个标识取调色板」的 `1 + N` 次往返：目录在构建期即固定，
 /// 进程内不变，而设置页要一次显示全部主题。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeCatalog(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeCatalog(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
 ) -> jbyteArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let packed = crate::terminal::theme::pack_catalog();
@@ -106,9 +118,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getThemeCatalo
 
 /// 返回字体信息的打包字节（布局见本文件的 `pack_font_info`）。渲染状态尚未初始化时为 null。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getFontInfo(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getFontInfo(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
 ) -> jbyteArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let Some(packed) = with_render_state(|render_state| {
@@ -178,9 +190,9 @@ pub(crate) fn pack_font_info(info: &crate::render::font::pipeline::FontInfo) -> 
 
 /// 清除渲染器下一帧的搜索高亮区间。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHighlights(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHighlights(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     _session_id: jlong,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
@@ -250,9 +262,9 @@ pub(super) fn build_search_highlights(
 /// 两个主题色：视口折算口径 `gridRow = 绝对行 - (回滚长度 - 滚动偏移)`，`scrollOffset`
 /// 为 0 表示贴底。落在视口外的命中不写入——高亮只画在可见格上。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHighlights(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHighlights(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
     scroll_offset: jint,
 ) {
@@ -305,7 +317,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
 /// 终端持有选区安装口：坐标为绝对网格行（row 0 = 回滚顶部），与控制柄逻辑一致。
 /// 设置当前文本选区（绝对网格行列，0 = 回滚顶部）；高亮颜色由终端侧按主题调色板烘焙，本通道不传颜色参数。
 /// 选区经 `GhosttyTerminal::set_selection` 安装为终端状态（跟踪引用，随滚动/
-/// 输出/重排跟随文本），高亮由 VT 线程按行级选区反白直接烘焙进 CellData；
+/// 输出/重排跟随文本），高亮由 VT 线程按行级选区反白直接烘焙进 `CellData`；
 /// 本层不再存储单元格位置，仅透传。`hasSelection=false` 清除选区。
 /// 选区恒为线性（块选通道已随 mode 一并移除）。
 ///
@@ -313,9 +325,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
 /// **不阻塞**：调用方（渲染循环）保留上一次已提交的值，下一帧重试。拖动选区时每帧都会
 /// 调用本函数，阻塞在这里等于把每帧拖到 PTY 输出的时长（真机实测单帧 100ms+）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
     start_row: jint,
     start_col: jint,
@@ -359,11 +371,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
 /// ANSI 色），负值表示该槽沿用主题原色。合并只在此处做一次，故终端默认色、ANSI 调色板、
 /// 光标色与搜索高亮色全都取自同一份合并后的调色板。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
-    theme_name: JString,
+    theme_name: JString<'_>,
     overrides: jintArray,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
@@ -431,7 +443,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
 ///
 /// # Safety
 /// `data` 须是本次 JNI 调用期间有效的 `jintArray`（JNI 方法参数即满足）。
-unsafe fn read_int_array(env: &mut Env, data: jintArray, label: &str) -> Option<Vec<i32>> {
+unsafe fn read_int_array(env: &mut Env<'_>, data: jintArray, label: &str) -> Option<Vec<i32>> {
     // SAFETY: 调用方保证 `data` 在本次调用期间有效；`from_raw` 只包装指针而不
     // 取得所有权，局部引用由 JVM 在本 native 方法返回时释放。
     let array = unsafe { jni::objects::JIntArray::from_raw(env, data) };
@@ -463,7 +475,7 @@ unsafe fn read_int_array(env: &mut Env, data: jintArray, label: &str) -> Option<
 ///
 /// 只是默认值：程序用 DECSCUSR 指定过样式时以程序为准。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorStyle<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorStyle<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -500,7 +512,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorStyle
 
 /// 抛 `IllegalArgumentException`。错误路径可能已在 JNI 上挂起异常，重复抛会
 /// 覆盖首个原因；故仅在无挂起异常时使用。
-fn throw_illegal_argument(env: &mut Env, message: &str) {
+fn throw_illegal_argument(env: &mut Env<'_>, message: &str) {
     let _ = env.throw_new(
         jni_str!("java/lang/IllegalArgumentException"),
         JNIString::from(message.to_string()),
@@ -512,7 +524,9 @@ fn throw_illegal_argument(env: &mut Env, message: &str) {
 /// 仅供仪器化用例复刻「BufferQueue 被遗弃」以验证自愈：无生产调用方；关闭后立刻
 /// 恢复真实取纹理。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSurfaceLossInjected<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSurfaceLossInjected<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     _session_id: jlong,
@@ -539,9 +553,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSurfaceLoss
 /// 曾经按会话逐个调用（每次都要抢被整帧 GPU 工作持有的渲染状态锁），
 /// 而零会话时又永远清不掉标志——下一个会话会渲染纯黑。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPaused(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPaused(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     paused: jboolean,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
@@ -563,11 +577,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPause
 
 /// 设置渲染器字体管线的字体族；找到该族时返回 true。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     _session_id: jlong,
-    family: JString,
+    family: JString<'_>,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_FALSE, |env| {
         let Some(family_str) = read_jni_string(env, &family, "setFontFamily", "family") else {
@@ -616,7 +630,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
 /// `coerceSpToPxScale` 钳位——互相只由注释绑定。它们漂移的后果与字号上界那次
 /// 完全同型：Kotlin 用被原生拒收的系数算出 `FONT_SIZE_MAX_PX / 系数` 的字号上界，
 /// 而原生静默拒收该系数（记 error），滑块上界与实际渲染重新脱节。故守卫与对外
-/// 查询（[Java_terminal_emulator_bridge_NativeBridge_getRasterScaleRange]）同取此值。
+/// 查询（[`Java_terminal_emulator_bridge_NativeBridge_getRasterScaleRange`]）同取此值。
 pub(super) const RASTER_SCALE_MIN: f32 = 0.5;
 pub(super) const RASTER_SCALE_MAX: f32 = 8.0;
 
@@ -633,7 +647,7 @@ pub(super) fn is_raster_scale_acceptable(scale: f32) -> bool {
 /// 原生拒绝，用户看到的就是「设置条范围与实际可设置范围不一致」。
 /// `font_size_cap_tests` 钉住这一关系。
 ///
-/// 边长取自**管线自身**（[FontPipeline::atlas_width]，即实际分配的那张图集）而非本模块
+/// 边长取自**管线自身**（[`FontPipeline::atlas_width`]，即实际分配的那张图集）而非本模块
 /// 的 `ATLAS_SIZE` 常量：后者只是初始化时的入参，两者一旦不同步，「由图集推导」就成了
 /// 假话，上界会悄悄偏到另一个尺寸上。
 pub(super) fn font_size_cap_sp(atlas_edge_px: f32, raster_scale: f32) -> f32 {
@@ -648,9 +662,9 @@ pub(super) fn is_font_size_selectable(size_sp: f32, cap_sp: f32) -> bool {
 
 /// 设置字号（单位为十分之一 sp，与 Kotlin 滑块一致）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInPlace(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInPlace(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     _session_id: jlong,
     size_tenths: jint,
 ) {
@@ -698,7 +712,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
 /// （`SettingsRepository.fontSizeMaxSp`）以该系数为分母，系数一旦落在区间外，
 /// 算出的字号上界就不再对应原生真实的光栅尺度。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRasterScaleRange<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRasterScaleRange<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jfloatArray {
@@ -717,9 +733,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRasterScale
 /// 设置字体光栅化缩放（设备像素密度）。字形位图按 `font_size * raster_scale`
 /// 光栅化，使高密度屏上的文字保持锐利。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     _session_id: jlong,
     scale: jfloat,
 ) {
@@ -749,7 +765,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale
 
 /// 把自定义字体文件载入渲染器的字体库。返回文件中的首个字体族名，失败时 null。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     _session_id: jlong,
@@ -818,11 +834,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
 /// 进程级静态供 `load_font_database` 取用；管线已存在时
 /// 再推给它并作废同 UV 缓存（回退族变化会改变字形来源）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocale(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocale(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     _session_id: jlong,
-    locale: JString,
+    locale: JString<'_>,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
         let Some(locale_str) = read_jni_string(env, &locale, "setSystemLocale", "locale") else {
@@ -850,9 +866,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocal
 /// # Safety
 /// 仅由 JVM 经 JNI 调用，`paths` 须为本次调用期间有效的 `String[]`。
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtraFontPaths(
+pub(super) unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtraFontPaths(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     _session_id: jlong,
     paths: jobjectArray,
 ) {

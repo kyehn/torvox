@@ -87,7 +87,7 @@ mod dirty_band_tests {
 mod surface_loss_tests {
     use crate::render::context::surface_loss_transition;
 
-    /// A single Lost/Outdated can be a SurfaceFlinger scaling race that recovers on
+    /// A single Lost/Outdated can be a `SurfaceFlinger` scaling race that recovers on
     /// the next reconfigure — it must NOT invalidate (that would force a rebuild on
     /// every resize).
     #[test]
@@ -95,7 +95,7 @@ mod surface_loss_tests {
         assert_eq!(surface_loss_transition(0, false, true), (1, false));
     }
 
-    /// Consecutive losses mean the window's BufferQueue is gone (abandoned): mark the
+    /// Consecutive losses mean the window's `BufferQueue` is gone (abandoned): mark the
     /// surface invalid so the next attach rebuilds instead of reconfiguring forever.
     #[test]
     fn consecutive_losses_invalidate_surface() {
@@ -132,7 +132,7 @@ mod surface_loss_tests {
     }
 
     /// Already-invalid surfaces stay invalid (idempotent): the host is expected to
-    /// deliver a fresh ANativeWindow, and no duplicate error log is emitted.
+    /// deliver a fresh `ANativeWindow`, and no duplicate error log is emitted.
     #[test]
     fn invalidation_is_idempotent() {
         assert_eq!(surface_loss_transition(2, true, true), (3, true));
@@ -151,7 +151,7 @@ mod gpu_init_race_tests {
     use std::sync::atomic::Ordering;
 
     /// 预热线程与渲染线程在启动瞬间并发调用取 GPU，完整的 Vulkan 初始化
-    /// （建 Instance、request_adapter、request_device）在进程内必须只发生一次。
+    /// （建 `Instance`、`request_adapter`、`request_device`）在进程内必须只发生一次。
     ///
     /// 真机 logcat 实证的回归护栏：修复前 `GPU adapter` 与 `GPU device created`
     /// 各打印两遍、分属两个线程，两次初始化中第二次的产物被直接丢弃。
@@ -186,7 +186,7 @@ mod gpu_init_race_tests {
                 .expect("GPU lookup thread must not panic")
                 .expect("GPU must be available");
             // 取到的正是同一个全局实例（引用为 'static），故其地址唯一标识它。
-            instances.insert(gpu as *const _ as usize);
+            instances.insert(std::ptr::from_ref(gpu) as usize);
         }
 
         assert_eq!(
@@ -291,7 +291,7 @@ mod last_content_row_tests {
 /// `GPU_BENCH_LOCK`（防 Lavapipe 并行争用），故置于渲染 bench 套件内；
 /// 终端输入仅作夹具。阈值为单防抖地板（见本文件头注释）。
 /// Benchmark the full CPU-side pipeline: write terminal content → flush →
-/// receive CellData → build CellInstances. This simulates the complete
+/// receive `CellData` → build `CellInstances`. This simulates the complete
 /// per-frame data path before GPU submission.
 #[test]
 fn bench_end_to_end_cpu_pipeline_latency() {
@@ -332,11 +332,10 @@ fn bench_end_to_end_cpu_pipeline_latency() {
         black_box(count);
     }
     let elapsed = start.elapsed();
-    let ms_per_frame = elapsed.as_millis() as f64 / iteration_count as f64;
-    let fps = iteration_count as f64 / elapsed.as_secs_f64();
+    let ms_per_frame = elapsed.as_millis() as f64 / f64::from(iteration_count);
+    let fps = f64::from(iteration_count) / elapsed.as_secs_f64();
     println!(
-        "End-to-end CPU pipeline: {:.1}ms per frame ({:.0} fps) — terminal write + CellData + build_instances",
-        ms_per_frame, fps,
+        "End-to-end CPU pipeline: {ms_per_frame:.1}ms per frame ({fps:.0} fps) — terminal write + CellData + build_instances",
     );
     // Must complete within two frame budgets: the single-run cost is
     // ~8ms/frame, but the full test suite runs tests in parallel and CPU
@@ -346,8 +345,7 @@ fn bench_end_to_end_cpu_pipeline_latency() {
     // anti-flake guard, not a precise performance gate.
     assert!(
         ms_per_frame < 32.0,
-        "End-to-end CPU pipeline too slow: {:.1}ms per frame (need <32ms)",
-        ms_per_frame,
+        "End-to-end CPU pipeline too slow: {ms_per_frame:.1}ms per frame (need <32ms)",
     );
 }
 
@@ -646,9 +644,9 @@ fn gpu_scroll_offset_full_redraw_has_no_stale_pixels() {
     let instances: Vec<CellInstance> = (0..row_count)
         .map(|row| {
             let color = [
-                stripe_colors[row as usize][0] as f32 / 255.0,
-                stripe_colors[row as usize][1] as f32 / 255.0,
-                stripe_colors[row as usize][2] as f32 / 255.0,
+                f32::from(stripe_colors[row as usize][0]) / 255.0,
+                f32::from(stripe_colors[row as usize][1]) / 255.0,
+                f32::from(stripe_colors[row as usize][2]) / 255.0,
                 1.0,
             ];
             CellInstance {

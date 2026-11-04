@@ -70,7 +70,7 @@ impl Renderer {
 
         let bytes_per_row_padded = ((frame_width * 4) + (wgpu::COPY_BYTES_PER_ROW_ALIGNMENT - 1))
             & !(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT - 1);
-        let buf_size = (bytes_per_row_padded * frame_height) as u64;
+        let buf_size = u64::from(bytes_per_row_padded * frame_height);
         let needs_buf_new = match &self.readback_buffer {
             Some(b) => b.size() < buf_size,
             None => true,

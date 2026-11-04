@@ -1,4 +1,7 @@
-use super::super::*;
+use super::super::{
+    EnvUnowned, JClass, Ordering, SLOW_RENDER_SAMPLE_THROTTLE, ThrowRuntimeExAndFailure, jint,
+    jlong, render_state_mut, rlock_session_registry,
+};
 use super::frame::render_inner;
 
 // ── 上报位与采样 ────────────────────────────────────────────────────
@@ -38,7 +41,7 @@ pub(super) fn last_content_row_bits_for_frame(
     // 超出 10 位即按哨兵处理（而非截断）：截断会把 1024 报成 0、1025 报成 1，
     // 让 Kotlin 按一个**貌似合理**的错误行号去算位移；哨兵则让调用方保守地不位移。
     match crate::render::cell_builder::last_content_row(cells, rows) {
-        Some(row) if (row as i64) < LAST_CONTENT_ROW_NONE_BITS => row as i64,
+        Some(row) if i64::from(row) < LAST_CONTENT_ROW_NONE_BITS => i64::from(row),
         _ => LAST_CONTENT_ROW_NONE_BITS,
     }
 }
@@ -64,7 +67,9 @@ pub(super) fn last_content_row_bits_for_frame(
 /// Kotlin 必须分别掩码每个字段：裸读 `(packed shr 32) != 0` 会把更高的位误当作输出。
 /// 出错时渲染计数为负、`new_output` 为 0、内容下沿为 0x3FF、失效位为 0。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewOutput<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewOutput<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -143,7 +148,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
             );
         }
         pack_render_sample(
-            count as i64 & 0xFFFF_FFFF,
+            i64::from(count) & 0xFFFF_FFFF,
             new_output,
             content_row_bits,
             surface_invalidated,

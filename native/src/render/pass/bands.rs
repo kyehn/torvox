@@ -120,7 +120,7 @@ impl Renderer {
         (viewport_scroll_px - last_drawn_viewport_scroll_px).abs() > f32::EPSILON
     }
     /// 部分/全量合成门控：纯函数——脏带部分路径候选与滚动一致性门控的合成。
-    /// 滚动激活时一律全量（判定见 is_scroll_offset_active），偏移归零且稳定后恢复部分渲染。
+    /// 滚动激活时一律全量（判定见 `is_scroll_offset_active`），偏移归零且稳定后恢复部分渲染。
     pub(super) fn should_render_partial_frame(
         accumulator_ready: bool,
         frame_invalidated: bool,
@@ -165,7 +165,7 @@ impl Renderer {
     /// 而相邻行在部分帧里通常不在脏带内、本帧不重绘，于是那一像素保留清除色
     /// （主题背景），在选区/搜索高亮这类连续整行着色里表现为行与行之间的
     /// 1px 缝隙（用户报告的「文本选择 不同行间存在空隙」，模拟器实测：
-    /// cell_height=44.625 时缝隙出现在 44.625 的分数部分 > 0.5 的行边界）。
+    /// `cell_height=44.625` 时缝隙出现在 44.625 的分数部分 > 0.5 的行边界）。
     pub(super) fn band_clear_pixel_range(
         start_row: usize,
         end_row_exclusive: usize,
@@ -180,7 +180,7 @@ impl Renderer {
         (y0, y1)
     }
 
-    /// 每个脏带构造一个纯色实例：has_glyph=0 的四边形，单元着色器直接以
+    /// 每个脏带构造一个纯色实例：`has_glyph=0` 的四边形，单元着色器直接以
     /// `background` 原样填充，覆盖该带的像素矩形（全部列 × 该带的行跨度，
     /// 边界见 [`Self::band_clear_pixel_range`]）。
     pub(super) fn band_clear_instances(

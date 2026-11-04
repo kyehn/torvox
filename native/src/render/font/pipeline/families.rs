@@ -205,12 +205,12 @@ impl FontPipeline {
             .unwrap_or_default()
     }
 
-    /// 按优先级返回 CJK 回退族名（顺序同按 effective_priority 排序的
+    /// 按优先级返回 CJK 回退族名（顺序同按 `effective_priority` 排序的
     /// `cjk_fallback_ids`），去重保留首次出现。
     ///
     /// 报**真实族名**：设置页把它当「设备上装了哪些回退字体」显示，用户按名去找，
     /// 归一化成一个并不存在的名字（如把 `Noto Sans CJK SC`/`TC`/`JP` 合成
-    /// "Noto Sans CJK"）既对不上用户按名查找的结果，也与本函数 KDoc 承诺的
+    /// "Noto Sans CJK"）既对不上用户按名查找的结果，也与本函数 `KDoc` 承诺的
     /// 「首元素即实际渲染命中者」相悖。不按字母排序：首元素必须是渲染真正命中的族。
     pub fn cjk_fallback_names(&self) -> Vec<String> {
         let font_database = self.font_system.db();
@@ -234,7 +234,7 @@ impl FontPipeline {
         self.primary_covers_cjk_probe()
     }
 
-    /// 实际供出字形的面里，除主字体与 [Self::cjk_fallback_names] 之外的族名。
+    /// 实际供出字形的面里，除主字体与 [`Self::cjk_fallback_names`] 之外的族名。
     ///
     /// 按 [`super::super::glyph_cache::GlyphCache::used_faces`] 的首次命中顺序去重保留：
     /// 第一个供出字形的面就是渲染真正落到它上面的那个族，顺序有信息量。主字体

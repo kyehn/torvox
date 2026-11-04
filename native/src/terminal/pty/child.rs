@@ -32,7 +32,7 @@ pub(super) fn configure_raw_mode_child(fd: RawFd) {
     termios.c_iflag |= libc::IUTF8;
     termios.c_iflag &= !(libc::IXON | libc::IXOFF);
     // SAFETY: `tcsetattr` 是系统调用包装，在子进程中安全。
-    if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) } != 0 {
+    if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw const termios) } != 0 {
         child_note_fd2(b"pty: child tcsetattr failed\n");
     }
 }
@@ -42,7 +42,7 @@ fn child_note_fd2(message: &'static [u8]) {
     // SAFETY: `write(2)` 在 POSIX 异步信号安全列表内；调用方传 `&'static` 文本，fork
     // 后不触碰堆。
     unsafe {
-        libc::write(2, message.as_ptr() as *const libc::c_void, message.len());
+        libc::write(2, message.as_ptr().cast::<libc::c_void>(), message.len());
     }
 }
 
@@ -63,12 +63,12 @@ pub(super) fn child_exit_with_reason(slave_fd: RawFd, reason: &str, code: i32) -
     unsafe {
         libc::write(
             slave_fd,
-            reason.as_ptr() as *const libc::c_void,
+            reason.as_ptr().cast::<libc::c_void>(),
             reason.len(),
         )
     };
     // SAFETY: 同上，写 fd 2（此时仍是应用 stderr，送进 logcat）。
-    unsafe { libc::write(2, reason.as_ptr() as *const libc::c_void, reason.len()) };
+    unsafe { libc::write(2, reason.as_ptr().cast::<libc::c_void>(), reason.len()) };
     // SAFETY: `_exit(3)` 在 POSIX 异步信号安全列表内，不返回、不刷新 stdio 缓冲区。
     unsafe { libc::_exit(code) };
 }
@@ -77,10 +77,10 @@ pub(super) fn child_exit_with_reason(slave_fd: RawFd, reason: &str, code: i32) -
 /// 报出极大值（如 100 万以上）的系统上出现病态扫描时长。
 const STRAY_FD_SCAN_LIMIT: libc::c_int = 65536;
 
-/// 关闭子进程中除标准流（0、1、2，即 `dup2` 后的 PTY 从端）与 [keep_fd] 外的
+/// 关闭子进程中除标准流（0、1、2，即 `dup2` 后的 PTY 从端）与 [`keep_fd`] 外的
 /// 所有已打开 fd，避免启动的 shell 继承父进程的无关 fd（它们会占用资源或泄漏能力）。
 ///
-/// [keep_fd] 是 execve 失败回报管道的写端：它必须活到 execve，否则失败时父进程
+/// [`keep_fd`] 是 execve 失败回报管道的写端：它必须活到 execve，否则失败时父进程
 /// 读不到 errno，只能看到一次没有原因的退出。
 ///
 /// 注意：fork 后、exec 前的单线程子进程中的尽力清理，不在 {0,1,2} 的 fd 一律关闭
@@ -93,7 +93,7 @@ pub(super) fn close_stray_fds(keep_fd: RawFd) {
     };
     // SAFETY: `getrlimit(2)` 在 POSIX 异步信号安全列表中。只要 `RLIMIT_NOFILE` 未被
     // 并发修改（此处从不发生），在从多线程进程 fork 出的线程中调用是安全的。
-    let upper = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlim) } == 0 {
+    let upper = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut rlim) } == 0 {
         // `rlim_cur` 是软限制（现代 Linux 上通常 1024-4096），远比迭代到
         // `sysconf(OPEN_MAX)` 便宜（systemd 系统上后者可达约 100 万）。
         // `RLIM_INFINITY` 表示“无限制”——回退到静态上限，避免扫描到
@@ -124,8 +124,8 @@ pub(super) fn close_stray_fds(keep_fd: RawFd) {
     }
 }
 
-/// `path` 处的 ELF 是否为 PIE（ET_DYN，e_type == 3）。
-/// Android linker 拒绝来自 app 数据的非 PIE（ET_EXEC）二进制。
+/// `path` 处的 ELF 是否为 `PIE`（`ET_DYN`，`e_type` == 3）。
+/// Android linker 拒绝来自 app 数据的非 `PIE`（`ET_EXEC`）二进制。
 pub(super) fn is_pie(path: &str) -> bool {
     use std::io::Read;
     let Ok(mut file) = std::fs::File::open(path) else {

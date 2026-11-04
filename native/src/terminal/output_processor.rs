@@ -92,7 +92,7 @@ impl OutputProcessor {
 
 /// OSC 52 读取请求扫描器：只识别 `ESC ] 5 2 ; <selection> ; ?`（BEL 或 ST
 /// 结束），命中时吞掉整段序列并报告选择器；其余字节原样透传。
-/// 跨 process() 调用保持状态，以覆盖分块到达的序列。
+/// 跨 `process()` 调用保持状态，以覆盖分块到达的序列。
 #[derive(Debug, Default)]
 struct ReadScan {
     state: ReadState,

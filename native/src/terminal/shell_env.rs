@@ -1,8 +1,8 @@
 //! Shell 环境设置：子进程 pre-exec 的环境配置。
 //!
-//! 只保留规范白名单所需的输入：home（HOME 与 TERMUX_HOME_DIR_PATH）、
-//! working_directory（子进程 chdir 目标，非环境变量）、prefix（PREFIX 相关变量）、
-//! mkshrc_path（ENV 指向的应用私有 mksh rc，见 DESIGN Shell 节）。
+//! 只保留规范白名单所需的输入：home（HOME 与 `TERMUX_HOME_DIR_PATH`）、
+//! `working_directory`（子进程 chdir 目标，非环境变量）、prefix（PREFIX 相关变量）、
+//! `mkshrc_path`（ENV 指向的应用私有 mksh rc，见 DESIGN Shell 节）。
 //! 用户名/路径/自定义变量已按规范删除，不再经环境变量接收或传递数据。
 
 #[derive(Debug, Clone)]

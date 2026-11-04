@@ -1,4 +1,9 @@
-use super::*;
+use super::{
+    Arc, AtomicBool, CellData, CellSnapshot, CursorInfo, CursorStyle, DumpedGrid, FrameMailbox,
+    GridSnapshot, MAX_GRAPHEME_CLUSTERS, MAX_GRAPHEME_EXTRA, Ordering, Point, PointCoordinate,
+    RenderExtractors, RowCache, RunConfig, Terminal, create_render_iterators, cursor_in_viewport,
+    grid_cols, grid_rows, has_visible_underline, is_double_underline, scrollback_len, viewport_row,
+};
 
 /// VT 线程每帧刷新的无锁屏幕状态镜像。
 ///
@@ -27,8 +32,8 @@ impl super::GhosttyTerminal {
     ///
     /// 跳过干净快照（网格级）由 `snapshot_needs_rebuild` 在上层完成，与行级判定
     /// 是同一决策的两层：网格未变时本函数根本不执行。
-    pub(crate) fn build_cell_data<'alloc, 'cb>(
-        terminal: &Terminal<'alloc, 'cb>,
+    pub(crate) fn build_cell_data<'alloc>(
+        terminal: &Terminal<'alloc, '_>,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
         mirrors: &ScreenMirrors<'_>,
@@ -210,55 +215,46 @@ impl super::GhosttyTerminal {
                 };
 
                 let style_id = raw.style_id().ok();
-                let (_style, foreground, background, underline_color, flags) = if style_id.is_some()
-                    && style_id == cached_style_id
-                {
-                    // 同一样式 run：复用已缓存的解析颜色。
-                    (
-                        None,
-                        cached_foreground,
-                        cached_background,
-                        cached_underline,
-                        cached_flags,
-                    )
-                } else {
-                    match cell.style() {
-                        Ok(style) => {
-                            let foreground = Self::cell_color(cell.fg_color(), default_foreground);
-                            let background = Self::cell_color(cell.bg_color(), default_background);
-                            let underline = Self::resolve_style_color(
-                                terminal,
-                                &style.underline_color,
-                                foreground,
+                let (_style, foreground, background, underline_color, flags) =
+                    if style_id.is_some() && style_id == cached_style_id {
+                        // 同一样式 run：复用已缓存的解析颜色。
+                        (
+                            None,
+                            cached_foreground,
+                            cached_background,
+                            cached_underline,
+                            cached_flags,
+                        )
+                    } else if let Ok(style) = cell.style() {
+                        let foreground = Self::cell_color(cell.fg_color(), default_foreground);
+                        let background = Self::cell_color(cell.bg_color(), default_background);
+                        let underline =
+                            Self::resolve_style_color(terminal, &style.underline_color, foreground);
+                        let style_flags = Self::pack_style_flags(&style);
+                        cached_style_id = style_id;
+                        cached_foreground = foreground;
+                        cached_background = background;
+                        cached_underline = underline;
+                        cached_flags = style_flags;
+                        (Some(style), foreground, background, underline, style_flags)
+                    } else {
+                        // 宽度仍可从 raw cell 读到，必须照真实宽度推进：
+                        // 宽字符（中日韩）按 1 列推进会让本行其后每一个单元的
+                        // `col` 左移一格，且行长度不再等于 cols。
+                        // spacer（None）：两列已由宽字符本身消耗，直接跳过。
+                        if let Some(width) = Self::cell_columns(&raw) {
+                            Self::push_blank_cell(
+                                &mut row_data,
+                                default_foreground,
+                                default_background,
+                                current_row,
+                                current_col,
+                                width,
                             );
-                            let style_flags = Self::pack_style_flags(&style);
-                            cached_style_id = style_id;
-                            cached_foreground = foreground;
-                            cached_background = background;
-                            cached_underline = underline;
-                            cached_flags = style_flags;
-                            (Some(style), foreground, background, underline, style_flags)
+                            current_col += width;
                         }
-                        Err(_) => {
-                            // 宽度仍可从 raw cell 读到，必须照真实宽度推进：
-                            // 宽字符（中日韩）按 1 列推进会让本行其后每一个单元的
-                            // `col` 左移一格，且行长度不再等于 cols。
-                            // spacer（None）：两列已由宽字符本身消耗，直接跳过。
-                            if let Some(width) = Self::cell_columns(&raw) {
-                                Self::push_blank_cell(
-                                    &mut row_data,
-                                    default_foreground,
-                                    default_background,
-                                    current_row,
-                                    current_col,
-                                    width,
-                                );
-                                current_col += width;
-                            }
-                            continue;
-                        }
-                    }
-                };
+                        continue;
+                    };
 
                 let codepoint = raw.codepoint().unwrap_or(0);
 
@@ -366,7 +362,7 @@ impl super::GhosttyTerminal {
 
     /// 把样式属性打包成与 `cell.wgsl` 着色器布局一致的位掩码：
     /// 第 0 位=bold、1=italic、2=reverse、3=underline、
-    /// 4=blink、5=strikethrough、6=overline、7=dim、8=double_underline、9=conceal
+    /// 4=`blink`、5=`strikethrough`、6=`overline`、7=`dim`、8=`double_underline`、9=`conceal`
     /// （blink 会带上，着色器忽略它；conceal 由单元构建器消费）。
     pub(crate) fn pack_style_flags(style: &libghostty_vt::style::Style) -> u32 {
         use crate::terminal::ghostty_terminal::cell_flags;
@@ -405,7 +401,7 @@ impl super::GhosttyTerminal {
     }
 
     pub(crate) fn build_snapshot(
-        terminal: &Terminal,
+        terminal: &Terminal<'_, '_>,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
     ) -> GridSnapshot {
@@ -558,7 +554,7 @@ impl super::GhosttyTerminal {
     pub(crate) fn apply_style_to_snapshot(
         data: &mut CellSnapshot,
         style: &libghostty_vt::style::Style,
-        terminal: &Terminal,
+        terminal: &Terminal<'_, '_>,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
     ) {
@@ -585,7 +581,7 @@ impl super::GhosttyTerminal {
     /// 一旦分歧，测试就会对着与 GPU 不同的颜色下断言。不设兜底——主题由构造参数给定，
     /// 不存在"查不到"。
     pub(crate) fn build_dumped_grid(
-        terminal: &Terminal,
+        terminal: &Terminal<'_, '_>,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
     ) -> DumpedGrid {
@@ -705,7 +701,7 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 按当前终端状态重建 CellData 并推给渲染线程的帧邮箱。
+    /// 按当前终端状态重建 `CellData` 并推给渲染线程的帧邮箱。
     /// Write/SetTheme/Resize/ScrollViewport 共用的帧推送块只有这一个调用点。
     /// [`Self::push_cell_data`] 的薄封装，补齐各命令处理器共用的
     /// 标准 config/状态接线。

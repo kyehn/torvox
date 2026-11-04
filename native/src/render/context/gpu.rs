@@ -32,7 +32,7 @@ const SURFACE_CONFIGURE_API: &str = "Surface::configure";
 /// 该错误只在 `surface.get_capabilities()` 失败时产生（wgpu-core 的
 /// `configure_surface`：`Err(_) => break 'error E::UnsupportedQueueFamily`），
 /// 而 Android 上该调用失败的常态只有一个：原生窗口已被平台收回
-/// （BufferQueue 被遗弃），surface 不再报告任何可用队列族。
+/// （`BufferQueue` 被遗弃），surface 不再报告任何可用队列族。
 const UNSUPPORTED_QUEUE_FAMILY: &str = "does not support the adapter's queue family";
 
 /// 「配置尺寸与纹理尺寸不符」告警的限频闸门。
@@ -47,7 +47,7 @@ pub(super) static SIZE_MISMATCH_THROTTLE: crate::slow_log::SlowLogThrottle =
 /// 判据是错误**种类**而非文案泛泛：校验错误同时出现 wgpu 的配置 API 名
 /// `Surface::configure` 与 `UnsupportedQueueFamily` 的描述。前者保证错误出在
 /// 配置 surface 上，后者保证失败原因是「这个 surface 已经不能用了」——不是
-/// 格式不支持、view_formats 不合法、尺寸为零等自家配置错误。
+/// 格式不支持、`view_formats` 不合法、尺寸为零等自家配置错误。
 ///
 /// 这是平台事件的连带结果（切后台后系统收回窗口，自愈路径会换新窗口重挂载），
 /// 不是应用缺陷，故按 debug 记；其余未捕获错误一律 error。
@@ -76,7 +76,7 @@ pub(super) const SKIP_FATAL_FRAME_LIMIT: u32 = 300;
 
 /// 连续多少次 surface 级取纹理失败即判死窗口（见 [`Renderer::note_surface_acquire`](super::Renderer::note_surface_acquire)）。
 ///
-/// 取 2 而非 1：单次 `Outdated` 可由 SurfaceFlinger 缩放竞态引起并在下一次
+/// 取 2 而非 1：单次 `Outdated` 可由 `SurfaceFlinger` 缩放竞态引起并在下一次
 /// `reconfigure` 后自愈，死窗口则每帧必失败，连续两次足以区分且恢复延迟只有一帧。
 const SURFACE_LOSS_STREAK_LIMIT: u8 = 2;
 
@@ -164,8 +164,8 @@ pub(crate) fn try_global_gpu() -> Result<&'static GlobalGpu, GpuError> {
 
 /// GPU 初始化的唯一实现（致命渲染路径与可失败的预热路径共用，故只有这一处）。
 ///
-/// 判空与写入之间持一把初始化锁，使 `init_gpu`（建 Instance、request_adapter、
-/// request_device）在进程内**只发生一次**。先前的三段式
+/// 判空与写入之间持一把初始化锁，使 `init_gpu`（建 `Instance`、`request_adapter`、
+/// `request_device`）在进程内**只发生一次**。先前的三段式
 /// `get` 判空 → `init_gpu` → `get_or_init` 在判空与写入之间并不原子：预热线程与
 /// 渲染线程在启动瞬间并发时，两者各自跑完一次完整初始化，第二次的
 /// device/queue/adapter 被 `get_or_init` 直接丢弃——白耗一次显存与驱动资源

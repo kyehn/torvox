@@ -1,4 +1,9 @@
-use super::*;
+use super::{
+    CellWide, GridRef, HYPERLINK_INLINE_BUFFER_SIZE, MAX_HYPERLINK_URI_BYTES, MatchBuffer, Order,
+    Point, PointCoordinate, PointSpace, SELECTION_RECTANGLE, Scroll, Search, SearchMatch,
+    SearchSelection, SearchViewportHighlights, SelectWordOptions, Selection, Terminal,
+    cell_codepoint, grid_cols, scrollback_len,
+};
 
 // ── 选区与搜索 ───────────────────────────────────────────────
 
@@ -11,10 +16,10 @@ impl super::GhosttyTerminal {
     /// 不会被拆开（代理对不产生列到字符的漂移）。
     ///
     /// 坐标是绝对网格行（0 = 回滚顶部；视口自 `scrollback_rows` 起）。
-    /// 回移行经 Point::History 解析，视口行经 Point::Viewport（等价于带绝对
-    /// y 的 Point::Screen）。选区无效时返回空串。
+    /// 回移行经 `Point::History` 解析，视口行经 `Point::Viewport`（等价于带绝对
+    /// y 的 `Point::Screen`）。选区无效时返回空串。
     pub(crate) fn selection_text_impl(
-        terminal: &Terminal,
+        terminal: &Terminal<'_, '_>,
         start: (u32, u32),
         end: (u32, u32),
     ) -> String {
@@ -55,7 +60,7 @@ impl super::GhosttyTerminal {
     /// 宽字符占几列只有网格知道：行文本里尾格与真空白同为 `' '`，据此反推必然出错
     /// （见 change design 第 1 节）。`SpacerHead` 不计入——它出现在软换行续行的行首，
     /// 该行前一列属于折行前的上一行，把它当尾格会把选区跨过折行边界。
-    pub(crate) fn wide_char_tail_cols_impl(terminal: &Terminal, row: u32) -> Vec<u32> {
+    pub(crate) fn wide_char_tail_cols_impl(terminal: &Terminal<'_, '_>, row: u32) -> Vec<u32> {
         (0..grid_cols(terminal))
             .filter(|&col| {
                 terminal
@@ -73,8 +78,8 @@ impl super::GhosttyTerminal {
     /// 恒用 [`PointSpace::Screen`]/`Point::Screen`（上游 `.screen` 的原点恒为
     /// `pages.first`，即回滚顶部的绝对行）。`Point::Viewport` 的原点随
     /// `pages.viewport` 滚动而移动，把它当绝对坐标会在上滚 `s` 行后整体错位 `s` 行。
-    /// 供 selection_text_impl、install_selection_impl 与上游选择派生共用。
-    pub(crate) fn absolute_point(terminal: &Terminal, row: u32, col: u32) -> Point {
+    /// 供 `selection_text_impl`、`install_selection_impl` 与上游选择派生共用。
+    pub(crate) fn absolute_point(terminal: &Terminal<'_, '_>, row: u32, col: u32) -> Point {
         let clamped_col = col.min(grid_cols(terminal).saturating_sub(1)) as u16;
         Point::Screen(PointCoordinate {
             x: clamped_col,
@@ -85,7 +90,7 @@ impl super::GhosttyTerminal {
     /// 绝对网格坐标 → gref：三处选择派生与超链接查询的公共读口，
     /// 越界/无效坐标一律 None（调用方据此返回"无该格"）。
     pub(crate) fn grid_ref_at<'a>(
-        terminal: &'a Terminal,
+        terminal: &'a Terminal<'_, '_>,
         row: u32,
         col: u32,
     ) -> Option<GridRef<'a>> {
@@ -94,11 +99,11 @@ impl super::GhosttyTerminal {
             .ok()
     }
 
-    /// gref → 绝对网格坐标：absolute_point 的逆，单次 Screen 空间回读
+    /// gref → 绝对网格坐标：`absolute_point` 的逆，单次 Screen 空间回读
     /// （`.screen` 原点与 `absolute_point` 同一），无法表达该格时返回 None。
     pub(crate) fn absolute_coordinate(
-        terminal: &Terminal,
-        grid_ref: &GridRef,
+        terminal: &Terminal<'_, '_>,
+        grid_ref: &GridRef<'_>,
     ) -> Option<(u32, u32)> {
         let coordinate = terminal
             .point_from_grid_ref(grid_ref, PointSpace::Screen)
@@ -106,11 +111,11 @@ impl super::GhosttyTerminal {
         Some((coordinate.y, u32::from(coordinate.x)))
     }
 
-    /// 上游派生选区的公共收尾（design 决策 1 的顺序）：to_ordered(Forward)
-    /// 取序 → gref 反解为绝对坐标 → set_selection 安装 → 回传界限。
+    /// 上游派生选区的公共收尾（design 决策 1 的顺序）：`to_ordered(Forward)`
+    /// 取序 → gref 反解为绝对坐标 → `set_selection` 安装 → 回传界限。
     /// 反解或安装失败时返回 None，绝不回传未安装到终端的界限。
     pub(crate) fn installed_bounds(
-        terminal: &Terminal,
+        terminal: &Terminal<'_, '_>,
         selection: Selection<'_>,
     ) -> Option<((u32, u32), (u32, u32))> {
         let ordered = selection.to_ordered(terminal, Order::Forward).ok()?;
@@ -126,7 +131,7 @@ impl super::GhosttyTerminal {
     /// 上游词选语义（`Terminal::select_word`，Ghostty 默认词边界码位）：
     /// 派生该格所属词的选区、安装并回传有序绝对界限。
     pub(crate) fn select_word_at_impl(
-        terminal: &Terminal,
+        terminal: &Terminal<'_, '_>,
         row: u32,
         col: u32,
     ) -> Option<((u32, u32), (u32, u32))> {
@@ -139,15 +144,19 @@ impl super::GhosttyTerminal {
 
     /// 上游全选语义（`Terminal::select_all`，“all selectable terminal
     /// content”）：界限不含尾部空行/空列（design 决策 2，由 cargo 测试钉住）。
-    pub(crate) fn select_all_impl(terminal: &Terminal) -> Option<((u32, u32), (u32, u32))> {
+    pub(crate) fn select_all_impl(terminal: &Terminal<'_, '_>) -> Option<((u32, u32), (u32, u32))> {
         let selection = terminal.select_all().ok()??;
         Self::installed_bounds(terminal, selection)
     }
 
     /// 将绝对网格坐标的选区安装为终端持有的活动选区（跟踪引用）。
-    /// 与 selection_text_impl 同一坐标系：绝对网格行（0 = 回滚顶部）。
+    /// 与 `selection_text_impl` 同一坐标系：绝对网格行（0 = 回滚顶部）。
     /// 无效端点时静默忽略（调用方已标记脏并重推，保持帧一致）。
-    pub(crate) fn install_selection_impl(terminal: &Terminal, start: (u32, u32), end: (u32, u32)) {
+    pub(crate) fn install_selection_impl(
+        terminal: &Terminal<'_, '_>,
+        start: (u32, u32),
+        end: (u32, u32),
+    ) {
         let (Ok(start_ref), Ok(end_ref)) = (
             terminal.grid_ref(Self::absolute_point(terminal, start.0, start.1)),
             terminal.grid_ref(Self::absolute_point(terminal, end.0, end.1)),
@@ -161,9 +170,13 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 查询某网格单元处的 OSC 8 超链接 URI（等价 termux TerminalView 的
-    /// openLinkAt；ghostty 侧用 cell.has_hyperlink + hyperlink_uri）。
-    pub(crate) fn hyperlink_at_impl(terminal: &Terminal, row: u32, col: u32) -> Option<String> {
+    /// 查询某网格单元处的 OSC 8 超链接 URI（等价 termux `TerminalView` 的
+    /// openLinkAt；ghostty 侧用 `cell.has_hyperlink` + `hyperlink_uri`）。
+    pub(crate) fn hyperlink_at_impl(
+        terminal: &Terminal<'_, '_>,
+        row: u32,
+        col: u32,
+    ) -> Option<String> {
         let cols = grid_cols(terminal);
         let Ok(total_rows) = terminal.total_rows() else {
             log::error!("ghostty_terminal: total_rows failed during hyperlink hit test");
@@ -225,7 +238,7 @@ impl super::GhosttyTerminal {
     ///
     /// 自右向左扫。宽字符的尾格自身无 codepoint，故命中尾格即以 `col + 1` 收尾
     /// （它与前一格的首列同属一个宽字符）。
-    pub(crate) fn row_content_columns(terminal: &Terminal, row: u32) -> u32 {
+    pub(crate) fn row_content_columns(terminal: &Terminal<'_, '_>, row: u32) -> u32 {
         for col in (0..grid_cols(terminal)).rev() {
             let Ok(grid_ref) = terminal.grid_ref(Self::absolute_point(terminal, row, col)) else {
                 continue;
@@ -244,8 +257,8 @@ impl super::GhosttyTerminal {
     /// 选区端点单元的 `(行, 首列, 开区间上界)`：宽字符覆盖两列，端点落在它的头/尾格
     /// 时起点回退到该宽字符的首列。端点格读不出时返回 None。
     pub(crate) fn selection_endpoint_columns(
-        terminal: &Terminal,
-        grid_ref: &GridRef,
+        terminal: &Terminal<'_, '_>,
+        grid_ref: &GridRef<'_>,
     ) -> Option<(u32, u32, u32)> {
         let (row, col) = Self::absolute_coordinate(terminal, grid_ref)?;
         let cell = grid_ref.cell().ok()?;
@@ -266,8 +279,8 @@ impl super::GhosttyTerminal {
     /// 行内容末尾，末行自 0 到命中终点，中间整行覆盖，且每行末尾按行内容裁剪。
     /// 端点可能反向（上游保留选择方向），按行优先序对调即得正向区间。
     pub(crate) fn search_matches_from_selection(
-        terminal: &Terminal,
-        selection: &Selection,
+        terminal: &Terminal<'_, '_>,
+        selection: &Selection<'_>,
         matches: &mut Vec<SearchMatch>,
     ) {
         let Some((start_row, start_col, start_limit)) =

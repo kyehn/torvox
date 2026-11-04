@@ -38,7 +38,7 @@ impl FontPipeline {
         let result = font_database.with_face_data(font_id, |font_data, face_index| {
             let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
             let metrics = font_ref.metrics(&[]);
-            let upem = metrics.units_per_em as f32;
+            let upem = f32::from(metrics.units_per_em);
             if upem == 0.0 {
                 return None;
             }
@@ -163,7 +163,7 @@ mod tests {
             let charmap = font.charmap();
             let glyph_metrics = font.glyph_metrics(&[]);
             let metrics = font.metrics(&[]);
-            let scale = pipeline.font_size / metrics.units_per_em as f32;
+            let scale = pipeline.font_size / f32::from(metrics.units_per_em);
             let advances: Vec<f32> = (ASCII_START..ASCII_END)
                 .map(|codepoint| charmap.map(codepoint))
                 .filter(|&glyph_id| glyph_id != 0)

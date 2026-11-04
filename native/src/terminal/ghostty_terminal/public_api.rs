@@ -9,7 +9,14 @@ use super::commands::{Command, Query, RunConfig, ViewportTarget};
 use super::frame_mailbox::FrameMailbox;
 #[cfg(test)]
 use super::internal::{BatchStats, CacheStats};
-use super::types::*;
+use super::types::{
+    COMMAND_CHANNEL_CAPACITY, CellData, CursorInfo, CursorStyle, DEFAULT_CELL_HEIGHT,
+    DEFAULT_CELL_WIDTH, DISCONNECTED_COLS, DISCONNECTED_CURSOR_VISIBLE, DISCONNECTED_CURSOR_X,
+    DISCONNECTED_CURSOR_Y, DISCONNECTED_PWD, DISCONNECTED_ROWS, DISCONNECTED_SCROLLBACK,
+    DISCONNECTED_TITLE, DumpedGrid, EVENT_CHANNEL_CAPACITY, FLUSH_TIMEOUT_SECS, GridSnapshot,
+    KittyGraphicsImageData, KittyPlacementFrame, QUERY_CHANNEL_CAPACITY, QUERY_TIMEOUT_MS,
+    SearchSelection, SearchViewportHighlights, TerminalError, VT_READY_TIMEOUT_MS,
+};
 
 impl super::GhosttyTerminal {
     pub fn new(rows: u32, cols: u32, scrollback_lines: u32) -> Result<Self, TerminalError> {
@@ -64,18 +71,18 @@ impl super::GhosttyTerminal {
         let (cmd_tx, cmd_rx) = bounded::<Command>(COMMAND_CHANNEL_CAPACITY);
         let (query_tx, query_rx) = flume::bounded::<Query>(QUERY_CHANNEL_CAPACITY);
         let cell_data_mailbox = FrameMailbox::new();
-        let cell_data_mailbox_for_run = cell_data_mailbox.clone();
+        let cell_data_mailbox_for_run = Arc::clone(&cell_data_mailbox);
         let (clipboard_tx, clipboard_rx) = bounded::<(String, String)>(EVENT_CHANNEL_CAPACITY);
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
-        let pty_for_run = pty_write_responses.clone();
+        let pty_for_run = Arc::clone(&pty_write_responses);
         let alt_screen_active = Arc::new(AtomicBool::new(false));
-        let alt_screen_active_for_run = alt_screen_active.clone();
+        let alt_screen_active_for_run = Arc::clone(&alt_screen_active);
         let mouse_tracking_active = Arc::new(AtomicBool::new(false));
-        let mouse_tracking_active_for_run = mouse_tracking_active.clone();
+        let mouse_tracking_active_for_run = Arc::clone(&mouse_tracking_active);
         let bell_flag = Arc::new(AtomicBool::new(false));
-        let bell_flag_for_run = bell_flag.clone();
+        let bell_flag_for_run = Arc::clone(&bell_flag);
         let resize_failed = Arc::new(AtomicBool::new(false));
-        let resize_failed_for_run = resize_failed.clone();
+        let resize_failed_for_run = Arc::clone(&resize_failed);
         let cell_size_px_for_run = Arc::new((
             AtomicU32::new(DEFAULT_CELL_WIDTH),
             AtomicU32::new(DEFAULT_CELL_HEIGHT),
@@ -117,7 +124,7 @@ impl super::GhosttyTerminal {
                         bell_flag: bell_flag_for_run,
                         resize_failed: resize_failed_for_run,
                         cell_size_px: cell_size_px_for_run,
-                        cell_data_mailbox: cell_data_mailbox_for_run.clone(),
+                        cell_data_mailbox: Arc::clone(&cell_data_mailbox_for_run),
                         frame_wake,
                         clipboard_tx,
                         #[cfg(test)]
@@ -333,12 +340,11 @@ impl super::GhosttyTerminal {
         // 有界等待：VT 线程卡死（如病态的 C 解析器输入）时，无限 recv 会在持有会话锁
         // 期间永久阻塞调用方，冻结所有 JNI 入口并触发 ANR 看门狗。超时远大于合法积压
         // 上限，静默 5s 即 VT 线程确实卡死。
-        match rx.recv_timeout(timeout) {
-            Ok(()) => true,
-            Err(_) => {
-                log::warn!("ghostty_terminal: flush_ack timed out — session may be dead");
-                false
-            }
+        if let Ok(()) = rx.recv_timeout(timeout) {
+            true
+        } else {
+            log::warn!("ghostty_terminal: flush_ack timed out — session may be dead");
+            false
         }
     }
 
@@ -415,7 +421,7 @@ impl super::GhosttyTerminal {
         self.resize_failed.load(Ordering::Acquire)
     }
 
-    /// 测试钩子：直接置位/清除 [Self::resize_failed]。
+    /// 测试钩子：直接置位/清除 [`Self::resize_failed`]。
     pub fn set_resize_failed_for_test(&self, failed: bool) {
         self.resize_failed.store(failed, Ordering::Release);
     }
@@ -445,7 +451,7 @@ impl super::GhosttyTerminal {
 
     /// 安装终端持有的线性活动选区（跟踪引用，随滚动/输出/重排跟随文本）。
     /// 坐标为绝对网格行（0 = 回滚顶部）与列。
-    /// try_send 非阻塞：VT 线程卡住时丢弃而非阻塞调用方（与 resize 同策略）。
+    /// `try_send` 非阻塞：VT 线程卡住时丢弃而非阻塞调用方（与 resize 同策略）。
     pub fn set_selection(&self, start: (u32, u32), end: (u32, u32)) {
         if let Err(error) = self.cmd_tx.try_send(Command::SetSelection { start, end }) {
             self.warn_command_dropped("set_selection", &error);
@@ -745,14 +751,13 @@ impl super::GhosttyTerminal {
             log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
             return false;
         }
-        match rx.recv_timeout(timeout) {
-            Ok(mode) => mode,
-            Err(_) => {
-                log::warn!(
-                    "ghostty_terminal: mode_get({mode:?}) timed out or disconnected — returning false"
-                );
-                false
-            }
+        if let Ok(mode) = rx.recv_timeout(timeout) {
+            mode
+        } else {
+            log::warn!(
+                "ghostty_terminal: mode_get({mode:?}) timed out or disconnected — returning false"
+            );
+            false
         }
     }
 

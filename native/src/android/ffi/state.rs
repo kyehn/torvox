@@ -1,5 +1,8 @@
 use super::query::session_handle;
-use super::*;
+use super::{
+    EnvUnowned, JClass, JNI_FALSE, JNI_TRUE, Ordering, SessionEntry, ThrowRuntimeExAndFailure,
+    jboolean, jfloat, jint, jlong, render_state_mut, rlock_session_registry,
+};
 
 use crate::terminal::ghostty_terminal::ViewportTarget;
 
@@ -12,9 +15,9 @@ use crate::terminal::ghostty_terminal::ViewportTarget;
 /// 取整），故它是「原生是否真的接受了该字号」最可靠的判据：原生拒收时单元格度量
 /// 不变。行高经过 `.ceil()`，对字号非线性。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellSizePacked(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellSizePacked(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
 ) -> jlong {
     jni_export_guard!(unowned_env, 0, |_env| {
         // 这次查询只是给 spawn 算网格：GPU 暂不可用时返回 0，Kotlin 侧保留旧度量或退回
@@ -44,9 +47,9 @@ pub(super) fn cell_metrics_packed_from(width: f32, height: f32) -> jlong {
 /// 供 `Bridge.getGridRowsColsPacked` 使用：Kotlin 桩实现原本永远返回 0，
 /// 导致 resize 被丢弃后 `syncGridDimensions` 永远无法收敛到原生网格。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsColsPacked(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsColsPacked(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, 0, |_env| {
@@ -56,7 +59,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsCol
         };
         let session = entry.session.lock();
         let (rows, cols) = session.grid_size();
-        ((rows as i64) << 32) | (cols as i64)
+        (i64::from(rows) << 32) | i64::from(cols)
     })
 }
 
@@ -117,21 +120,21 @@ pub(super) fn scroll_target(target: i64, last_offset: i64) -> Option<ViewportTar
 }
 
 /// 设置视口滚动偏移（回滚区内的行数，0 = 活跃屏幕）。与上次偏移的差值在 VT 线程
-/// 经 `scroll_viewport(Delta)` 应用，故下一次 CellData 推送即携带滚动后的视图
+/// 经 `scroll_viewport(Delta)` 应用，故下一次 `CellData` 推送即携带滚动后的视图
 /// （此前在 Kotlin 侧是空操作）。
 ///
 /// 返回 true 表示本次写入已生效（或无需写入）。会话锁被 PTY 写入按住时返回 false 且
 /// **不阻塞**：调用方保留上一次已提交的值，下一帧重试。滚动期间每帧都调用本函数，
 /// 在这里等锁等于把帧率钉在 PTY 输出的节奏上（真机日志实测 pre 段 100ms+）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffset(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffset(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
     offset: jint,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_TRUE, |_env| {
-        let target = offset.max(0) as i64;
+        let target = i64::from(offset.max(0));
         let (sent, request_id) = {
             let Some(session) = session_handle(session_id as u64) else {
                 return Ok(JNI_TRUE);
@@ -185,11 +188,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
 ///
 /// 此前这里当场 `refresh_cell_uniforms`（一次 `queue.write_buffer`）——与同一线程
 /// 紧接着开帧的那次写入完全重复，却在洪流期间排队等 GPU 队列 ~100ms。渲染循环的
-/// pre 段因此从 <1ms 涨到 100ms+，真机日志（SLOW_LOOP pre=102-123ms）即此。
+/// pre 段因此从 <1ms 涨到 `100ms+`，真机日志（`SLOW_LOOP` pre=102-123ms）即此。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollYPx(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollYPx(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     _session_id: jlong,
     offset_px: jfloat,
 ) {
@@ -215,9 +218,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollYPx(
 /// 供 `Bridge.isAltScreenActive` 使用，使备用屏上的触摸滚动能作为滚轮转义序列
 /// 转发给远端，而非滚动本地回滚（备用屏会吞掉滚轮）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getAltScreenState(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getAltScreenState(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {

@@ -421,7 +421,7 @@ fn instances_equal(left: &[CellInstance], right: &[CellInstance]) -> bool {
             })
 }
 
-/// 增量路径（build_instances_cached）：只让第 2 行变脏的一帧
+/// 增量路径（`build_instances_cached`）：只让第 2 行变脏的一帧
 /// 必须产出与完整重建完全一致的实例，其中干净行
 /// 从缓存提供（NFR-010：只重绘脏行）。
 #[test]
@@ -441,7 +441,7 @@ fn cached_incremental_rebuild_matches_full_build() {
 
     // 第 2 帧：仅第 2 行变化；其余各行必须从
     // 缓存提供，结果仍须等于完整重建。
-    let mut cells2 = cells.clone();
+    let mut cells2 = cells;
     cells2[2] = cell_data(2, 0, 'z', [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0);
     let mut dirty = vec![false; 24];
     dirty[2] = true;
@@ -487,7 +487,7 @@ fn cached_stale_atlas_generation_forces_full_rebuild() {
     // 第 2 帧改了第 2 行却声称无脏行：代际为当前时那行陈旧
     // 内容会从缓存被提供；代际陈旧时则必须整帧
     // 改为重建。
-    let mut cells2 = cells.clone();
+    let mut cells2 = cells;
     cells2[2] = cell_data(2, 0, 'z', [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0);
     let clean = vec![false; 24];
     instances.clear();

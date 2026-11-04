@@ -18,7 +18,13 @@ use libghostty_vt::terminal::{Mode, Point, PointCoordinate, PointSpace};
 
 use super::commands::{Command, Query, RunConfig, ViewportTarget};
 use super::frame_mailbox::FrameMailbox;
-use super::types::*;
+use super::types::{
+    CellData, CellSnapshot, CursorInfo, CursorStyle, DEFAULT_CELL_HEIGHT, DEFAULT_CELL_WIDTH,
+    DISCONNECTED_COLS, DISCONNECTED_CURSOR_VISIBLE, DISCONNECTED_CURSOR_X, DISCONNECTED_CURSOR_Y,
+    DISCONNECTED_ROWS, DumpedGrid, GridSnapshot, KGP_STORAGE_LIMIT, KittyGraphicsImageData,
+    KittyPlacementFrame, MAX_GRAPHEME_CLUSTERS, MAX_GRAPHEME_EXTRA, SearchMatch, SearchSelection,
+    SearchViewportHighlights,
+};
 use flume::Sender;
 
 /// 命令批的时长上限。
@@ -133,20 +139,20 @@ struct CommandState {
     /// 标记 `grid_dirty` 与重建之间不存在竞争。
     cached_snapshot: Option<Arc<GridSnapshot>>,
     /// 全量文本（`Query::ReadAllText`）缓存。网格一变即失效，与 `grid_dirty` 同源：
-    /// 逐格走 ghostty FFI 的重建在回滚填满时单趟就会越过 QUERY_TIMEOUT_MS，
+    /// 逐格走 ghostty FFI 的重建在回滚填满时单趟就会越过 `QUERY_TIMEOUT_MS`，
     /// 未缓存时每次轮询都重建，查询方反复读到超时后的空值。
     cached_all_text: Option<String>,
     /// 自动推送路径的内容去重：`push_cell_data` 每轮循环（包括 50ms 空闲
     /// 超时）都会构建整个网格，而渲染线程把收到的每批都当作
     /// `is_new_data` → 每帧全量重绘。空闲终端会让渲染器满速空转
-    /// （SwiftShader 模拟器上实测 ~5 fps，真实 GPU 上也烧 CPU：
+    /// （`SwiftShader` 模拟器上实测 ~5 fps，真实 GPU 上也烧 CPU：
     /// 「20fps 不可接受」）。当单元与光标自上次推送以来都没变时，
     /// 直接跳过发送。
     last_cell_data_push: Option<(Vec<CellData>, CursorInfo)>,
     /// 网格是否已变更（快照缓存的失效标记）：与 `cached_all_text` 同源失效，
     /// 但它会在 `TakeSnapshot` 消费后清除。
     grid_dirty: bool,
-    /// CellData 重建的开关：仅命令/查询导致状态变化后才重建。空闲 50ms tick
+    /// `CellData` 重建的开关：仅命令/查询导致状态变化后才重建。空闲 50ms tick
     /// 不再全幅重建（2400+ 次 Ghostty FFI 调用），重复重建只靠
     /// `last_cell_data_push` 去重抑制发送，CPU 清零。
     cell_data_dirty: bool,
@@ -156,7 +162,7 @@ struct CommandState {
 }
 
 impl CommandState {
-    /// 以主题调色板初始化：网格与 CellData 均视为已脏，快照与文本缓存为空。
+    /// 以主题调色板初始化：网格与 `CellData` 均视为已脏，快照与文本缓存为空。
     fn new(palette: &crate::terminal::theme::Palette) -> Self {
         Self {
             default_background: GhosttyTerminal::color_to_float(palette.background),
@@ -209,7 +215,7 @@ struct QueryContext<'term> {
     kitty_cache: KittyPlacementCache,
 }
 
-impl<'term> QueryContext<'term> {
+impl QueryContext<'_> {
     /// 编码器分配失败即返回错误：没有键编码器等于收不到任何按键，属不可降级。
     fn new() -> Result<Self, libghostty_vt::Error> {
         Ok(Self {
@@ -221,21 +227,21 @@ impl<'term> QueryContext<'term> {
     }
 }
 
-/// 终端网格列数：ghostty 断开时回退 DISCONNECTED_COLS。调用方一律经此取值，
+/// 终端网格列数：ghostty 断开时回退 `DISCONNECTED_COLS`。调用方一律经此取值，
 /// 不重复写 `unwrap_or` 链。
-fn grid_cols(terminal: &Terminal) -> u32 {
-    terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32
+fn grid_cols(terminal: &Terminal<'_, '_>) -> u32 {
+    u32::from(terminal.cols().unwrap_or(DISCONNECTED_COLS as u16))
 }
 
-/// 终端网格行数：ghostty 断开时回退 DISCONNECTED_ROWS（与 `grid_cols` 对称）。
-fn grid_rows(terminal: &Terminal) -> u32 {
-    terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32
+/// 终端网格行数：ghostty 断开时回退 `DISCONNECTED_ROWS`（与 `grid_cols` 对称）。
+fn grid_rows(terminal: &Terminal<'_, '_>) -> u32 {
+    u32::from(terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16))
 }
 
 /// 回滚行数：ghostty 断开时为 0（与 `grid_rows` 对称）。
 /// FFI 报错时记下原因再按 0 处理——静默吞掉会让「回滚量=0」的下游断言
 /// 只能猜错误来源（本机 cargo 全量套件曾撞上一次，无法归因）。
-fn scrollback_len(terminal: &Terminal) -> u32 {
+fn scrollback_len(terminal: &Terminal<'_, '_>) -> u32 {
     terminal.scrollback_rows().unwrap_or_else(|error| {
         log::warn!("ghostty_terminal: scrollback_rows query failed: {error}");
         0
@@ -249,7 +255,7 @@ fn scrollback_len(terminal: &Terminal) -> u32 {
 /// 活动区底边推远，视口行号不动。
 ///
 /// 上游把视口偏移缓存起来，读取是摊还 O(1)。
-fn viewport_row(terminal: &Terminal) -> u32 {
+fn viewport_row(terminal: &Terminal<'_, '_>) -> u32 {
     terminal.scrollbar().map_or_else(
         |error| {
             log::warn!("ghostty_terminal: scrollbar query failed: {error}");
@@ -263,7 +269,7 @@ fn viewport_row(terminal: &Terminal) -> u32 {
 }
 
 /// 单格码点直读：调用方保证列在界内，不逐格查网格宽度。
-fn cell_codepoint(terminal: &Terminal, row: u32, col: u32) -> u32 {
+fn cell_codepoint(terminal: &Terminal<'_, '_>, row: u32, col: u32) -> u32 {
     terminal
         .grid_ref(Point::Screen(PointCoordinate {
             x: col as u16,
@@ -549,15 +555,12 @@ impl RowCache {
     /// 拷贝一整份本帧网格换取后续帧免去逐单元 FFI 往返——只在本帧确有脏行
     /// （即确有新内容）时才走到这里。
     pub(crate) fn store(&mut self, data: &[CellData], rows: u32) {
-        match crate::terminal::ghostty_terminal::build_row_ranges(data, rows) {
-            Some(ranges) => {
-                self.cells = data.to_vec();
-                self.ranges = ranges;
-            }
-            None => {
-                log::error!("build_cell_data: row ranges mismatch — cache invalidated");
-                self.invalidate();
-            }
+        if let Some(ranges) = crate::terminal::ghostty_terminal::build_row_ranges(data, rows) {
+            self.cells = data.to_vec();
+            self.ranges = ranges;
+        } else {
+            log::error!("build_cell_data: row ranges mismatch — cache invalidated");
+            self.invalidate();
         }
     }
 
@@ -590,12 +593,12 @@ impl RowCache {
 /// 此时不画光标。
 ///
 /// `build_cell_data` 与 `build_snapshot` 两条抽取路径共用本函数：两份判读一旦分叉，
-/// 同一终端状态下 CellData 与快照会给出不同的光标行。
+/// 同一终端状态下 `CellData` 与快照会给出不同的光标行。
 fn cursor_in_viewport(snapshot: &Snapshot<'_, '_>) -> (u32, u32, bool, bool) {
     match snapshot.cursor_viewport() {
         Ok(Some(cursor_viewport)) => (
-            cursor_viewport.y as u32,
-            cursor_viewport.x as u32,
+            u32::from(cursor_viewport.y),
+            u32::from(cursor_viewport.x),
             cursor_viewport.at_wide_tail,
             snapshot
                 .cursor_visible()
@@ -613,7 +616,7 @@ fn cursor_in_viewport(snapshot: &Snapshot<'_, '_>) -> (u32, u32, bool, bool) {
 /// 上游建议宿主超时解锁，这里取 1 秒：超时后复位模式并立即发布当前帧（日志留痕）。
 /// 返回 `true` 表示仍处于保持中、本帧应跳过发布。
 fn synchronized_output_hold(
-    terminal: &mut Terminal,
+    terminal: &mut Terminal<'_, '_>,
     held_since: &mut Option<std::time::Instant>,
 ) -> bool {
     let active = match terminal.mode(Mode::SYNC_OUTPUT) {
@@ -691,7 +694,7 @@ fn create_render_iterators() -> Option<(
 /// 与 `Command::ScrollViewport` 置位）或尚无缓存时重建。两者都不成立时网格内容与缓存
 /// 逐字节相同，复用它不会产出陈旧帧，同时省下约 1920 次逐单元 ghostty FFI 调用。
 ///
-/// 注意签名里没有「滚动偏移」参数：`TakeSnapshot` 只覆盖当前视口，回滚浏览走 CellData
+/// 注意签名里没有「滚动偏移」参数：`TakeSnapshot` 只覆盖当前视口，回滚浏览走 `CellData`
 /// 通道，故视口偏移变化由 `ScrollViewport` 自行置脏来覆盖，而不是在此比较。
 pub(crate) fn snapshot_needs_rebuild(grid_dirty: bool, has_cache: bool) -> bool {
     grid_dirty || !has_cache

@@ -1,5 +1,9 @@
 use super::super::query::session_query_channel;
-use super::super::*;
+use super::super::{
+    EnvUnowned, GhosttyTerminal, JClass, KittyPlacementKeys, Ordering, RenderState,
+    SLOW_RENDER_INNER_THROTTLE, ThrowRuntimeExAndFailure, jint, jlong, kitty_cache_invalidation,
+    pack_rendered_cursor, render_state_mut, repack_kitty_atlas, rlock_session_registry,
+};
 use super::overlay::{
     build_cursor, frame_reflects_scroll, log_frame_failure, mark_dirty_rows,
     request_session_repaint, should_repaint_idle,
@@ -13,7 +17,7 @@ use super::session_ops::ATLAS_SIZE;
 /// 由 Kotlin 的渲染循环（单一线程）调用。`width`/`height` 仅供参考（真实尺寸由已挂载
 /// 的 surface 配置决定），保留它们以便将来的 resize 路径可在此重配置交换链。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -106,7 +110,7 @@ fn draw_cached_frame(
     )
 }
 
-/// 阶段 0 + 阶段 1：切会话后索要一帧，并完成渲染前准备（单次持有 RENDER_STATE 锁）。
+/// 阶段 0 + 阶段 1：切会话后索要一帧，并完成渲染前准备（单次持有 `RENDER_STATE` 锁）。
 ///
 /// 返回 false 表示本帧不渲染（无渲染态、无 surface 或管线尺寸未知）。
 pub(super) fn prepare_render(session_id: u64) -> bool {
@@ -203,7 +207,7 @@ pub(crate) fn scroll_bookkeeping_offset(
 /// 有新数据时从通道接收自有的 `CellData`（零拷贝移动）；空闲时只记录事实——
 /// 阶段 3 将直接引用 `last_frame`，省去此处原有的整帧克隆（CellData 96B×行列数）。
 /// 暂停期不消费通道：receive 是破坏性取数，暂停帧取走后永不呈现
-///（render_frame 直接丢弃），恢复后 VT 去重也不再重推——“IME 弹出
+///（`render_frame` 直接丢弃），恢复后 VT 去重也不再重推——“IME 弹出
 /// 时输入不可见”的主因。帧留在通道里，恢复后第一帧即最新。
 ///
 /// `Err(退出码)` 表示本帧不渲染：暂停中或无 surface 记 0，渲染态缺失或会话不存在记 -1。

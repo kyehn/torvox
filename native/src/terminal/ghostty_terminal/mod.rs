@@ -61,7 +61,7 @@ pub struct GhosttyTerminal {
     pub(crate) query_tx: Sender<Query>,
     /// 单元帧邮箱（VT 线程写入，渲染线程取走）：只保留最新一帧。
     pub(crate) cell_data_mailbox: Arc<FrameMailbox>,
-    /// 上游 OSC 52 回调事件接收端（VT 线程经 on_clipboard_write 推送）。
+    /// 上游 OSC 52 回调事件接收端（VT 线程经 `on_clipboard_write` 推送）。
     /// session 在 flush 后收割到锁存槽；BDD 直接轮询断言。
     pub(crate) clipboard_rx: flume::Receiver<(String, String)>,
     pub(crate) handle: Option<thread::JoinHandle<()>>,
@@ -101,7 +101,7 @@ pub struct GhosttyTerminal {
     pub(crate) batch_stats: internal::BatchStats,
 }
 
-/// Terminate 投递的短时等待：try_send 在队列满时失败，但 VT 线程按批排空
+/// Terminate 投递的短时等待：`try_send` 在队列满时失败，但 VT 线程按批排空
 /// 有界队列，短等待通常即可送达；超时后放弃，析构继续走限时 join。
 const TERMINATE_SEND_TIMEOUT: Duration = Duration::from_millis(50);
 

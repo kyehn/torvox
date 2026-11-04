@@ -107,12 +107,12 @@ impl Session {
             }
         };
 
-        let exited = session.exited.clone();
+        let exited = Arc::clone(&session.exited);
         let output_tx = session.output_tx.clone();
         let output_wake = output_wake;
 
         log::info!("Session::spawn: spawning reader thread");
-        let exited_read = exited.clone();
+        let exited_read = Arc::clone(&exited);
         let reader_handle = std::thread::spawn(move || {
             let mut read_buf = [0u8; READ_BUF_SIZE];
             loop {
@@ -177,7 +177,7 @@ impl Session {
             // `read_file`（及其 fd）在此被丢弃，随之安全关闭。
         });
 
-        let exit_code = session.exit_code.clone();
+        let exit_code = Arc::clone(&session.exit_code);
         let exited_wait = exited;
         let wait_handle = std::thread::spawn(move || {
             log::info!("wait thread: waiting for child pid={child_pid}");
@@ -256,7 +256,7 @@ impl Session {
         .map_err(SessionError::Terminal)?;
 
         Ok(Self {
-            pty: PtyMaster::new(pty, exited.clone()),
+            pty: PtyMaster::new(pty, Arc::clone(&exited)),
             terminal,
             output_processor: OutputProcessor::new(),
             output_tx,

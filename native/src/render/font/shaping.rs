@@ -196,10 +196,10 @@ mod tests {
         }
     }
 
-    /// 整形输出（推进宽度与叠加层偏移）必须是**光栅像素**：cell_builder 把
+    /// 整形输出（推进宽度与叠加层偏移）必须是**光栅像素**：`cell_builder` 把
     /// `x_offset`/`y_offset` 直接加到 `cell_metrics() * raster_scale` 得来的
     /// 物理像素原点上。用逻辑字号整形会让高密度屏上的组合标记/ZWJ 叠加层
-    /// 偏移一个 raster_scale 倍。缓存键含 raster_scale，键值语义与此处一致。
+    /// 偏移一个 `raster_scale` 倍。缓存键含 `raster_scale`，键值语义与此处一致。
     #[test]
     fn shaping_advances_in_raster_pixels() {
         let mut pipeline = small_pipeline();

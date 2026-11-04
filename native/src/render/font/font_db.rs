@@ -83,7 +83,7 @@ fn system_fonts_xml_document_or_fatal() -> &'static FontsXmlDocument {
 ///
 /// 候选按 [`FONTS_XML_CANDIDATES`] 顺序尝试。首个可读但未声明等宽族的文件被跳过：
 /// 主字体、符号层与区域层 MUST 取自同一份文件，否则两份 fonts.xml 里的同名族会
-/// 竞争同一字符（主字体来自 fonts_fallback.xml、区域层来自 fonts.xml 时最明显）。
+/// 竞争同一字符（主字体来自 `fonts_fallback.xml`、区域层来自 `fonts.xml` 时最明显）。
 fn resolve_fonts_xml_document() -> Result<FontsXmlDocument, String> {
     let mut last_error = String::new();
     for xml_path in FONTS_XML_CANDIDATES {
@@ -390,7 +390,7 @@ pub(crate) fn current_locale() -> String {
     CURRENT_LOCALE.read().clone()
 }
 
-/// 当前语言对应的区域回退条目 `(文件名, ttc_index)`（简中 → `zh-Hans` 的 NotoSansCJK）。
+/// 当前语言对应的区域回退条目 `(文件名, ttc_index)`（简中 → `zh-Hans` 的 `NotoSansCJK`）。
 /// 保留 `ttc_index` 供面级匹配使用；按 locale 优先级取首个匹配的 `lang` 块。
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn locale_fallback_entries(
@@ -409,7 +409,7 @@ pub(crate) fn locale_fallback_entries(
     Vec::new()
 }
 
-/// 当前语言对应的区域回退族文件名（简中 → `zh-Hans` 的 NotoSansCJK）。
+/// 当前语言对应的区域回退族文件名（简中 → `zh-Hans` 的 `NotoSansCJK`）。
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn locale_fallback_files(families: &FontsXmlFamilies, locale: &str) -> Vec<String> {
     locale_fallback_entries(families, locale)

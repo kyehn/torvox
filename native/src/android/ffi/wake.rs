@@ -1,5 +1,8 @@
 use super::render::{pump_sessions, string_to_jstring};
-use super::*;
+use super::{
+    Arc, Duration, EVENT_QUEUE, Env, EnvUnowned, JClass, ThrowRuntimeExAndFailure, jlong, jstring,
+    rlock_session_registry,
+};
 
 // ── 渲染唤醒 ────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
@@ -11,9 +14,9 @@ use super::*;
 /// `last_generation` 是调用方上次拿到的代数；期间若已发生 notify，立即返回，
 /// 因此「检查完信号再进场」与 notify 竞争也不会丢唤醒。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_waitForOutput(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_waitForOutput(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
     last_generation: jlong,
     timeout_millis: jlong,
@@ -28,23 +31,22 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_waitForOutput(
                 .get(&(session_id as u64))
                 .map(|entry| Arc::clone(&entry.render_wake))
         };
-        match wake {
-            Some(wake) => wake.wait(last_generation, timeout) as jlong,
-            None => {
-                // 会话已销毁：按同一节奏睡一段再返回，调用方下一拍就会看到会话消失
-                // 并退出循环。返回原代数而不是新值，避免伪造「有新信号」。
-                std::thread::sleep(timeout);
-                last_generation as jlong
-            }
+        if let Some(wake) = wake {
+            wake.wait(last_generation, timeout) as jlong
+        } else {
+            // 会话已销毁：按同一节奏睡一段再返回，调用方下一拍就会看到会话消失
+            // 并退出循环。返回原代数而不是新值，避免伪造「有新信号」。
+            std::thread::sleep(timeout);
+            last_generation as jlong
         }
     })
 }
 
 /// 唤醒指定会话的渲染循环（vsync、输入、滚动、选区等所有 Kotlin 侧信号）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wakeRender(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wakeRender(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
@@ -66,7 +68,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wakeRender(
 // ══════════════════════════════════════════════════════════════════════════
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_pollEvent<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_pollEvent<'local>(
     mut unowned_env: EnvUnowned<'local>,
     class: JClass<'local>,
 ) -> jstring {

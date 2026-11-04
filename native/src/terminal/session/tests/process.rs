@@ -84,7 +84,7 @@ fn mark_exit_reported_is_idempotent_under_concurrency() {
     let session = std::sync::Arc::new(parking_lot::Mutex::new(session));
     let mut handles = Vec::new();
     for _ in 0..8 {
-        let session = session.clone();
+        let session = Arc::clone(&session);
         handles.push(std::thread::spawn(move || {
             session.lock().mark_exit_reported()
         }));

@@ -494,8 +494,8 @@ fn an_explicit_cursor_wins_over_the_background_derived_one() {
 #[test]
 fn override_slots_are_read_from_the_cross_language_array() {
     let mut slots = vec![-1; PALETTE_OVERRIDE_SLOTS];
-    slots[OVERRIDE_BACKGROUND] = 0x112233;
-    slots[OVERRIDE_ANSI_FIRST] = 0x445566;
+    slots[OVERRIDE_BACKGROUND] = 0x11_2233;
+    slots[OVERRIDE_ANSI_FIRST] = 0x44_5566;
     let overrides = PaletteOverride::from_slots(&slots).expect("长度相符即应可解析");
     assert_eq!(overrides.background, Some(color(0x11, 0x22, 0x33)));
     assert_eq!(overrides.ansi[0], Some(color(0x44, 0x55, 0x66)));
@@ -506,7 +506,7 @@ fn override_slots_are_read_from_the_cross_language_array() {
 /// 无从定位。
 #[test]
 fn a_wrong_sized_override_array_is_rejected() {
-    assert!(PaletteOverride::from_slots(&[0x112233]).is_err());
+    assert!(PaletteOverride::from_slots(&[0x11_2233]).is_err());
     assert!(PaletteOverride::from_slots(&[-1; PALETTE_OVERRIDE_SLOTS + 1]).is_err());
 }
 

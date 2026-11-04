@@ -1,4 +1,8 @@
-use super::*;
+use super::{
+    Arc, BatchState, Command, CommandOutcome, CommandState, CursorStyle, DEFAULT_CELL_HEIGHT,
+    DEFAULT_CELL_WIDTH, GridSnapshot, Ordering, RenderExtractors, RunConfig, Terminal,
+    ViewportTarget, mark_grid_dirty, snapshot_needs_rebuild, try_send,
+};
 
 // ── 命令派发 ───────────────────────────────────────────────────
 
@@ -133,7 +137,7 @@ impl super::GhosttyTerminal {
     /// 只写**默认值**：程序用 DECSCUSR 设置过样式时以程序为准（上游按此优先级解析），
     /// 这与 termux 一致——用户在 vim 里选的光标形状不该被配置文件覆盖。
     ///
-    /// 样式变了要重推单元帧：光标形状烘在 CellData 里，不重推则屏幕上的光标保持旧形状
+    /// 样式变了要重推单元帧：光标形状烘在 `CellData` 里，不重推则屏幕上的光标保持旧形状
     /// 直到下一次输出。
     fn apply_cursor_style(
         style: CursorStyle,
@@ -237,11 +241,11 @@ impl super::GhosttyTerminal {
     /// 更新单元格像素几何（Kitty 放置/鼠标映射用）。
     ///
     /// 同行列重调，网格内容不变，不置脏，避免字体变化引发全量重绘。
-    fn apply_cell_pixel_size<'term>(
+    fn apply_cell_pixel_size(
         cell_width: u32,
         cell_height: u32,
         config: &RunConfig,
-        terminal: &mut Terminal<'term, '_>,
+        terminal: &mut Terminal<'_, '_>,
     ) -> CommandOutcome {
         let (Ok(cols), Ok(rows)) = (terminal.cols(), terminal.rows()) else {
             return CommandOutcome::EndBatch;
@@ -324,7 +328,7 @@ impl super::GhosttyTerminal {
 
     /// 安装线性活动选区。
     ///
-    /// 终端持有化：选区经 set_selection 安装为终端状态（上游转为跟踪引用，
+    /// 终端持有化：选区经 `set_selection` 安装为终端状态（上游转为跟踪引用，
     /// 随滚动/输出/重排跟随文本）。选区变化改变每行反白，需重推帧。
     fn apply_set_selection<'term>(
         terminal: &Terminal<'term, '_>,
@@ -364,7 +368,7 @@ impl super::GhosttyTerminal {
     /// 网格未变则克隆上次建好的缓存，省下逐格 ghostty FFI 重建。
     fn apply_snapshot(
         tx: flume::Sender<Arc<GridSnapshot>>,
-        terminal: &Terminal,
+        terminal: &Terminal<'_, '_>,
         state: &mut CommandState,
     ) {
         let needs_rebuild =

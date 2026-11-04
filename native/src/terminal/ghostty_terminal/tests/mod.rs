@@ -2,12 +2,12 @@
 //!
 //! 保留集合（本仓机制与对外 API，上游仅作输入夹具）：
 //! 1. 快照管线：snapshot 缓存/回退、视口映射、行缓存；
-//! 2. 查询 API：dump_grid / read_line_text / hyperlink_at / selection_text /
-//!    select_word_at / select_line_at / select_all / search_in（断言对象是
+//! 2. 查询 API：`dump_grid` / `read_line_text` / `hyperlink_at` / `selection_text` /
+//!    `select_word_at` / `select_line_at` / `select_all` / `search_in`（断言对象是
 //!    本仓包装与格式化）；
-//! 3. 输入输出管道：vt_write 清洗、pty_write LF→CRLF 与分片直透（无 ST/SGR 提前闭合）、
+//! 3. 输入输出管道：`vt_write` 清洗、`pty_write` LF→CRLF 与分片直透（无 ST/SGR 提前闭合）、
 //!    键盘/鼠标编码（含钳制）；
-//! 4. 会话与生命周期 tc_sm_ / tc_al_ / tc_lifecycle_，性能基准 bench_*。
+//! 4. 会话与生命周期 `tc_sm_` / `tc_al_` / `tc_lifecycle_`，性能基准 bench_*。
 //!
 //! 删除集合（上游 libghostty-vt 的职责，由上游自己的测试覆盖；依赖内的测试
 //! 不随 `cargo test` 运行，故本仓任何包装改动都必须在上面四类里留下断言）：
@@ -137,7 +137,7 @@ fn viewport_cell_foreground(terminal_under_test: &mut GhosttyTerminal, col: u32)
 fn marked_cell(cells: &[CellData], marker: u8) -> &CellData {
     cells
         .iter()
-        .find(|cell| cell.codepoint == marker as u32)
+        .find(|cell| cell.codepoint == u32::from(marker))
         .expect("marked cell present")
 }
 

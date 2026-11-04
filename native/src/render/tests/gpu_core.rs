@@ -95,7 +95,7 @@ fn scroll_px_offset_translates_viewport_down() {
 /// 渲染稳定性 spec §3「滚动不得有可见撕裂」：优先 vsync 约束的
 /// Mailbox（新帧覆盖旧帧、无背压，滚动时最新帧胜出），其次
 /// Fifo / AutoVsync；Immediate 仅作驱动只支持它时的兜底。
-/// 见 context.rs select_present_mode。
+/// 见 context.rs `select_present_mode`。
 #[test]
 fn select_present_mode_prefers_vsync() {
     fn base_caps() -> wgpu::SurfaceCapabilities {
@@ -297,9 +297,7 @@ fn orthographic_projection_resize_changes_mapping() {
     let result_200: f32 = proj_small[1][1] * world_y + proj_small[3][1];
     assert!(
         result_200 < result_400,
-        "matrix clip_y at h=200 ({}) < h=400 ({})",
-        result_200,
-        result_400
+        "matrix clip_y at h=200 ({result_200}) < h=400 ({result_400})"
     );
 }
 
@@ -318,13 +316,11 @@ fn orthographic_projection_resize_full_range() {
 
     assert!(
         (clip_y_top - 1.0).abs() < 1e-6,
-        "top of surface (y=0) -> clip_y=+1, got {}",
-        clip_y_top
+        "top of surface (y=0) -> clip_y=+1, got {clip_y_top}"
     );
     assert!(
         (clip_y_bot + 1.0).abs() < 1e-6,
-        "bottom of surface (y=400) -> clip_y=-1, got {}",
-        clip_y_bot
+        "bottom of surface (y=400) -> clip_y=-1, got {clip_y_bot}"
     );
 
     // At smaller height 800x250, bottom should still map to clip_y=-1.
@@ -332,8 +328,7 @@ fn orthographic_projection_resize_full_range() {
     let clip_y_bot_250 = clip_y(&proj_250, 250.0);
     assert!(
         (clip_y_bot_250 + 1.0).abs() < 1e-6,
-        "bottom of smaller surface (y=250) -> clip_y=-1, got {}",
-        clip_y_bot_250
+        "bottom of smaller surface (y=250) -> clip_y=-1, got {clip_y_bot_250}"
     );
 }
 
@@ -705,8 +700,8 @@ fn cluster_cell_invalid_extra_falls_back_without_overlay() {
 
 // ── Bearing correctness: Termux-aligned font metrics ──────────────
 
-/// Verify bearing_y uses font baseline, not centering.
-/// build_cell_instances_from_flat uses raw bearing_y = ascent_pixels - placement.top
+/// Verify `bearing_y` uses font baseline, not centering.
+/// `build_cell_instances_from_flat` uses raw `bearing_y` = `ascent_pixels` - placement.top
 /// (no centering, no clamping — the raw font baseline offset).
 #[test]
 fn bearing_y_uses_font_baseline_not_centering() {
@@ -731,7 +726,7 @@ fn bearing_y_uses_font_baseline_not_centering() {
     }
 }
 
-/// Verify bearing_x uses font's natural left side bearing, not centering.
+/// Verify `bearing_x` uses font's natural left side bearing, not centering.
 #[test]
 fn bearing_x_uses_font_natural_bearing() {
     let mut font_pipeline = ascii_font();
@@ -801,7 +796,7 @@ fn all_chars_share_same_baseline_y() {
     }
 }
 
-/// Verify CJK bearing_y is not centered.
+/// Verify CJK `bearing_y` is not centered.
 ///
 /// 位图不高于单元格时 MUST 按基线摆放（`ascent − placement.top`），MUST NOT 居中：
 /// CJK 面的 `top` 常常大于 ascent（汉字墨迹接近整个 em），居中会把整行压低半个格子。

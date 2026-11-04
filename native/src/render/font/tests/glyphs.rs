@@ -44,7 +44,7 @@ fn font_pipeline_has_system_fonts() {
 /// （字体解压）——粗体/斜体文本越常见越慢。
 ///
 /// 不经 `glyph_information_styled` 取证是刻意：**主字体就覆盖汉字**的环境里（开发
-/// shell 的 Maple Mono NF CN 即如此）该函数在「主字体 glyph_id 命中 → 查已光栅化字形」
+/// shell 的 Maple Mono NF CN 即如此）该函数在「主字体 `glyph_id` 命中 → 查已光栅化字形」
 /// 这条更早的分支上返回，`(面, 码位)` 查表一步都不走，断言会退化为「等于 0 也就是
 /// 通过」。真机上主字体多半是不带 CN 的那版，汉字全靠 CJK 回退链，每个码位都要查一次。
 #[test]
@@ -374,9 +374,7 @@ fn font_matching_stripped_spaces() {
     let mut p2 = FontPipeline::new(1024, 1024, 14.0);
     assert!(
         p2.set_font_family(&stripped, &[]),
-        "set_font_family should find '{}' when given '{}'",
-        name,
-        stripped
+        "set_font_family should find '{name}' when given '{stripped}'"
     );
 }
 
@@ -610,8 +608,7 @@ fn font_enumeration_finds_monospace() {
     let fonts = pipeline.list_monospace_fonts();
     assert!(
         !fonts.is_empty(),
-        "FontLoader should find at least one monospace face, got: {:?}",
-        fonts
+        "FontLoader should find at least one monospace face, got: {fonts:?}"
     );
     assert!(
         pipeline.has_font(),
@@ -703,8 +700,7 @@ fn glyph_atlas_lru_eviction() {
     // ASCII 32..127 共 95 格；空格无位图不入库，94 为正确值。
     assert!(
         after_ascii >= 94,
-        "should have at least 94 cached after rasterize_ascii, got {}",
-        after_ascii
+        "should have at least 94 cached after rasterize_ascii, got {after_ascii}"
     );
 
     let mut inserted = 0u32;
@@ -720,16 +716,12 @@ fn glyph_atlas_lru_eviction() {
     let final_len = pipeline.cache_length();
     assert!(
         final_len <= 10000,
-        "cache_length {} exceeds capacity 10000",
-        final_len
+        "cache_length {final_len} exceeds capacity 10000"
     );
     assert!(
         final_len >= after_ascii,
         "cache should not shrink after inserting new glyphs: \
-             before={} after={} inserted={}",
-        after_ascii,
-        final_len,
-        inserted
+             before={after_ascii} after={final_len} inserted={inserted}"
     );
     let bitmap = pipeline.atlas_bitmap();
     assert!(
@@ -931,8 +923,7 @@ fn ascii_bearing_y_nonnegative_for_any_font() {
         let bearing_y = ascent - info.placement.top as f32;
         assert!(
             bearing_y >= -2.0,
-            "bearing_y('{ch}')={:.1} should be >= -2",
-            bearing_y
+            "bearing_y('{ch}')={bearing_y:.1} should be >= -2"
         );
     }
 }
@@ -978,7 +969,7 @@ fn system_monospace_name_returns_nonempty() {
 #[test]
 fn set_font_family_empty_resets_to_default() {
     let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
-    let default_name = pipeline.default_font_name().clone();
+    let default_name = pipeline.default_font_name();
     let fonts = pipeline.list_monospace_fonts();
     if let Some(other) = fonts
         .iter()

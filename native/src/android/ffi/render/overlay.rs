@@ -1,5 +1,5 @@
 use super::super::query::session_handle;
-use super::super::*;
+use super::super::{GpuError, RenderState, SearchHighlight};
 
 // ── 叠加层与脏区 ────────────────────────────────────────────────────
 /// 由 `CursorInfo` 快照构建光标，光标色取当前主题。
@@ -64,7 +64,7 @@ pub(crate) fn mark_overlay_dirty_rows<'a>(
 
 /// 取会话句柄并请求其重推一帧。会话不存在时为 false。
 ///
-/// 锁序：注册表 → 会话，且在**不持有** RENDER_STATE 时调用（见下方调用点）。
+/// 锁序：注册表 → 会话，且在**不持有** `RENDER_STATE` 时调用（见下方调用点）。
 pub(super) fn request_session_repaint(session_id: u64) -> bool {
     session_handle(session_id)
         .map(|session| session.lock().terminal().request_repaint())
@@ -73,7 +73,7 @@ pub(super) fn request_session_repaint(session_id: u64) -> bool {
 
 /// 帧失败日志的分级：可恢复的一类记 debug，真异常记 error。
 ///
-/// 分级依据是**错误类型**（[GpuError::is_recoverable]），不是文案——文案会变，
+/// 分级依据是**错误类型**（[`GpuError::is_recoverable`]），不是文案——文案会变，
 /// 类型不会。可恢复的一类（本帧没有可呈现的纹理：渲染暂停、surface 尚未挂载、
 /// 平台收走了原生窗口）逐帧可能重复，按 debug 记才不会把 W/E 闸门淹掉；
 /// 宿主侧另有「瞬时渲染错误」的限频汇总（`logcat-hygiene` 规范），两者分工：

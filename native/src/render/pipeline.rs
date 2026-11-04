@@ -36,7 +36,7 @@ pub struct GpuUniforms {
     pub projection: [[f32; 4]; 4],
     pub atlas_size: [f32; 2],
     /// std140 尾部对齐：着色器侧把结构体大小取整到 16 的倍数（76 → 80），故本侧
-    /// 也必须凑够 80 字节，否则 wgpu 以「绑定小于 min_binding_size」拒绝整个管线，
+    /// 也必须凑够 80 字节，否则 wgpu 以「绑定小于 `min_binding_size`」拒绝整个管线，
     /// 实例绘制全被丢弃、字形渲染结果全为 0。
     ///
     /// 这里曾有一个 `raster_scale` 字段：着色器读到它却从不使用（字形按 1:1 采样，

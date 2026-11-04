@@ -1,13 +1,18 @@
 use super::render::string_to_jstring;
 use super::session::read_jni_string;
-use super::*;
+use super::{
+    Arc, Env, EnvUnowned, GhosttyTerminal, JClass, JString, Mutex, RENDERED_CURSOR_NONE,
+    RENDERED_SCROLLBACK_NONE, Session, ThrowRuntimeExAndFailure, jboolean, jint, jintArray, jlong,
+    jlongArray, jstring, rendered_cursor_packed, rendered_scrollback, rlock_session_registry,
+    throw_session_missing,
+};
 
 // ── 文本与滚动查询 ──────────────────────────────────────────────
 /// 返回某会话的回滚行数。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLength(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLength(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
 ) -> jint {
     jni_export_guard!(&mut unowned_env, 0, |env| {
@@ -27,9 +32,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLeng
 /// 要「刚写进去的数据立刻反映出来」时用本方法；逐帧/逐键的热路径 MUST 改用
 /// [`Java_terminal_emulator_bridge_NativeBridge_getRenderedCursorPacked`]。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCursorViewportPacked(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCursorViewportPacked(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, -1, |env| {
@@ -44,7 +49,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCursorViewp
         else {
             return Ok(-1);
         };
-        ((row as jlong) << 32) | (col as jlong)
+        (jlong::from(row) << 32) | jlong::from(col)
     })
 }
 
@@ -55,9 +60,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCursorViewp
 /// 的是已消费帧的光标，代价是一次原子读——不发查询、不取会话锁、不等待 VT 线程。
 /// 逐键发生的输入法锚点上报取本方法；需要「刚写入的数据立刻反映」的断言取前者。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedCursorPacked(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedCursorPacked(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, RENDERED_CURSOR_NONE, |env| {
@@ -72,9 +77,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedCur
 /// 最近一帧的回滚长度（0 起）。首帧尚未取走时为 -1；未知会话抛异常（与光标载体一致，
 /// 让调用方能区分「会话没了」与「暂时没有帧」）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedScrollbackLength(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedScrollbackLength(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
 ) -> jint {
     jni_export_guard!(&mut unowned_env, RENDERED_SCROLLBACK_NONE, |env| {
@@ -93,9 +98,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRenderedScr
 /// 一次原子读，不写终端、不发 VT 查询（旧做法向网格注入标记行，会把真实内容挤出
 /// 无回滚的视口，连带把提示符丢出屏幕）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionScrollOffset(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionScrollOffset(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
 ) -> jint {
     jni_export_guard!(&mut unowned_env, 0, |_env| {
@@ -109,7 +114,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionScro
 /// **惰性访问语义**——Ghostty 只保留被显式读取过的行，多数下标返回 null。
 /// 不可用于全文迭代——应改用 `dump_grid`（经 `getTerminalText`）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLine<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLine<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -145,7 +150,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLine
 /// 会把 VT 线程按在数十万次跨语言调用上，挤占命令通道——测试与 UI 的查询突发
 /// 随即双双超时回退，表现为「标记不落格」与渲染掉帧。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalText<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalText<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -167,7 +172,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalTex
 /// 与 `getTerminalText`（视口 + 全回滚）相对：调用方要判断「某行是否看得见」时
 /// 用它，代价随网格面积而非回滚深度走。仪器测试以此确认视口确实停在底部。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getVisibleText<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getVisibleText<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -188,7 +193,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getVisibleText
 /// `startRow`/`startCol`/`endRow`/`endCol` 为网格行列（绝对：第 0 行是回滚顶部，
 /// 与 `scrollbackLine` 一致）。出错时返回 ""。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -213,7 +218,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<
 }
 
 /// `jint` 切片 → JNI `IntArray`；分配失败返回 null。
-pub(super) fn jint_slice_to_int_array(env: &mut Env, values: &[jint]) -> jintArray {
+pub(super) fn jint_slice_to_int_array(env: &mut Env<'_>, values: &[jint]) -> jintArray {
     let Ok(array) = env.new_int_array(values.len()) else {
         return std::ptr::null_mut();
     };
@@ -224,7 +229,7 @@ pub(super) fn jint_slice_to_int_array(env: &mut Env, values: &[jint]) -> jintArr
 }
 
 /// 会话标识 → JNI `LongArray`（空表即无会话）；分配失败返回 null。
-pub(super) fn u64_vec_to_long_array(env: &mut Env, values: &[u64]) -> jlongArray {
+pub(super) fn u64_vec_to_long_array(env: &mut Env<'_>, values: &[u64]) -> jlongArray {
     let wide: Vec<jlong> = values.iter().map(|value| *value as jlong).collect();
     let Ok(array) = env.new_long_array(wide.len()) else {
         return std::ptr::null_mut();
@@ -238,7 +243,7 @@ pub(super) fn u64_vec_to_long_array(env: &mut Env, values: &[u64]) -> jlongArray
 /// 有序选区界限（绝对网格坐标，0 = 回滚顶部）→ JNI `IntArray
 /// [startRow, startCol, endRow, endCol]`；`None`（无可选内容）→ null。
 pub(super) fn bounds_to_int_array(
-    env: &mut Env,
+    env: &mut Env<'_>,
     bounds: Option<((u32, u32), (u32, u32))>,
 ) -> jintArray {
     let Some(((start_row, start_col), (end_row, end_col))) = bounds else {
@@ -254,7 +259,7 @@ pub(super) fn bounds_to_int_array(
 }
 
 /// `u32` 列号序列 → JNI `IntArray`（宽字符尾格查询回传）；分配失败返回 null。
-pub(super) fn u32_vec_to_int_array(env: &mut Env, values: &[u32]) -> jintArray {
+pub(super) fn u32_vec_to_int_array(env: &mut Env<'_>, values: &[u32]) -> jintArray {
     let clamped: Vec<jint> = values
         .iter()
         .map(|value| (*value).min(jint::MAX as u32) as jint)
@@ -267,8 +272,8 @@ pub(super) fn u32_vec_to_int_array(env: &mut Env, values: &[u32]) -> jintArray {
 ///
 /// 词选区与全选共用此包装：两者只在「选区怎么派生」上不同，通道外置与
 /// 失败语义完全一致，各写一遍时漏改一处即让某个选区查询改回持锁跨越。
-pub(super) fn select_bounds_export<'local>(
-    mut unowned_env: EnvUnowned<'local>,
+pub(super) fn select_bounds_export(
+    mut unowned_env: EnvUnowned<'_>,
     session_id: jlong,
     // 通道外置：选区派生在两把锁之外跑（理由同 `getTitle`）。
     select: impl FnOnce(
@@ -283,11 +288,11 @@ pub(super) fn select_bounds_export<'local>(
     })
 }
 
-/// 上游 select_word：以落点为锚派生词选区并安装到终端（ghostty 默认词
+/// 上游 `select_word`：以落点为锚派生词选区并安装到终端（ghostty 默认词
 /// 边界），回传 `[startRow, startCol, endRow, endCol]`（绝对网格坐标）；
 /// 落点无可选词或查询失败返回 null。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectWordAt<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectWordAt<'local>(
     unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -305,7 +310,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectWordAt<'
 /// 通道外置：查询在两把锁之外执行（每次拖动手柄都调用，锁内等 VT 应答会连同
 /// 按帧取锁的渲染一起卡住）。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wideCharTailCols<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wideCharTailCols<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -323,10 +330,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wideCharTailCo
     })
 }
 
-/// 上游 select_all：全部内容（回滚 + 视口，界限不含尾部空行/空列）派生
+/// 上游 `select_all`：全部内容（回滚 + 视口，界限不含尾部空行/空列）派生
 /// 并安装，回传与失败语义同 selectWordAt。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectAll<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectAll<'local>(
     unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -339,7 +346,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectAll<'loc
 /// 查询网格单元处的 OSC 8 超链接 URI（第 0 行 = 回滚顶部，与 `scrollbackLine` 一致），
 /// 无链接时返回 null。纯文本裸 URL 不做识别：libghostty-vt 只提供 OSC 8 超链接。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -362,7 +369,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'l
 // ── 搜索与选择 ──────────────────────────────────────────────────
 /// 设置搜索 needle 并同步跑完搜索，返回命中总数。会话不存在、查询超时或断连时返回 0。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchSetNeedle<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchSetNeedle<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -388,7 +395,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchSetNeedl
 /// 选中下一个（`forward = true`）或上一个命中，返回 `[序号, 总数, 行, 起始列, 结束列]`；
 /// 无命中、会话不存在、查询超时或断连时返回 null。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchSelect<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchSelect<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -422,7 +429,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchSelect<'
 pub(super) fn session_handle(session_id: u64) -> Option<Arc<Mutex<Session>>> {
     rlock_session_registry()
         .get(&session_id)
-        .map(|entry| entry.session.clone())
+        .map(|entry| Arc::clone(&entry.session))
 }
 
 /// [`Self::session_handle`] 的查询通道版。查询经 500 毫秒有界超时，VT 查询本身

@@ -55,7 +55,7 @@ impl Renderer {
                 }
                 None => (0, 0, width, height),
             };
-            let offset = (origin_y as u64 * width as u64 + origin_x as u64)
+            let offset = (u64::from(origin_y) * u64::from(width) + u64::from(origin_x))
                 * crate::render::font::ATLAS_BYTES_PER_PIXEL as u64;
             // 长度下界必须按 wgpu 的**跨步**规则算，而不是「宽 × 高 × BPP」：
             // `bytes_per_row` 恒为整幅宽度 `width`，故末行之前每行都要走满一个跨步。

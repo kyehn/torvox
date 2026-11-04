@@ -356,7 +356,7 @@ fn search_viewport_matches_cover_every_hit_row() {
 }
 
 /// Regression: search must not panic on multi-byte (CJK) lines — byte
-/// slicing used to land mid-character (start = abs_col + 1), which panics
+/// slicing used to land mid-character (start = `abs_col` + 1), which panics
 /// deterministically on CJK text.
 #[test]
 fn search_viewport_matches_cjk_no_panic() {
@@ -415,12 +415,7 @@ fn search_matches_adjacent_cjk_characters() {
 
     for query in ["你好", "好世", "世界", "你好世界"] {
         let results = search_viewport_matches(&terminal_under_test, query);
-        assert_eq!(
-            results.len(),
-            1,
-            "查询 {query} 必须命中，实际 {:?}",
-            results
-        );
+        assert_eq!(results.len(), 1, "查询 {query} 必须命中，实际 {results:?}");
     }
 }
 
@@ -432,7 +427,7 @@ fn search_highlight_spans_the_full_width_of_matched_wide_cells() {
     terminal_under_test.flush();
 
     let results = search_viewport_matches(&terminal_under_test, "你好");
-    assert_eq!(results.len(), 1, "必须命中，实际 {:?}", results);
+    assert_eq!(results.len(), 1, "必须命中，实际 {results:?}");
     // `a` 占列 0；两个宽字符占列 1..4；`b` 在列 5。
     assert_eq!(results[0].start_col, 1, "起点须为第一个宽字符的起始列");
     assert_eq!(results[0].end_col, 5, "终点须覆盖两个宽字符的全部四列");
@@ -449,7 +444,7 @@ fn search_single_wide_character_covers_both_columns() {
     terminal_under_test.flush();
 
     let results = search_viewport_matches(&terminal_under_test, "你");
-    assert_eq!(results.len(), 1, "尾格不得另成命中，实际 {:?}", results);
+    assert_eq!(results.len(), 1, "尾格不得另成命中，实际 {results:?}");
     assert_eq!(results[0].start_col, 1);
     assert_eq!(results[0].end_col, 3);
 }
@@ -462,7 +457,7 @@ fn search_matches_real_spaces_between_cjk_characters() {
     terminal_under_test.flush();
 
     let results = search_viewport_matches(&terminal_under_test, "你 好");
-    assert_eq!(results.len(), 1, "真实空格必须参与匹配，实际 {:?}", results);
+    assert_eq!(results.len(), 1, "真实空格必须参与匹配，实际 {results:?}");
     assert_eq!(results[0].start_col, 0);
     // 「你」列 0..2，空格列 2..3，「好」列 3..5。
     assert_eq!(results[0].end_col, 5);

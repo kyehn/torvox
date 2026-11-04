@@ -139,11 +139,11 @@ unsafe fn attach_window_inner(
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_detachWindow(
-    mut _unowned: EnvUnowned<'_>,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
 ) {
-    jni_export_guard!(&mut _unowned, (), |env| {
+    jni_export_guard!(&mut unowned_env, (), |env| {
         detach_window_inner(env, _class, _session_id)
     })
 }

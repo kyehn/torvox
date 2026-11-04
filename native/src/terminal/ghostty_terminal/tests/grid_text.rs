@@ -257,8 +257,8 @@ fn dump_grid_dimensions_match() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     };
     assert_eq!(dumped.visible.len(), (24 * 80) as usize);
-    let _snap = terminal_under_test.take_snapshot();
-    assert_invariants(&_snap);
+    let snap = terminal_under_test.take_snapshot();
+    assert_invariants(&snap);
 }
 
 /// 滚出屏幕的单元必须保留其显式样式，回滚区复制与高亮依赖这一点。
@@ -306,8 +306,8 @@ fn dump_grid_visible_populated() {
         has_h_character,
         "dump_grid visible: 'h' from 'hello' should be present"
     );
-    let _snap = terminal_under_test.take_snapshot();
-    assert_invariants(&_snap);
+    let snap = terminal_under_test.take_snapshot();
+    assert_invariants(&snap);
 }
 
 #[test]
@@ -327,8 +327,8 @@ fn dump_grid_scrollback_populated_after_scroll() {
         .iter()
         .any(|row| row.iter().any(|cell| cell.codepoint == 'l' as u32));
     assert!(has_line0, "scrollback: should contain 'l' from line0");
-    let _snap = terminal_under_test.take_snapshot();
-    assert_invariants(&_snap);
+    let snap = terminal_under_test.take_snapshot();
+    assert_invariants(&snap);
 }
 
 /// `read_all_text` 取代 `getTerminalText` 的 `dump_grid` 路径：文本必须逐行等价。
@@ -501,7 +501,7 @@ fn idle_vt_thread_answers_queries_without_waiting_for_tick() {
 
 // ── DECSET/DECRST ──────────────────────────────────────────────────────
 
-/// EncodeMouseEvent with no tracking mode enabled must return empty (the
+/// `EncodeMouseEvent` with no tracking mode enabled must return empty (the
 /// application never asked for mouse reporting) — zelland renderer/mod.rs
 /// drops mouse events when `get_mouse_mode()` is false.
 #[test]
@@ -742,7 +742,7 @@ fn encode_mouse_event_drag_sequence() {
     );
 }
 
-/// 滑出视口的拖动必须上报：上游 mouse_encode 只在有键按下时报告
+/// 滑出视口的拖动必须上报：上游 `mouse_encode` 只在有键按下时报告
 /// 视口外 motion（1003 全事件跟踪），标志缺省 false 会静默丢弃，
 /// 手指滑出终端边缘的拖动在远端看来直接中断。
 #[test]
@@ -813,9 +813,9 @@ fn osc_clipboard_split_buffer() {
     assert_invariants(&snap);
 }
 
-/// OSC 52 clipboard via pty_write (the production output path:
-/// Session::poll_pty_output feeds PTY bytes through pty_write, NOT
-/// vt_write). LF→CRLF conversion must not corrupt the sequence.
+/// OSC 52 clipboard via `pty_write` (the production output path:
+/// `Session::poll_pty_output` feeds PTY bytes through `pty_write`, NOT
+/// `vt_write`). LF→CRLF conversion must not corrupt the sequence.
 #[test]
 fn osc_clipboard_via_pty_write_path() {
     let mut terminal_under_test = terminal();

@@ -28,10 +28,10 @@ pub struct Renderer {
     pub(crate) surface: Option<std::sync::Arc<wgpu::Surface<'static>>>,
     pub(crate) surface_config: Option<wgpu::SurfaceConfiguration>,
     /// 当前挂载的 `ANativeWindow` 句柄（地址，等价于指针比较）：`attach_surface`
-    /// 能否原地 reconfigure 的唯一附加依据，见 [Self::can_reuse_attached_surface]。
+    /// 能否原地 reconfigure 的唯一附加依据，见 [`Self::can_reuse_attached_surface`]。
     ///
     /// 真机日志里回前台与切会话送来的都是**新**窗口，而旧 surface
-    /// 包裹的 BufferQueue 已被 SurfaceFlinger 回收：少了这道比对时快速路径照走，
+    /// 包裹的 `BufferQueue` 已被 `SurfaceFlinger` 回收：少了这道比对时快速路径照走，
     /// reconfigure 之后每帧 `dequeueBuffer: BufferQueue has been abandoned` →
     /// `ERROR_SURFACE_LOST_KHR` → 连续两次取帧失败判死 → 宿主重建 `SurfaceView`，
     /// 期间屏幕停在旧会话（或纯主题背景）那一帧。
@@ -46,19 +46,19 @@ pub struct Renderer {
     /// wgpu-hal panic（2026-10-18 日志：整进程退出、整轮仪器化作废）。
     /// 判定见 [`rebuild_blocked_by_in_flight_surface`]；重建成功后清零。
     retired_window: Option<usize>,
-    /// 连续 surface 级取纹理失败的计数（见 [Self::note_surface_acquire]）。
+    /// 连续 surface 级取纹理失败的计数（见 [`Self::note_surface_acquire`]）。
     surface_loss_streak: u8,
     /// 连续「本帧跳过」计数：工作线程死亡或取纹理持续超时时，帧循环每帧
     /// 只记 warn 不升级——累计到上限必须以 error 报出「屏幕冻结」这一事实。
     consecutive_skip_frames: u32,
     /// surface 已判死：缓存的 `surface` 指向已废弃的 BufferQueue，reconfigure 永不
-    /// 复活（实测 abandoned BufferQueue 下每帧 `Lost` + `ERROR_SURFACE_LOST_KHR`，
+    /// 复活（实测 abandoned `BufferQueue` 下每帧 `Lost` + `ERROR_SURFACE_LOST_KHR`，
     /// 22 分钟零帧上屏）。置位后 `attach_surface` 改走重建慢路径，且由
     /// `renderWithNewOutput` 的状态位上报宿主换新的 `ANativeWindow`。
     surface_invalidated: bool,
     /// 测试钩子：置位后每帧取纹理都按 surface 级失败处理。
     ///
-    /// 真机上被遗弃的 BufferQueue 无法从进程内制造（那是 SurfaceFlinger 的回收决策），
+    /// 真机上被遗弃的 `BufferQueue` 无法从进程内制造（那是 `SurfaceFlinger` 的回收决策），
     /// 而自愈路径若只能等系统回收来验证，就永远拿不到回归护栏。持续注入复刻的正是
     /// 实测到的真实形态（`abandoned=6148`、`begin_frame failed=3074`：每帧都失败），
     /// 供仪器化用例断言「宿主换新 `SurfaceView` 后画面重新有墨迹」。
@@ -93,7 +93,7 @@ pub struct Renderer {
     pub(crate) readback_buffer: Option<wgpu::Buffer>,
     pub(crate) background: wgpu::Color,
     pub(crate) kgp_pipeline: Option<wgpu::RenderPipeline>,
-    /// 创建 kgp_pipeline 时所用的表面格式；表面格式变更后必须重建管线。
+    /// 创建 `kgp_pipeline` 时所用的表面格式；表面格式变更后必须重建管线。
     pub(crate) kgp_pipeline_format: Option<wgpu::TextureFormat>,
     pub(crate) kgp_bind_group: Option<wgpu::BindGroup>,
     pub(crate) kgp_uniform_buffer: Option<wgpu::Buffer>,

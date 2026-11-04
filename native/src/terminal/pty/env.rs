@@ -18,7 +18,7 @@ fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
 }
 
 /// 带可注入宿主环境的 [`base_env`]：生产传真实进程环境，测试传固定映射，
-/// 使断言在任何机器上都保持封闭（CI runner 会导出 ANDROID_ROOT/EXTERNAL_STORAGE，
+/// 使断言在任何机器上都保持封闭（CI runner 会导出 `ANDROID_ROOT/EXTERNAL_STORAGE`，
 /// 开发机通常不会——对 `base_env` 本身做精确集合断言是环境相关的，不可存在）。
 ///
 /// 注入点有两个：宿主变量表（`PATH` 取宿主原值）与目录是否存在（决定

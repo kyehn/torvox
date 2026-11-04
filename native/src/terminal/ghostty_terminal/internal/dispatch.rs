@@ -1,4 +1,9 @@
-use super::*;
+use super::{
+    CommandState, DISCONNECTED_CURSOR_VISIBLE, DISCONNECTED_CURSOR_X, DISCONNECTED_CURSOR_Y,
+    KittyGraphicsImageData, Mode, Mods, Query, QueryContext, RenderExtractors, Terminal,
+    cell_codepoint, cursor_in_viewport, encode_paste_data, grid_cols, grid_rows, mouse,
+    scrollback_len, try_send,
+};
 
 // ── 查询应答 ─────────────────────────────────────────────────
 
@@ -31,14 +36,14 @@ impl super::GhosttyTerminal {
             Query::CursorX(tx) => {
                 try_send(
                     &tx,
-                    terminal.cursor_x().unwrap_or(DISCONNECTED_CURSOR_X as u16) as u32,
+                    u32::from(terminal.cursor_x().unwrap_or(DISCONNECTED_CURSOR_X as u16)),
                     "ghostty_terminal: query channel send failed",
                 );
             }
             Query::CursorY(tx) => {
                 try_send(
                     &tx,
-                    terminal.cursor_y().unwrap_or(DISCONNECTED_CURSOR_Y as u16) as u32,
+                    u32::from(terminal.cursor_y().unwrap_or(DISCONNECTED_CURSOR_Y as u16)),
                     "ghostty_terminal: query channel send failed",
                 );
             }
@@ -409,7 +414,7 @@ impl super::GhosttyTerminal {
     ///
     /// 与 [`Self::read_line_text_impl`] 的区别是空单元不占位。全量文本面向
     /// 「这一行写了什么」，语义与 [`Self::build_dumped_grid`] 的消费侧一致。
-    pub(crate) fn read_all_text_row_impl(terminal: &Terminal, row: u32) -> String {
+    pub(crate) fn read_all_text_row_impl(terminal: &Terminal<'_, '_>, row: u32) -> String {
         let cols = grid_cols(terminal);
         let mut text = String::new();
         for col in 0..cols {
@@ -427,7 +432,7 @@ impl super::GhosttyTerminal {
     /// 字符下标即列号，故供需要按列寻址的消费方使用（选区拖动经 JNI 的
     /// `scrollbackLine` 取行文本后按列换算）。搜索高亮不用此读口：它按列填充会把宽字符拆成「字 + 空格」，
     /// CJK 多字命中因而无法定位到整字，见 [`Self::selection_endpoint_columns`]。
-    pub(crate) fn read_line_text_impl(terminal: &Terminal, row: u32) -> Option<String> {
+    pub(crate) fn read_line_text_impl(terminal: &Terminal<'_, '_>, row: u32) -> Option<String> {
         let cols = grid_cols(terminal);
         let mut text = String::new();
         for col in 0..cols {

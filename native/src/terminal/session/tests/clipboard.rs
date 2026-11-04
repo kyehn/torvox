@@ -72,7 +72,7 @@ fn clipboard_answer_yields_when_a_user_write_holds_the_master_lock() {
     let (locked_sender, locked_receiver) = mpsc::channel();
     let (release_sender, release_receiver) = mpsc::channel();
     let user_write = {
-        let session = session.clone();
+        let session = Arc::clone(&session);
         std::thread::spawn(move || {
             // 写入面克隆出来再取锁：生产路径（`feedPty`）正是如此，
             // 否则持锁的是会话锁而非主端写入锁，两条就不是同一个状态。
@@ -90,7 +90,7 @@ fn clipboard_answer_yields_when_a_user_write_holds_the_master_lock() {
     // 会把用例挂死而不是判红——挂死的用例比判红的更难排查。
     let (sender, receiver) = mpsc::channel();
     let worker = std::thread::spawn({
-        let session = session.clone();
+        let session = Arc::clone(&session);
         move || {
             let mut session = session.lock();
             let result = session.answer_clipboard_read("c", "hello");

@@ -29,7 +29,7 @@ pub(crate) const ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::fro
 /// 慢路径、`Renderer::drop`）使用。
 ///
 /// 与 [`ACQUIRE_TIMEOUT`] 的分工：那条是**每帧**预算，越短越好；这条只在 surface
-/// 生命周期切换时付一次，要让「慢但会返回」的驱动走完（模拟器实测 SwiftShader 的
+/// 生命周期切换时付一次，要让「慢但会返回」的驱动走完（模拟器实测 `SwiftShader` 的
 /// `dequeueBuffer` 超时约 0.9s）。取 2s：既覆盖这类慢返回，又不至于在真卡死时把
 /// 宿主线程按太久——超时即由调用方拒绝同窗口重建（见 `Renderer::attach_surface`）。
 pub(crate) const ACQUIRE_DRAIN_TIMEOUT: std::time::Duration =
@@ -165,7 +165,7 @@ pub(super) fn acquire_worker_tx() -> &'static SyncSender<AcquireRequest> {
 /// 单帧取纹理的结局。
 ///
 /// `Lost`/`Outdated` 与「本帧跳过」必须分开：前者是 surface 级信号（连续出现即判
-/// 死窗口，见 [`Renderer::note_surface_acquire`]`），后者只是工作线程忙或超时，
+/// 死窗口，见 [`Renderer::note_surface_acquire`]），后者只是工作线程忙或超时，
 /// surface 仍然可用。合并成 `Option` 会让慢机器每帧误伤 surface。
 pub(crate) enum AcquireOutcome {
     /// 拿到可呈现纹理。

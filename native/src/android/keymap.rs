@@ -7,8 +7,8 @@
 //! 取值来自 android.jar 的 `android.view.KeyEvent`（`javap -constants`），键码是
 //! 平台 ABI 常量：API 24 到 36 只增不改，核对方式见本文件末尾的测试。
 //!
-//! 未收录的键码返回 `None`：那些键要么没有终端语义（BACK/APP_SWITCH 等系统导航
-//! 键），要么本就该由键的文本表达（如 KEYCODE_AT 的 `@` 实为 Shift+2）。调用方
+//! 未收录的键码返回 `None`：那些键要么没有终端语义（`BACK`/`APP_SWITCH` 等系统导航
+//! 键），要么本就该由键的文本表达（如 `KEYCODE_AT` 的 `@` 实为 Shift+2）。调用方
 //! 据此回退到按键文本，不静默丢弃按键。
 
 use libghostty_vt::key;
@@ -16,21 +16,21 @@ use libghostty_vt::key;
 // ── android.view.KeyEvent 键码常量 ─────────────────────────────
 // 连续段只列两端：段内按键等差，端点即段的定义。
 
-/// KEYCODE_0（KEYCODE_1..KEYCODE_9 依次 +1）。
+/// `KEYCODE_0`（`KEYCODE_1`..`KEYCODE_9` 依次 +1）。
 const KEYCODE_0: i32 = 7;
-/// KEYCODE_9（KEYCODE_0..KEYCODE_9 连续段的末键）。
+/// `KEYCODE_9`（`KEYCODE_0`..`KEYCODE_9` 连续段的末键）。
 const KEYCODE_9: i32 = 16;
-/// KEYCODE_A（KEYCODE_B..KEYCODE_Z 依次 +1）。
+/// `KEYCODE_A`（`KEYCODE_B`..`KEYCODE_Z` 依次 +1）。
 const KEYCODE_A: i32 = 29;
-/// KEYCODE_Z（KEYCODE_A..KEYCODE_Z 连续段的末键）。
+/// `KEYCODE_Z`（`KEYCODE_A`..`KEYCODE_Z` 连续段的末键）。
 const KEYCODE_Z: i32 = 54;
-/// KEYCODE_F1（KEYCODE_F2..KEYCODE_F12 依次 +1）。
+/// `KEYCODE_F1`（`KEYCODE_F2`..`KEYCODE_F12` 依次 +1）。
 const KEYCODE_F1: i32 = 131;
-/// KEYCODE_F12（KEYCODE_F1..KEYCODE_F12 连续段的末键）。
+/// `KEYCODE_F12`（`KEYCODE_F1`..`KEYCODE_F12` 连续段的末键）。
 const KEYCODE_F12: i32 = 142;
-/// KEYCODE_NUMPAD_0（KEYCODE_NUMPAD_1..KEYCODE_NUMPAD_9 依次 +1）。
+/// `KEYCODE_NUMPAD_0`（`KEYCODE_NUMPAD_1`..`KEYCODE_NUMPAD_9` 依次 +1）。
 const KEYCODE_NUMPAD_0: i32 = 144;
-/// KEYCODE_NUMPAD_9（KEYCODE_NUMPAD_0..KEYCODE_NUMPAD_9 连续段的末键）。
+/// `KEYCODE_NUMPAD_9`（`KEYCODE_NUMPAD_0`..`KEYCODE_NUMPAD_9` 连续段的末键）。
 const KEYCODE_NUMPAD_9: i32 = 153;
 
 /// Android 键码对应的上游逻辑键。布局差异（AZERTY 的 A/Q 互换）由调用方传来的
@@ -143,7 +143,7 @@ mod tests {
     use super::*;
 
     /// 连续段的两端必须落在预期的上游键上：段的减法算术一旦写错，
-    /// 只有端点断言能立刻发现（例如 KEYCODE_0 之后不再是 Digit9）。
+    /// 只有端点断言能立刻发现（例如 `KEYCODE_0` 之后不再是 Digit9）。
     #[test]
     fn contiguous_key_ranges_land_on_expected_keys() {
         assert_eq!(key_for_android_keycode(7), Some(key::Key::Digit0));

@@ -34,7 +34,7 @@ impl Renderer {
     /// Present one frame immediately (启动黑屏防护、渲染稳定性 spec §4)：
     /// 首个内容帧要等 shell 输出 + 冷启动（SwiftShader 上实测数百毫秒），
     /// 期间交换链一帧未提交，屏幕保持空黑；静默 shell 时甚至永远不会来内容帧。
-    /// 由 attach_surface 在渲染线程启动前调用（无竞争），用带超时的 acquire
+    /// 由 `attach_surface` 在渲染线程启动前调用（无竞争），用带超时的 acquire
     /// worker 取回当前纹理并提交，让表面立即可见。
     ///
     /// 呈现内容按可用性降级：帧累加器里保有**上一帧**且未失效（同会话销毁重建，
@@ -438,7 +438,7 @@ impl Renderer {
         Ok(())
     }
 
-    /// 由 CellData 渲染一帧：先查图集并定位转成 CellInstance，再提交 GPU。
+    /// 由 `CellData` 渲染一帧：先查图集并定位转成 CellInstance，再提交 GPU。
     ///
     /// `dirty_rows` 为 `Some` 时只重建被标记的行，干净行取自 `self.cell_cache`；
     /// `None` 强制全量重建并丢弃陈旧缓存。
@@ -487,44 +487,41 @@ impl Renderer {
         // 行级脏缓存：给出脏掩码时只重建被标记的行，干净行复制自跨帧缓存；
         // `None`（调用方无基线，如首帧）强制全量重建。
         let build_start = std::time::Instant::now();
-        let (converted, rebuilt_all_rows) = match dirty_rows {
-            Some(mask) => {
-                let cache = self.cell_cache.get_or_insert_with(|| {
-                    crate::render::cell_builder::CachedInstances::new(rows, cols)
-                });
-                let (effective_mask, rebuilt_all_rows): (&[bool], bool) =
-                    if cache.is_compatible(rows, cols) {
-                        (mask, false)
-                    } else {
-                        // 缓存已与网格不匹配（缩放）：新缓存是空的，若仍按“干净行”
-                        // 取值会复制 0 个实例并丢行。本帧强制全量重建。
-                        *cache = crate::render::cell_builder::CachedInstances::new(rows, cols);
-                        self.cell_full_mask_cache.resize(rows as usize, true);
-                        (&self.cell_full_mask_cache, true)
-                    };
-                let converted = crate::render::cell_builder::build_instances_cached(
+        let (converted, rebuilt_all_rows) = if let Some(mask) = dirty_rows {
+            let cache = self.cell_cache.get_or_insert_with(|| {
+                crate::render::cell_builder::CachedInstances::new(rows, cols)
+            });
+            let (effective_mask, rebuilt_all_rows): (&[bool], bool) =
+                if cache.is_compatible(rows, cols) {
+                    (mask, false)
+                } else {
+                    // 缓存已与网格不匹配（缩放）：新缓存是空的，若仍按“干净行”
+                    // 取值会复制 0 个实例并丢行。本帧强制全量重建。
+                    *cache = crate::render::cell_builder::CachedInstances::new(rows, cols);
+                    self.cell_full_mask_cache.resize(rows as usize, true);
+                    (&self.cell_full_mask_cache, true)
+                };
+            let converted = crate::render::cell_builder::build_instances_cached(
+                cell_data,
+                config,
+                font_pipeline,
+                effective_mask,
+                cache,
+                &mut self.cpu_instances,
+            );
+            (converted, rebuilt_all_rows)
+        } else {
+            // 无基线：丢弃可能已失效的陈旧缓存并重建所有行。
+            self.cell_cache = None;
+            (
+                crate::render::build_instances_from_cell_data(
                     cell_data,
                     config,
                     font_pipeline,
-                    effective_mask,
-                    cache,
                     &mut self.cpu_instances,
-                );
-                (converted, rebuilt_all_rows)
-            }
-            None => {
-                // 无基线：丢弃可能已失效的陈旧缓存并重建所有行。
-                self.cell_cache = None;
-                (
-                    crate::render::build_instances_from_cell_data(
-                        cell_data,
-                        config,
-                        font_pipeline,
-                        &mut self.cpu_instances,
-                    ),
-                    true,
-                )
-            }
+                ),
+                true,
+            )
         };
         let build_done = std::time::Instant::now();
 

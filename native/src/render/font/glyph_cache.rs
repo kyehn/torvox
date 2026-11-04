@@ -1,4 +1,4 @@
-//! 字形的 LRU 缓存：glyph id 与整形结果。独立于 FontPipeline 以便单独测试淘汰策略。
+//! 字形的 LRU 缓存：glyph id 与整形结果。独立于 `FontPipeline` 以便单独测试淘汰策略。
 use std::num::NonZeroUsize;
 
 use super::{
@@ -23,7 +23,7 @@ pub struct GlyphCache {
     pub shape_cache: LruCache<ShapeKey, Vec<super::ShapedGlyphInfo>>,
     /// ASCII 快速路径：预分配的 ' '..'~' 字形 id 数组。
     pub ascii_glyph_ids: [Option<swash::GlyphId>; ASCII_UPPER_BOUND as usize],
-    /// CJK 字形解析（字符 → 最终 font_id + glyph_id）。
+    /// CJK 字形解析（字符 → 最终 `font_id` + `glyph_id`）。
     pub cjk_glyph_cache: LruCache<char, (fontdb::ID, swash::GlyphId)>,
     /// 同族样式面解析（基础字体、bold、italic）→ 胜出面 id，需合成时为 None。
     /// 缓存可避免逐帧逐单元重跑 fontdb 的族/字重/样式查询：实测样式字形查询

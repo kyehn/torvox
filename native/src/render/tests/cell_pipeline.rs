@@ -212,21 +212,18 @@ fn search_highlight_current_match_alpha_matches_production() {
     // ORIGINAL background...
     assert!(
         f32_arrays_equal(&foreground, &original_background),
-        "alpha=255 must swap foreground/background; foreground should become the original background: {:?}",
-        foreground
+        "alpha=255 must swap foreground/background; foreground should become the original background: {foreground:?}"
     );
     // ...and the swapped background is fully covered by the opaque
     // highlight color.
     let expected_background = blend_highlight(original_background, hl);
     assert!(
         f32_arrays_equal(&background, &expected_background),
-        "background should be highlight blended over the swapped background: {:?}",
-        background
+        "background should be highlight blended over the swapped background: {background:?}"
     );
     assert!(
         f32_arrays_equal(&background, &[1.0, 200.0 / 255.0, 0.0, 1.0]),
-        "opaque highlight must fully replace the background: {:?}",
-        background
+        "opaque highlight must fully replace the background: {background:?}"
     );
 }
 
@@ -248,16 +245,14 @@ fn search_highlight_other_match_alpha_matches_production() {
     // alpha >= 128 must swap (inverse video): foreground becomes the original background.
     assert!(
         f32_arrays_equal(&foreground, &original_background),
-        "alpha=160 must swap foreground/background like every match: {:?}",
-        foreground
+        "alpha=160 must swap foreground/background like every match: {foreground:?}"
     );
     // 底色从**原背景**混向高亮色，故 160 与 255 的底色必然不同；若拿交换后的
     // 背景（此时是原前景色）当基准，同色系的高亮会把 alpha 整个吃掉。
     let expected_background = blend_highlight(original_background, hl);
     assert!(
         f32_arrays_equal(&background, &expected_background),
-        "background should be the highlight blended over the original background: {:?}",
-        background
+        "background should be the highlight blended over the original background: {background:?}"
     );
     assert!(
         !f32_arrays_equal(&background, &original_background),
@@ -310,8 +305,7 @@ fn other_match_stays_distinct_when_highlight_equals_foreground() {
     );
     assert!(
         f32_arrays_equal(&other_foreground, &background_color),
-        "其余命中的文字取原背景色：{:?}",
-        other_foreground
+        "其余命中的文字取原背景色：{other_foreground:?}"
     );
 }
 
@@ -648,22 +642,21 @@ fn bench_gpu_command_encoding_overhead() {
         submit_clear_pass(device, queue, &view);
     }
     let elapsed = start.elapsed();
-    let submissions_per_sec = iteration_count as f64 / elapsed.as_secs_f64();
+    let submissions_per_sec = f64::from(iteration_count) / elapsed.as_secs_f64();
     println!(
         "GPU command encoding + submit: {:.0} submissions/sec ({:.1}ms per submission)",
         submissions_per_sec,
-        elapsed.as_millis() as f64 / iteration_count as f64,
+        elapsed.as_millis() as f64 / f64::from(iteration_count),
     );
     assert!(
         submissions_per_sec > 100.0,
-        "Command encoding too slow: {:.0} frames/sec (need >100)",
-        submissions_per_sec,
+        "Command encoding too slow: {submissions_per_sec:.0} frames/sec (need >100)",
     );
 }
 
-/// Benchmark full GPU pipeline throughput for rendering a screen of CellInstances:
+/// Benchmark full GPU pipeline throughput for rendering a screen of `CellInstances`:
 /// buffer upload + command encoding + submit + poll. This mirrors the actual
-/// render_frame_with_plan() path without requiring a swapchain surface.
+/// `render_frame_with_plan()` path without requiring a swapchain surface.
 #[test]
 fn bench_gpu_full_submit_throughput() {
     let _serial = GPU_BENCH_LOCK.lock();
@@ -714,24 +707,23 @@ fn bench_gpu_full_submit_throughput() {
         timeout: Some(std::time::Duration::from_secs(2)),
     });
     let elapsed = start.elapsed();
-    let fps = iteration_count as f64 / elapsed.as_secs_f64();
+    let fps = f64::from(iteration_count) / elapsed.as_secs_f64();
     let mb_per_sec =
-        iteration_count as f64 * bytes.len() as f64 / 1_048_576.0 / elapsed.as_secs_f64();
+        f64::from(iteration_count) * bytes.len() as f64 / 1_048_576.0 / elapsed.as_secs_f64();
     println!(
         "GPU full submit: {:.0} frames/sec ({:.1}ms per frame, {:.0} MB/s upload)",
         fps,
-        elapsed.as_millis() as f64 / iteration_count as f64,
+        elapsed.as_millis() as f64 / f64::from(iteration_count),
         mb_per_sec,
     );
     // Headless wgpu (Mesa Lavapipe) varies widely; set a conservative threshold
     assert!(
         fps > 30.0,
-        "GPU full submit too slow: {:.0} fps (need >30)",
-        fps,
+        "GPU full submit too slow: {fps:.0} fps (need >30)",
     );
 }
 
-/// Benchmark the interaction between FontPipeline atlas and wgpu texture upload.
+/// Benchmark the interaction between `FontPipeline` atlas and wgpu texture upload.
 /// Measures the cost of creating + uploading a new atlas texture after glyph
 /// cache warmup — this happens when new glyphs are encountered.
 #[test]
@@ -785,17 +777,16 @@ fn bench_gpu_atlas_texture_upload() {
         black_box(tex);
     }
     let elapsed = start.elapsed();
-    let uploads_per_sec = iteration_count as f64 / elapsed.as_secs_f64();
+    let uploads_per_sec = f64::from(iteration_count) / elapsed.as_secs_f64();
     println!(
         "GPU atlas texture upload: {:.0} uploads/sec ({:.1}ms per 1024×1024 RGBA)",
         uploads_per_sec,
-        elapsed.as_millis() as f64 / iteration_count as f64,
+        elapsed.as_millis() as f64 / f64::from(iteration_count),
     );
     // Lavapipe may be slow; threshold is set conservatively
     assert!(
         uploads_per_sec > 5.0,
-        "Atlas upload too slow: {:.0} uploads/sec (need >5)",
-        uploads_per_sec,
+        "Atlas upload too slow: {uploads_per_sec:.0} uploads/sec (need >5)",
     );
 }
 

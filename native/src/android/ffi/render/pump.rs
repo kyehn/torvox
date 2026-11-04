@@ -1,4 +1,7 @@
-use super::super::*;
+use super::super::{
+    ACTIVE_SESSION_ID, Arc, EVENT_QUEUE, EnvUnowned, Event, JClass, Mutex,
+    PTY_POLL_CHUNKS_PER_FRAME, Session, ThrowRuntimeExAndFailure, rlock_session_registry,
+};
 use super::clipboard::handle_clipboard_reads;
 
 // ── 会话推进泵 ──────────────────────────────────────────────────────
@@ -51,14 +54,14 @@ pub(crate) fn pump_sessions() {
         if active_id != 0
             && let Some(entry) = registry.get(&active_id)
         {
-            batch.push((active_id, entry.session.clone(), true));
+            batch.push((active_id, Arc::clone(&entry.session), true));
         }
         // 后台会话同样先收句柄（跳过活跃者，避免一帧处理两次）。
         for (id, entry) in registry.iter() {
             if active_id != 0 && *id == active_id {
                 continue;
             }
-            batch.push((*id, entry.session.clone(), false));
+            batch.push((*id, Arc::clone(&entry.session), false));
         }
         batch
     };
@@ -118,9 +121,9 @@ pub(crate) fn pump_sessions() {
 
 /// 不消费事件的会话推进泵：渲染暂停期间维持终端状态前进，避免后台作业停摆。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_pumpSessions(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_pumpSessions(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| pump_sessions());
 }

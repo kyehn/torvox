@@ -61,7 +61,7 @@ fn style_face_verdict_is_invalidated_by_clear_identity_caches() {
 fn unresolvable_codepoint_is_scanned_once_then_cached() {
     let mut pipeline = FontPipeline::new(512, 512, 14.0);
     // U+10FFFD（私用平面）无任何字体覆盖，稳定落在「扫描失败」这一支。
-    let rare = char::from_u32(0x10FFFD).expect("valid private-use codepoint");
+    let rare = char::from_u32(0x10_FFFD).expect("valid private-use codepoint");
     pipeline.glyph_information(rare);
     assert!(
         pipeline.caches.unresolvable_glyphs.contains(&rare),
@@ -100,7 +100,7 @@ fn unresolvable_codepoint_is_scanned_once_then_cached() {
 fn unresolvable_codepoint_is_cached_for_synthesized_runs() {
     let mut pipeline = FontPipeline::new(512, 512, 14.0);
     // U+10FFFD（私用平面）无任何字体覆盖，稳定落在「扫描失败」这一支。
-    let rare = char::from_u32(0x10FFFD).expect("valid private-use codepoint");
+    let rare = char::from_u32(0x10_FFFD).expect("valid private-use codepoint");
     pipeline.glyph_information_styled(rare, true, false);
     assert!(
         pipeline.caches.unresolvable_glyphs.contains(&rare),
@@ -251,7 +251,7 @@ fn cached_notdef_does_not_shortcut_the_fallback_chain() {
         "switch to Liberation Mono"
     );
     // 毒化：先查一个宿主任何字体都没有的码位，让 `.notdef` 进字形缓存。
-    let rare = char::from_u32(0x10FFFD).expect("valid private-use codepoint");
+    let rare = char::from_u32(0x10_FFFD).expect("valid private-use codepoint");
     let notdef = pipeline
         .glyph_information(rare)
         .expect(".notdef must still produce a glyph");
@@ -303,9 +303,7 @@ fn emoji_glyph_gets_an_outline_when_color_font_cannot_outline() {
     let bearing_y = ascent - emoji.placement.top as f32;
     assert!(
         bearing_y >= -cell_height,
-        "彩色 emoji 越出格子上沿：bearing_y={} < -cell_height={}",
-        bearing_y,
-        cell_height
+        "彩色 emoji 越出格子上沿：bearing_y={bearing_y} < -cell_height={cell_height}"
     );
     let after = pipeline.glyph_information('A');
     assert!(

@@ -196,7 +196,7 @@ fn scroll_to_bottom_lands_on_live_view_after_new_output() {
 }
 
 /// 同步更新（模式 2026）期间，VT 线程不得发布中间帧：BSU 与 ESU 分两次写入，
-/// 保持期间收到的 CellData 必须为空，ESU 之后的帧才包含期间写入的内容。
+/// 保持期间收到的 `CellData` 必须为空，ESU 之后的帧才包含期间写入的内容。
 #[test]
 fn synchronized_output_defers_frame_until_release() {
     let mut terminal_under_test = GhosttyTerminal::new(5, 10, 100).expect("terminal");
@@ -363,7 +363,7 @@ fn absolute_row_text_survives_viewport_scroll() {
 /// Scrollback browsing: the cursor must be reported in VIEWPORT
 /// coordinates (or hidden when the cursor page is scrolled out of the
 /// viewport), never in active-screen coordinates. The old code used
-/// `cursor_y()` (active-area row) against viewport-relative CellData
+/// `cursor_y()` (active-area row) against viewport-relative `CellData`
 /// rows, drawing the cursor on the wrong grid row after any scroll —
 /// the reported cursor "block" offset ~1 cell down/right.
 #[test]
@@ -396,7 +396,7 @@ fn cursor_viewport_coordinates_track_scrollback_scroll() {
     }
     match hidden {
         Some(cursor) => {
-            assert!(!cursor.visible, "cursor hidden when scrolled out of view")
+            assert!(!cursor.visible, "cursor hidden when scrolled out of view");
         }
         None => panic!("no cell data after scroll"),
     }
@@ -444,7 +444,7 @@ fn terminal_is_alive_after_flush() {
     assert!(terminal_under_test.is_alive());
 }
 
-/// 经公开 receive_cell_data() 流断言逐行输出一致性：写入第 1 行不得扰动第 0 行。
+/// 经公开 `receive_cell_data()` 流断言逐行输出一致性：写入第 1 行不得扰动第 0 行。
 #[test]
 fn cell_data_rows_stay_consistent_across_writes() {
     let mut terminal_under_test = terminal();
@@ -609,10 +609,10 @@ fn selection_clear_restores_baseline_colors() {
 }
 
 /// 终端持有选区反白（spec 文本选择：选区存于终端，跟踪引用）：
-/// 对标上游 selectWordHighlightsAndExtractsText：上游原生 select_word
+/// 对标上游 selectWordHighlightsAndExtractsText：上游原生 `select_word`
 /// 派生选区并经格式化器提取文本。本仓单测经“解析出词边界→
 /// 用 install 链路安装→格式化器提取”验证同一语义（本仓 selection
-/// 接口即 install+format；上游 select_word 另经 select_word_at 查询接入）。
+/// 接口即 install+format；上游 `select_word` 另经 `select_word_at` 查询接入）。
 #[test]
 fn select_word_via_boundary_resolve_extracts_hello() {
     let mut terminal_under_test = terminal();
@@ -637,7 +637,7 @@ fn select_word_via_boundary_resolve_extracts_hello() {
 
 /// 对标上游 selectWordOnBlankCellSelectsThatCell：空格格解析为空长度
 /// 词边界并经 install 链路反白烘焙（文本断言见
-/// selection_text_blank_cell_selects_itself）。
+/// `selection_text_blank_cell_selects_itself`）。
 #[test]
 fn select_word_blank_cell_resolves_empty_bounds() {
     let mut terminal_under_test = terminal();
@@ -709,7 +709,7 @@ fn select_word_at_yields_nothing_on_blank_cell() {
     );
 }
 
-/// 上游词选接入（design 决策 1）：select_word_at 派生词界限、取序、反解为
+/// 上游词选接入（design 决策 1）：`select_word_at` 派生词界限、取序、反解为
 /// 绝对坐标并安装；返回界限提取的文本恰为该词，渲染反白证明选区已装回。
 #[test]
 fn select_word_at_derives_installs_and_returns_bounds() {
@@ -739,7 +739,7 @@ fn select_word_at_derives_installs_and_returns_bounds() {
     terminal_under_test.flush();
 }
 
-/// 上游全选接入（design 决策 2 钉住）：两行内容之后，select_all 界限落在
+/// 上游全选接入（design 决策 2 钉住）：两行内容之后，`select_all` 界限落在
 /// 最后一行的最后内容列，不含尾部空行与空列。
 #[test]
 fn select_all_bounds_exclude_trailing_blank_rows_and_columns() {
@@ -762,7 +762,7 @@ fn select_all_bounds_exclude_trailing_blank_rows_and_columns() {
 }
 
 /// 对标上游 selectionTracksTextIntoScrollback：选区安装后文本继续
-/// 滚动，同一绝对坐标的 selection_text 仍提取原文本（跟踪引用语义
+/// 滚动，同一绝对坐标的 `selection_text` 仍提取原文本（跟踪引用语义
 /// 经 install 链路保持）。
 #[test]
 fn selection_text_survives_scrolled_output() {
@@ -789,7 +789,7 @@ fn selection_text_survives_scrolled_output() {
 }
 
 /// 对标上游 pasteEncodingHonorsBracketedMode：粘贴编码走
-/// libghostty_vt::paste Native：非括号模式换行转回车，括号模式
+/// `libghostty_vt::paste` Native：非括号模式换行转回车，括号模式
 /// 包裹 \x1b[200~/201~。
 #[test]
 fn paste_encoding_plain_and_bracketed() {

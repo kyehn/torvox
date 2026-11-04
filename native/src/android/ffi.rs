@@ -130,18 +130,17 @@ fn take_panic_text_and_leak(payload: Box<dyn std::any::Any + Send + 'static>) ->
 /// `as` 在此处是静默截断：鼠标按钮 65536 会落进合法的小按钮号，越界的模式号同理，
 /// 与「该模式确实关闭 / 确实无按键」无法区分。仓库内行列与像素尺寸早已改用
 /// `try_from` + 抛错（见 `initSession`、`setPixelSize`），此处补齐其余跨语言收窄点。
-fn narrow_jint<T>(env: &mut Env, method: &str, field: &str, value: jint) -> Option<T>
+fn narrow_jint<T>(env: &mut Env<'_>, method: &str, field: &str, value: jint) -> Option<T>
 where
     T: TryFrom<jint>,
 {
-    match T::try_from(value) {
-        Ok(narrowed) => Some(narrowed),
-        Err(_) => {
-            let message =
-                jni::strings::JNIString::from(format!("{method}: {field} out of range: {value}"));
-            let _ = env.throw_new(jni_str!("java/lang/IllegalArgumentException"), &message);
-            None
-        }
+    if let Ok(narrowed) = T::try_from(value) {
+        Some(narrowed)
+    } else {
+        let message =
+            jni::strings::JNIString::from(format!("{method}: {field} out of range: {value}"));
+        let _ = env.throw_new(jni_str!("java/lang/IllegalArgumentException"), &message);
+        None
     }
 }
 
@@ -151,7 +150,7 @@ where
 /// 会话竞态（Activity 重建/进程回收，见 DESIGN）并回缺省值，其余异常照实上抛。
 /// 二者共用一个 `RuntimeException` 时，「PTY 写入失败」「主题不存在」「尺寸越界」
 /// 等真实故障会被一并说成「会话已销毁」而无声消失——日志里只剩一句错误的归因。
-fn throw_session_missing(env: &mut Env, method: &str) {
+fn throw_session_missing(env: &mut Env<'_>, method: &str) {
     let message = jni::strings::JNIString::from(format!("{method}: session not found"));
     let _ = env.throw_new(jni_str!("java/lang/IllegalStateException"), &message);
 }
@@ -289,7 +288,7 @@ impl SessionEntry {
 /// 滚出视口都表现为 `visible = false`），故这里只做打包。
 fn pack_rendered_cursor(info: &crate::terminal::ghostty_terminal::CursorInfo) -> i64 {
     if info.visible {
-        ((info.row as i64) << 32) | (info.col as i64)
+        (i64::from(info.row) << 32) | i64::from(info.col)
     } else {
         RENDERED_CURSOR_NONE
     }
@@ -324,7 +323,7 @@ static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
 
 /// 全局渲染状态：Android 渲染线程使用的 wgpu 渲染器 + 字体管线。首次 `attachWindow`
 /// 时惰性创建，由 JNI 渲染线程持有（Kotlin 渲染循环只从单一线程调用 `render`）。
-/// `Renderer` 是 `Send + Sync`（render::context 的编译期测试保证），故互斥锁安全，
+/// `Renderer` 是 `Send + Sync`（`render::context` 的编译期测试保证），故互斥锁安全，
 /// 且争用可忽略（每帧一次 `render`）。
 static RENDER_STATE: std::sync::Mutex<Option<RenderState>> = std::sync::Mutex::new(None);
 
@@ -597,7 +596,7 @@ impl<T> SessionScoped<T> {
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_prefetchRenderState(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
         // GPU 初始化是预热，失败可重试：不可用时只记账，不致命。
@@ -696,28 +695,23 @@ fn repack_kitty_atlas(
     cell_height: f32,
     uploaded_generation: u64,
 ) {
-    render_state.kitty_instances = match crate::render::kitty::pack_and_build(
-        &render_state.kitty_frames,
-        cell_width,
-        cell_height,
-    ) {
-        Some((atlas, atlas_width, atlas_height, instances)) => {
-            // 图集被拒（超设备上限、长度不符、尺寸溢出）时纹理为空，而留着按旧图集
-            // 算好的实例会让 `kgp_present` 恒真：绑定组恒 `None` 图像永不出现，
-            // 部分帧增量渲染却被永久关掉，且每帧都因尺寸漂移重打包一次。
-            if render_state
-                .renderer
-                .set_kgp_atlas(&atlas, atlas_width, atlas_height)
-            {
-                instances
-            } else {
-                Vec::new()
-            }
-        }
-        None => {
-            render_state.renderer.set_kgp_atlas(&[], 0, 0);
+    render_state.kitty_instances = if let Some((atlas, atlas_width, atlas_height, instances)) =
+        crate::render::kitty::pack_and_build(&render_state.kitty_frames, cell_width, cell_height)
+    {
+        // 图集被拒（超设备上限、长度不符、尺寸溢出）时纹理为空，而留着按旧图集
+        // 算好的实例会让 `kgp_present` 恒真：绑定组恒 `None` 图像永不出现，
+        // 部分帧增量渲染却被永久关掉，且每帧都因尺寸漂移重打包一次。
+        if render_state
+            .renderer
+            .set_kgp_atlas(&atlas, atlas_width, atlas_height)
+        {
+            instances
+        } else {
             Vec::new()
         }
+    } else {
+        render_state.renderer.set_kgp_atlas(&[], 0, 0);
+        Vec::new()
     };
     render_state.kitty_uploaded_generation = uploaded_generation;
 }

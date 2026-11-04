@@ -73,7 +73,7 @@ impl Session {
     }
 
     pub fn exited_flag(&self) -> Arc<AtomicBool> {
-        self.exited.clone()
+        Arc::clone(&self.exited)
     }
 
     /// 原子地标记退出事件已上报给 Kotlin 侧，仅首个调用者返回 true——pollEvent 的

@@ -177,7 +177,7 @@ pub struct Session {
     wait_handle: Option<std::thread::JoinHandle<()>>,
 
     // ── 运行态 ───────────────────────────────────────────────────────
-    /// 来自 waitpid 的退出码；进程运行中为 [ExitCodeSlot::Pending]。
+    /// 来自 waitpid 的退出码；进程运行中为 [`ExitCodeSlot::Pending`]。
     exit_code: Arc<Mutex<ExitCodeSlot>>,
 
     // ── 缓存的网格尺寸 ───────────────────────────────────────────────
@@ -232,9 +232,9 @@ impl Session {
         self.pty.write(data)
     }
 
-    /// 克隆 PTY 写入面，供调用方在**释放会话锁之后**写入（见 [PtyMaster]）。
+    /// 克隆 PTY 写入面，供调用方在**释放会话锁之后**写入（见 [`PtyMaster`]）。
     ///
-    /// 退出判定与写入都在 [PtyMaster::write] 内，调用方无须为此单持一次会话锁。
+    /// 退出判定与写入都在 [`PtyMaster::write`] 内，调用方无须为此单持一次会话锁。
     pub fn pty_master(&self) -> PtyMaster {
         self.pty.clone()
     }
@@ -249,11 +249,11 @@ impl Session {
         // 命令**已入队但 VT 线程上失败**，后者来自入队即被丢弃。两者的共同后果都是
         // PTY/缓存尺寸已更新而网格仍是旧尺寸。
         let dirty = self.grid_dirty.load(Ordering::Acquire) || self.terminal.resize_failed();
-        if !dirty && (rows as u32, cols as u32) == self.grid_size() {
+        if !dirty && (u32::from(rows), u32::from(cols)) == self.grid_size() {
             return Ok(ResizeOutcome::Applied);
         }
         self.pty.resize(rows, cols)?;
-        if !self.terminal.resize(rows as u32, cols as u32) {
+        if !self.terminal.resize(u32::from(rows), u32::from(cols)) {
             // PTY winsize 已变但 Ghostty 网格未变（命令被丢弃）。缓存保留旧尺寸并置
             // `grid_dirty`，使下次 resize 事件（即使尺寸相同）重试而非短路。
             self.grid_dirty.store(true, Ordering::Release);
@@ -266,8 +266,8 @@ impl Session {
         // 入队即发布：VT 尚未应用新网格。帧装配不得读这组缓存
         // （`CursorInfo.rows/cols` 与 CellData 同源），它们只服务像素换算、去重短路
         // 与 Kotlin 查询。
-        self.terminal_rows.store(rows as u32, Ordering::Release);
-        self.terminal_cols.store(cols as u32, Ordering::Release);
+        self.terminal_rows.store(u32::from(rows), Ordering::Release);
+        self.terminal_cols.store(u32::from(cols), Ordering::Release);
         Ok(ResizeOutcome::Applied)
     }
 

@@ -1,7 +1,11 @@
 use super::query::session_query_channel;
 use super::session::read_jni_string;
 use super::state::read_terminal_flag_jboolean;
-use super::*;
+use super::{
+    Env, EnvUnowned, JClass, JNI_FALSE, JNI_TRUE, JNIString, JString, Ordering,
+    ThrowRuntimeExAndFailure, encode_meta_prefix, jboolean, jbyteArray, jfloat, jint, jlong,
+    jni_str, key, narrow_jint, rlock_session_registry, throw_session_missing,
+};
 
 // ── 输入、调整与键鼠编码 ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
@@ -9,9 +13,9 @@ use super::*;
 // ══════════════════════════════════════════════════════════════════════════
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resize(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resize(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
     rows: jint,
     cols: jint,
@@ -21,7 +25,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resize(
     });
 }
 
-pub(super) fn resize_inner(env: &mut Env, session_id: jlong, rows: jint, cols: jint) {
+pub(super) fn resize_inner(env: &mut Env<'_>, session_id: jlong, rows: jint, cols: jint) {
     let id = session_id as u64;
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&id) else {
@@ -67,16 +71,16 @@ pub(super) fn resize_inner(env: &mut Env, session_id: jlong, rows: jint, cols: j
 // JNI 导出：setPixelSize
 // ══════════════════════════════════════════════════════════════════════════
 
-/// 更新指定会话的 PTY winsize 像素字段（ws_xpixel/ws_ypixel）。会话不存在时抛
-/// RuntimeException。
+/// 更新指定会话的 PTY `winsize` 像素字段（`ws_xpixel`/`ws_ypixel`）。会话不存在时抛
+/// `RuntimeException`。
 ///
 /// 像素感知的程序（`icat`、全屏 TUI）从 TIOCGWINSZ 读像素尺寸，像素字段为 0 会使其
 /// 回退到错误的默认单元格尺寸。Kotlin 宿主在每次网格 resize 时随 surface 的像素
 /// 尺寸一并调用本方法。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPixelSize(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPixelSize(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
     width_px: jint,
     height_px: jint,
@@ -87,7 +91,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPixelSize(
 }
 
 pub(super) fn set_pixel_size_inner(
-    env: &mut Env,
+    env: &mut Env<'_>,
     session_id: jlong,
     width_px: jint,
     height_px: jint,
@@ -121,9 +125,9 @@ pub(super) fn set_pixel_size_inner(
 // ══════════════════════════════════════════════════════════════════════════
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_focusEvent(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_focusEvent(
     mut unowned_env: EnvUnowned<'_>,
-    class: JClass,
+    class: JClass<'_>,
     session_id: jlong,
     focused: jboolean,
 ) -> jboolean {
@@ -133,8 +137,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_focusEvent(
 }
 
 pub(super) fn focus_event_inner(
-    _env: &mut Env,
-    _class: JClass,
+    _env: &mut Env<'_>,
+    _class: JClass<'_>,
     session_id: jlong,
     focused: jboolean,
 ) -> jboolean {
@@ -167,9 +171,9 @@ pub(super) fn focus_event_inner(
 // ══════════════════════════════════════════════════════════════════════════
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedPty(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedPty(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
     data: jbyteArray,
 ) {
@@ -178,7 +182,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedPty(
     });
 }
 
-pub(super) fn feed_pty_inner(env: &mut Env, session_id: jlong, data: jbyteArray) {
+pub(super) fn feed_pty_inner(env: &mut Env<'_>, session_id: jlong, data: jbyteArray) {
     let id = session_id as u64;
 
     // 传原始字节而非 String：PTY 输入可能是任意二进制（粘贴的 GBK/ISO-8859-1 文本、
@@ -188,15 +192,14 @@ pub(super) fn feed_pty_inner(env: &mut Env, session_id: jlong, data: jbyteArray)
         // SAFETY: `data` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效。
         // `from_raw` 只包装指针而不取得所有权；局部引用由 JVM 在本 native 方法返回时释放。
         let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
-        match env.convert_byte_array(&byte_array) {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                let _ = env.throw_new(
-                    jni_str!("java/lang/RuntimeException"),
-                    jni_str!("feedPty: failed to read input bytes"),
-                );
-                return;
-            }
+        if let Ok(bytes) = env.convert_byte_array(&byte_array) {
+            bytes
+        } else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/RuntimeException"),
+                jni_str!("feedPty: failed to read input bytes"),
+            );
+            return;
         }
     };
 
@@ -255,9 +258,9 @@ pub(super) fn feed_pty_inner(env: &mut Env, session_id: jlong, data: jbyteArray)
 // 解析（而非 shell 回显）的转义序列（OSC 8 链接、DECSET）。
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedTerminal(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedTerminal(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
     data: jbyteArray,
 ) {
@@ -274,22 +277,20 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedTerminal(
 ///
 /// # Safety
 /// `data` 须是本次 JNI 调用期间有效的 `jbyteArray`（JNI 方法参数即满足）。
-unsafe fn read_byte_array(env: &mut Env, data: jbyteArray, label: &str) -> Option<Vec<u8>> {
+unsafe fn read_byte_array(env: &mut Env<'_>, data: jbyteArray, label: &str) -> Option<Vec<u8>> {
     // SAFETY: 调用方保证 `data` 在本次调用期间有效；`from_raw` 只包装指针而不
     // 取得所有权，局部引用由 JVM 在本 native 方法返回时释放。
     let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
-    match env.convert_byte_array(&byte_array) {
-        Ok(bytes) => Some(bytes),
-        Err(_) => {
-            let message =
-                jni::strings::JNIString::from(format!("{label}: failed to read input bytes"));
-            let _ = env.throw_new(jni_str!("java/lang/RuntimeException"), &message);
-            None
-        }
+    if let Ok(bytes) = env.convert_byte_array(&byte_array) {
+        Some(bytes)
+    } else {
+        let message = jni::strings::JNIString::from(format!("{label}: failed to read input bytes"));
+        let _ = env.throw_new(jni_str!("java/lang/RuntimeException"), &message);
+        None
     }
 }
 
-pub(super) fn feed_terminal_inner(env: &mut Env, session_id: jlong, data: jbyteArray) {
+pub(super) fn feed_terminal_inner(env: &mut Env<'_>, session_id: jlong, data: jbyteArray) {
     let id = session_id as u64;
     // SAFETY: `data` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效。
     let Some(input) = (unsafe { read_byte_array(env, data, "feedTerminal") }) else {
@@ -319,10 +320,10 @@ pub(super) fn feed_terminal_inner(env: &mut Env, session_id: jlong, data: jbyteA
 /// 写入队列与 `onPtyWrite` 唤醒钩子，回显要多等一个空闲闭锁。编码留在原生（JNI
 /// 不传 Java 字符串做字节通道），写入交回调用方与其它按键同一条有序出口。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeKeyText(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeKeyText(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    key: JString,
+    _class: JClass<'_>,
+    key: JString<'_>,
     meta_prefix: jboolean,
 ) -> jbyteArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
@@ -349,9 +350,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeKeyText(
 // 单元格尺寸。鼠标上报关闭或编码失败时返回空字节数组（该事件被丢弃）。
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEvent(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEvent(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
     x_px: jfloat,
     y_px: jfloat,
@@ -379,7 +380,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEve
 // JNI 导出函数体可以合法地拥有很多参数：参数表由 Kotlin 的 `NativeBridge` 声明
 // 决定，而非设计选择。参数个数由 ABI 固定，不可能在不配套修改 Kotlin 的情况下减少。
 /// 鼠标事件被丢弃时的空字节数组（上报关闭/编码失败/空编码三处复用）。
-pub(super) fn empty_java_byte_array(env: &mut Env) -> jbyteArray {
+pub(super) fn empty_java_byte_array(env: &mut Env<'_>) -> jbyteArray {
     env.byte_array_from_slice(&[]).map_or(
         std::ptr::null_mut(),
         jni::objects::JPrimitiveArray::into_raw,
@@ -392,7 +393,7 @@ pub(super) fn empty_java_byte_array(env: &mut Env) -> jbyteArray {
 /// 三条按键/粘贴编码路径（鼠标、键盘、粘贴）共用本函数，使「空即空数组、失败即
 /// null」的口径只有一处定义——各自抄一份时，任何一处漏掉空判断都会让 Kotlin 收到
 /// 长度为 0 的数组与「编码失败」无法区分的信号。
-pub(super) fn java_bytes_or_empty(env: &mut Env, bytes: &[u8]) -> jbyteArray {
+pub(super) fn java_bytes_or_empty(env: &mut Env<'_>, bytes: &[u8]) -> jbyteArray {
     if bytes.is_empty() {
         return empty_java_byte_array(env);
     }
@@ -403,7 +404,7 @@ pub(super) fn java_bytes_or_empty(env: &mut Env, bytes: &[u8]) -> jbyteArray {
 }
 
 pub(super) fn encode_mouse_event_inner(
-    env: &mut Env,
+    env: &mut Env<'_>,
     session_id: jlong,
     x_px: jfloat,
     y_px: jfloat,
@@ -453,9 +454,9 @@ pub(super) fn encode_mouse_event_inner(
 // 往返，PTY 也只写一次。鼠标上报关闭时返回空数组（该事件被丢弃）。
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseWheel(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseWheel(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
     x_px: jfloat,
     y_px: jfloat,
@@ -498,7 +499,7 @@ pub(super) struct MouseWheelEvent {
 }
 
 pub(super) fn encode_mouse_wheel_inner(
-    env: &mut Env,
+    env: &mut Env<'_>,
     session_id: jlong,
     event: MouseWheelEvent,
 ) -> jbyteArray {
@@ -537,9 +538,9 @@ pub(super) fn encode_mouse_wheel_inner(
 // 的镜像——触摸拖动的每个事件都要判一次，走查询通道会阻塞 UI 线程。
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_mouseTrackingActive(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_mouseTrackingActive(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
@@ -560,9 +561,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_mouseTrackingA
 // 编码失败都返回空字节数组，由 Kotlin 决定是否回退到按键文本。
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeKeyEvent(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeKeyEvent(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
     key_code: jint,
     unicode_char: jint,
@@ -584,7 +585,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeKeyEvent
 }
 
 pub(super) fn encode_key_event_inner(
-    env: &mut Env,
+    env: &mut Env<'_>,
     session_id: jlong,
     key_code: jint,
     unicode_char: jint,
@@ -630,9 +631,9 @@ pub(super) fn encode_key_event_inner(
 // 会话未知或编码失败返回空字节数组（本次粘贴被丢弃）；JVM 拷贝失败抛异常。
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodePaste(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodePaste(
     mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
+    _class: JClass<'_>,
     session_id: jlong,
     data: jbyteArray,
 ) -> jbyteArray {
@@ -641,7 +642,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodePaste(
     })
 }
 
-pub(super) fn encode_paste_inner(env: &mut Env, session_id: jlong, data: jbyteArray) -> jbyteArray {
+pub(super) fn encode_paste_inner(
+    env: &mut Env<'_>,
+    session_id: jlong,
+    data: jbyteArray,
+) -> jbyteArray {
     // SAFETY: `data` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效。
     let Some(input) = (unsafe { read_byte_array(env, data, "encodePaste") }) else {
         return std::ptr::null_mut();

@@ -1,5 +1,8 @@
 use super::super::query::{session_query_channel, u64_vec_to_long_array};
-use super::super::*;
+use super::super::{
+    Env, EnvUnowned, JClass, JLongArray, JObject, ThrowRuntimeExAndFailure, jlong, jlongArray,
+    jni_str, jobjectArray, jsize, jstring, rlock_session_registry, throw_session_missing,
+};
 
 // ── 会话枚举与标题 ──────────────────────────────────────────────────
 /// 返回活跃会话 id 的数组（长整型，非 JSON）。
@@ -7,7 +10,7 @@ use super::super::*;
 /// 注：由 `NativeBridgeSmokeTest` 覆盖（会话枚举的 JVM 边界）；生产 Kotlin 侧
 /// 在 `TerminalRuntime.sessionIds` 中跟踪 id。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listSessions<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listSessions<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jlongArray {
@@ -22,7 +25,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listSessions<'
 /// 与列表刷新同批发生，故一次取回。未知会话不抛：调用方此时正在按自己的会话表回填，
 /// 竞态下少一个会话是正常状态，空标题即可表达。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionTitles<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionTitles<
+    'local,
+>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_ids: jlongArray,
@@ -32,10 +37,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionTitl
     })
 }
 
-pub(super) fn get_session_titles_inner<'local>(
-    env: &mut Env<'local>,
-    session_ids: jlongArray,
-) -> jobjectArray {
+pub(super) fn get_session_titles_inner(env: &mut Env<'_>, session_ids: jlongArray) -> jobjectArray {
     collect_session_strings(env, session_ids, "getSessionTitles", session_title)
 }
 
@@ -44,7 +46,7 @@ pub(super) fn get_session_titles_inner<'local>(
 /// 与 `getSessionTitles` 同批发生（抽屉打开时一次刷新），理由相同：逐会话各发一次
 /// 就是 N 次同步 JNI，而列表刷新是按帧节流的路径。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionPwds<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionPwds<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_ids: jlongArray,
@@ -59,8 +61,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionPwds
 /// 标题与工作目录的批量查询只差一个取数函数。各写一遍意味着两处都要维护
 /// 「读数组 → 建 `String[]` → 逐元素填充 → 任一步失败返回 null」这套 JNI 序列，
 /// 而其中任何一步写错都表现为「某些项为空」，极难定位。
-fn collect_session_strings<'local>(
-    env: &mut Env<'local>,
+fn collect_session_strings(
+    env: &mut Env<'_>,
     session_ids: jlongArray,
     what: &str,
     fetch: impl Fn(u64) -> Option<String>,
@@ -91,7 +93,7 @@ fn collect_session_strings<'local>(
     for (index, id) in session_id_values.iter().enumerate() {
         // 未知会话留 null：调用方按「无此项」处理，不抛异常——批量查询发生在
         // 列表刷新途中，竞态下少一个会话是正常状态。
-        let element: JObject = match fetch(*id as u64) {
+        let element: JObject<'_> = match fetch(*id as u64) {
             Some(text) => match env.new_string(text) {
                 Ok(text) => text.into(),
                 Err(error) => {
@@ -110,7 +112,7 @@ fn collect_session_strings<'local>(
 }
 
 /// Rust 字符串 → JNI `jstring`：编码失败返回 null，不抛异常、不吞错（调用方按 null 处理）。
-pub(crate) fn string_to_jstring(env: &mut Env, text: &str) -> jstring {
+pub(crate) fn string_to_jstring(env: &mut Env<'_>, text: &str) -> jstring {
     match env.new_string(text) {
         Ok(s) => s.into_raw(),
         Err(_) => std::ptr::null_mut(),
@@ -118,7 +120,7 @@ pub(crate) fn string_to_jstring(env: &mut Env, text: &str) -> jstring {
 }
 
 /// 会话标识列表 → JNI `LongArray`；注册表为空时返回空数组。
-pub(super) fn list_sessions_inner<'local>(env: &mut Env<'local>) -> jlongArray {
+pub(super) fn list_sessions_inner(env: &mut Env<'_>) -> jlongArray {
     let ids: Vec<u64> = rlock_session_registry().keys().copied().collect();
     u64_vec_to_long_array(env, &ids)
 }
@@ -137,7 +139,7 @@ pub(crate) const ATLAS_SIZE: u32 = 2048;
 
 /// 返回某会话的终端标题（OSC 0/2），无则 null。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTitle<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTitle<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -175,7 +177,7 @@ fn session_pwd(session_id: u64) -> Option<String> {
 ///
 /// 与 `getTitle` 同一契约：会话未知即抛，不返回空串冒充「未知目录」。
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getPwd<'local>(
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getPwd<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,

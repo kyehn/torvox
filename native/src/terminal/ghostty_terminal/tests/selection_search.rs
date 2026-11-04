@@ -158,7 +158,7 @@ fn scrollback_keeps_order_and_newest_line_stays_visible() {
     );
 }
 
-/// 深缓冲不坍缩（对标 scrollbackHonorsConfiguredLineCount：上游 max_scrollback
+/// 深缓冲不坍缩（对标 scrollbackHonorsConfiguredLineCount：上游 `max_scrollback`
 /// 是字节预算而非行数，预算过小会被忽略致历史坍缩；本地建会参数透传后，
 /// 2 万行配置喂 2.5 万行，历史必须达到万行量级而非几百行。页粒度修剪有
 /// 百行级波动，不断言精确值）。
@@ -194,7 +194,7 @@ fn scrollback_deep_buffer_does_not_collapse() {
 }
 
 /// SGR 7 反白必须到达渲染层（对标 inverseIsResolvedNatively；本仓反白在
-/// cell_builder 做前景背景互换，VT 层只断言标志位到达）。
+/// `cell_builder` 做前景背景互换，VT 层只断言标志位到达）。
 #[test]
 fn inverse_reaches_cell_data_and_snapshot() {
     use crate::terminal::ghostty_terminal::cell_flags;
@@ -221,7 +221,7 @@ fn inverse_reaches_cell_data_and_snapshot() {
 }
 
 /// 组合重音必须以 grapheme 形式到达 VT 层（对标 graphemeClusterCombiningMark
-/// 的文本部分：基码点 e 在主格，U+0301 进 grapheme_extra/快照 graphemes）。
+/// 的文本部分：基码点 e 在主格，U+0301 进 `grapheme_extra`/快照 graphemes）。
 #[test]
 fn combining_mark_reaches_grapheme_channel() {
     let mut clustered = terminal();
@@ -541,11 +541,10 @@ fn bench_row_extraction_full_versus_incremental() {
         black_box(next_cell_frame(&terminal_under_test));
         reused_total += terminal_under_test.take_cache_stats().0;
     }
-    let incremental_millis = incremental_start.elapsed().as_secs_f64() * 1000.0 / FRAMES as f64;
+    let incremental_millis = incremental_start.elapsed().as_secs_f64() * 1000.0 / f64::from(FRAMES);
 
     println!(
-        "首帧全量 {:.3}ms（逐格 {full_extracted} 行），稳态增量 {:.3}ms/帧（{FRAMES} 帧共复用 {reused_total} 行）",
-        full_millis, incremental_millis
+        "首帧全量 {full_millis:.3}ms（逐格 {full_extracted} 行），稳态增量 {incremental_millis:.3}ms/帧（{FRAMES} 帧共复用 {reused_total} 行）"
     );
 
     assert!(

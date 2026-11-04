@@ -91,14 +91,14 @@ fn cell_snapshot_default() {
     assert!(!cell.italic);
 }
 
-/// Verify that the CellIterator-based build_snapshot() produces the same
-/// output as the legacy per-cell terminal.grid_ref() path for the viewport.
+/// Verify that the CellIterator-based `build_snapshot()` produces the same
+/// output as the legacy per-cell `terminal.grid_ref()` path for the viewport.
 ///
 /// This test exercises both code paths:
-/// - CellIterator path: build_snapshot() with scroll_offset=0
-/// - Legacy path: build_snapshot_legacy() with scroll_offset=0
+/// - `CellIterator` path: `build_snapshot()` with `scroll_offset=0`
+/// - Legacy path: `build_snapshot_legacy()` with `scroll_offset=0`
 ///
-/// The legacy path is triggered by the internal::build_snapshot_legacy
+/// The legacy path is triggered by the `internal::build_snapshot_legacy`
 /// function. We verify this by feeding content, flushing, and comparing
 /// cells from both paths cell-by-cell.
 #[test]
@@ -185,8 +185,8 @@ fn cell_iterator_matches_legacy_grid_ref() {
     assert_invariants(&snap);
 }
 
-/// Verify that `build_cell_data()` produces correct CellData output
-/// matching the GridSnapshot content.
+/// Verify that `build_cell_data()` produces correct `CellData` output
+/// matching the `GridSnapshot` content.
 #[test]
 fn build_cell_data_matches_grid_snapshot() {
     let mut terminal_under_test = terminal();
@@ -233,7 +233,7 @@ fn build_cell_data_matches_grid_snapshot() {
     assert_invariants(&snap);
 }
 
-/// 断言经 CellIterator 快照路径得到的网格总尺寸正确。
+/// 断言经 `CellIterator` 快照路径得到的网格总尺寸正确。
 #[test]
 fn cell_iterator_grid_dimensions() {
     let mut terminal_under_test = terminal();
@@ -684,8 +684,7 @@ fn bench_typing_latency() {
     let threshold = 6.0;
     assert!(
         ms_per_keystroke < threshold,
-        "Typing too slow: {:.3}ms per keystroke (need <{threshold:.1}ms)",
-        ms_per_keystroke,
+        "Typing too slow: {ms_per_keystroke:.3}ms per keystroke (need <{threshold:.1}ms)",
     );
 }
 
@@ -786,7 +785,7 @@ fn scrollback_cache_consistency() {
     );
 }
 
-/// Verify that `scroll_viewport(Delta)` scrolls the CellData view and
+/// Verify that `scroll_viewport(Delta)` scrolls the `CellData` view and
 /// that the delta accumulates on repeated calls: scrollback
 /// browsing previously did nothing).
 #[test]

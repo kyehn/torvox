@@ -141,7 +141,7 @@ mod attach_surface_reuse {
     /// 回归钉：快速路径必须要求**同一个** `ANativeWindow`。
     ///
     /// 真机日志里回前台、加会话、切会话每次都送新窗口，而缓存
-    /// surface 指向的旧 BufferQueue 已被回收：放行快速路径就 reconfigure 出一个死
+    /// surface 指向的旧 `BufferQueue` 已被回收：放行快速路径就 reconfigure 出一个死
     /// 交换链，随后每帧 `dequeueBuffer: BufferQueue has been abandoned` →
     /// `ERROR_SURFACE_LOST_KHR` → 连续两次取帧失败判死 → 宿主重建 `SurfaceView`，
     /// 期间屏幕停在旧会话或纯主题背景那一帧（用户可见「切换无变化」）。

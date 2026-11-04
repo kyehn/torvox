@@ -9,7 +9,7 @@ struct MockPtyInner {
     input_buffer: VecDeque<Vec<u8>>,
     rows: u16,
     cols: u16,
-    /// Number of resize() calls, for tests asserting the short-circuit does
+    /// Number of `resize()` calls, for tests asserting the short-circuit does
     /// not touch the PTY.
     resize_count: usize,
     /// 前 N 次 write 返回 EINTR，用于验证调用方把信号打断当作「重试」而非失败
@@ -25,7 +25,7 @@ struct MockPtyInner {
     block_writes: bool,
 }
 
-/// 让 [Pty::write] 可被外部确定性地停在临界区内。
+/// 让 [`Pty::write`] 可被外部确定性地停在临界区内。
 pub struct WriteGate {
     entered: (Mutex<bool>, Condvar),
     release: (Mutex<bool>, Condvar),
@@ -66,12 +66,12 @@ pub struct MockPtyHandle {
 }
 
 impl MockPty {
-    /// 把接下来的 write 卡在 gate 上，直到 [WriteGate::release]。
+    /// 把接下来的 write 卡在 gate 上，直到 [`WriteGate::release`]。
     pub fn gate_writes(&mut self, gate: Arc<WriteGate>) {
         self.inner.lock().expect("mock mutex poisoned").gate = Some(gate);
     }
 
-    /// 让接下来的 `count` 次 [Pty::write] 以 EINTR 失败。
+    /// 让接下来的 `count` 次 [`Pty::write`] 以 EINTR 失败。
     pub fn interrupt_next_writes(&mut self, count: usize) {
         self.inner
             .lock()
@@ -79,7 +79,7 @@ impl MockPty {
             .interrupt_writes = count;
     }
 
-    /// 让下一次 [Pty::write] 只写出前 `bytes` 字节、其后恒返回 EAGAIN。
+    /// 让下一次 [`Pty::write`] 只写出前 `bytes` 字节、其后恒返回 EAGAIN。
     pub fn write_partial_then_block(&mut self, bytes: usize) {
         let mut inner = self.inner.lock().expect("mock mutex poisoned");
         inner.partial_write = Some(bytes);
@@ -99,7 +99,7 @@ impl MockPty {
         }));
         (
             MockPty {
-                inner: inner.clone(),
+                inner: Arc::clone(&inner),
             },
             MockPtyHandle { inner },
         )

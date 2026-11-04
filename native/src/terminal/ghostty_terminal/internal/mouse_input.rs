@@ -1,4 +1,4 @@
-use super::*;
+use super::{Encoders, Mods, Terminal, grid_cols, grid_rows, mouse};
 
 // ── 鼠标事件编码 ─────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ impl super::GhosttyTerminal {
     /// 逐字段覆写。漏写任一字段都会让本次事件沿用上一次的取值。
     pub(crate) fn encode_mouse_event_into(
         encoders: &mut Encoders<'_>,
-        terminal: &Terminal,
+        terminal: &Terminal<'_, '_>,
         out: &mut Vec<u8>,
         position: (f32, f32),
         action: mouse::Action,

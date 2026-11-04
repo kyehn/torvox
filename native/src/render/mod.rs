@@ -56,11 +56,11 @@ pub enum GpuError {
     #[error("surface creation failed: {0}")]
     Surface(String),
     /// 本帧没有可呈现的纹理：渲染暂停、surface 尚未挂载、平台收走了原生窗口
-    /// （BufferQueue 被遗弃），或交换链尺寸需要重配。
+    /// （`BufferQueue` 被遗弃），或交换链尺寸需要重配。
     ///
     /// 属**可恢复**路径：宿主换新窗口重挂载后即恢复（见 `render-stability`
     /// 规范「渲染 surface 失效后自愈」），故日志级别低于 error——
-    /// 详见 [GpuError::is_recoverable]。
+    /// 详见 [`GpuError::is_recoverable`]。
     #[error("surface unavailable: {0}")]
     SurfaceUnavailable(String),
     /// 仅测试回读脚手架（`render_to_buffer`）构造，生产路径不产生。
@@ -72,7 +72,7 @@ pub enum GpuError {
 impl GpuError {
     /// 该错误是否属于「本帧没画出来、但下一帧或换窗口后即可恢复」的一类。
     ///
-    /// 判据是**类型**而非文案：只有 [GpuError::SurfaceUnavailable] 是可恢复的，
+    /// 判据是**类型**而非文案：只有 [`GpuError::SurfaceUnavailable`] 是可恢复的，
     /// 其余（管线缺失、单元转换失败、attach 失败……）都是真异常。
     ///
     /// 用途：日志分级。可恢复的一类按 debug 记（逐帧可能重复，不能淹掉

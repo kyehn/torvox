@@ -41,7 +41,7 @@ fn background_session() -> (
 fn pump_once_as_background(session: &Arc<parking_lot::Mutex<Session>>, session_id: u64) {
     wlock_session_registry().insert(
         session_id,
-        SessionEntry::new(session.clone(), Arc::new(RenderWake::default())),
+        SessionEntry::new(Arc::clone(session), Arc::new(RenderWake::default())),
     );
     let previous_active = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
     ACTIVE_SESSION_ID.store(0, std::sync::atomic::Ordering::Release);

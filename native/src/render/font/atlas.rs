@@ -33,7 +33,7 @@ impl FontPipeline {
 
     /// 样式感知字形查询：请求合成 bold/italic 而主字体无匹配面时对 alpha 遮罩做后处理
     /// （bold 加粗、italic 剪切）；若存在匹配面（如 Roboto-Bold.ttf），调用方先用
-    /// [FontPipeline::resolve_style_face] 解析出该面并传 [GlyphSynthesis::None]。
+    /// [`FontPipeline::resolve_style_face`] 解析出该面并传 [`GlyphSynthesis::None`]。
     ///
     /// 本函数是字形真正出图的唯一收口，故在此登记供出字形的面（供 `font_info`
     /// 上报「其他被使用字体」）；登记只在返回 `Some` 的两条路径上发生。
@@ -107,39 +107,39 @@ impl FontPipeline {
             return None;
         }
 
-        let allocation = match self.atlas.allocate(etagere::size2(width + 1, height + 1)) {
-            Some(allocation) => allocation,
-            None => {
-                let evict_count =
-                    (self.caches.glyph_cache.len() / GLYPH_CACHE_EVICTION_DIVISOR).max(1);
-                let mut evicted_any = false;
-                for _ in 0..evict_count {
-                    if let Some((_, evicted)) = self.caches.glyph_cache.pop_lru()
-                        && let Some(allocated_id) = evicted.allocation_id
-                    {
-                        self.atlas.deallocate(allocated_id);
-                        evicted_any = true;
-                    }
-                }
-                // 被驱逐的区域会分给后续分配，已缓存的单元实例仍引用旧 UV，
-                // 故须重建实例缓存（见 atlas_generation）。
-                if evicted_any {
-                    self.atlas_generation = self.atlas_generation.wrapping_add(1);
-                }
-                if let Some(retry_allocation) =
-                    self.atlas.allocate(etagere::size2(width + 1, height + 1))
+        let allocation = if let Some(allocation) =
+            self.atlas.allocate(etagere::size2(width + 1, height + 1))
+        {
+            allocation
+        } else {
+            let evict_count = (self.caches.glyph_cache.len() / GLYPH_CACHE_EVICTION_DIVISOR).max(1);
+            let mut evicted_any = false;
+            for _ in 0..evict_count {
+                if let Some((_, evicted)) = self.caches.glyph_cache.pop_lru()
+                    && let Some(allocated_id) = evicted.allocation_id
                 {
-                    retry_allocation
-                } else {
-                    log::warn!(
-                        "ATLAS_REBUILD: atlas full ({}x{}), rebuilding with {} cached glyphs",
-                        self.atlas_width,
-                        self.atlas_height,
-                        self.caches.glyph_cache.len(),
-                    );
-                    self.rebuild_atlas();
-                    self.atlas.allocate(etagere::size2(width + 1, height + 1))?
+                    self.atlas.deallocate(allocated_id);
+                    evicted_any = true;
                 }
+            }
+            // 被驱逐的区域会分给后续分配，已缓存的单元实例仍引用旧 UV，
+            // 故须重建实例缓存（见 atlas_generation）。
+            if evicted_any {
+                self.atlas_generation = self.atlas_generation.wrapping_add(1);
+            }
+            if let Some(retry_allocation) =
+                self.atlas.allocate(etagere::size2(width + 1, height + 1))
+            {
+                retry_allocation
+            } else {
+                log::warn!(
+                    "ATLAS_REBUILD: atlas full ({}x{}), rebuilding with {} cached glyphs",
+                    self.atlas_width,
+                    self.atlas_height,
+                    self.caches.glyph_cache.len(),
+                );
+                self.rebuild_atlas();
+                self.atlas.allocate(etagere::size2(width + 1, height + 1))?
             }
         };
         let rect = allocation.rectangle;

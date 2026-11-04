@@ -1,4 +1,11 @@
-use super::*;
+use std::sync::Arc;
+
+use super::{
+    ANSI_PALETTE_INDICES, BatchState, COMMAND_BATCH_BUDGET, CommandOutcome, CommandState,
+    KGP_STORAGE_LIMIT, MAX_CLIPBOARD_PAYLOAD_BYTES, MAX_COMMANDS_PER_BATCH, Ordering, Query,
+    QueryContext, RenderExtractors, RunConfig, Terminal, VtEvent, synchronized_output_hold,
+    try_send,
+};
 
 // ── VT 线程主循环 ────────────────────────────────────────────
 
@@ -351,7 +358,7 @@ impl super::GhosttyTerminal {
         // 注册终端应答的 PTY 回写回调
         // （DECRPM 模式报告、DSR、DA 等）
         if let Err(error) = terminal.on_pty_write({
-            let response_buffer = config.response_buffer.clone();
+            let response_buffer = Arc::clone(&config.response_buffer);
             move |_terminal, data| {
                 if let Ok(mut guard) = response_buffer.lock() {
                     guard.push(data.to_vec());
@@ -368,7 +375,7 @@ impl super::GhosttyTerminal {
         // 终端响铃（BEL，0x07）走上游 on_bell 回调：只置无锁标志，收割方每帧
         // 取走复位。回调在 VT 写入路径上同步执行，不得阻塞——原子量恰好满足。
         if let Err(error) = terminal.on_bell({
-            let bell_flag = config.bell_flag.clone();
+            let bell_flag = Arc::clone(&config.bell_flag);
             move |_terminal| bell_flag.store(true, std::sync::atomic::Ordering::Release)
         }) {
             log::error!("ghostty_terminal: on_bell callback registration failed: {error}");
@@ -377,7 +384,7 @@ impl super::GhosttyTerminal {
         // 实时值，单元格像素取本层回填的共享几何（Resize 填默认，
         // SetCellPixelSize 填真实字形度量）。无锁读取，永不阻塞 VT 线程。
         if let Err(error) = terminal.on_size({
-            let cell_size_px = config.cell_size_px.clone();
+            let cell_size_px = Arc::clone(&config.cell_size_px);
             move |terminal| {
                 let (Ok(rows), Ok(cols)) = (terminal.rows(), terminal.cols()) else {
                     return None;
@@ -400,7 +407,7 @@ impl super::GhosttyTerminal {
     /// OSC 4 调色板覆盖由上游处理），故内嵌方必须直接推送主题色；
     /// 否则终端会保留内置的 xterm 调色板。
     pub(crate) fn apply_theme(
-        terminal: &mut libghostty_vt::terminal::Terminal,
+        terminal: &mut libghostty_vt::terminal::Terminal<'_, '_>,
         palette: &crate::terminal::theme::Palette,
     ) {
         if terminal
@@ -442,7 +449,7 @@ impl super::GhosttyTerminal {
     /// 覆盖）；未设置或读不到时回退到 `default`。取代了历史上的静态
     /// 16 色表 + xterm 公式，后者会静默忽略 OSC 4 改色。
     pub(crate) fn resolve_style_color(
-        terminal: &Terminal,
+        terminal: &Terminal<'_, '_>,
         color: &libghostty_vt::style::StyleColor,
         default: [f32; 4],
     ) -> [f32; 4] {
@@ -465,7 +472,7 @@ impl super::GhosttyTerminal {
     }
 
     pub(crate) fn byte_to_float(value: u8) -> f32 {
-        value as f32 / 255.0
+        f32::from(value) / 255.0
     }
 }
 

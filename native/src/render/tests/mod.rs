@@ -120,7 +120,7 @@ fn blend_shader() -> wgpu::ShaderModuleDescriptor<'static> {
 fn run_compute_and_capture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    shader_desc: wgpu::ShaderModuleDescriptor,
+    shader_desc: wgpu::ShaderModuleDescriptor<'_>,
 ) -> [u8; 4] {
     let shader = device.create_shader_module(shader_desc);
 
@@ -221,16 +221,16 @@ fn run_compute_and_capture(
 
 const TEST_ATLAS_SIZE: f32 = 1024.0;
 
-/// 单元实例构建的测试配置：图集尺寸固定为 TEST_ATLAS_SIZE（本文件的 FontPipeline
+/// 单元实例构建的测试配置：图集尺寸固定为 `TEST_ATLAS_SIZE`（本文件的 `FontPipeline`
 /// 一律 1024×1024），其余参数由调用方给出——调用点不再重复同一份字段清单。
-fn test_config<'a>(
+fn test_config(
     rows: u32,
     cols: u32,
     grid_cell_width: f32,
     grid_cell_height: f32,
     cursor: CellCursor,
-    search_highlights: &'a [cell_builder::SearchHighlight],
-) -> cell_builder::CellInstanceConfig<'a> {
+    search_highlights: &[cell_builder::SearchHighlight],
+) -> cell_builder::CellInstanceConfig<'_> {
     cell_builder::CellInstanceConfig {
         rows,
         cols,
@@ -294,7 +294,7 @@ fn non_default_grid(rows: u32, cols: u32) -> Vec<crate::terminal::ghostty_termin
                 foreground: [0.5, 0.5, 0.5, 1.0],
                 background: [0.1, 0.1, 0.1, 1.0],
                 underline_color: [0.5, 0.5, 0.5, 1.0],
-                ..test_cell_data(b'a' as u32 + col, row, col)
+                ..test_cell_data(u32::from(b'a') + col, row, col)
             })
         })
         .collect()

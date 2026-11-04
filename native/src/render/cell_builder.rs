@@ -59,19 +59,18 @@ use std::collections::HashMap;
 /// 任何痕迹，而 DESIGN 明令禁止掩盖错误。保留替换本身是刻意的：这是渲染热路径，
 /// panic 只会换来黑屏而非更好的诊断。
 fn codepoint_to_char(codepoint: u32) -> char {
-    match char::from_u32(codepoint) {
-        Some(character) => character,
-        None => {
-            static WARNED: std::sync::Once = std::sync::Once::new();
-            WARNED.call_once(|| {
-                log::error!("cell_builder: 网格给出非法码位 {codepoint:#x}，按 U+FFFD 渲染");
-            });
-            '�'
-        }
+    if let Some(character) = char::from_u32(codepoint) {
+        character
+    } else {
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        WARNED.call_once(|| {
+            log::error!("cell_builder: 网格给出非法码位 {codepoint:#x}，按 U+FFFD 渲染");
+        });
+        '�'
     }
 }
 
-/// 供 build_instances_from_cell_data() 渲染光标用的光标状态。
+/// 供 `build_instances_from_cell_data()` 渲染光标用的光标状态。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CellCursor {
     pub row: u32,
@@ -236,7 +235,7 @@ pub struct FramePatch {
 }
 
 /// 把行脏标记合并成最少的连续 `[start, end)` 行段。
-/// 纯函数——表驱动单测（compute_dirty_bands_tests）。
+/// 纯函数——表驱动单测（`compute_dirty_bands_tests`）。
 pub fn compute_dirty_bands(dirty: &[bool]) -> Vec<(usize, usize)> {
     let mut bands: Vec<(usize, usize)> = Vec::new();
     let mut start: Option<usize> = None;
@@ -290,7 +289,7 @@ fn is_content_codepoint(codepoint: u32) -> bool {
 
 /// 增量渲染的行级实例缓存（FR-013 / NFR-010）。
 ///
-/// 与全量路径 `build_instances_from_cell_data`（row_ends + 每行的实例切片）
+/// 与全量路径 `build_instances_from_cell_data`（`row_ends` + 每行的实例切片）
 /// 保持一致，差异由 `cached_incremental_rebuild_matches_full_build`
 /// 逐实例比对：构建后 `row_ends[r]` 即
 /// 行 `r` 的实例在 `instances` 中的结束下标（不含）。干净行可
@@ -386,7 +385,7 @@ impl CachedInstances {
         self.built = true;
     }
 
-    /// 仅测试：直接写入 row_ends（band_slice 解析测试无需
+    /// 仅测试：直接写入 `row_ends`（`band_slice` 解析测试无需
     /// 真实实例数据，只要累计布局）。
     #[cfg(test)]
     pub(crate) fn update_for_test(&mut self, row_ends_cumulative: &[usize]) {
@@ -459,7 +458,7 @@ pub(crate) fn diff_dirty_rows_into(
 
 /// 把预构建的 `CellData` 切片转换为 GPU 实例数据。
 ///
-/// 携带搜索高亮参数，使渲染器无需完整 GridSnapshot
+/// 携带搜索高亮参数，使渲染器无需完整 `GridSnapshot`
 /// 即可给出视觉反馈（搜索高亮叠加）。
 /// 选区高亮归终端所有：VT 线程把受跟踪选区的反显
 /// 烘焙进 `CellData` 颜色，故本构建器

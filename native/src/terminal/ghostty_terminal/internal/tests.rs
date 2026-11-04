@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::terminal::ghostty_terminal::GhosttyTerminal;
+use crate::terminal::ghostty_terminal::{GhosttyTerminal, cell_flags};
 use libghostty_vt::style::{Style, StyleColor, Underline};
 
 #[test]

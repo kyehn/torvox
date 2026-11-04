@@ -66,7 +66,7 @@ pub mod cell_flags {
     pub const CONCEAL: u32 = 9;
 }
 
-/// 光标信息：与 CellData 一同发送的终端光标状态，供同帧渲染。由 `build_cell_data`
+/// 光标信息：与 `CellData` 一同发送的终端光标状态，供同帧渲染。由 `build_cell_data`
 /// 产生，渲染线程以 `CellCursor` 消费。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CursorInfo {
@@ -94,7 +94,7 @@ pub struct CursorInfo {
     /// 渲染线程拿它与宿主已下发的最新序号比较：本帧序号更小即说明该帧早于
     /// 在途的滚动命令（视口仍是旧的），此刻呈现会用旧视口配新余量。
     pub scroll_request_id: u64,
-    /// 产出本帧时 VT 网格的真实行列：与 CellData 同源，渲染线程不得再读会话侧
+    /// 产出本帧时 VT 网格的真实行列：与 `CellData` 同源，渲染线程不得再读会话侧
     /// `terminal_rows/cols` 原子缓存——后者在 resize 入队时提前发布，
     /// VT 尚未应用新网格时两者不一致，收缩帧会被 `build_row_ranges` 判空丢弃。
     pub rows: u32,
@@ -108,7 +108,7 @@ pub struct CursorInfo {
     pub kitty_placement_generation: u64,
 }
 
-/// 逐单元载荷：会话线程（经 Ghostty CellIterator 产生）→ 渲染线程（转为 CellInstance
+/// 逐单元载荷：会话线程（经 Ghostty `CellIterator` 产生）→ 渲染线程（转为 `CellInstance`
 /// 上传 GPU）。定长 bytemuck 结构（96 字节），故 `Vec<CellData>` 过 flume 通道
 /// 时每单元零拷贝。
 #[repr(C)]
@@ -232,7 +232,7 @@ pub struct KittyGraphicsImageData {
 
 /// 单个 Kitty 放置的可渲染几何 + RGBA8 像素（VT 线程采集，渲染线程组装图集）。
 /// 坐标为视口相对网格列/行（可为负，表示顶部滚出部分）；像素尺寸为上游
-/// placement_render_info 解算值；source 矩形在此按上游口径原样携带，越界部分的
+/// `placement_render_info` 解算值；source 矩形在此按上游口径原样携带，越界部分的
 /// 钳制在组装图集时统一做（见 `render::kitty::clamp_source`）——采集侧再钳一次
 /// 只会让「声明尺寸」与「实际像素」两处判据分叉。
 #[derive(Clone, Debug)]
@@ -305,7 +305,7 @@ pub struct CellSnapshot {
 }
 
 pub(crate) const COMMAND_CHANNEL_CAPACITY: usize = 1024;
-/// VT 查询通道容量（无界语义由有界 256 + try_send 回退实现）。
+/// VT 查询通道容量（无界语义由有界 256 + `try_send` 回退实现）。
 pub(crate) const QUERY_CHANNEL_CAPACITY: usize = 256;
 /// 上游 OSC 回调事件通道容量（剪贴板写入，低频；满则丢弃，VT 线程永不阻塞）。
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 16;
@@ -318,7 +318,7 @@ pub(crate) const QUERY_TIMEOUT_MS: u64 = 500;
 /// 故调用方的查询窗口仍须显著大于本值（见 `Session::FOCUS_MODE_QUERY_TIMEOUT_MS`）。
 pub(crate) const VT_IDLE_TICK_MS: u64 = 50;
 /// 构造函数等待 VT 线程进入其闭包的时限。超过即判定线程调度异常。
-/// 与 [QUERY_TIMEOUT_MS] 同量级：正常调度是微秒级，超时只可能来自系统过载。
+/// 与 [`QUERY_TIMEOUT_MS`] 同量级：正常调度是微秒级，超时只可能来自系统过载。
 pub(crate) const VT_READY_TIMEOUT_MS: u64 = 500;
 /// `flush()` 等待 VT 线程排空积压的上限；须远大于 debug 构建下突发写入的正常排空
 /// 时间（数百毫秒），静默 5s 即视为 VT 线程确实卡死。
@@ -349,4 +349,4 @@ pub(crate) const DEFAULT_CELL_HEIGHT: u32 = 16;
 ///
 /// 该码位在网格里只承载图像 id 与放置 id 的编码，不是有形的字形：
 /// 文本层遇到它必须跳过，否则会画出豆腐块盖住图像。
-pub(crate) const KITTY_PLACEHOLDER: u32 = 0x10EEEE;
+pub(crate) const KITTY_PLACEHOLDER: u32 = 0x10_EEEE;

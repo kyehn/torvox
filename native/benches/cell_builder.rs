@@ -1,4 +1,4 @@
-//! Criterion trend benchmarks: CellData -> CellInstance conversion.
+//! Criterion trend benchmarks: `CellData` -> `CellInstance` conversion.
 //!
 //! Complements the in-test `bench_build_instances_from_cell_data`
 //! assertion benchmark. This one measures the pure CPU conversion path

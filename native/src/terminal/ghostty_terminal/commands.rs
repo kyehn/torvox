@@ -5,7 +5,10 @@ use flume::{Receiver, Sender};
 use libghostty_vt::key;
 
 use super::frame_mailbox::FrameMailbox;
-use super::types::*;
+use super::types::{
+    CursorStyle, DumpedGrid, GridSnapshot, KittyGraphicsImageData, KittyPlacementFrame,
+    SearchSelection, SearchViewportHighlights,
+};
 
 /// 视口滚动目标。
 ///
@@ -88,7 +91,7 @@ pub enum Command {
 static SCROLL_REQUEST_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// 分配下一个滚动请求序号。
-pub fn next_scroll_request_id() -> u64 {
+pub(super) fn next_scroll_request_id() -> u64 {
     SCROLL_REQUEST_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
 }
 
@@ -279,7 +282,7 @@ pub(crate) struct RunConfig {
     /// 有界丢弃——VT 线程永不阻塞；Kotlin 经 session 锁存槽读取。
     pub(crate) clipboard_tx: flume::Sender<(String, String)>,
     /// 当前单元格像素几何（XTWINOPS 14/16t 应答用）：Resize 回填默认值，
-    /// SetCellPixelSize 回填真实字形度量；回调经此共享，无锁读取。
+    /// `SetCellPixelSize` 回填真实字形度量；回调经此共享，无锁读取。
     pub(crate) cell_size_px: Arc<(AtomicU32, AtomicU32)>,
     /// 单元帧邮箱：VT 线程在网格变化时构建并写入 `Vec<CellData>`，
     /// 即线程拆分架构的数据路径（会话线程 → Vec<CellData> → 渲染线程）。

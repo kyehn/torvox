@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::*;
+use super::{Arc, KittyPlacementFrame, Terminal, grid_cols, grid_rows};
 
 use libghostty_vt::render::{ImageIterator, ImageProtocol, RenderState};
 
@@ -297,7 +297,7 @@ mod tests {
         );
     }
 
-    /// 协议参数的网格尺寸可以大到 u32::MAX：相加必须在 i32 上饱和而不是溢出。
+    /// 协议参数的网格尺寸可以大到 `u32::MAX`：相加必须在 i32 上饱和而不是溢出。
     ///
     /// 判别力：未饱和时 debug 构建在此 panic（JNI 边界上等于整进程崩溃），
     /// release 构建回绕成负数，一个从 (0,0) 开始、覆盖整屏的放置会被判成屏外。

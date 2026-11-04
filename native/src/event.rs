@@ -79,28 +79,25 @@ impl EventQueue {
         // parking_lot Mutex 无中毒，故无需恢复分支。
         let mut guard = self.inner.lock();
         if guard.len() >= MAX_QUEUED_EVENTS {
-            match guard.iter().position(is_evictable) {
-                Some(idx) => {
-                    // 先记录**将被淘汰**的那个事件，移除之后它已不在队列里，取不到。
-                    // 不能记队首：`Exit` 与 `ClipboardRead` 不可淘汰且常位于队首，
-                    // 照记队首会把「丢失剪贴板」报成从不淘汰的退出事件。
-                    self.warn_overflow_once(&guard[idx]);
-                    guard.remove(idx);
+            if let Some(idx) = guard.iter().position(is_evictable) {
+                // 先记录**将被淘汰**的那个事件，移除之后它已不在队列里，取不到。
+                // 不能记队首：`Exit` 与 `ClipboardRead` 不可淘汰且常位于队首，
+                // 照记队首会把「丢失剪贴板」报成从不淘汰的退出事件。
+                self.warn_overflow_once(&guard[idx]);
+                guard.remove(idx);
+            } else {
+                // 队列只剩受保护事件：淘汰任一都会遗弃会话或让远端粘出空白，
+                // 故丢弃新事件。必须出声——`ClipboardRead` 由 PTY 输出驱动
+                // （远端可无界地循环 OSC 52 读请求），一次洪泛就能把队列占满，
+                // 之后连 `Exit` 都会无声无息地丢：而 `exit_reported` 已置位且
+                // 不会重发，会话就此永久泄漏。
+                if self.overflow_warn.should_log() {
+                    log::warn!(
+                        "EventQueue: dropping new event, queue holds only protected \
+                         events (full at {MAX_QUEUED_EVENTS})"
+                    );
                 }
-                None => {
-                    // 队列只剩受保护事件：淘汰任一都会遗弃会话或让远端粘出空白，
-                    // 故丢弃新事件。必须出声——`ClipboardRead` 由 PTY 输出驱动
-                    // （远端可无界地循环 OSC 52 读请求），一次洪泛就能把队列占满，
-                    // 之后连 `Exit` 都会无声无息地丢：而 `exit_reported` 已置位且
-                    // 不会重发，会话就此永久泄漏。
-                    if self.overflow_warn.should_log() {
-                        log::warn!(
-                            "EventQueue: dropping new event, queue holds only protected \
-                             events (full at {MAX_QUEUED_EVENTS})"
-                        );
-                    }
-                    return;
-                }
+                return;
             }
         }
         guard.push_back(event);
@@ -129,7 +126,7 @@ impl EventQueue {
     }
 }
 
-/// 队列满时允许被淘汰的事件（见 [EventQueue::push] 的不可淘汰理由）。
+/// 队列满时允许被淘汰的事件（见 [`EventQueue::push`] 的不可淘汰理由）。
 fn is_evictable(event: &Event) -> bool {
     !matches!(event, Event::Exit { .. } | Event::ClipboardRead { .. })
 }

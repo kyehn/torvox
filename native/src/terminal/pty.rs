@@ -74,14 +74,14 @@ impl From<nix::errno::Errno> for PtyError {
 
 pub trait Pty: Send + Sync {
     /// 写入主端。取 `&self` 而非 `&mut`：实现内部只对 fd 做系统调用，
-    /// 并不需要独占借用——写成 `&mut` 会迫使共享路径（resize / set_pixel_size /
-    /// child_pid）去取互斥量，而互斥量此刻可能被无上界的 `write_all` 持住。
-    /// 写入之间的字节序由 [crate::terminal::session::PtyMaster] 的写入锁保证。
+    /// 并不需要独占借用——写成 `&mut` 会迫使共享路径（resize / `set_pixel_size` /
+    /// `child_pid`）去取互斥量，而互斥量此刻可能被无上界的 `write_all` 持住。
+    /// 写入之间的字节序由 [`crate::terminal::session::PtyMaster`] 的写入锁保证。
     fn write(&self, buf: &[u8]) -> io::Result<usize>;
-    /// 读主端。与 [Pty::write] 同理只做系统调用，取 `&self`。
+    /// 读主端。与 [`Pty::write`] 同理只做系统调用，取 `&self`。
     fn read(&self, buf: &mut [u8]) -> io::Result<usize>;
     fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError>;
-    /// 更新缓存的像素尺寸并经 TIOCSWINSZ（ws_xpixel/ws_ypixel）写入内核，
+    /// 更新缓存的像素尺寸并经 `TIOCSWINSZ`（`ws_xpixel`/`ws_ypixel`）写入内核，
     /// 使全屏程序看到真实像素尺寸而非 0。
     ///
     /// 默认空操作——无内核 winsize 的测试替身（如 `MockPty`）继承此实现，真实 PTY 覆写。
@@ -100,7 +100,7 @@ pub trait Pty: Send + Sync {
         None
     }
     /// 返回独立所有的主端 fd 副本供专用读取线程使用。副本与 [`Pty::master_borrowed_fd`]
-    /// 共享同一打开文件描述（故共享 O_NONBLOCK 状态），这对 `poll` + 类阻塞读取的读取线程无碍。
+    /// 共享同一打开文件描述（故共享 `O_NONBLOCK` 状态），这对 `poll` + 类阻塞读取的读取线程无碍。
     /// dup 在此处（允许 `unsafe` 的位置）完成，使调用方能经安全的 `std::fs::File`
     /// 读取而无需任何 `unsafe` 块。
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd>;
@@ -246,7 +246,7 @@ pub struct PtyPair {
     /// `&self` 方法，本可完全无锁，却被迫与无上界的写入争同一把互斥量。
     pixel_width: AtomicU16,
     pixel_height: AtomicU16,
-    /// execve 失败回报管道的读端：写端带 FD_CLOEXEC，execve 成功即随 exec 关闭，
+    /// execve 失败回报管道的读端：写端带 `FD_CLOEXEC`，execve 成功即随 exec 关闭，
     /// 父进程读到 EOF；失败时子进程写入 errno 后退出，父进程读到确切 errno。
     ///
     /// 取走（[`PtyPair::take_exec_failure_reader`]）后由等待线程在子进程退出后读取。
@@ -554,7 +554,7 @@ impl PtyPair {
                     // SAFETY: `write(2)` 在 fork 后的单线程子进程中异步信号安全。
                     // `MSG` 是静态字节切片（不分配）。
                     let _ =
-                        unsafe { libc::write(2, MSG.as_ptr() as *const libc::c_void, MSG.len()) };
+                        unsafe { libc::write(2, MSG.as_ptr().cast::<libc::c_void>(), MSG.len()) };
                 }
                 // 复位为 `SIG_DFL`，防止父进程自定义信号处理器泄漏。
                 for signal in [
@@ -609,7 +609,7 @@ impl PtyPair {
                 write_index += 1;
                 // SAFETY: `write(2)` 在 fork 后的单线程子进程中异步信号安全；
                 // `buf` 是栈上定长数组，不触碰堆。
-                let _ = unsafe { libc::write(2, buf.as_ptr() as *const libc::c_void, write_index) };
+                let _ = unsafe { libc::write(2, buf.as_ptr().cast::<libc::c_void>(), write_index) };
                 // 把确切 errno 写回父进程：等待线程据此判定 execve 真失败。
                 // 退出码承担不了这件事——shell 被 SIGHUP 杀掉时退出码 129 与
                 // 「errno=29」的编码撞车，会把正常收尾误报成 execve 失败。
@@ -619,7 +619,7 @@ impl PtyPair {
                 let _ = unsafe {
                     libc::write(
                         exec_failure_writer.as_raw_fd(),
-                        errno_bytes.as_ptr() as *const libc::c_void,
+                        errno_bytes.as_ptr().cast::<libc::c_void>(),
                         errno_bytes.len(),
                     )
                 };
@@ -654,7 +654,7 @@ impl PtyPair {
         self.write_winsize(&winsize)
     }
 
-    /// 更新缓存的像素尺寸并经 TIOCSWINSZ（ws_xpixel/ws_ypixel）推送给内核，
+    /// 更新缓存的像素尺寸并经 `TIOCSWINSZ`（`ws_xpixel`/`ws_ypixel`）推送给内核，
     /// 使全屏程序看到真实像素尺寸而非 0。TIOCSWINSZ 会替换整个结构体，
     /// 故先读回并保留当前 rows/cols。
     pub fn set_pixel_size(&self, width: u16, height: u16) -> Result<(), PtyError> {
@@ -818,7 +818,7 @@ fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
         (termios.c_iflag & libc::IXOFF) == 0,
     );
     // SAFETY: fd 有效且 termios 结构有效时 `tcsetattr` 安全。
-    let result = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) };
+    let result = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw const termios) };
     if result != 0 {
         return Err(PtyError::Termios(nix::errno::Errno::last()));
     }
