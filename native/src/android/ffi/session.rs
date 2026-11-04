@@ -129,11 +129,7 @@ pub(super) fn init_session_inner(
     };
 
     let default = ShellEnv::default();
-    let home = if home.is_empty() {
-        default.home.clone()
-    } else {
-        home
-    };
+    let home = if home.is_empty() { default.home } else { home };
     let working_directory = if working_directory.is_empty() {
         home.clone()
     } else {
@@ -145,7 +141,7 @@ pub(super) fn init_session_inner(
         prefix: if prefix.is_empty() {
             None
         } else {
-            Some(prefix.clone())
+            Some(prefix)
         },
         mkshrc_path: if mkshrc_path.is_empty() {
             None

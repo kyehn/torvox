@@ -456,9 +456,8 @@ impl super::GhosttyTerminal {
             libghostty_vt::style::StyleColor::Rgb(c) => Self::color_to_float(*c),
             libghostty_vt::style::StyleColor::Palette(idx) => terminal
                 .color_palette()
-                .map(|palette| Self::color_to_float(palette.get(*idx)))
-                .unwrap_or(default),
-            _ => default,
+                .map_or(default, |palette| Self::color_to_float(palette.get(*idx))),
+            libghostty_vt::style::StyleColor::None => default,
         }
     }
 

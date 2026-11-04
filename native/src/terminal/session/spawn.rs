@@ -178,7 +178,7 @@ impl Session {
         });
 
         let exit_code = session.exit_code.clone();
-        let exited_wait = exited.clone();
+        let exited_wait = exited;
         let wait_handle = std::thread::spawn(move || {
             log::info!("wait thread: waiting for child pid={child_pid}");
             let result = nix::sys::wait::waitpid(child_pid, None);

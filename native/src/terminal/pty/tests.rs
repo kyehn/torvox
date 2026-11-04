@@ -596,12 +596,12 @@ fn set_pixel_size_reflected_in_winsize() {
         ws_xpixel: 0,
         ws_ypixel: 0,
     };
-    // SAFETY: TIOCGWINSZ 把格式良好的 Winsize 结构写入 `winsize`；
-    // fd 自有且有效。返回值已做检查。
     let master_fd = pty
         .master_borrowed_fd()
         .expect("真实 PTY 必须提供主端 fd")
         .as_raw_fd();
+    // SAFETY: TIOCGWINSZ 把格式良好的 Winsize 结构写入 `winsize`；
+    // fd 自有且有效。返回值已做检查。
     let result = unsafe { libc::ioctl(master_fd, libc::TIOCGWINSZ, &mut winsize) };
     assert_eq!(result, 0, "TIOCGWINSZ ioctl must succeed");
     assert_eq!(
@@ -783,18 +783,19 @@ fn configure_raw_mode_sets_iutf8_and_clears_ixon_ixoff() {
     // 施加与子进程在从端相同的 raw 模式配置。
     configure_raw_mode(fd).expect("configure_raw_mode failed");
 
+    let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
     // SAFETY: `tcgetattr` 是简单系统调用包装；`fd` 是有效且自有的 PTY 主端描述符，
     // 读取其 termios 安全。
-    let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
-    let termios = unsafe {
+    unsafe {
         assert_eq!(
             libc::tcgetattr(fd, termios.as_mut_ptr()),
             0,
             "tcgetattr failed: {}",
             std::io::Error::last_os_error()
         );
-        termios.assume_init()
-    };
+    }
+    // SAFETY: 上一步 `tcgetattr` 返回 0（已断言），`termios` 此时已完全初始化。
+    let termios = unsafe { termios.assume_init() };
 
     let iutf8_set = (termios.c_iflag & libc::IUTF8) != 0;
     let ixon_cleared = (termios.c_iflag & libc::IXON) == 0;

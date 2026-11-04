@@ -65,7 +65,7 @@ fn collect_session_strings<'local>(
     what: &str,
     fetch: impl Fn(u64) -> Option<String>,
 ) -> jobjectArray {
-    // SAFETY：`session_ids` 是本次 JNI 调用的实参，生命周期覆盖本函数。
+    // SAFETY: `session_ids` 是本次 JNI 调用的实参，生命周期覆盖本函数。
     let ids = unsafe { JLongArray::from_raw(env, session_ids) };
     let Ok(length) = ids.len(env) else {
         log::error!("{what}: cannot read session id array length");

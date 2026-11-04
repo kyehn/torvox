@@ -738,8 +738,7 @@ impl FontPipeline {
                     let face_name = font_database
                         .face(fallback_id)
                         .and_then(|family| family.families.first())
-                        .map(|(n, _)| n.clone())
-                        .unwrap_or_else(|| "?".to_string());
+                        .map_or_else(|| "?".to_string(), |(n, _)| n.clone());
                     log::debug!(
                         "FALLBACK_HIT: ch=U+{:04X} layer='{}' gid={} w={} h={}",
                         ch as u32,

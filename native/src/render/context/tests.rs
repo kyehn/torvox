@@ -44,6 +44,33 @@ mod surface_format_selection {
         assert_eq!(selected, TextureFormat::Rgba8UnormSrgb);
     }
 
+    /// 回归钉：只有单通道格式时报错，绝不把 R8 当交换链格式。
+    ///
+    /// 0x38 是 `AHARDWAREBUFFER_FORMAT_R8_UNORM`——Mali 的分配器只支持 AIDL 分配器，
+    /// 申请它必然失败；即便侥幸分配成功，渲染进单通道目标也只有灰度。
+    #[test]
+    fn single_channel_format_is_never_selected() {
+        assert!(Renderer::select_surface_format(&caps(vec![TextureFormat::R8Unorm])).is_err());
+        assert!(
+            Renderer::select_surface_format(&caps(vec![
+                TextureFormat::R8Unorm,
+                TextureFormat::Rg8Unorm,
+            ]))
+            .is_err()
+        );
+    }
+
+    /// RGBA8 族缺席但仍有三通道以上格式时，退到那个多通道格式而不是报错。
+    #[test]
+    fn falls_back_to_multichannel_format_when_rgba8_family_is_absent() {
+        let selected = Renderer::select_surface_format(&caps(vec![
+            TextureFormat::R8Unorm,
+            TextureFormat::Rgba16Float,
+        ]))
+        .expect("candidate present");
+        assert_eq!(selected, TextureFormat::Rgba16Float);
+    }
+
     /// 一个候选都没有时必须报「无格式」而不是默默选一个。
     #[test]
     fn empty_format_list_is_an_error() {

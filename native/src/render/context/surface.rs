@@ -48,7 +48,7 @@ pub(crate) fn surface_extent(width: u32, height: u32, max_texture_dimension_2d: 
 }
 
 impl Renderer {
-    /// 从适配器报告的格式里**指名**挑一个 8 位 RGBA 族的交换链格式。
+    /// 从适配器报告的格式里**指名**挑一个能承载颜色的交换链格式。
     ///
     /// 此前是「取第一个非 sRGB 格式」——那等于让设备决定我们会去申请哪种窗口缓冲。
     /// 真机（Mali GPU）在 `attachWindow` 之后立刻报告 R8 格式不被分配器支持。0x38 正是
@@ -57,8 +57,10 @@ impl Renderer {
     /// 通道，即便侥幸分配成功，颜色也是错的。
     ///
     /// 取舍顺序：Rgba8Unorm（与 SurfaceFlinger 默认 RGBA_8888 原生对应，无需 sRGB 视图）
-    /// → 其它非 sRGB 的 RGBA/BGRA 8 位 → 任意非 sRGB → 任意格式。每一档退化都记一条
-    /// 日志，避免「用了个奇怪格式」这件事再次无声发生。
+    /// → 其它非 sRGB 的 RGBA/BGRA 8 位 → sRGB 的 RGBA/BGRA 8 位 → 任意非 sRGB 的
+    /// 多通道格式 → 任意多通道格式。**单通道与双通道格式一律不选**：颜色渲染不出来，
+    /// 且 R8 在部分设备的分配器上根本分配不出来。每一档退化都记一条日志，避免
+    /// 「用了个奇怪格式」这件事再次无声发生。
     /// 与 `select_present_mode` 同理：唯一调用方 `attach_surface` 仅 Android 存在，
     /// 故限定为 Android 生产构建 + 测试，而非加 `allow(dead_code)`。
     #[cfg(any(target_os = "android", test))]
@@ -74,6 +76,9 @@ impl Renderer {
                     | wgpu::TextureFormat::Bgra8UnormSrgb
             )
         };
+        // 交换链目标至少要三个分量：R8（1 分量）在 Mali 的 `mali_gralloc` 上不被支持
+        // （只支持 AIDL 分配器），RG8（2 分量）同样渲染不出颜色。
+        let carries_color = |candidate: &wgpu::TextureFormat| candidate.components() >= 3;
         if let Some(format) = caps
             .formats
             .iter()
@@ -108,18 +113,29 @@ impl Renderer {
             .formats
             .iter()
             .copied()
-            .find(|candidate| !candidate.is_srgb())
+            .find(|candidate| !candidate.is_srgb() && carries_color(candidate))
         {
             log::error!(
                 "attach_surface: 适配器只提供非 RGBA8 族格式，交换链退到 {format:?}；\
-                 若该格式的窗口缓冲不可分配（Mali 的 R8_UNORM 即是），画面将无法呈现"
+                 该格式的窗口缓冲若不可分配，画面将无法呈现"
             );
             return Ok(format);
         }
-        caps.formats
-            .first()
+        if let Some(format) = caps
+            .formats
+            .iter()
             .copied()
-            .ok_or_else(|| GpuError::Surface("attach_surface: no supported surface formats".into()))
+            .find(|candidate| carries_color(candidate))
+        {
+            log::error!(
+                "attach_surface: 适配器只提供 sRGB 的非常规格式，交换链退到 {format:?}（gamma 会偏）"
+            );
+            return Ok(format);
+        }
+        Err(GpuError::Surface(
+            "attach_surface: no color surface format (单通道/双通道格式渲染不出颜色，且可能不可分配)"
+                .into(),
+        ))
     }
 
     /// 宿主构建排除了仅 Android 的 `attach_surface` 调用方，本函数在宿主上会成为死代码，

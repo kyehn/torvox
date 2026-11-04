@@ -53,12 +53,11 @@ fn cjk_font_db_with_ttc_face() -> (fontdb::Database, String, u32) {
     );
     let (filename, index) = font_database
         .faces()
-        .filter_map(|face| {
+        .find_map(|face| {
             let path = crate::render::font::font_db::face_source_path(face)?;
             let name = path.file_name()?.to_str()?.to_string();
             (path.extension()?.to_str()?.eq_ignore_ascii_case("ttc")).then_some((name, face.index))
         })
-        .next()
         .expect("CJK TTC face must exist after try_load_cjk_fonts");
     (font_database, filename, index)
 }
@@ -74,12 +73,11 @@ fn find_maple_mono_font(font_database: &mut fontdb::Database) -> Option<std::pat
                 .first()
                 .is_some_and(|(name, _)| name.to_lowercase().contains("maple"))
         })
-        .filter_map(|face| match &face.source {
+        .find_map(|face| match &face.source {
             fontdb::Source::File(path) => Some(path.clone()),
             fontdb::Source::SharedFile(path, _) => Some(path.clone()),
             fontdb::Source::Binary(_) => None,
         })
-        .next()
 }
 
 /// 取字体库中第一个来自文件的**常规字重** .ttf 字体路径。

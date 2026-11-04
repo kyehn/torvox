@@ -40,7 +40,7 @@ fn current_match_is_distinguishable_from_other_matches() {
     let current = matched(3, 2, 8);
     let other = matched(5, 0, 4);
     let highlights = build_search_highlights(
-        &[other.clone(), current.clone()],
+        &[other, current.clone()],
         std::slice::from_ref(&current),
         0,
         20,

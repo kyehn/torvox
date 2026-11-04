@@ -668,8 +668,7 @@ fn bench_typing_latency() {
         let count = black_box(
             terminal_under_test
                 .receive_cell_data()
-                .map(|(cells, _)| cells.len())
-                .unwrap_or(0),
+                .map_or(0, |(cells, _)| cells.len()),
         );
         black_box(count);
     }

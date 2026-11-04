@@ -360,7 +360,11 @@ impl CachedInstances {
     /// （连续：实例为行主序）。调用方须保证
     /// `end_row <= self.row_ends.len()`。
     pub(crate) fn band_slice(&self, start_row: usize, end_row: usize) -> (usize, usize) {
-        debug_assert!(end_row >= start_row && end_row <= self.row_ends.len());
+        debug_assert!(
+            end_row >= start_row && end_row <= self.row_ends.len(),
+            "band_slice 的行区间越界：start_row={start_row}, end_row={end_row}, 行数={}",
+            self.row_ends.len()
+        );
         let start = self.row_slice(start_row).0;
         let end = self.row_slice(end_row.saturating_sub(1)).1;
         (start, end)
@@ -438,7 +442,11 @@ pub(crate) fn diff_dirty_rows_into(
     rows: u32,
     dirty: &mut [bool],
 ) {
-    debug_assert!(dirty.len() >= rows as usize);
+    debug_assert!(
+        dirty.len() >= rows as usize,
+        "脏标记数组比行数短：rows={rows}, dirty.len()={}",
+        dirty.len()
+    );
     let (Some(old_ranges), Some(new_ranges)) =
         (build_row_ranges(old, rows), build_row_ranges(new, rows))
     else {
@@ -689,27 +697,33 @@ fn warm_frame_glyphs(
             continue;
         }
         let shaped = font_pipeline.shape_run_styled(&cluster_text, bold, italic);
-        if shaped.len() == 1 {
-            let glyph = &shaped[0];
-            let _ = font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id);
-        } else if shaped.len() > 1 {
-            for glyph in shaped.iter().skip(1) {
+        match shaped.len() {
+            1 => {
+                let glyph = &shaped[0];
                 let _ = font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id);
             }
-        } else {
-            let dummy_quad = || crate::render::font::OverlayQuad {
-                origin: [0.0; 2],
-                size: [cell_width, cell_height],
-                foreground: [0.0; 4],
-                background: [0.0; 4],
-                deco: [0.0; 4],
-                flags: 0.0,
-            };
-            for codepoint in &cell_data_entry.grapheme_extra {
-                if *codepoint == 0 {
-                    continue;
+            len if len > 1 => {
+                for glyph in shaped.iter().skip(1) {
+                    let _ =
+                        font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id);
                 }
-                let _ = font_pipeline.overlay_glyph_instance(*codepoint, dummy_quad(), cell_height);
+            }
+            _ => {
+                let dummy_quad = || crate::render::font::OverlayQuad {
+                    origin: [0.0; 2],
+                    size: [cell_width, cell_height],
+                    foreground: [0.0; 4],
+                    background: [0.0; 4],
+                    deco: [0.0; 4],
+                    flags: 0.0,
+                };
+                for codepoint in &cell_data_entry.grapheme_extra {
+                    if *codepoint == 0 {
+                        continue;
+                    }
+                    let _ =
+                        font_pipeline.overlay_glyph_instance(*codepoint, dummy_quad(), cell_height);
+                }
             }
         }
     }

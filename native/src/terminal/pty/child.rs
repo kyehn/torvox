@@ -58,17 +58,19 @@ fn child_note_fd2(message: &'static [u8]) {
 /// 崩溃保留现场要求原因对用户可见，故同时写从端）。
 pub(super) fn child_exit_with_reason(slave_fd: RawFd, reason: &str, code: i32) -> ! {
     // SAFETY: `write(2)` 在 POSIX 异步信号安全列表内；`reason` 是调用点传入的
-    // `&'static str` 字面量，fork 后不触碰堆。两个 fd 都是 fork 后仍有效的
-    // PTY 从端与应用 stderr；写失败不致命，随后立即 `_exit`。
+    // `&'static str` 字面量，fork 后不触碰堆。`slave_fd` 是 fork 后仍有效的
+    // PTY 从端；写失败不致命，随后立即 `_exit`。
     unsafe {
         libc::write(
             slave_fd,
             reason.as_ptr() as *const libc::c_void,
             reason.len(),
-        );
-        libc::write(2, reason.as_ptr() as *const libc::c_void, reason.len());
-        libc::_exit(code);
-    }
+        )
+    };
+    // SAFETY: 同上，写 fd 2（此时仍是应用 stderr，送进 logcat）。
+    unsafe { libc::write(2, reason.as_ptr() as *const libc::c_void, reason.len()) };
+    // SAFETY: `_exit(3)` 在 POSIX 异步信号安全列表内，不返回、不刷新 stdio 缓冲区。
+    unsafe { libc::_exit(code) };
 }
 
 /// `close_stray_fds` 扫描的最大 fd 号；取保守上界，避免在 `sysconf(_SC_OPEN_MAX)`
@@ -85,12 +87,12 @@ const STRAY_FD_SCAN_LIMIT: libc::c_int = 65536;
 /// ——不支持白名单。调用进程持有的库 fd（如日志转发）也会被关闭，但子进程随即
 /// exec 成 shell，故可接受。`close()` 失败一律忽略（不致命）。
 pub(super) fn close_stray_fds(keep_fd: RawFd) {
-    // SAFETY: `getrlimit(2)` 在 POSIX 异步信号安全列表中。只要 `RLIMIT_NOFILE` 未被
-    // 并发修改（此处从不发生），在从多线程进程 fork 出的线程中调用是安全的。
     let mut rlim = libc::rlimit {
         rlim_cur: 0,
         rlim_max: 0,
     };
+    // SAFETY: `getrlimit(2)` 在 POSIX 异步信号安全列表中。只要 `RLIMIT_NOFILE` 未被
+    // 并发修改（此处从不发生），在从多线程进程 fork 出的线程中调用是安全的。
     let upper = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlim) } == 0 {
         // `rlim_cur` 是软限制（现代 Linux 上通常 1024-4096），远比迭代到
         // `sysconf(OPEN_MAX)` 便宜（systemd 系统上后者可达约 100 万）。

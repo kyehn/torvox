@@ -114,7 +114,7 @@ fn partial_write_back_requeues_only_the_unwritten_tail() {
     plain.inject_output_for_test(queries.as_bytes());
     plain.process_output();
     plain.terminal_mut().flush();
-    for _ in 0..query_count + 1 {
+    for _ in 0..=query_count {
         plain.process_output();
     }
     let expected_total = plain_handle.written().len();
@@ -146,7 +146,7 @@ fn partial_write_back_requeues_only_the_unwritten_tail() {
     // 随后模拟子进程恢复消费：逐帧排空。总字节数须与基准**完全一致**——
     // 多写即重发前缀，少写即丢应答，两种错法都被这一条挡住。
     handle.force_unblock_writes();
-    for _ in 0..query_count + 1 {
+    for _ in 0..=query_count {
         session.process_output();
     }
     assert!(session.pty_write_back_queue.is_empty(), "队列须排空");

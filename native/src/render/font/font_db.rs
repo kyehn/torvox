@@ -732,7 +732,7 @@ pub(crate) fn parse_fonts_xml_document(xml: &str) -> FontsXmlDocument {
         // 符号层：既无 `name` 也无 `lang` 的族。实测 emulator（API 35）的
         // `NotoSansSymbols-Regular-Subsetted.ttf` 正声明在这里。
         if name.is_none() && lang.is_none() && !files.is_empty() && symbol_files.is_empty() {
-            symbol_files = files.clone();
+            symbol_files.clone_from(&files);
         }
         declared_files.extend(files.iter().cloned());
         if let Some(alias) = name.map(str::trim).filter(|alias| !alias.is_empty())

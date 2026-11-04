@@ -23,14 +23,21 @@ internal const val SESSION_DRAWER_RESOURCE_ID = "SessionDrawer"
 internal const val UI_TIMEOUT_MILLIS = 10_000L
 
 /**
- * 模拟器（软件渲染）上的粗粒度上限，只拦「卡死级」回归，不是性能 SLO。
+ * 模拟器（软件渲染）上的耗时上限，只拦「卡死级」回归，不是性能 SLO。
  *
  * 精确耗时由 `StartupTimingMetric` / `FrameTimingMetric` 输出，真机阈值需另行标定；
  * 这里的断言保证基准失败时能指出「慢到不可用」，而不是只留下一串没人看的数字。
+ *
+ * 预算按实测中位数的约 1.5–1.75 倍口径收紧（与 [SCROLL_BUDGET_MILLIS] 同口径）：
+ * 2026-11-04 本机 AVD 两轮实测，冷启动十轮 2167–2423ms、中位 2259/2325ms；
+ * 热启动十一轮 1017–1613ms、中位 1106/1149ms（热启动的轮间抖动明显大于冷启动，
+ * 预算取其宽的一档）。CI 的模拟器只给 2 核，实测每轮墙钟与本机同量级
+ * （冷启动十轮 50s 对本机 45s、热启动十轮 40s 对本机 42s），故该余量留得下
+ * CI 的抖动，同时仍能拦住「慢到不可用」级的回归。
  */
-internal const val COLD_START_BUDGET_MILLIS = 6_000L
+internal const val COLD_START_BUDGET_MILLIS = 3_400L
 
-internal const val WARM_START_BUDGET_MILLIS = 3_000L
+internal const val WARM_START_BUDGET_MILLIS = 2_000L
 
 internal const val INTERACTION_BUDGET_MILLIS = 4_000L
 

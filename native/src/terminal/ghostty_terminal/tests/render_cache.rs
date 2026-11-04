@@ -263,8 +263,7 @@ fn kitty_graphics_short_file_and_missing_file_answer_identically() {
     let error_part = |answer: &str| {
         answer
             .split_once(';')
-            .map(|(_, error)| error)
-            .unwrap_or(answer)
+            .map_or(answer, |(_, error)| error)
             .to_owned()
     };
     assert_eq!(

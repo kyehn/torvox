@@ -527,7 +527,13 @@ impl PtyPair {
                 // 控制终端（`login_tty` 的手工替代方案）。
                 unsafe {
                     libc::dup2(slave_raw, 0);
+                }
+                // SAFETY: 同上，把从端接到标准输出。
+                unsafe {
                     libc::dup2(slave_raw, 1);
+                }
+                // SAFETY: 同上，把从端接到标准错误。
+                unsafe {
                     libc::dup2(slave_raw, 2);
                 }
                 if slave_raw > 2 {
@@ -550,16 +556,20 @@ impl PtyPair {
                     let _ =
                         unsafe { libc::write(2, MSG.as_ptr() as *const libc::c_void, MSG.len()) };
                 }
-                // SAFETY: `signal()` 在 fork 后的单线程子进程中安全。
-                // 复位为 `SIG_DFL` 可防止父进程自定义信号处理器泄漏。
-                unsafe {
-                    libc::signal(libc::SIGCHLD, libc::SIG_DFL);
-                    libc::signal(libc::SIGHUP, libc::SIG_DFL);
-                    libc::signal(libc::SIGINT, libc::SIG_DFL);
-                    libc::signal(libc::SIGQUIT, libc::SIG_DFL);
-                    libc::signal(libc::SIGTERM, libc::SIG_DFL);
-                    libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-                    libc::signal(libc::SIGALRM, libc::SIG_DFL);
+                // 复位为 `SIG_DFL`，防止父进程自定义信号处理器泄漏。
+                for signal in [
+                    libc::SIGCHLD,
+                    libc::SIGHUP,
+                    libc::SIGINT,
+                    libc::SIGQUIT,
+                    libc::SIGTERM,
+                    libc::SIGPIPE,
+                    libc::SIGALRM,
+                ] {
+                    // SAFETY: `signal()` 在 fork 后的单线程子进程中安全且异步信号安全。
+                    unsafe {
+                        libc::signal(signal, libc::SIG_DFL);
+                    }
                 }
                 close_stray_fds(exec_failure_writer.as_raw_fd());
                 // SAFETY: 传入预先分配且 NUL 结尾的数组时 `execve` 安全。
@@ -572,49 +582,52 @@ impl PtyPair {
                 unsafe {
                     libc::execve(exec_path_ptr, args_ptrs.as_ptr(), env_ptrs.as_ptr());
                 }
-                unsafe {
-                    // `nix::errno::errno()` 读取线程局部 errno（不分配），底层依平台而定。
-                    let errno = nix::errno::Errno::last_raw();
-                    let mut buf = [0u8; 64];
-                    let prefix = b"execve failed: errno=";
-                    buf[..prefix.len()].copy_from_slice(prefix);
-                    let mut write_index = prefix.len();
-                    let mut errno_value = errno as u32;
-                    let mut digits = [0u8; 10];
-                    let mut digit_index = 0;
-                    if errno_value == 0 {
-                        digits[digit_index] = b'0';
-                        digit_index += 1;
-                    }
-                    while errno_value > 0 {
-                        digits[digit_index] = b'0' + (errno_value % 10) as u8;
-                        errno_value /= 10;
-                        digit_index += 1;
-                    }
-                    while digit_index > 0 {
-                        digit_index -= 1;
-                        buf[write_index] = digits[digit_index];
-                        write_index += 1;
-                    }
-                    buf[write_index] = b'\n';
+                // `nix::errno::errno()` 读取线程局部 errno（不分配），底层依平台而定。
+                let errno = nix::errno::Errno::last_raw();
+                let mut buf = [0u8; 64];
+                let prefix = b"execve failed: errno=";
+                buf[..prefix.len()].copy_from_slice(prefix);
+                let mut write_index = prefix.len();
+                let mut errno_value = errno as u32;
+                let mut digits = [0u8; 10];
+                let mut digit_index = 0;
+                if errno_value == 0 {
+                    digits[digit_index] = b'0';
+                    digit_index += 1;
+                }
+                while errno_value > 0 {
+                    digits[digit_index] = b'0' + (errno_value % 10) as u8;
+                    errno_value /= 10;
+                    digit_index += 1;
+                }
+                while digit_index > 0 {
+                    digit_index -= 1;
+                    buf[write_index] = digits[digit_index];
                     write_index += 1;
-                    let _ = libc::write(2, buf.as_ptr() as *const libc::c_void, write_index);
-                    // 把确切 errno 写回父进程：等待线程据此判定 execve 真失败。
-                    // 退出码承担不了这件事——shell 被 SIGHUP 杀掉时退出码 129 与
-                    // 「errno=29」的编码撞车，会把正常收尾误报成 execve 失败。
-                    let errno_bytes = errno.to_ne_bytes();
-                    // SAFETY: `write(2)` 在 fork 后的单线程子进程中异步信号安全；
-                    // `errno_bytes` 是栈上定长数组，不触碰堆。
-                    let _ = libc::write(
+                }
+                buf[write_index] = b'\n';
+                write_index += 1;
+                // SAFETY: `write(2)` 在 fork 后的单线程子进程中异步信号安全；
+                // `buf` 是栈上定长数组，不触碰堆。
+                let _ = unsafe { libc::write(2, buf.as_ptr() as *const libc::c_void, write_index) };
+                // 把确切 errno 写回父进程：等待线程据此判定 execve 真失败。
+                // 退出码承担不了这件事——shell 被 SIGHUP 杀掉时退出码 129 与
+                // 「errno=29」的编码撞车，会把正常收尾误报成 execve 失败。
+                let errno_bytes = errno.to_ne_bytes();
+                // SAFETY: `write(2)` 在 fork 后的单线程子进程中异步信号安全；
+                // `errno_bytes` 是栈上定长数组，不触碰堆。
+                let _ = unsafe {
+                    libc::write(
                         exec_failure_writer.as_raw_fd(),
                         errno_bytes.as_ptr() as *const libc::c_void,
                         errno_bytes.len(),
-                    );
-                    // 退出码仍按 100 + errno 编码（errno 上界 133，即 EHWPOISON），
-                    // 供 UI 显示；它不再是判定 execve 失败的依据。
-                    let code = 100 + errno.min(133);
-                    libc::_exit(code);
-                }
+                    )
+                };
+                // 退出码仍按 100 + errno 编码（errno 上界 133，即 EHWPOISON），
+                // 供 UI 显示；它不再是判定 execve 失败的依据。
+                let code = 100 + errno.min(133);
+                // SAFETY: `_exit(3)` 在 POSIX 异步信号安全列表内，不返回、不刷新缓冲区。
+                unsafe { libc::_exit(code) };
             }
         }
     }

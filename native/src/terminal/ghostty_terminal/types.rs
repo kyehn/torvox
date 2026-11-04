@@ -170,8 +170,8 @@ mod tests {
     }
     #[test]
     fn cell_data_is_bytemuck() {
-        fn _assert_pod_zeroable<T: bytemuck::Pod + bytemuck::Zeroable>() {}
-        _assert_pod_zeroable::<CellData>();
+        fn assert_pod_zeroable<T: bytemuck::Pod + bytemuck::Zeroable>() {}
+        assert_pod_zeroable::<CellData>();
     }
     #[test]
     fn cell_flags_bits_are_disjoint_and_reserve_bit_four() {
@@ -267,7 +267,7 @@ impl GridSnapshot {
             cursor_row: DISCONNECTED_CURSOR_Y,
             cursor_col: DISCONNECTED_CURSOR_X,
             cursor_visible: DISCONNECTED_CURSOR_VISIBLE,
-            cursor_style: Default::default(),
+            cursor_style: CursorStyle::default(),
             title: String::new(),
             scrollback_length: 0,
         }

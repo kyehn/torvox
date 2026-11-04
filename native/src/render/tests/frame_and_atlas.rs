@@ -166,8 +166,7 @@ mod gpu_init_race_tests {
         // 并发数取多核上限，使 check-then-act 窗口尽可能被命中。不预先初始化：
         // 预热会把竞态窗口关掉。
         let thread_count = std::thread::available_parallelism()
-            .map(std::num::NonZero::get)
-            .unwrap_or(4)
+            .map_or(4, std::num::NonZero::get)
             .clamp(2, 16);
         let barrier = Arc::new(std::sync::Barrier::new(thread_count));
         let handles: Vec<_> = (0..thread_count)

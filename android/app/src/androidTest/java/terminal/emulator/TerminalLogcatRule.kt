@@ -100,6 +100,10 @@ class TerminalLogcatRule : TestRule {
                 "native::android::ffi",
                 "native::render::context",
                 "native::terminal::ghostty_terminal",
+                // 设备图形分配器的报错：窗口缓冲申请被拒时只有这里能看出是「格式不被
+                // 分配器支持」还是别的原因，缺了它就只能靠猜。
+                "mali_gralloc",
+                "gralloc4",
             )
     }
 }

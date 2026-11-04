@@ -302,7 +302,7 @@ mod tests {
 
     #[test]
     fn push_pop_default_works() {
-        let queue: EventQueue = Default::default();
+        let queue: EventQueue = EventQueue::default();
         queue.push(Event::Exit {
             session_id: 1,
             code: Some(0),

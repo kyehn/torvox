@@ -394,8 +394,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEve
 /// 鼠标事件被丢弃时的空字节数组（上报关闭/编码失败/空编码三处复用）。
 pub(super) fn empty_java_byte_array(env: &mut Env) -> jbyteArray {
     env.byte_array_from_slice(&[])
-        .map(|array| array.into_raw())
-        .unwrap_or(std::ptr::null_mut())
+        .map_or(std::ptr::null_mut(), |array| array.into_raw())
 }
 
 /// 把编码器的字节结果交给 JVM：空结果交回空数组（Kotlin 侧按「本按键不产生序列」
@@ -409,8 +408,7 @@ pub(super) fn java_bytes_or_empty(env: &mut Env, bytes: &[u8]) -> jbyteArray {
         return empty_java_byte_array(env);
     }
     env.byte_array_from_slice(bytes)
-        .map(|array| array.into_raw())
-        .unwrap_or(std::ptr::null_mut())
+        .map_or(std::ptr::null_mut(), |array| array.into_raw())
 }
 
 pub(super) fn encode_mouse_event_inner(

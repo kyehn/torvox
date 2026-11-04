@@ -330,7 +330,7 @@ impl FontPipeline {
                     continue;
                 }
                 for (family, _) in &face.families {
-                    let name = family.to_string();
+                    let name = family.clone();
                     if !fonts.contains(&name) {
                         fonts.push(name);
                     }
