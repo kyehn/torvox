@@ -246,26 +246,32 @@ impl FontPipeline {
         self.reset_dirty_rect_full();
     }
 
+    /// 图集代际：图集内容每次变化即推进，供增量上传门控。
     pub fn atlas_generation(&self) -> u64 {
         self.atlas_generation
     }
 
+    /// 取走本次的脏区 `(x, y, w, h)`；无脏区时为 None。
     pub fn take_dirty_rect(&mut self) -> Option<(u32, u32, u32, u32)> {
         self.dirty_rect.take()
     }
 
+    /// 把脏区重置为整幅图集（下次上传整张）。
     pub fn reset_dirty_rect_full(&mut self) {
         self.dirty_rect = Some((0, 0, self.atlas_width, self.atlas_height));
     }
 
+    /// 字形缓存条目数。
     pub fn cache_length(&self) -> usize {
         self.caches.glyph_cache.len()
     }
 
+    /// 图集位图（RGBA8 覆盖率）。
     pub fn atlas_bitmap(&self) -> &[u8] {
         &self.atlas_bitmap
     }
 
+    /// 图集尺寸（宽, 高）。
     pub fn atlas_dimensions(&self) -> (u32, u32) {
         (self.atlas_width, self.atlas_height)
     }

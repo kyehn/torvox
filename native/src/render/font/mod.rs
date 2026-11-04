@@ -6,6 +6,7 @@ pub mod pipeline;
 pub mod rasterization;
 pub mod shaping;
 
+/// 字形缓存条目上限：超出后按 LRU 淘汰。
 pub const GLYPH_CACHE_CAPACITY: usize = 10_000;
 
 /// 整形跨度缓存容量：整簇字形按 (文本, 字号, 面) 缓存，一屏通常远少于此。
@@ -47,9 +48,13 @@ pub(crate) const ASCII_UPPER_BOUND: u32 = 0x80;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum GlyphSynthesis {
     #[default]
+    /// 不合成：直接使用字体自带的字面。
     None,
+    /// 合成粗体：字面缺粗体时在光栅遮罩上加粗。
     Bold,
+    /// 合成斜体：字面缺斜体时在光栅遮罩上剪切。
     Italic,
+    /// 同时合成粗体与斜体。
     BoldItalic,
 }
 
@@ -127,8 +132,11 @@ pub(super) fn variation_settings(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// 字形缓存键：同一键对应同一份光栅化结果。
 pub struct GlyphKey {
+    /// 字体库中的字体 id。
     pub font_id: fontdb::ID,
+    /// 字体内的字形号。
     pub glyph_id: u16,
     /// 光栅尺寸的精确位模式：不同子像素尺寸必须命中不同缓存条目
     /// （此前 `as u16` 截断使 36.75px 与 36.22px 共用同一键，
@@ -145,12 +153,19 @@ pub(crate) fn raster_size_key(raster_size: f32) -> u32 {
 }
 
 #[derive(Debug, Clone)]
+/// 已光栅化的字形：图集位置、尺寸与排版信息。
 pub struct GlyphInfo {
+    /// 字形位图在图集内的左缘（像素）。
     pub atlas_x: i32,
+    /// 字形位图在图集内的上缘（像素）。
     pub atlas_y: i32,
+    /// 字形位图宽（像素）。
     pub width: i32,
+    /// 字形位图高（像素）。
     pub height: i32,
+    /// 排版信息：基线偏移与缩放（swash 的 zeno placement）。
     pub placement: swash::zeno::Placement,
+    /// 图集分配器给出的分配 id；淘汰时据此回收空间。
     pub allocation_id: Option<etagere::AllocId>,
 }
 
@@ -176,12 +191,19 @@ impl GlyphInfo {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// 整形后的单个字形：推进量与位图偏移。
 pub struct ShapedGlyphInfo {
+    /// 字体内的字形号。
     pub glyph_id: u16,
+    /// 字体库中的字体 id。
     pub font_id: fontdb::ID,
+    /// 当前笔位在文本内的 x 偏移（像素）。
     pub x: f32,
+    /// 该字形的推进宽度（像素）。
     pub w: f32,
+    /// 位图相对笔位的 x 偏移（像素）。
     pub x_offset: f32,
+    /// 位图相对笔位的 y 偏移（像素）。
     pub y_offset: f32,
 }
 

@@ -3,6 +3,7 @@ use super::renderer::create_rgba_texture;
 
 // ── 字形图集与 uniform ──────────────────────────────────────────────
 impl Renderer {
+    /// 按给定尺寸创建字形图集纹理，并建立配套采样器。
     pub fn create_atlas_texture(&mut self, width: u32, height: u32) {
         // 注意：图集尺寸必须钳制到 adapter 的 `max_texture_dimension_2d` 上限
         // （部分 GPU 只报 2048）。当前调用方固定传 1024x1024，安全；
@@ -34,6 +35,9 @@ impl Renderer {
         self.atlas_sampler = Some(sampler);
     }
 
+    /// 把字形图集像素上传到 GPU 纹理。
+    ///
+    /// `dirty_rect` 给出本次脏区 `(x, y, w, h)`；`None` 表示整幅上传。
     pub fn upload_atlas(
         &self,
         data: &[u8],

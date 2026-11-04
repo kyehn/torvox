@@ -31,6 +31,9 @@ const DEFAULT_LINE_HEIGHT_RATIO: f32 = 1.2;
 const INFINITE_BUFFER_WIDTH: f32 = 999_999.0;
 
 impl FontPipeline {
+    /// 按当前样式整形一段文本，返回逐字形的推进量与位图偏移。
+    ///
+    /// 不带样式变体时等价于 `shape_run_styled(text, false, false)`。
     pub fn shape_run(&mut self, text: &str) -> Vec<ShapedGlyphInfo> {
         self.shape_run_styled(text, false, false)
     }

@@ -78,10 +78,15 @@ fn rgb<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RgbColor, D::Error>
 /// 占 8..16。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Palette {
+    /// 主题背景色。
     pub background: RgbColor,
+    /// 主题前景色。
     pub foreground: RgbColor,
+    /// 光标色。
     pub cursor: RgbColor,
+    /// 选区底色（与前景互换的选区反白由渲染层处理，此处是选区自身的底色）。
     pub selection_background: RgbColor,
+    /// ANSI 十六色：`colors.normal` 占 0..8、`colors.bright` 占 8..16。
     pub ansi: [RgbColor; 16],
 }
 
@@ -232,8 +237,11 @@ pub const PALETTE_OVERRIDE_SLOTS: usize = 19;
 
 /// 覆盖通道的槽位下标（跨语言契约）。
 pub const OVERRIDE_BACKGROUND: usize = 0;
+/// 覆盖通道槽位：前景色。
 pub const OVERRIDE_FOREGROUND: usize = 1;
+/// 覆盖通道槽位：光标色。
 pub const OVERRIDE_CURSOR: usize = 2;
+/// 覆盖通道槽位：ANSI 十六色的首槽下标。
 pub const OVERRIDE_ANSI_FIRST: usize = 3;
 
 /// ANSI 槽数：覆盖通道的 16 个 ANSI 色。
@@ -245,8 +253,11 @@ const ANSI_SLOTS: usize = 16;
 /// 槽保持主题值。选区底色没有对应键，故不在覆盖通道里。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PaletteOverride {
+    /// 背景色覆盖；`None` 表示沿用主题原色。
     pub background: Option<RgbColor>,
+    /// 前景色覆盖；`None` 表示沿用主题原色。
     pub foreground: Option<RgbColor>,
+    /// 光标色覆盖；`None` 表示沿用主题原色。
     pub cursor: Option<RgbColor>,
     /// ANSI 十六色槽 0..15 的覆盖值。
     pub ansi: [Option<RgbColor>; ANSI_SLOTS],
@@ -347,6 +358,7 @@ fn inverted_background(
 pub struct Theme {
     /// 主题标识，即 alacritty 源文件名，也是设置中落盘的键值。
     pub name: &'static str,
+    /// 主题的调色板。
     pub palette: Palette,
     /// 深底主题，供「跟随系统」在日夜两组间切换（DESIGN「终端主题」节）。
     pub dark: bool,

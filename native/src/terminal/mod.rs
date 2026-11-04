@@ -9,6 +9,7 @@
 //!   关闭游离 fd）位于 [`pty`]。
 
 pub mod ghostty_terminal;
+/// 测试用 PTY 替身：可控的写入闸门、EINTR 打断与部分写入（仅测试构建）。
 #[cfg(test)]
 pub mod mock_pty;
 pub mod output_processor;

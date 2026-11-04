@@ -6,10 +6,15 @@
 //! 用户名/路径/自定义变量已按规范删除，不再经环境变量接收或传递数据。
 
 #[derive(Debug, Clone)]
+/// 子进程启动所需的环境输入：家目录、工作目录、prefix 与 mkshrc 路径。
 pub struct ShellEnv {
+    /// 家目录：写入 `HOME` 与 `TERMUX_HOME_DIR_PATH`。
     pub home: String,
+    /// 子进程的 chdir 目标（非环境变量）。
     pub working_directory: String,
+    /// 引导前缀路径：决定 `PREFIX` 相关变量与临时目录。
     pub prefix: Option<String>,
+    /// 应用私有 mksh rc 路径：写入 `ENV` 变量。
     pub mkshrc_path: Option<String>,
 }
 

@@ -9,17 +9,28 @@ use super::{
 use lru::LruCache;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// 整形结果缓存键：同一键对应同一份整形输出。
 pub struct ShapeKey {
+    /// 被整形的文本。
     pub text: String,
+    /// 逻辑字号的精确位模式（不截断）。
     pub font_size_bits: u32,
+    /// 光栅缩放的精确位模式（不截断）。
     pub raster_scale_bits: u32,
+    /// 主字体 id；`None` 表示尚未选定字体。
     pub font_id: Option<fontdb::ID>,
+    /// 回退代际：回退链变化后旧条目全部失效。
     pub fallback_generation: u64,
+    /// 是否粗体。
     pub bold: bool,
+    /// 是否斜体。
     pub italic: bool,
 }
+/// 字体管线的各级缓存。
 pub struct GlyphCache {
+    /// 字形缓存：光栅化结果 → 图集位置与度量。
     pub glyph_cache: LruCache<GlyphKey, GlyphInfo>,
+    /// 整形缓存：文本 → 逐字形的推进量与偏移。
     pub shape_cache: LruCache<ShapeKey, Vec<super::ShapedGlyphInfo>>,
     /// ASCII 快速路径：预分配的 ' '..'~' 字形 id 数组。
     pub ascii_glyph_ids: [Option<swash::GlyphId>; ASCII_UPPER_BOUND as usize],
@@ -66,6 +77,7 @@ impl Default for GlyphCache {
 }
 
 impl GlyphCache {
+    /// 创建空缓存：各 LRU 按各自容量预分配。
     pub fn new() -> Self {
         let cache_cap = NonZeroUsize::new(GLYPH_CACHE_CAPACITY).expect("GLYPH_CACHE_CAPACITY > 0");
         let shape_cache_cap =

@@ -22,9 +22,15 @@ const OVERFLOW_WARN_INTERVAL_MS: u64 = 1_000;
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     /// 剪贴板写入内容：OSC 52 set 交由 Kotlin 经 `setPrimaryClip` 写入系统剪贴板。
-    Clipboard { session_id: u64, text: String },
+    Clipboard {
+        /// 事件归属的会话 id。
+        session_id: u64,
+        /// 写入系统剪贴板的文本内容。
+        text: String,
+    },
     /// 子进程已退出。
     Exit {
+        /// 事件归属的会话 id。
         session_id: u64,
         /// 退出码；`None` 表示子进程已退出但码无从取得（`waitpid` 失败），序列化为
         /// JSON `null`。绝不用 0 顶替——那会把一次原因不明的死亡说成正常退出。
@@ -32,12 +38,18 @@ pub enum Event {
     },
     /// 终端收到 BEL（0x07）：Kotlin 侧按 `bell-character` 设置振动/提示音/忽略。
     /// 响铃无负载也无归属语义，Kotlin 侧按「本帧发生过」折叠。
-    Bell { session_id: u64 },
+    Bell {
+        /// 事件归属的会话 id。
+        session_id: u64,
+    },
     /// OSC 52 剪贴板读取请求（`ESC ] 52 ; c ; ?`）：宿主读系统剪贴板后经
     /// `clipboardResult()` JNI 应答，Rust 写回 PTY。携带请求的 selection 名。
     ClipboardRead {
+        /// 事件归属的会话 id。
         session_id: u64,
+        /// 读取请求的 id：宿主应答时原样带回，用于配对请求与应答。
         request_id: u64,
+        /// 被请求的剪贴板选择名（如 `c`、`p`、`s`）。
         selection: String,
     },
 }

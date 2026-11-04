@@ -56,6 +56,9 @@ static PNG_DECODER_INIT: extern "C" fn() = {
     init
 };
 
+/// Ghostty VT 引擎的句柄：持命令/查询通道、单元帧邮箱与 VT 线程。
+///
+/// 对外只暴露无状态查询与动作下发；网格状态由 VT 线程独占。
 pub struct GhosttyTerminal {
     pub(crate) cmd_tx: Sender<Command>,
     pub(crate) query_tx: Sender<Query>,

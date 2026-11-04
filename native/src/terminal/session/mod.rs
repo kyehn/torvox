@@ -60,16 +60,22 @@ const OUTPUT_CHANNEL_BOUND: usize = 128;
 #[derive(Debug, Error)]
 pub enum SessionError {
     #[error("pty error: {0}")]
+    /// 伪终端操作失败。
     Pty(#[from] PtyError),
     #[error("io error: {0}")]
+    /// 底层 IO 失败。
     Io(#[from] std::io::Error),
     #[error("ghostty error: {0}")]
+    /// Ghostty 侧失败，携带原因描述。
     Ghostty(String),
     #[error("ghostty terminal error: {0}")]
+    /// VT 引擎初始化失败。
     Terminal(#[from] crate::terminal::ghostty_terminal::TerminalError),
     #[error("session closed")]
+    /// 会话已关闭。
     Closed,
     #[error("invalid dimensions (zero or out of u16 range)")]
+    /// 网格尺寸非法（为零或超出 u16 范围）。
     InvalidDimensions,
 }
 
@@ -79,7 +85,9 @@ pub enum SessionError {
 /// 且已置 `grid_dirty` 使下一次 resize（即使尺寸相同）重试修复；因此调用方
 /// 可以照常发布新尺寸，但不得把 `self.grid_size()` 当作已生效的权威值。
 pub enum ResizeOutcome {
+    /// resize 已生效：PTY 与网格都已缩放。
     Applied,
+    /// resize 被丢弃：PTY winsize 已变但网格命令未送达。
     Dropped,
 }
 
@@ -228,6 +236,7 @@ impl Session {
             .send(bytes.to_vec())
             .expect("output_tx send must succeed");
     }
+    /// 把字节写入 PTY 主端。
     pub fn write(&mut self, data: &[u8]) -> Result<(), SessionError> {
         self.pty.write(data)
     }
@@ -324,10 +333,12 @@ impl Session {
             self.terminal_cols.load(Ordering::Acquire),
         )
     }
+    /// VT 引擎句柄（只读）。
     pub fn terminal(&self) -> &GhosttyTerminal {
         &self.terminal
     }
 
+    /// VT 引擎句柄（可变）。
     pub fn terminal_mut(&mut self) -> &mut GhosttyTerminal {
         &mut self.terminal
     }

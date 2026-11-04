@@ -73,9 +73,13 @@ fn codepoint_to_char(codepoint: u32) -> char {
 /// 供 `build_instances_from_cell_data()` 渲染光标用的光标状态。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CellCursor {
+    /// 光标所在网格行号。
     pub row: u32,
+    /// 光标所在网格列号。
     pub col: u32,
+    /// 光标是否可见。
     pub visible: bool,
+    /// 光标形状。
     pub style: CursorStyle,
     /// 当前主题的光标色，由调用方从 [`crate::terminal::theme`] 解析后传入。
     pub color: [f32; 4],
@@ -105,13 +109,21 @@ impl CellCursor {
 /// 实例缓冲。
 #[derive(Debug, Clone, Copy)]
 pub struct CellInstanceConfig<'a> {
+    /// 网格行数。
     pub rows: u32,
+    /// 网格列数。
     pub cols: u32,
+    /// 单元格宽（像素）。
     pub grid_cell_width: f32,
+    /// 单元格高（像素）。
     pub grid_cell_height: f32,
+    /// 光标状态（位置、可见性与形状）。
     pub cursor: CellCursor,
+    /// 字形图集宽（像素）。
     pub atlas_width: f32,
+    /// 字形图集高（像素）。
     pub atlas_height: f32,
+    /// 搜索高亮区间（行范围与颜色）。
     pub search_highlights: &'a [SearchHighlight],
     /// 主题背景色；空单元与它同色时无需再画背景四边形，清除色已经铺好。
     pub default_background: [f32; 4],
@@ -120,9 +132,13 @@ pub struct CellInstanceConfig<'a> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// 搜索结果高亮的一段行范围。
 pub struct SearchHighlight {
+    /// 高亮所在行（绝对行号）。
     pub row: i32,
+    /// 高亮起始列（含）。
     pub start_col: i32,
+    /// 高亮结束列（不含，开区间上界）。
     pub end_col_exclusive: i32,
+    /// 高亮颜色 [R, G, B, A]。
     pub color: [u8; 4],
 }
 
@@ -213,6 +229,7 @@ pub struct DirtyBand {
     /// 本帧实例列表中的 `[instance_start, instance_end)` 切片
     /// （行主序；带就是一段行，故连续）。
     pub instance_start: usize,
+    /// 本帧实例列表中该带实例切片的末尾（不含）。
     pub instance_end: usize,
 }
 
@@ -314,6 +331,7 @@ pub struct CachedInstances {
 }
 
 impl CachedInstances {
+    /// 创建空的实例缓存：按给定行列数预留行边界。
     pub fn new(rows: u32, cols: u32) -> Self {
         Self {
             row_ends: vec![0; rows as usize],

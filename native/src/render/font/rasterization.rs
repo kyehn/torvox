@@ -10,6 +10,7 @@ pub(super) const CELL_WIDTH_FALLBACK_RATIO: f32 = 0.6;
 pub(super) const CELL_HEIGHT_FALLBACK_RATIO: f32 = 1.2;
 
 impl FontPipeline {
+    /// 预热：把 ASCII 区间的字形一次性光栅化进图集缓存。
     pub fn rasterize_ascii(&mut self) {
         let before = self.cache_length();
         for ch in ASCII_START as u8..ASCII_END as u8 {
@@ -52,10 +53,12 @@ impl FontPipeline {
             .unwrap_or(self.font_size * fallback)
     }
 
+    /// 主字体的上伸部像素高度（基线以上的部分）。
     pub fn ascent_pixels(&self) -> f32 {
         self.scaled_metric(|metric| metric.ascent, ASCENT_FALLBACK_RATIO)
     }
 
+    /// 主字体的下伸部像素高度（基线以下的部分，取正值）。
     pub fn descent_pixels(&self) -> f32 {
         self.scaled_metric(|metric| metric.descent.abs(), DESCENT_FALLBACK_RATIO)
     }

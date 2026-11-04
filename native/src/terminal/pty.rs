@@ -48,18 +48,25 @@ fn split_shell_entry(shell: &str) -> (&str, Vec<&str>) {
 }
 
 #[derive(Debug, Error)]
+/// 伪终端创建与配置失败。
 pub enum PtyError {
     #[error("fork failed: {0}")]
+    /// fork 子进程失败。
     Fork(nix::errno::Errno),
     #[error("failed to open pseudoterminal: {0}")]
+    /// 打开伪终端失败。
     Open(std::io::Error),
     #[error("ioctl TIOCSWINSZ failed: {0}")]
+    /// 设置窗口尺寸（`TIOCSWINSZ`）失败。
     Resize(nix::errno::Errno),
     #[error("shell path is empty")]
+    /// shell 路径为空。
     EmptyShell,
     #[error("fcntl failed: {0}")]
+    /// fcntl 调用失败。
     Fcntl(nix::errno::Errno),
     #[error("termios configuration failed: {0}")]
+    /// termios 配置失败。
     Termios(nix::errno::Errno),
 }
 
@@ -72,6 +79,7 @@ impl From<nix::errno::Errno> for PtyError {
     }
 }
 
+/// 伪终端主端的能力抽象：真实 PTY 与测试替身共用同一接口。
 pub trait Pty: Send + Sync {
     /// 写入主端。取 `&self` 而非 `&mut`：实现内部只对 fd 做系统调用，
     /// 并不需要独占借用——写成 `&mut` 会迫使共享路径（resize / `set_pixel_size` /
@@ -80,6 +88,7 @@ pub trait Pty: Send + Sync {
     fn write(&self, buf: &[u8]) -> io::Result<usize>;
     /// 读主端。与 [`Pty::write`] 同理只做系统调用，取 `&self`。
     fn read(&self, buf: &mut [u8]) -> io::Result<usize>;
+    /// 调整窗口尺寸（行数、列数）。
     fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError>;
     /// 更新缓存的像素尺寸并经 `TIOCSWINSZ`（`ws_xpixel`/`ws_ypixel`）写入内核，
     /// 使全屏程序看到真实像素尺寸而非 0。
@@ -90,6 +99,7 @@ pub trait Pty: Send + Sync {
     }
     /// 经 TIOCGWINSZ 查询当前终端窗口尺寸（rows x cols），用于验证 24x80 spawn 种子。
     fn get_winsize(&self) -> Result<(u16, u16), PtyError>;
+    /// 子进程 pid。
     fn child_pid(&self) -> nix::unistd::Pid;
     /// 返回主端 fd 的借用视图，供 `poll` 等待主端可写。
     ///
@@ -104,6 +114,7 @@ pub trait Pty: Send + Sync {
     /// dup 在此处（允许 `unsafe` 的位置）完成，使调用方能经安全的 `std::fs::File`
     /// 读取而无需任何 `unsafe` 块。
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd>;
+    /// 把主端设为非阻塞（`O_NONBLOCK`）。
     fn set_nonblocking(&self) -> Result<(), PtyError>;
     /// 写入全部字节，主端满时最多等 `drain_timeout`。
     ///
@@ -632,6 +643,7 @@ impl PtyPair {
         }
     }
 
+    /// 子进程 pid。
     pub fn child_pid(&self) -> nix::unistd::Pid {
         self.child_pid
     }
@@ -644,6 +656,7 @@ impl PtyPair {
         self.exec_failure_reader.take()
     }
 
+    /// 调整窗口尺寸：经 `TIOCSWINSZ` 写入内核。
     pub fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError> {
         let winsize = nix::pty::Winsize {
             ws_row: rows,
@@ -714,6 +727,7 @@ impl PtyPair {
         Ok(())
     }
 
+    /// 把主端设为非阻塞（`O_NONBLOCK`），供读线程用 `poll` 等待可读。
     pub fn set_nonblocking(&self) -> Result<(), PtyError> {
         let flags = nix::fcntl::fcntl(&self.master, nix::fcntl::FcntlArg::F_GETFL)
             .map_err(PtyError::Fcntl)?;

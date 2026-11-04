@@ -10,6 +10,7 @@
 //! 改变每个抗锯齿字形边缘的颜色。）
 
 // ── 子模块 ──────────────────────────────────────────────────────────────
+/// 字形管线：字体选择、光栅化、整形与图集缓存。
 pub mod font;
 pub mod kitty;
 
@@ -42,18 +43,25 @@ pub(crate) use pipeline::QUAD_CORNERS;
 pub(crate) static GPU_BENCH_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 // ── 公开常量 ────────────────────────────────────────────────────────────
+/// 渲染缩放系数：1.0 = 一像素一像素（密度由 surface 自身承担）。
 pub const RENDER_SCALE: f32 = 1.0;
 
 // ── 错误类型 ────────────────────────────────────────────────────────────
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+/// GPU 初始化或运行期失败。
+///
+/// `NoAdapter`/`DeviceRequest` 属初始化期不可恢复，`Surface` 属运行期可自愈。
 pub enum GpuError {
     #[error("wgpu request adapter failed")]
+    /// 系统没有可用的 GPU 适配器（初始化期不可恢复）。
     NoAdapter,
     #[error("wgpu request device failed: {0}")]
+    /// 请求 GPU 设备失败，携带底层原因。
     DeviceRequest(String),
     #[error("surface creation failed: {0}")]
+    /// 创建可呈现 surface 失败，携带底层原因。
     Surface(String),
     /// 本帧没有可呈现的纹理：渲染暂停、surface 尚未挂载、平台收走了原生窗口
     /// （`BufferQueue` 被遗弃），或交换链尺寸需要重配。
@@ -107,20 +115,30 @@ mod gpu_error_recoverability {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+/// 单个终端单元的 GPU 实例：顶点着色器按此把单元四边形与图集字形画出来。
 pub struct CellInstance {
+    /// 单元四边形左下角（像素坐标）。
     pub quad_origin: [f32; 2],
+    /// 字形在图集内的左上角（像素坐标）。
     pub atlas_offset: [f32; 2],
+    /// 字形在图集内的宽高（像素）。
     pub atlas_size: [f32; 2],
+    /// 前景色 [R, G, B, A]。
     pub foreground: [f32; 4],
+    /// 背景色 [R, G, B, A]。
     pub background: [f32; 4],
     /// SGR 58 下划线/装饰色，上游回退到前景色。
     pub underline_color: [f32; 4],
+    /// 单元四边形的宽高（像素）。
     pub quad_size: [f32; 2],
+    /// 打包的样式标志（位定义见 `cell_flags`）。
     pub flags: f32,
+    /// 字形相对单元原点的基线偏移 [x, y]（像素）。
     pub bearing: [f32; 2],
 }
 
 impl CellInstance {
+    /// 顶点属性布局：9 个属性槽，与 `cell.wgsl` 的输入一一对应。
     pub const ATTRIBS: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
         1 => Float32x2,
         2 => Float32x2,
@@ -133,6 +151,7 @@ impl CellInstance {
         8 => Float32x2,
     ];
 
+    /// 顶点缓冲布局：逐实例步进，步长为 `CellInstance` 的大小。
     pub fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<CellInstance>() as wgpu::BufferAddress,
@@ -144,16 +163,24 @@ impl CellInstance {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+/// 单个 Kitty 图像放置的 GPU 实例。
 pub struct KittyGraphicsInstance {
+    /// 放置四边形左下角（像素坐标）。
     pub quad_origin: [f32; 2],
+    /// 放置四边形的宽高（像素）。
     pub quad_size: [f32; 2],
+    /// 图像在图集内的左上角（像素坐标）。
     pub atlas_offset: [f32; 2],
+    /// 图像在图集内的宽高（像素）。
     pub atlas_region: [f32; 2],
+    /// 放置的整体透明度。
     pub alpha: f32,
+    /// 对齐填充：保持实例结构 16 字节对齐，着色器不读该字段。
     pub _padding: f32,
 }
 
 impl KittyGraphicsInstance {
+    /// 按给定几何构造放置实例。
     pub fn new(
         quad_origin: [f32; 2],
         quad_size: [f32; 2],
@@ -171,6 +198,7 @@ impl KittyGraphicsInstance {
         }
     }
 
+    /// 顶点属性布局：5 个属性槽，与 `kitty.wgsl` 的输入一一对应。
     pub const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
         1 => Float32x2,
         2 => Float32x2,
@@ -179,6 +207,7 @@ impl KittyGraphicsInstance {
         5 => Float32,
     ];
 
+    /// 顶点缓冲布局：逐实例步进，步长为 `KittyGraphicsInstance` 的大小。
     pub fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<KittyGraphicsInstance>() as wgpu::BufferAddress,

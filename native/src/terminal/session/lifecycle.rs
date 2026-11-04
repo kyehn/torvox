@@ -68,10 +68,12 @@ fn join_finished(handle: std::thread::JoinHandle<()>) {
 }
 
 impl Session {
+    /// 子进程是否已退出。
     pub fn is_exited(&self) -> bool {
         self.exited.load(Ordering::Acquire)
     }
 
+    /// 退出标志的共享句柄：子进程回收后置位，供等待线程与轮询方读取。
     pub fn exited_flag(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.exited)
     }
@@ -107,6 +109,7 @@ impl Session {
             None
         }
     }
+    /// 请求终止会话：置退出标志、断开输出通道并向子进程发信号。
     pub fn request_exit(&mut self) {
         // 等待线程已回收子进程时不再发信号：PID 可能已被复用，直杀会误伤无关进程。
         let already_exited = self.exited.swap(true, Ordering::AcqRel);

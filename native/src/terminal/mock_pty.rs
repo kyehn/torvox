@@ -32,6 +32,7 @@ pub struct WriteGate {
 }
 
 impl WriteGate {
+    /// 创建一个尚未放行的写入闸门。
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             entered: (Mutex::new(false), Condvar::new()),
@@ -48,6 +49,7 @@ impl WriteGate {
         }
     }
 
+    /// 放行被闸门挡住的写入。
     pub fn release(&self) {
         let (lock, cvar) = &self.release;
         *lock.lock().expect("gate mutex poisoned") = true;
@@ -86,6 +88,7 @@ impl MockPty {
         inner.block_writes = true;
     }
 
+    /// 创建指定行列的替身 PTY：返回本体与一个可查询写入记录的句柄。
     pub fn new(rows: u16, cols: u16) -> (Self, MockPtyHandle) {
         let inner = Arc::new(Mutex::new(MockPtyInner {
             input_buffer: VecDeque::new(),
@@ -116,6 +119,7 @@ impl MockPtyHandle {
         inner.block_writes = false;
     }
 
+    /// 已写入主端的全部字节（按写入顺序拼接）。
     pub fn written(&self) -> Vec<u8> {
         let inner = self.inner.lock().expect("mock mutex poisoned");
         let mut result = Vec::new();
@@ -125,6 +129,7 @@ impl MockPtyHandle {
         result
     }
 
+    /// 当前网格行数。
     pub fn rows(&self) -> u16 {
         self.inner.lock().expect("mock mutex poisoned").rows
     }
@@ -134,6 +139,7 @@ impl MockPtyHandle {
         self.inner.lock().expect("mock mutex poisoned").resize_count
     }
 
+    /// 当前网格列数。
     pub fn cols(&self) -> u16 {
         self.inner.lock().expect("mock mutex poisoned").cols
     }

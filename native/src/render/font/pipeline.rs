@@ -20,14 +20,19 @@ pub(crate) struct OverlayQuad {
     pub flags: f32,
 }
 
+/// 字体管线的对外快照：当前生效的字体与回退状态。
 pub struct FontInfo {
+    /// 已选定的主字体；`None` 表示尚未选定（此时由系统等宽字体兜底）。
     pub active: Option<FontInfoActive>,
+    /// CJK 回退状态：是否已找到可用回退族。
     pub cjk_state: CjkFallbackState,
     /// [`CjkFallbackState::Fallback`] 时列出的 CJK 回退族名。
     pub cjk_families: Vec<String>,
     /// 除主字体与 `cjk_families` 之外实际供出过字形的族名（符号族、区域族等）。
     pub other_families: Vec<String>,
+    /// 单元格宽（像素）。
     pub cell_width_px: f32,
+    /// 单元格高（像素）。
     pub cell_height_px: f32,
     /// 逻辑字号（sp，Kotlin 侧传入 setFontSizeInPlace 的值）。
     /// 设备像素 = `font_size` * `raster_scale`——`raster_scale` 本身已是「显示密度 ×
@@ -80,11 +85,15 @@ impl CjkFallbackSkipReason {
 }
 
 #[derive(Clone, Debug)]
+/// 当前生效的主字体信息。
 pub struct FontInfoActive {
+    /// 主字体的族名。
     pub name: String,
+    /// 主字体是否等宽。
     pub monospaced: bool,
 }
 
+/// 字体管线：字体库、整形、光栅化与图集分配的单一入口。
 pub struct FontPipeline {
     pub(crate) font_system: FontSystem,
     pub(crate) scaler_context: swash::scale::ScaleContext,
@@ -245,6 +254,7 @@ fn face_has_style_only_accepts_a_face_that_already_carries_the_style() {
 }
 
 impl FontPipeline {
+    /// 新建字体管线：按给定图集尺寸与逻辑字号初始化。
     pub fn new(atlas_width: i32, atlas_height: i32, font_size: f32) -> Self {
         // 渲染侧只常驻 3 个族（fonts.xml 等宽主字体 + 一个符号族 + 一个区域族），
         // 用户投放字体选中时按需装入（见 font_db::load_font_database）。
@@ -375,6 +385,9 @@ impl FontPipeline {
         &self.system_locale
     }
 
+    /// 设置系统区域（locale）：决定 CJK 回退链的优先级。
+    ///
+    /// 变更会清空身份缓存并推进回退代际，否则整形缓存会继续按旧回退 span 摆字。
     pub fn set_system_locale(&mut self, locale: &str) {
         self.clear_identity_caches();
         self.system_locale = locale.to_string();
@@ -390,6 +403,9 @@ impl FontPipeline {
         self.find_cjk_fallback_fonts(&self.system_locale.clone());
     }
 
+    /// 就地改字号并重建图集：返回新的单元格宽高。
+    ///
+    /// 字号变化会让旧的光栅尺寸与字形 id 失效，故一并清缓存。
     pub fn set_font_size_in_place(&mut self, new_size: f32) -> (f32, f32) {
         self.font_size = new_size;
         // 字形身份缓存必须同步失效：ascii_glyph_ids 存的是旧尺寸光栅化
@@ -405,6 +421,7 @@ impl FontPipeline {
         (cw, ch)
     }
 
+    /// 设置光栅缩放（显示密度 × 系统字体缩放）：非有限或非正值回退为 1.0。
     pub fn set_raster_scale(&mut self, scale: f32) {
         let scale = if scale > 0.0 && scale.is_finite() {
             scale
@@ -423,6 +440,7 @@ impl FontPipeline {
         log::debug!("RASTER_SCALE: scale={scale:.3}");
     }
 
+    /// 当前光栅缩放，至少为 `f32::EPSILON`（避免下游除零）。
     pub fn get_raster_scale(&self) -> f32 {
         self.raster_scale.max(f32::EPSILON)
     }
@@ -477,6 +495,7 @@ impl FontPipeline {
         })
     }
 
+    /// 当前逻辑字号（sp）。
     pub fn font_size(&self) -> f32 {
         self.font_size
     }
@@ -497,6 +516,7 @@ impl FontPipeline {
         self.caches.glyph_cache.get(&key).cloned()
     }
 
+    /// 取字符的字形信息：先查缓存，未命中则光栅化并入图集。
     pub fn glyph_information(&mut self, ch: char) -> Option<GlyphInfo> {
         self.glyph_information_with_synthesis(ch, GlyphSynthesis::None)
     }
@@ -784,6 +804,7 @@ impl FontPipeline {
         Some(result)
     }
 
+    /// 按字体 id 与字形号取字形信息（供叠加层与上游字形号直查）。
     pub fn glyph_information_for_glyph(
         &mut self,
         font_id: fontdb::ID,

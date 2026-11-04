@@ -617,6 +617,9 @@ impl Renderer {
         }
     }
 
+    /// 设置全量帧的清除色（主题背景）。
+    ///
+    /// 清除色只在全量帧生效，故本调用会强制下一帧全量重绘。
     pub fn set_background_color(&mut self, background: libghostty_vt::style::RgbColor) {
         self.background = background_clear_color(background);
         // 清除色只在全量帧上生效（部分帧从不再绘网格四边形之外的边距），
@@ -624,6 +627,7 @@ impl Renderer {
         self.frame_invalidated = true;
     }
 
+    /// 暂停或恢复渲染：暂停时不再出帧，终端内容照常累积。
     pub fn set_render_paused(&mut self, paused: bool) {
         self.render_paused = paused;
     }
@@ -739,6 +743,7 @@ pub(super) fn create_rgba_texture(
 }
 
 impl Renderer {
+    /// 建立渲染管线与 bind group：按当前 surface 尺寸重建管线，并绑定图集与 uniform 缓冲。
     pub fn initialize_pipeline_and_bind_group(
         &mut self,
         atlas_width: u32,

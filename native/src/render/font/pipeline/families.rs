@@ -175,6 +175,7 @@ impl FontPipeline {
     }
 
     #[cfg(test)]
+    /// 当前主字体所属的族名；未选定字体时为 None。
     pub fn current_font_family_name(&self) -> Option<String> {
         let font_id = self.font_id?;
         let font_database = self.font_system.db();
@@ -183,6 +184,7 @@ impl FontPipeline {
         Some(family.0.clone())
     }
 
+    /// 主字体族名；未选定字体时回退到系统等宽字体名。
     pub fn default_font_name(&self) -> String {
         if let Some(id) = self.font_id
             && let Some(name) = self
@@ -196,6 +198,7 @@ impl FontPipeline {
         self.system_monospace_name()
     }
 
+    /// 系统库中第一个等宽字体的族名；没有等宽字体时为空串。
     pub fn system_monospace_name(&self) -> String {
         self.font_system
             .db()
@@ -466,6 +469,7 @@ impl FontPipeline {
     }
 
     #[cfg(test)]
+    /// 是否已选定可用字体。
     pub fn has_font(&self) -> bool {
         self.font_id.is_some()
     }

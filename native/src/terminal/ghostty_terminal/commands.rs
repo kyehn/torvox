@@ -28,7 +28,9 @@ pub enum ViewportTarget {
 /// 通道**有界**，VT 线程卡住时内存不会无限增长；发送方用 `try_send` 并回退到缓存值。
 /// 无状态查询归 [`Query`]，两条通道使动作顺序与查询延迟互不干扰。
 pub enum Command {
+    /// 把字节送入终端解析（VT 输入路径）。
     Write(Vec<u8>),
+    /// 写入已被 VT 线程处理完后的应答（`flush()` 的栅栏）。
     FlushAck(Sender<()>),
     /// 换主题：主题与其上叠加的 `colors.properties` 覆盖**合并后**的调色板。
     ///
@@ -44,19 +46,25 @@ pub enum Command {
     ///
     /// 是**默认值**：程序仍可用 DECSCUSR 覆盖它，覆盖优先级与 termux 一致。
     SetCursorStyle(CursorStyle),
+    /// 调整网格尺寸。
     Resize {
+        /// 新的网格行数。
         rows: u32,
+        /// 新的网格列数。
         cols: u32,
     },
     /// 更新终端单元格像素尺寸（Kitty 图像几何与鼠标像素映射依赖它）。
     /// 由 PTY 像素尺寸除以网格行列得出；VT 线程以当前行列重调 resize。
     SetCellPixelSize {
+        /// 单元格像素宽。
         cell_width: u32,
+        /// 单元格像素高。
         cell_height: u32,
     },
     /// 取当前视口网格快照。回滚浏览走单元帧邮箱（`ScrollViewport` +
     /// `receive_cell_data`），本命令只覆盖当前视口，因此没有偏移参数。
     TakeSnapshot {
+        /// 快照回传通道。
         tx: Sender<Arc<GridSnapshot>>,
     },
     /// 滚动终端视口，供应用浏览回滚。
@@ -64,15 +72,20 @@ pub enum Command {
     /// `request_id` 是本次请求的序号（进程级单调递增）：VT 处理命令后把序号随帧
     /// 回传，渲染侧据此判断收到的帧是否早于在途的滚动命令。
     ScrollViewport {
+        /// 滚动目标（顶、底或按增量滚动）。
         target: ViewportTarget,
+        /// 本次滚动的请求序号。
         request_id: u64,
     },
     /// 安装终端持有的线性活动选区（跟踪网格引用，随滚动/输出/重排跟随文本）。
     /// 坐标为绝对网格行（0 = 回滚顶部）与列。
     SetSelection {
+        /// 选区起点（绝对行, 列）。
         start: (u32, u32),
+        /// 选区终点（绝对行, 列）。
         end: (u32, u32),
     },
+    /// 清除当前选区。
     ClearSelection,
     /// RIS 全重置：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。
     Reset,
@@ -81,6 +94,7 @@ pub enum Command {
     /// 用于累加器里的像素属于别人而本会话又没有新输出的场合（切会话、换 surface）：
     /// 重推的帧才让渲染侧把整幅重画一遍，否则屏幕停在上一个会话的内容上。
     Repaint,
+    /// 终止 VT 线程。
     Terminate,
 }
 
@@ -103,26 +117,38 @@ pub(super) fn next_scroll_request_id() -> u64 {
 /// 注意：查询在命令之间抽取，故查询可能先于先发的动作（Write/Resize）被应答，两条通道
 /// 之间无顺序保证。必须观察先前状态变更的动作应走命令通道（如 `Command::TakeSnapshot`）。
 pub enum Query {
+    /// 查询网格行数。
     Rows(Sender<u32>),
+    /// 查询网格列数。
     Cols(Sender<u32>),
+    /// 查询光标列号。
     CursorX(Sender<u32>),
+    /// 查询光标行号。
     CursorY(Sender<u32>),
+    /// 查询光标是否可见。
     CursorVisible(Sender<bool>),
+    /// 查询终端标题。
     Title(Sender<String>),
     /// 终端从 OSC 7 记录的工作目录（原始 URI，未解析）。
     ///
     /// 与 [`Self::Title`] 同一条同步查询路径：shell 在每次提示符前上报，调用方
     /// 按需拉取即可，不必让 VT 线程为每次写入多推一帧。
     Pwd(Sender<String>),
+    /// 查询某个终端模式是否开启。
     ModeGet(libghostty_vt::terminal::Mode, Sender<bool>),
+    /// 查询回滚区行数。
     ScrollbackLength(Sender<u32>),
+    /// 读取指定行的文本。
     ReadLineText {
+        /// 目标行号（绝对行）。
         row: u32,
+        /// 行文本回传通道；该行不存在时为 None。
         tx: Sender<Option<String>>,
     },
     /// 经 `build_cell_data` 读取的光标视口 (row, col)，即渲染线程消费的同一数据源，
     /// 可断言与 GPU 绘制一致的坐标。光标隐藏或构建失败时为 None。
     RenderCursor(Sender<Option<(u32, u32)>>),
+    /// 读取视口内的全部文本。
     ReadVisibleText(Sender<String>),
     /// 视口 + 回滚区以换行拼接的全量文本。仅读 codepoint，不构建前景/背景/下划线
     /// 等样式，故与 [`Query::DumpGrid`] 相比每格少三次跨语言调用。
@@ -132,25 +158,34 @@ pub enum Query {
     SelectionText {
         /// 网格行号（绝对；ghostty 语义下回滚行为负偏移，调用方传 `Point::Screen` 坐标）。
         start: (u32, u32),
+        /// 选区终点（绝对行, 列）。
         end: (u32, u32),
+        /// 选中文本回传通道。
         tx: Sender<String>,
     },
     /// 用上游 `Terminal::select_word`（Ghostty 词边界规则）在绝对网格单元导出选区并安装到
     /// 终端，返回有序边界 (start, end)（绝对网格行，0 = 回滚顶部）；无选区时 None。
     SelectWordAt {
+        /// 目标网格行号。
         row: u32,
+        /// 目标网格列号。
         col: u32,
+        /// 词边界回传通道；该格无可选词时为 None。
         tx: Sender<Option<((u32, u32), (u32, u32))>>,
     },
     /// 用上游 `Terminal::select_all` 导出全部可选内容并安装，返回有序边界
     /// （上游语义：边界不含尾部空白行列）。
     SelectAll {
+        /// 全选边界回传通道；没有可选内容时为 None。
         tx: Sender<Option<((u32, u32), (u32, u32))>>,
     },
     /// 查询网格单元处的 OSC 8 超链接 URI（无则 None）。
     HyperlinkAt {
+        /// 目标网格行号。
         row: u32,
+        /// 目标网格列号。
         col: u32,
+        /// 超链接 URI 回传通道；该格无链接时为 None。
         tx: Sender<Option<String>>,
     },
     /// 该行中作为宽字符后半格（SpacerTail）的列号，升序。宽字符占几列只有网格知道
@@ -158,7 +193,9 @@ pub enum Query {
     /// 一次取整行而非逐列查询：手柄拖动的每个 MOVE 都要吸附，逐列 RPC 会把发往 VT
     /// 线程的同步查询压到每个触摸帧上。
     WideCharTailCols {
+        /// 目标行号（绝对行）。
         row: u32,
+        /// 宽字符尾格列号回传通道。
         tx: Sender<Vec<u32>>,
     },
     /// 设置搜索 needle 并同步跑完搜索，返回命中总数；空 needle 清除并归零。
@@ -166,44 +203,61 @@ pub enum Query {
     /// 匹配、软换行跨行、增量同步与滚动策略全部由上游 `search::Search` 承担，
     /// `search` 对象随 VT 线程存活，跨查询复用同一份索引状态。
     SearchSetNeedle {
+        /// 搜索关键字；空串清除搜索。
         needle: String,
+        /// 命中总数回传通道。
         tx: Sender<usize>,
     },
     /// 选中下一个（`forward = true`，朝更旧内容）或上一个命中，返回选中态；
     /// 无命中时 None。选中时不移动视口（`Scroll::None`），居中由宿主完成。
     SearchSelect {
+        /// true = 朝更旧内容的方向选择下一个命中，false = 朝更新内容。
         forward: bool,
+        /// 选中态回传通道；无命中时为 None。
         tx: Sender<Option<SearchSelection>>,
     },
     /// 绘制视口高亮所需的全部输入：视口命中、选中命中与回滚长度。
     SearchViewportHighlights {
+        /// 视口高亮输入回传通道。
         tx: Sender<SearchViewportHighlights>,
     },
+    /// 导出整个网格（活动区 + 回滚区），供跨 FFI 序列化。
     DumpGrid {
+        /// 网格回传通道。
         tx: Sender<DumpedGrid>,
     },
+    /// 按 id 取回 Kitty 图像的原始像素。
     TakeKittyGraphicsImage {
+        /// 目标图像 id。
         id: u32,
+        /// 图像回传通道；id 不存在时为 None。
         tx: Sender<Option<KittyGraphicsImageData>>,
     },
     /// 采集全部可见 Kitty 放置（含几何 + RGBA），供渲染线程组装图集。
     ///
     /// 几何取自上游渲染状态的图像列表，故无需宿主提供任何辅助信息。
     TakeKittyPlacements {
+        /// 放置列表回传通道。
         tx: Sender<Vec<KittyPlacementFrame>>,
     },
     /// 用 Ghostty 鼠标编码器把鼠标事件编码为终端转义序列（按终端状态选 SGR/X10/UTF-8）。
     /// `position` 为表面像素，`cell_width`/`cell_height` 为实时单元格像素尺寸以便像素→单元映射。
     /// 鼠标上报关闭或编码失败时返回空 Vec。
     EncodeMouseEvent {
+        /// 事件位置（表面像素坐标）。
         position: (f32, f32),
+        /// 上游 `key::Action` 的原始值。
         action: u8,
+        /// 上游鼠标按钮号。
         button: u8,
         /// 上游 `key.Mods` 原始位（`Mods::from_bits_retain` 直接消费）：
         /// Shift/Ctrl 点击到达 vim/tmux 时必须与普通左键可区分。
         modifiers: u16,
+        /// 实时单元格像素宽（用于像素→单元映射）。
         cell_width: f32,
+        /// 实时单元格像素高（用于像素→单元映射）。
         cell_height: f32,
+        /// 编码结果回传通道；未启用鼠标上报时为空。
         tx: Sender<Vec<u8>>,
     },
     /// 一次往返编码多档滚轮：`repeat` 个 press+release 对拼进同一个缓冲区。
@@ -211,14 +265,19 @@ pub enum Query {
     /// （每行两次应答，且每次都可能排在整个 `QUERY_TIMEOUT_MS` 之后）；
     /// 合并成一次往返后，每次手势事件只阻塞一次，PTY 也只写一次。
     EncodeMouseWheel {
+        /// 事件位置（表面像素坐标）。
         position: (f32, f32),
         /// 3 = 滚轮上（更旧），4 = 滚轮下（更新），与 [`Self::EncodeMouseEvent`] 同号。
         button: u8,
+        /// 上游 `key::Mods` 的原始位。
         modifiers: u16,
+        /// 实时单元格像素宽（用于像素→单元映射）。
         cell_width: f32,
+        /// 实时单元格像素高（用于像素→单元映射）。
         cell_height: f32,
         /// 编码几档，调用方保证 ≥1。
         repeat: u32,
+        /// 编码结果回传通道。
         tx: Sender<Vec<u8>>,
     },
     /// 用上游 `key::Encoder` 把按键事件编码为终端转义序列。DECCKM、keypad 应用
@@ -228,7 +287,9 @@ pub enum Query {
     /// 编码必须在 VT 线程完成：`set_options_from_terminal` 需要 `&Terminal`，
     /// 而 `Terminal` 只存在于该线程。
     EncodeKeyEvent {
+        /// 逻辑键位。
         key: key::Key,
+        /// 按下或释放动作。
         action: key::Action,
         /// 上游 `key::Mods` 原始位（`Mods::from_bits_retain` 直接消费）。
         modifiers: u16,
@@ -238,6 +299,7 @@ pub enum Query {
         text: Option<char>,
         /// 该键无修饰时的码点；kitty 键盘协议据此区分 Shift 前后的大小写档位。
         unshifted: Option<char>,
+        /// 编码结果回传通道。
         tx: Sender<Vec<u8>>,
     },
     /// 用上游 `paste::encode` 把剪贴板文本编码为 PTY 写入字节。bracketed 标志
@@ -249,6 +311,7 @@ pub enum Query {
     EncodePaste {
         /// 剪贴板 UTF-8 字节（调用方已截断）。
         data: Vec<u8>,
+        /// 编码结果回传通道。
         tx: Sender<Vec<u8>>,
     },
 }

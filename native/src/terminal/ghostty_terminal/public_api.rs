@@ -19,6 +19,7 @@ use super::types::{
 };
 
 impl super::GhosttyTerminal {
+    /// 新建 VT 引擎：启动 VT 线程并设定网格尺寸与回滚行数。
     pub fn new(rows: u32, cols: u32, scrollback_lines: u32) -> Result<Self, TerminalError> {
         Self::new_with_theme(
             rows,
@@ -202,6 +203,7 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 取走待回写 PTY 的应答字节块（VT 线程已产生、宿主尚未写回的部分）。
     pub fn drain_pty_write_responses(&self) -> Vec<Vec<u8>> {
         let mut guard = self
             .pty_write_responses
@@ -210,6 +212,7 @@ impl super::GhosttyTerminal {
         std::mem::take(&mut *guard)
     }
 
+    /// 取走一个待上报的剪贴板事件 `(选择器名, 文本)`；无事件时为 None。
     pub fn poll_clipboard_event(&self) -> Option<(String, String)> {
         self.clipboard_rx.try_recv().ok()
     }
@@ -221,6 +224,7 @@ impl super::GhosttyTerminal {
             .swap(false, std::sync::atomic::Ordering::AcqRel)
     }
 
+    /// 把字节送入 VT 解析：先做输入清洗，再分片直透（不追加闭合序列）。
     pub fn vt_write(&mut self, data: &[u8]) {
         let sanitized = sanitize_vt_input(data);
         let mut buffer = Vec::with_capacity(data.len() + 4);
@@ -324,6 +328,7 @@ impl super::GhosttyTerminal {
         self.cmd_tx = dud_tx;
     }
 
+    /// 等待 VT 线程排空此前写入的全部内容。
     pub fn flush(&self) {
         self.flush_with_timeout(std::time::Duration::from_secs(FLUSH_TIMEOUT_SECS));
     }
@@ -426,6 +431,7 @@ impl super::GhosttyTerminal {
         self.resize_failed.store(failed, Ordering::Release);
     }
 
+    /// 更新单元格像素尺寸：Kitty 图像几何与鼠标像素映射依赖它。
     pub fn set_cell_pixel_size(&self, cell_width: u32, cell_height: u32) {
         if let Err(error) = self.cmd_tx.try_send(Command::SetCellPixelSize {
             cell_width,
@@ -435,6 +441,7 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 请求 RIS 全重置：恢复初始状态并清空回滚。
     pub fn reset(&self) {
         if let Err(error) = self.cmd_tx.try_send(Command::Reset) {
             self.warn_command_dropped("reset", &error);
@@ -458,16 +465,19 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 清除当前选区。
     pub fn clear_selection(&self) {
         if let Err(error) = self.cmd_tx.try_send(Command::ClearSelection) {
             self.warn_command_dropped("clear_selection", &error);
         }
     }
 
+    /// 当前网格行数；查询失败时回退为断连默认值。
     pub fn rows(&self) -> u32 {
         self.query(Query::Rows, DISCONNECTED_ROWS, "rows")
     }
 
+    /// 当前网格列数；查询失败时回退为断连默认值。
     pub fn cols(&self) -> u32 {
         self.query(Query::Cols, DISCONNECTED_COLS, "cols")
     }
@@ -492,6 +502,7 @@ impl super::GhosttyTerminal {
         Arc::unwrap_or_clone(snapshot)
     }
 
+    /// 按 id 取回 Kitty 图像的原始像素；id 不存在时为 None。
     pub fn take_kitty_graphics_image(&self, image_id: u32) -> Option<KittyGraphicsImageData> {
         self.query(
             |tx| Query::TakeKittyGraphicsImage { id: image_id, tx },
@@ -500,6 +511,7 @@ impl super::GhosttyTerminal {
         )
     }
 
+    /// 采集全部可见 Kitty 放置（几何 + RGBA），供渲染线程组装图集。
     pub fn take_kitty_placements(&self) -> Vec<KittyPlacementFrame> {
         Self::take_kitty_placements_on(&self.query_tx)
     }
@@ -514,14 +526,17 @@ impl super::GhosttyTerminal {
         )
     }
 
+    /// 光标列号；查询失败时回退为断连默认值。
     pub fn cursor_x(&self) -> u32 {
         self.query(Query::CursorX, DISCONNECTED_CURSOR_X, "cursor_x")
     }
 
+    /// 光标行号；查询失败时回退为断连默认值。
     pub fn cursor_y(&self) -> u32 {
         self.query(Query::CursorY, DISCONNECTED_CURSOR_Y, "cursor_y")
     }
 
+    /// 光标是否可见；查询失败时回退为「隐藏」。
     pub fn cursor_visible(&self) -> bool {
         self.query(
             Query::CursorVisible,
@@ -530,6 +545,7 @@ impl super::GhosttyTerminal {
         )
     }
 
+    /// 取与渲染同源的光标视口坐标 `(行, 列)`；光标隐藏或构建失败时为 None。
     pub fn render_cursor(&self) -> Option<(u32, u32)> {
         Self::render_cursor_on(&self.query_tx)
     }
@@ -729,6 +745,7 @@ impl super::GhosttyTerminal {
         .into()
     }
 
+    /// 查询某个终端模式是否开启，自带超时参数。
     pub fn mode_get_with_timeout(
         &self,
         mode: libghostty_vt::terminal::Mode,
@@ -761,6 +778,7 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 备用屏是否处于活动状态（读原子标志，不走查询通道）。
     pub fn alt_screen_active_atomic(&self) -> bool {
         self.alt_screen_active.load(Ordering::Acquire)
     }
@@ -834,6 +852,7 @@ impl super::GhosttyTerminal {
         self.query_tx.clone()
     }
 
+    /// 当前终端标题；查询失败时回退为空串。
     pub fn title(&self) -> String {
         Self::title_on(&self.query_tx)
     }
@@ -861,6 +880,7 @@ impl super::GhosttyTerminal {
         Self::query_on(query_tx, Query::Pwd, DISCONNECTED_PWD.to_string(), "pwd")
     }
 
+    /// 回滚区行数；查询失败时回退为 0。
     pub fn scrollback_length(&self) -> u32 {
         Self::scrollback_length_on(&self.query_tx)
     }
@@ -875,6 +895,7 @@ impl super::GhosttyTerminal {
         )
     }
 
+    /// 读取指定行的文本；该行不存在时为 None。
     pub fn read_line_text(&self, row: u32) -> Option<String> {
         Self::read_line_text_on(&self.query_tx, row)
     }
@@ -889,6 +910,7 @@ impl super::GhosttyTerminal {
         )
     }
 
+    /// 读取视口内的全部文本。
     pub fn read_visible_text(&self) -> String {
         Self::read_visible_text_on(&self.query_tx)
     }
@@ -913,6 +935,7 @@ impl super::GhosttyTerminal {
         Self::query_on(query_tx, Query::ReadAllText, String::new(), "read_all_text")
     }
 
+    /// 提取选区文本（用上游格式化器：软换行合并、去尾随空白）。
     pub fn selection_text(&self, start: (u32, u32), end: (u32, u32)) -> String {
         Self::selection_text_on(&self.query_tx, start, end)
     }
@@ -931,6 +954,7 @@ impl super::GhosttyTerminal {
         )
     }
 
+    /// 在指定单元导出词选区并安装，返回有序边界；无可选词时为 None。
     pub fn select_word_at(&self, row: u32, col: u32) -> Option<((u32, u32), (u32, u32))> {
         Self::select_word_at_on(&self.query_tx, row, col)
     }
@@ -966,6 +990,7 @@ impl super::GhosttyTerminal {
         )
     }
 
+    /// 导出全部可选内容并安装，返回有序边界；无可选内容时为 None。
     pub fn select_all(&self) -> Option<((u32, u32), (u32, u32))> {
         Self::select_all_on(&self.query_tx)
     }
@@ -1054,6 +1079,7 @@ impl super::GhosttyTerminal {
         )
     }
 
+    /// 导出整个网格（活动区 + 回滚区），供跨 FFI 序列化。
     pub fn dump_grid(&self) -> DumpedGrid {
         self.query(
             |tx| Query::DumpGrid { tx },

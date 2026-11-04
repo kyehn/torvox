@@ -32,8 +32,11 @@ pub(crate) fn quad_corner_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+/// 着色器 uniform 缓冲的内容：投影矩阵与图集尺寸。
 pub struct GpuUniforms {
+    /// 正交投影矩阵（列主序，与 wgpu 的 `Matrix4` 内存布局一致）。
     pub projection: [[f32; 4]; 4],
+    /// 字形图集尺寸（像素）：着色器用它把图集 UV 换算成像素偏移。
     pub atlas_size: [f32; 2],
     /// std140 尾部对齐：着色器侧把结构体大小取整到 16 的倍数（76 → 80），故本侧
     /// 也必须凑够 80 字节，否则 wgpu 以「绑定小于 `min_binding_size`」拒绝整个管线，

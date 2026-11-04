@@ -23,7 +23,9 @@ fn warn_oversized_selection_throttled() {
 }
 
 #[derive(Debug, Default)]
+/// 一段 PTY 输出的处理结果。
 pub struct OutputSnapshot {
+    /// 过滤掉 OSC 52 读取请求选择器名后的净输出字节。
     pub filtered: Vec<u8>,
     /// 本块内命中的 OSC 52 读取请求的选择器名（按序）。
     /// 单槽 last-wins 会让被挤掉的请求永不作答、远端挂起直到超时，
@@ -31,6 +33,7 @@ pub struct OutputSnapshot {
     pub clipboard_reads: Vec<String>,
 }
 
+/// PTY 输出处理器：扫描 OSC 52 读取请求并旁路标记新输出。
 pub struct OutputProcessor {
     scan: ReadScan,
     /// `new_output` 标志：[`Self::process`] 摄入
@@ -50,6 +53,7 @@ impl Default for OutputProcessor {
 }
 
 impl OutputProcessor {
+    /// 创建处理器：扫描状态归位，新输出标志为假。
     pub fn new() -> Self {
         Self {
             scan: ReadScan::default(),
@@ -62,6 +66,7 @@ impl OutputProcessor {
         Arc::clone(&self.new_output)
     }
 
+    /// 取走并清除「新输出」标志。
     pub fn take_new_output(&self) -> bool {
         self.new_output.swap(false, Ordering::AcqRel)
     }
@@ -76,6 +81,7 @@ impl OutputProcessor {
         self.scan = ReadScan::default();
     }
 
+    /// 处理一块 PTY 输出：返回过滤后的字节与其中的剪贴板读取请求。
     pub fn process(&mut self, data: &[u8]) -> OutputSnapshot {
         // PTY 摄入即置 `new_output`（旁路标志而非入队事件）。空块不算输出。
         if !data.is_empty() {
