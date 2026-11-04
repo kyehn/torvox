@@ -175,4 +175,85 @@ class TermuxPropertiesKeyContractTest {
         assertTrue(loaded.properties.fullscreen)
         assertTrue("未知键不得报错：${loaded.errors}", loaded.errors.isEmpty())
     }
+
+    /**
+     * 上游 `getCodePointForSessionShortcuts` 按 `+` 切分后逐段 trim：`ctrl + T` 与
+     * `Ctrl+t` 是同一个快捷键，且字符统一转小写码点。
+     */
+    @Test
+    fun `session shortcuts accept spacing and lowercase the character`() {
+        assertEquals(
+            mapOf(SessionShortcut.CREATE to 't'.code),
+            parse("shortcut.create-session = ctrl + T").properties.sessionShortcuts,
+        )
+        assertEquals(
+            mapOf(SessionShortcut.NEXT to 'n'.code),
+            parse("shortcut.next-session = CTRL + N").properties.sessionShortcuts,
+        )
+    }
+
+    /** 修饰键后必须恰好一个码点：多字符不是快捷键，要留痕。 */
+    @Test
+    fun `a multi character shortcut value is rejected`() {
+        val loaded = parse("shortcut.next-session = Ctrl+ab")
+        assertTrue(loaded.properties.sessionShortcuts.isEmpty())
+        assertTrue(loaded.errors.any { it.contains("shortcut.next-session") })
+    }
+
+    /** `Ctrl+` 没有字符：与上游同样拒绝。 */
+    @Test
+    fun `an empty shortcut character is rejected`() {
+        val loaded = parse("shortcut.next-session = Ctrl+")
+        assertTrue(loaded.properties.sessionShortcuts.isEmpty())
+        assertTrue(loaded.errors.any { it.contains("shortcut.next-session") })
+    }
+
+    /**
+     * 星面字符（代理对）按完整码点接受。
+     *
+     * 上游这里有个缺陷：`input.charAt(0)` 是高位代理时 `isLowSurrogate` 为 false，
+     * 直接把高位代理当码点返回。本仓按 `codePointCount` 判定并取完整码点——对 BMP
+     * 配置两者一致，星面字符则本仓正确、上游坏，这条用例钉住的是本仓行为。
+     */
+    @Test
+    fun `an astral character shortcut keeps its code point`() {
+        val loaded = parse("shortcut.next-session = Ctrl+😀")
+        assertEquals(mapOf(SessionShortcut.NEXT to 0x1F600), loaded.properties.sessionShortcuts)
+        assertTrue("合法快捷键不得报错：${loaded.errors}", loaded.errors.isEmpty())
+    }
+
+    /** 枚举值的大小写不敏感覆盖每一个枚举键，不只光标样式。 */
+    @Test
+    fun `every enumerated key matches case-insensitively`() {
+        assertEquals(BellCharacter.BEEP, parse("bell-character = BEEP").properties.bellCharacter)
+        assertEquals(BellCharacter.IGNORE, parse("bell-character = Ignore").properties.bellCharacter)
+        assertEquals(BackKeyBehaviour.ESCAPE, parse("back-key = ESCAPE").properties.backKey)
+        assertEquals(VolumeKeysBehaviour.VOLUME, parse("volume-keys = Volume").properties.volumeKeys)
+        assertEquals(
+            SoftKeyboardToggleBehaviour.ENABLE_DISABLE,
+            parse("soft-keyboard-toggle-behaviour = Enable/Disable").properties.softKeyboardToggleBehaviour,
+        )
+        assertEquals(ExtraKeysStyle.ARROWS_ALL, parse("extra-keys-style = Arrows-All").properties.extraKeysStyle)
+    }
+
+    /**
+     * `NaN` 回退默认值并留痕。
+     *
+     * 上游 `Float.parseFloat("NaN")` 成功，而 `getDefaultIfNotInRange` 的
+     * `value < min || value > max` 对 NaN 恒为 false，NaN 会穿过范围检查进入应用；
+     * 本仓在解析层拒绝——同一份配置在本仓得到的是默认工具栏高度而不是坏布局。
+     */
+    @Test
+    fun `a nan toolbar height falls back to the default and is reported`() {
+        val loaded = parse("terminal-toolbar-height = NaN")
+        assertEquals(1f, loaded.properties.terminalToolbarHeightScale, 0.001f)
+        assertTrue(loaded.errors.any { it.contains("terminal-toolbar-height") })
+    }
+
+    /** `extra-keys` 为空串与上游 `getDefaultIfNullOrEmpty` 同义：回退默认布局。 */
+    @Test
+    fun `an empty extra keys value keeps the default layout`() {
+        val loaded = parse("extra-keys =")
+        assertEquals(TermuxProperties.DEFAULT_EXTRA_KEYS, loaded.properties.extraKeys)
+    }
 }

@@ -6,6 +6,8 @@
 
 复核（2026-11-01）：上游固定标签的 `TERMUX_APP_PROPERTIES_LIST` 仍为 32 个键，与本文键表逐项一致；文中的协议不变量保持不变。
 
+复核（2026-11-04）：对照 `TermuxPropertyConstants`、`TermuxSharedProperties`、`ExtraKeysConstants` 原码逐键核验通过，键数 32 无变化。本次修正 `shortcut.*` 的取值语义（`Ctrl+<字符>` 文本→码点，旧文误记为 Android 键码——1/2/3/4 是动作常量不是取值）；补记两处上游细节：枚举回退会记 error 日志，`extra-keys-style` 在解析层不校验取值集合（`getDefaultIfNullOrEmpty` 原样返回，未知样式在渲染层回退 `default`），数值键的 `NaN` 会穿过 `getDefaultIfNotInRange` 的范围比较（`NaN < min` 恒 false）进入应用。
+
 ## 概况
 
 四模块结构：`terminal-emulator`（Java 终端引擎）、`terminal-view`（View 渲染层）、`termux-shared`（修饰键栏、主题、shell 环境、通知）、`app`（Service/Installer/Activity）。applicationId `com.termux`，`sharedUserId` 绑定全部插件。
@@ -366,14 +368,14 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 | | `terminal-margin-vertical` | 0…100（dp） | 0 |
 | | `terminal-transcript-rows` | 视 `TerminalEmulator` min/max | 引擎默认 |
 | float | `terminal-toolbar-height` | 0.4…3 | 1 |
-| Integer（可空） | `shortcut.create-session` | 1 | — |
-| | `shortcut.next-session` | 2 | — |
-| | `shortcut.previous-session` | 3 | — |
-| | `shortcut.rename-session` | 4 | — |
+| Integer（可空） | `shortcut.create-session` | `Ctrl+<字符>` | — |
+| | `shortcut.next-session` | `Ctrl+<字符>` | — |
+| | `shortcut.previous-session` | `Ctrl+<字符>` | — |
+| | `shortcut.rename-session` | `Ctrl+<字符>` | — |
 | String | `back-key` | `back` / `escape` | `back` |
 | | `default-working-directory` | 任意路径 | `$HOME` |
 | | `extra-keys` | JSON 布局串 | 2 行 7 列 |
-| | `extra-keys-style` | 样式名 | `default` |
+| | `extra-keys-style` | `default` / `arrows-only` / `arrows-all` / `all` / `none` | `default` |
 | | `night-mode` | `true` / `false` / `system` | `system` |
 | | `soft-keyboard-toggle-behaviour` | `show/hide` / `enable/disable` | `show/hide` |
 | | `volume-keys` | `virtual` / `volume` | `virtual` |
@@ -386,13 +388,13 @@ if (errmsg != null) { /* state failed + 强制通知 + stopService */ }
 
 即上行 `ESC`、`DRAWER`（弹 `PASTE`）、`SCROLL`、`HOME`、`UP`、`END`、`PGUP`；下行 `TAB`、`CTRL`、`ALT`、`LEFT`、`DOWN`、`RIGHT`、`PGDN`。本项目 `DESIGN.md` 的「2 行 7 列、布局与 Termux 完全相同」即出自此处。
 
-`shortcut.*` 取 Android 键码（`getCodePointForSessionShortcuts`），未设置时为 `null`（`Integer` 装箱而非 int 拆箱）。
+`shortcut.*` 的值是 `Ctrl+<字符>` 文本（`getCodePointForSessionShortcuts`：整串小写、按 `+` 切分后逐段 trim，要求恰好两段且第一段为 `ctrl`，第二段恰好一个码点），解析成码点后由 `TermuxTerminalViewClient` 在 Ctrl 按下时匹配；未设置时为 `null`（`Integer` 装箱而非 int 拆箱）。星面字符（代理对）上游解析有缺陷——`charAt(0)` 是高位代理时 `isLowSurrogate` 判定为 false，高位代理值被直接当码点返回；正确实现应按完整码点计。
 
 **类型转换与错误处理**（`TermuxSharedProperties.getInternalTermuxPropertyValueFromValue`）：
 
-- `MAP_*` 双向映射（`ImmutableBiMap`）负责枚举类。值不在映射内 → 用内部默认值，不报错。
+- `MAP_*` 双向映射（`ImmutableBiMap`）负责枚举类。值不在映射内 → 用内部默认值，记 error 日志但不抛异常（`getDefaultIfNotInMap` 的 `logErrorOnInvalidValue=true`）。
 - boolean 一律经 `MAP_GENERIC_BOOLEAN`（`true`/`false` 大小写不敏感）；非 `true` 的值一律取默认值，`logErrorOnInvalidValue=true` 时记录 error 日志（`SharedProperties.getBooleanValueForStringValue`）。
-- 数值越界/非数字由各 `getXxxInternalPropertyValueFromValue` 钳制或回落默认，不崩溃。
+- 数值越界/非数字由各 `getXxxInternalPropertyValueFromValue` 回落默认（`getDefaultIfNotInRange` 只回落、从不钳制到边界），不崩溃。
 - `use-black-ui`（已废弃）由 `preProcessPropertiesOnReadFromDisk` 钩子移除并改写为 `night-mode`（`replaceUseBlackUIProperty`）：仅当 `night-mode` 未设置时才迁移，迁移后记 warn 日志。
 - **只读**：类注释明示「当前仅有读支持，写支持后续再加」（`SharedProperties.java`）。
 
