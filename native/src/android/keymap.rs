@@ -52,7 +52,8 @@ pub(crate) fn key_for_android_keycode(key_code: i32) -> Option<key::Key> {
         20 => key::Key::ArrowDown,  // KEYCODE_DPAD_DOWN
         21 => key::Key::ArrowLeft,  // KEYCODE_DPAD_LEFT
         22 => key::Key::ArrowRight, // KEYCODE_DPAD_RIGHT
-        23 => key::Key::Enter,      // KEYCODE_DPAD_CENTER：导航键中心，与回车同义
+        // KEYCODE_DPAD_CENTER：导航键中心，与回车同义；KEYCODE_ENTER：回车本身。
+        23 | 66 => key::Key::Enter,
         24 => key::Key::AudioVolumeUp,
         25 => key::Key::AudioVolumeDown,
         26 => key::Key::Power,
@@ -65,7 +66,6 @@ pub(crate) fn key_for_android_keycode(key_code: i32) -> Option<key::Key> {
         61 => key::Key::Tab,
         62 => key::Key::Space,
         65 => key::Key::LaunchMail, // KEYCODE_ENVELOPE：邮件键
-        66 => key::Key::Enter,      // KEYCODE_ENTER
         67 => key::Key::Backspace,  // KEYCODE_DEL：Android 的退格键
         68 => key::Key::Backquote,  // KEYCODE_GRAVE
         69 => key::Key::Minus,      // KEYCODE_MINUS
@@ -77,7 +77,9 @@ pub(crate) fn key_for_android_keycode(key_code: i32) -> Option<key::Key> {
         75 => key::Key::Quote, // KEYCODE_APOSTROPHE
         76 => key::Key::Slash,
         82 => key::Key::ContextMenu, // KEYCODE_MENU：上下文菜单键
-        85 => key::Key::MediaPlayPause,
+        // KEYCODE_MEDIA_PLAY：单键播放；KEYCODE_MEDIA_PLAY_PAUSE：播放/暂停；
+        // KEYCODE_MEDIA_PAUSE：同上。编码器无独立键位，一律映射到 MediaPlayPause。
+        85 | 126 | 127 => key::Key::MediaPlayPause,
         86 => key::Key::MediaStop,
         87 => key::Key::MediaTrackNext,     // KEYCODE_MEDIA_NEXT
         88 => key::Key::MediaTrackPrevious, // KEYCODE_MEDIA_PREVIOUS
@@ -97,8 +99,6 @@ pub(crate) fn key_for_android_keycode(key_code: i32) -> Option<key::Key> {
         123 => key::Key::End,         // KEYCODE_MOVE_END
         124 => key::Key::Insert,
         125 => key::Key::BrowserForward, // KEYCODE_FORWARD：浏览器前进键
-        126 => key::Key::MediaPlayPause, // KEYCODE_MEDIA_PLAY：单键播放，编码器无独立键位
-        127 => key::Key::MediaPlayPause, // KEYCODE_MEDIA_PAUSE：同上，播放/暂停共用键位
         129 => key::Key::Eject,          // KEYCODE_MEDIA_EJECT
         143 => key::Key::NumLock,
         154 => key::Key::NumpadDivide,
@@ -115,20 +115,19 @@ pub(crate) fn key_for_android_keycode(key_code: i32) -> Option<key::Key> {
         174 => key::Key::BrowserFavorites, // KEYCODE_BOOKMARK
         209 => key::Key::LaunchApp1,       // KEYCODE_MUSIC
         210 => key::Key::LaunchApp2,       // KEYCODE_CALCULATOR
-        211 => key::Key::KanaMode,         // KEYCODE_ZENKAKU_HANKAKU
-        212 => key::Key::NonConvert,       // KEYCODE_EISU：英数键，语义是「不转换」
-        213 => key::Key::NonConvert,       // KEYCODE_MUHENKAN：无转换
-        214 => key::Key::Convert,          // KEYCODE_HENKAN：转换
-        215 => key::Key::KanaMode,         // KEYCODE_KATAKANA_HIRAGANA
-        216 => key::Key::IntlYen,          // KEYCODE_YEN
-        217 => key::Key::IntlRo,           // KEYCODE_RO
-        218 => key::Key::KanaMode,         // KEYCODE_KANA
-        219 => key::Key::Help,             // KEYCODE_ASSIST
-        222 => key::Key::MediaSelect,      // KEYCODE_MEDIA_AUDIO_TRACK
-        223 => key::Key::Sleep,
+        // KEYCODE_ZENKAKU_HANKAKU、KEYCODE_KATAKANA_HIRAGANA、KEYCODE_KANA：同为假名模式。
+        211 | 215 | 218 => key::Key::KanaMode,
+        // KEYCODE_EISU：英数键，语义是「不转换」；KEYCODE_MUHENKAN：无转换。
+        212 | 213 => key::Key::NonConvert,
+        214 => key::Key::Convert, // KEYCODE_HENKAN：转换
+        216 => key::Key::IntlYen, // KEYCODE_YEN
+        217 => key::Key::IntlRo,  // KEYCODE_RO
+        // KEYCODE_ASSIST、KEYCODE_HELP：同为帮助键。
+        219 | 259 => key::Key::Help,
+        222 => key::Key::MediaSelect, // KEYCODE_MEDIA_AUDIO_TRACK
+        // KEYCODE_SLEEP、KEYCODE_SOFT_SLEEP：同为休眠键。
+        223 | 276 => key::Key::Sleep,
         224 => key::Key::WakeUp,
-        259 => key::Key::Help,  // KEYCODE_HELP
-        276 => key::Key::Sleep, // KEYCODE_SOFT_SLEEP
         277 => key::Key::Cut,
         278 => key::Key::Copy,
         279 => key::Key::Paste,
