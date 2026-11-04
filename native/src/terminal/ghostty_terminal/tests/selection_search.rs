@@ -257,7 +257,7 @@ fn vt_write_sanitize_keeps_high_bytes_drops_nul() {
         vec![0x41, 0xF8, 0xFF, 0x42]
     );
     assert_eq!(sanitize_vt_input(b"ABC"), b"ABC");
-    assert!(sanitize_vt_input(&[0x00, 0x00]).is_empty());
+    assert_eq!(sanitize_vt_input(&[0x00, 0x00]), b"");
 }
 
 #[test]

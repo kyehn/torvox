@@ -333,7 +333,7 @@ mod tests {
         let mut processor = OutputProcessor::default();
         assert!(!processor.take_new_output());
         let snapshot = processor.process(b"");
-        assert!(snapshot.filtered.is_empty());
+        assert_eq!(snapshot.filtered, b"");
         assert!(!processor.take_new_output());
     }
 
@@ -368,7 +368,7 @@ mod tests {
             snapshot.filtered, b"hello",
             "重置后每个字节都必须按地面态透传"
         );
-        assert!(snapshot.clipboard_reads.is_empty());
+        assert_eq!(snapshot.clipboard_reads.as_slice(), [] as [String; 0]);
     }
 
     /// `ESC ESC` 是 VT 解析器的转义序列重启：第二个 ESC 不终结前导，故
@@ -393,7 +393,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let input = vec![0x1b_u8; MAX_SCAN_BYTES * 4];
         let snapshot = processor.process(&input);
-        assert!(snapshot.clipboard_reads.is_empty());
+        assert_eq!(snapshot.clipboard_reads.as_slice(), [] as [String; 0]);
         assert!(
             input.starts_with(&snapshot.filtered),
             "只允许延迟吐出，不得改动字节"
@@ -409,7 +409,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let snapshot = processor.process(b"\x1b]52;p;?\x1b\\");
         assert_eq!(snapshot.clipboard_reads.as_slice(), ["p"]);
-        assert!(snapshot.filtered.is_empty());
+        assert_eq!(snapshot.filtered, b"");
     }
 
     /// 同块内多个读请求必须全部保留（按序），单槽 last-wins 会让
@@ -426,11 +426,11 @@ mod tests {
     fn osc52_read_request_split_across_chunks() {
         let mut processor = OutputProcessor::new();
         let snapshot = processor.process(b"\x1b]52;c;");
-        assert!(snapshot.clipboard_reads.is_empty());
-        assert!(snapshot.filtered.is_empty());
+        assert_eq!(snapshot.clipboard_reads.as_slice(), [] as [String; 0]);
+        assert_eq!(snapshot.filtered, b"");
         let snapshot = processor.process(b"?\x07");
         assert_eq!(snapshot.clipboard_reads.as_slice(), ["c"]);
-        assert!(snapshot.filtered.is_empty());
+        assert_eq!(snapshot.filtered, b"");
     }
 
     /// 选择器名里的控制字节不得被当作选择器收下。
@@ -460,7 +460,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let snapshot = processor.process(b"\x1b]52;c1;?\x07");
         assert_eq!(snapshot.clipboard_reads.as_slice(), ["c1"]);
-        assert!(snapshot.filtered.is_empty());
+        assert_eq!(snapshot.filtered, b"");
     }
 
     #[test]
@@ -468,7 +468,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let input = b"\x1b]52;c;SGVsbG8=\x07";
         let snapshot = processor.process(input);
-        assert!(snapshot.clipboard_reads.is_empty());
+        assert_eq!(snapshot.clipboard_reads.as_slice(), [] as [String; 0]);
         assert_eq!(snapshot.filtered, input);
     }
 
@@ -481,7 +481,7 @@ mod tests {
         input.extend(std::iter::repeat_n(b'x', MAX_SCAN_BYTES + 8));
         input.extend_from_slice(b";?\x07");
         let snapshot = processor.process(&input);
-        assert!(snapshot.clipboard_reads.is_empty());
+        assert_eq!(snapshot.clipboard_reads.as_slice(), [] as [String; 0]);
         assert_eq!(snapshot.filtered, input, "超限序列必须整段透传，不得丢字节");
     }
 
@@ -491,7 +491,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let input = b"\x1b]7;file:///home/user\x07ab\x1b]8;;https://example.com\x07cd";
         let snapshot = processor.process(input);
-        assert!(snapshot.clipboard_reads.is_empty());
+        assert_eq!(snapshot.clipboard_reads.as_slice(), [] as [String; 0]);
         assert_eq!(snapshot.filtered, input);
     }
 
@@ -501,7 +501,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let input = b"\x1b]52;c;?abc\x07";
         let snapshot = processor.process(input);
-        assert!(snapshot.clipboard_reads.is_empty());
+        assert_eq!(snapshot.clipboard_reads.as_slice(), [] as [String; 0]);
         assert_eq!(snapshot.filtered, input);
     }
 
@@ -510,7 +510,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let input = b"\x1b]52;?\x07";
         let snapshot = processor.process(input);
-        assert!(snapshot.clipboard_reads.is_empty());
+        assert_eq!(snapshot.clipboard_reads.as_slice(), [] as [String; 0]);
         assert_eq!(snapshot.filtered, input);
     }
 
@@ -528,7 +528,7 @@ mod tests {
         let mut processor = OutputProcessor::new();
         let input = b"\x1b[31mred\x1b[0m";
         let snapshot = processor.process(input);
-        assert!(snapshot.clipboard_reads.is_empty());
+        assert_eq!(snapshot.clipboard_reads.as_slice(), [] as [String; 0]);
         assert_eq!(snapshot.filtered, input);
     }
 

@@ -155,7 +155,7 @@ fn shell_entry_splits_executable_and_arguments() {
     assert_eq!(arguments, vec!["-l"]);
     let (single, empty) = split_shell_entry("/system/bin/sh");
     assert_eq!(single, "/system/bin/sh");
-    assert!(empty.is_empty());
+    assert_eq!(empty.len(), 0);
 }
 
 fn test_env() -> ShellEnv {

@@ -987,7 +987,7 @@ fn search_no_matches_clears_selection() {
     terminal_under_test.vt_write(b"hello world");
     terminal_under_test.flush();
     assert_eq!(terminal_under_test.search_set_needle("zzz"), 0);
-    assert!(search_viewport_matches(&terminal_under_test, "").is_empty());
+    assert_eq!(search_viewport_matches(&terminal_under_test, ""), []);
     assert!(terminal_under_test.search_select(true).is_none());
     assert!(terminal_under_test.search_select(false).is_none());
 }

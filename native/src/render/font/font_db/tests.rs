@@ -230,15 +230,17 @@ fn symbol_family_comes_from_nameless_family() {
         super::parse_fonts_xml_document(FONTS_XML_SNIPPET).symbol_files,
         vec!["NotoSansSymbols-Regular-Subsetted.ttf"]
     );
-    assert!(
+    assert_eq!(
         super::parse_fonts_xml_document("<familyset></familyset>")
             .symbol_files
-            .is_empty()
+            .len(),
+        0
     );
-    assert!(
+    assert_eq!(
         super::parse_fonts_xml_document("not xml")
             .symbol_files
-            .is_empty()
+            .len(),
+        0
     );
 }
 
@@ -527,20 +529,18 @@ fn fonts_xml_declared_files_include_nameless_family() {
 
 #[test]
 fn fonts_xml_declared_files_reject_garbage() {
-    assert!(
+    assert_eq!(
         super::parse_fonts_xml_document("not xml at all")
             .declared_files
-            .is_empty()
+            .len(),
+        0
     );
-    assert!(
-        super::parse_fonts_xml_document("")
-            .declared_files
-            .is_empty()
-    );
-    assert!(
+    assert_eq!(super::parse_fonts_xml_document("").declared_files.len(), 0);
+    assert_eq!(
         super::parse_fonts_xml_document("<familyset><family></family></familyset>")
             .declared_files
-            .is_empty()
+            .len(),
+        0
     );
 }
 
@@ -560,12 +560,11 @@ fn fonts_xml_aliases_skip_nameless_and_reject_garbage() {
     let aliases = super::parse_fonts_xml_document(&xml).aliases;
     assert_eq!(aliases.len(), 1);
     assert_eq!(aliases[0].0, "monospace");
-    assert!(
-        super::parse_fonts_xml_document("not xml at all")
-            .aliases
-            .is_empty()
+    assert_eq!(
+        super::parse_fonts_xml_document("not xml at all").aliases,
+        []
     );
-    assert!(super::parse_fonts_xml_document("").aliases.is_empty());
+    assert_eq!(super::parse_fonts_xml_document("").aliases, []);
 }
 
 #[test]
@@ -580,7 +579,7 @@ fn locale_fonts_xml_langs_matches_aosp_tags() {
     );
     assert_eq!(super::locale_fonts_xml_langs("ja"), &["ja"]);
     assert_eq!(super::locale_fonts_xml_langs("ko"), &["ko"]);
-    assert!(super::locale_fonts_xml_langs("en-US").is_empty());
+    assert_eq!(super::locale_fonts_xml_langs("en-US").len(), 0);
 }
 
 /// 变体判定是 CJK 回退探针与区域字体候选的共同来源：任一侧单独改动都会
@@ -625,7 +624,7 @@ fn locale_fonts_xml_langs_follows_cjk_variant() {
         super::locale_fonts_xml_langs("zh-SG"),
         &["zh-Hans", "zh-CN", "zh", "und-Hani"]
     );
-    assert!(super::locale_fonts_xml_langs("").is_empty());
+    assert_eq!(super::locale_fonts_xml_langs("").len(), 0);
 }
 
 /// 宿主字体库与其中首个等宽面、首个比例面：主字体选择梯次测试的探针。

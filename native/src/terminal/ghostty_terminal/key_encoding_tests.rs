@@ -67,7 +67,7 @@ fn printable_key_needs_platform_text_or_it_sends_nothing() {
     // 上游文档：编码器以逻辑键配修饰位、以文本定字面量。可打印键没有文本
     // 就不再编码——平台必须给出文本（实体键盘的 getUnicodeChar）。
     let terminal = terminal();
-    assert!(encode(&terminal, key::Key::A, Mods::empty()).is_empty());
+    assert_eq!(encode(&terminal, key::Key::A, Mods::empty()), b"");
     assert_eq!(
         encode_text(&terminal, key::Key::A, Mods::empty(), 'a', 'a'),
         b"a"
@@ -129,7 +129,7 @@ fn shift_is_carried_by_the_platform_text_not_encoded_twice() {
         b"A"
     );
     // 只有修饰位没有文本时不编码（Shift 不该凭空产生字节）。
-    assert!(encode(&terminal, key::Key::A, Mods::SHIFT).is_empty());
+    assert_eq!(encode(&terminal, key::Key::A, Mods::SHIFT), b"");
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn release_without_kitty_report_events_produces_no_bytes() {
             Some('a'),
         )
         .expect("encode_key_event responds");
-    assert!(released.is_empty());
+    assert_eq!(released, b"");
 }
 
 // ── 回车 / Tab ───────────────────────────────────────────────

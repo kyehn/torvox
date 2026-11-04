@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn empty_text_shapes_to_nothing() {
         let mut pipeline = small_pipeline();
-        assert!(pipeline.shape_run("").is_empty());
+        assert_eq!(pipeline.shape_run(""), []);
     }
 
     #[test]
@@ -221,7 +221,7 @@ mod tests {
     fn shaping_results_are_cached() {
         let mut pipeline = small_pipeline();
         let first = pipeline.shape_run("cache me");
-        assert!(!first.is_empty());
+        assert_ne!(first, []);
         let second = pipeline.shape_run("cache me");
         assert_eq!(first, second, "cached shape must equal first shape");
     }
@@ -311,7 +311,7 @@ mod tests {
         // 即使不清缓存也不会串味。
         let mut pipeline = small_pipeline();
         let before = pipeline.shape_run("Hello");
-        assert!(!before.is_empty());
+        assert_ne!(before, []);
         let key_small = ShapeKey {
             text: "Hello".to_string(),
             font_size_bits: pipeline.font_size.to_bits(),

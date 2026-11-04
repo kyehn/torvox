@@ -223,7 +223,7 @@ fn empty_mask_yields_no_bands() {
     let cache = built_cache();
     let bands = partial_frame_bands(false, Some(&cache), 4, 2, 0, Some(&[false; 4]))
         .expect("路径本身可用，只是没有脏行");
-    assert!(bands.is_empty());
+    assert_eq!(bands, []);
     assert!(!Renderer::should_render_partial(
         true,
         false,

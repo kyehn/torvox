@@ -6,8 +6,8 @@ mod dirty_band_tests {
 
     #[test]
     fn empty_mask_yields_no_bands() {
-        assert!(compute_dirty_bands(&[]).is_empty());
-        assert!(compute_dirty_bands(&[false, false, false]).is_empty());
+        assert_eq!(compute_dirty_bands(&[]), []);
+        assert_eq!(compute_dirty_bands(&[false, false, false]), []);
     }
 
     #[test]

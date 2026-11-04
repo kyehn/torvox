@@ -97,7 +97,7 @@ fn wide_char_tail_cols_is_empty_for_narrow_text() {
     let mut terminal_under_test = terminal();
     terminal_under_test.vt_write(b"hello");
     terminal_under_test.flush();
-    assert!(terminal_under_test.wide_char_tail_cols(0).is_empty());
+    assert_eq!(terminal_under_test.wide_char_tail_cols(0), [] as [u32; 0]);
 }
 
 /// 软换行续行的行首是 `SpacerHead`：它不是尾格，不得被标出——其前一列属于折行前
@@ -234,7 +234,7 @@ fn search_reports_each_wrapped_line_once_with_physical_rows() {
 fn search_empty_needle_returns_nothing() {
     let terminal_under_test = terminal();
     assert_eq!(terminal_under_test.search_set_needle(""), 0);
-    assert!(search_viewport_matches(&terminal_under_test, "").is_empty());
+    assert_eq!(search_viewport_matches(&terminal_under_test, ""), []);
 }
 
 #[test]
