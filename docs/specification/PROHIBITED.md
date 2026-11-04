@@ -47,4 +47,4 @@
 
 ## 配置文件
 
-- 解析 `colors.properties`、`termux.float.properties`
+- 解析 `termux.float.properties`
