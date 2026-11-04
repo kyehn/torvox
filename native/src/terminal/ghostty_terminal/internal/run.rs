@@ -450,14 +450,14 @@ impl super::GhosttyTerminal {
     /// 16 色表 + xterm 公式，后者会静默忽略 OSC 4 改色。
     pub(crate) fn resolve_style_color(
         terminal: &Terminal<'_, '_>,
-        color: &libghostty_vt::style::StyleColor,
+        color: libghostty_vt::style::StyleColor,
         default: [f32; 4],
     ) -> [f32; 4] {
         match color {
-            libghostty_vt::style::StyleColor::Rgb(c) => Self::color_to_float(*c),
+            libghostty_vt::style::StyleColor::Rgb(c) => Self::color_to_float(c),
             libghostty_vt::style::StyleColor::Palette(idx) => terminal
                 .color_palette()
-                .map_or(default, |palette| Self::color_to_float(palette.get(*idx))),
+                .map_or(default, |palette| Self::color_to_float(palette.get(idx))),
             libghostty_vt::style::StyleColor::None => default,
         }
     }

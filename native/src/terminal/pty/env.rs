@@ -11,6 +11,27 @@ const DEFAULT_TERM: &str = "xterm-256color";
 const DEFAULT_COLORTERM: &str = "truecolor";
 const DEFAULT_LANG: &str = "en_US.UTF-8";
 
+/// 透传 Android 系统环境变量。EXTERNAL_STORAGE 是 `/system/bin/am` 在至少三星 S7 上
+/// 工作的必要条件，调用 `am`/`content` 的 Termux bootstrap shell 需要这些变量。
+///
+/// 参考 <https://github.com/reapercanuk39/termux-kotlin-app> AndroidShellEnvironment.kt
+const ANDROID_ENV_VARS: &[&str] = &[
+    "ANDROID_ASSETS",
+    "ANDROID_DATA",
+    "ANDROID_ROOT",
+    "ANDROID_STORAGE",
+    "EXTERNAL_STORAGE",
+    "ASEC_MOUNTPOINT",
+    "LOOP_MOUNTPOINT",
+    "ANDROID_RUNTIME_ROOT",
+    "ANDROID_ART_ROOT",
+    "ANDROID_I18N_ROOT",
+    "ANDROID_TZDATA_ROOT",
+    "BOOTCLASSPATH",
+    "DEX2OATBOOTCLASSPATH",
+    "SYSTEMSERVERCLASSPATH",
+];
+
 fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
     base_env_with_host(prefix, &|key| std::env::var(key).ok(), &|dir| {
         std::path::Path::new(dir).is_dir()
@@ -33,30 +54,8 @@ pub(super) fn base_env_with_host(
         ("COLORTERM".to_string(), DEFAULT_COLORTERM.to_string()),
         ("LANG".to_string(), DEFAULT_LANG.to_string()),
     ];
-    // 透传 Android 系统环境变量（ANDROID_ASSETS/ANDROID_DATA/ANDROID_ROOT/ANDROID_STORAGE/
-    // EXTERNAL_STORAGE/ASEC_MOUNTPOINT/LOOP_MOUNTPOINT/ANDROID_RUNTIME_ROOT/ANDROID_ART_ROOT/
-    // ANDROID_I18N_ROOT/ANDROID_TZDATA_ROOT/BOOTCLASSPATH/DEX2OATBOOTCLASSPATH/
-    // SYSTEMSERVERCLASSPATH）。EXTERNAL_STORAGE 是 `/system/bin/am` 在至少三星 S7 上
-    // 工作的必要条件，调用 `am`/`content` 的 Termux bootstrap shell 需要这些变量。
     // 只转发宿主环境中实际存在的变量：各设备/版本取值不同，硬编码
     // ANDROID_ROOT=/system 在 API 26+ 上是错的。
-    // 参考 <https://github.com/reapercanuk39/termux-kotlin-app> AndroidShellEnvironment.kt
-    const ANDROID_ENV_VARS: &[&str] = &[
-        "ANDROID_ASSETS",
-        "ANDROID_DATA",
-        "ANDROID_ROOT",
-        "ANDROID_STORAGE",
-        "EXTERNAL_STORAGE",
-        "ASEC_MOUNTPOINT",
-        "LOOP_MOUNTPOINT",
-        "ANDROID_RUNTIME_ROOT",
-        "ANDROID_ART_ROOT",
-        "ANDROID_I18N_ROOT",
-        "ANDROID_TZDATA_ROOT",
-        "BOOTCLASSPATH",
-        "DEX2OATBOOTCLASSPATH",
-        "SYSTEMSERVERCLASSPATH",
-    ];
     for key in ANDROID_ENV_VARS {
         if let Some(value) = host_var(key) {
             result.push((key.to_string(), value));

@@ -248,7 +248,7 @@ impl super::GhosttyTerminal {
                 return col + 1;
             }
             if cell_codepoint(terminal, row, col) != 0 {
-                return col + Self::cell_columns(&cell).unwrap_or(1);
+                return col + Self::cell_columns(cell).unwrap_or(1);
             }
         }
         0

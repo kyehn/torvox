@@ -626,9 +626,9 @@ fn set_render_paused_idempotent() {
 /// path that happens every frame.
 #[test]
 fn bench_gpu_command_encoding_overhead() {
-    let _serial = GPU_BENCH_LOCK.lock();
     use std::time::Instant;
 
+    let _serial = GPU_BENCH_LOCK.lock();
     let renderer = Renderer::new_with_no_surface();
     let device = &renderer.device;
     let queue = &renderer.queue;
@@ -659,9 +659,9 @@ fn bench_gpu_command_encoding_overhead() {
 /// `render_frame_with_plan()` path without requiring a swapchain surface.
 #[test]
 fn bench_gpu_full_submit_throughput() {
-    let _serial = GPU_BENCH_LOCK.lock();
     use std::time::Instant;
 
+    let _serial = GPU_BENCH_LOCK.lock();
     let renderer = Renderer::new_with_no_surface();
     let device = &renderer.device;
     let queue = &renderer.queue;
@@ -728,10 +728,10 @@ fn bench_gpu_full_submit_throughput() {
 /// cache warmup — this happens when new glyphs are encountered.
 #[test]
 fn bench_gpu_atlas_texture_upload() {
-    let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
     use std::time::Instant;
 
+    let _serial = GPU_BENCH_LOCK.lock();
     let renderer = Renderer::new_with_no_surface();
     let device = &renderer.device;
     let queue = &renderer.queue;

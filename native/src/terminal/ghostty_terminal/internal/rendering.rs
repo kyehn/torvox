@@ -229,7 +229,7 @@ impl super::GhosttyTerminal {
                         let foreground = Self::cell_color(cell.fg_color(), default_foreground);
                         let background = Self::cell_color(cell.bg_color(), default_background);
                         let underline =
-                            Self::resolve_style_color(terminal, &style.underline_color, foreground);
+                            Self::resolve_style_color(terminal, style.underline_color, foreground);
                         let style_flags = Self::pack_style_flags(&style);
                         cached_style_id = style_id;
                         cached_foreground = foreground;
@@ -242,7 +242,7 @@ impl super::GhosttyTerminal {
                         // 宽字符（中日韩）按 1 列推进会让本行其后每一个单元的
                         // `col` 左移一格，且行长度不再等于 cols。
                         // spacer（None）：两列已由宽字符本身消耗，直接跳过。
-                        if let Some(width) = Self::cell_columns(&raw) {
+                        if let Some(width) = Self::cell_columns(raw) {
                             Self::push_blank_cell(
                                 &mut row_data,
                                 default_foreground,
@@ -263,7 +263,7 @@ impl super::GhosttyTerminal {
                 // 导致其后所有单元右移一列。
                 // spacer 单元不产出 CellData 条目。
                 // `current_col` 保持不变——两列已由宽字符本身消耗。
-                let Some(width) = Self::cell_columns(&raw) else {
+                let Some(width) = Self::cell_columns(raw) else {
                     continue;
                 };
 
@@ -500,7 +500,7 @@ impl super::GhosttyTerminal {
                 let foreground = Self::cell_color(cell.fg_color(), default_foreground);
                 let background = Self::cell_color(cell.bg_color(), default_background);
                 let underline_color =
-                    Self::resolve_style_color(terminal, &style.underline_color, foreground);
+                    Self::resolve_style_color(terminal, style.underline_color, foreground);
 
                 cells.push(CellSnapshot {
                     codepoint,
@@ -558,11 +558,11 @@ impl super::GhosttyTerminal {
         default_foreground: [f32; 4],
         default_background: [f32; 4],
     ) {
-        data.foreground = Self::resolve_style_color(terminal, &style.fg_color, default_foreground);
-        data.background = Self::resolve_style_color(terminal, &style.bg_color, default_background);
+        data.foreground = Self::resolve_style_color(terminal, style.fg_color, default_foreground);
+        data.background = Self::resolve_style_color(terminal, style.bg_color, default_background);
         // SGR 58 下划线色：未设置时回退到解析后的前景（着色器旧 `deco = foreground` 语义）。
         data.underline_color =
-            Self::resolve_style_color(terminal, &style.underline_color, data.foreground);
+            Self::resolve_style_color(terminal, style.underline_color, data.foreground);
         data.bold = style.bold;
         data.dim = style.faint;
         data.italic = style.italic;
@@ -663,7 +663,7 @@ impl super::GhosttyTerminal {
 
     /// 单元占用的列数：`None` 表示 spacer 单元（宽字符的尾/头格），
     /// 它不产出 `CellData`，两列已由宽字符本身消耗。
-    pub(crate) fn cell_columns(raw: &libghostty_vt::screen::Cell) -> Option<u32> {
+    pub(crate) fn cell_columns(raw: libghostty_vt::screen::Cell) -> Option<u32> {
         match raw.wide() {
             Ok(libghostty_vt::screen::CellWide::Wide) => Some(2),
             Ok(

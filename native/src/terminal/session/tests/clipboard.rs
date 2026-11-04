@@ -97,13 +97,13 @@ fn clipboard_answer_yields_when_a_user_write_holds_the_master_lock() {
             let _ = sender.send((result, session.pty_write_back_queue.len()));
         }
     });
-    let received = receiver.recv_timeout(READ_BUDGET);
+    let reply = receiver.recv_timeout(READ_BUDGET);
 
     release_sender.send(()).expect("放行");
     user_write.join().expect("用户写入线程 panicked");
     worker.join().expect("应答线程 panicked");
 
-    let (result, pending) = received.expect("会话锁不得在用户输入持写入锁时被按住满排空上限");
+    let (result, pending) = reply.expect("会话锁不得在用户输入持写入锁时被按住满排空上限");
     assert!(
         result.is_ok(),
         "等不到写入锁时应答须被接受（退回续写队列），实测 {result:?}"
@@ -130,9 +130,10 @@ fn clipboard_answer_yields_when_a_user_write_holds_the_master_lock() {
 /// 长期失败即由此而来）。本测试只依赖「投递 + 收割」，不依赖任何 flush 时序。
 #[test]
 fn osc52_write_is_harvested_without_relying_on_flush_ack() {
+    use base64::Engine;
+
     let mut session = spawn_test_session();
     let marker = "harvest-probe";
-    use base64::Engine;
     let payload = base64::engine::general_purpose::STANDARD.encode(marker.as_bytes());
     // 与 `feedTerminal` 同路径：直接投进 VT 解析器（不经 PTY，故不依赖回显）。
     session
@@ -163,8 +164,9 @@ fn osc52_write_is_harvested_without_relying_on_flush_ack() {
 /// 单槽锁存会让后一次覆盖前一次，用户丢剪贴板内容。
 #[test]
 fn osc52_writes_queue_in_order_when_not_polled() {
-    let mut session = spawn_test_session();
     use base64::Engine;
+
+    let mut session = spawn_test_session();
     let mut written = Vec::new();
     for marker in ["first-copy", "second-copy"] {
         let payload = base64::engine::general_purpose::STANDARD.encode(marker.as_bytes());

@@ -16,10 +16,10 @@ use native::event::{Event, EventQueue};
 fn event_queue_concurrent_push_pop() {
     shuttle::check_random(
         || {
-            let queue = Arc::new(EventQueue::new());
             const N: u64 = 32;
             const THREADS: usize = 4;
 
+            let queue = Arc::new(EventQueue::new());
             let mut handles = Vec::new();
             for thread_index in 0..THREADS {
                 let queue = Arc::clone(&queue);
@@ -70,9 +70,9 @@ fn event_queue_concurrent_push_pop() {
 fn event_queue_exit_survives_overflow() {
     shuttle::check_random(
         || {
-            let queue = Arc::new(EventQueue::new());
             const THREADS: usize = 4;
 
+            let queue = Arc::new(EventQueue::new());
             let mut handles = Vec::new();
             for thread_index in 0..THREADS {
                 let queue = Arc::clone(&queue);

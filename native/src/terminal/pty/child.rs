@@ -128,6 +128,9 @@ pub(super) fn close_stray_fds(keep_fd: RawFd) {
 /// Android linker 拒绝来自 app 数据的非 `PIE`（`ET_EXEC`）二进制。
 pub(super) fn is_pie(path: &str) -> bool {
     use std::io::Read;
+
+    const ET_DYN: u16 = 3;
+
     let Ok(mut file) = std::fs::File::open(path) else {
         return false;
     };
@@ -139,7 +142,6 @@ pub(super) fn is_pie(path: &str) -> bool {
         return false;
     }
     let e_type = u16::from_le_bytes([header[16], header[17]]);
-    const ET_DYN: u16 = 3;
     e_type == ET_DYN
 }
 

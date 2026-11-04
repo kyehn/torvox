@@ -254,6 +254,9 @@ fn block_cursor_paints_background_keeps_foreground() {
 /// 不随格内字形变高变矮，也不越过行界。
 #[test]
 fn block_cursor_quad_is_the_whole_cell() {
+    const FG: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    const BG: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+
     let cell_width = 1024.0 / 80.0;
     let cell_height = 1024.0 / 24.0;
     let cursor = CellCursor {
@@ -263,8 +266,6 @@ fn block_cursor_quad_is_the_whole_cell() {
         style: CursorStyle::Block,
         color: [0.0, 1.0, 0.0, 1.0],
     };
-    const FG: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-    const BG: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
     let cases = [
         ("空白", cell_data(0, 0, ' ', FG, BG, 0), 1u32),
         ("码点 0", cell_data(0, 0, '\0', FG, BG, 0), 1),

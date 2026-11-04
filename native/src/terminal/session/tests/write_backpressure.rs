@@ -247,14 +247,14 @@ fn child_pid_stays_readable_while_a_write_holds_the_master_lock() {
             let _ = sender.send((master.child_pid(), master.resize(30, 100)));
         })
     };
-    let received = receiver.recv_timeout(READ_BUDGET);
+    let reply = receiver.recv_timeout(READ_BUDGET);
 
     // 先收尾再断言：任何情况下都不把写入线程留在闸里。
     gate.release();
     writer.join().expect("writer thread panicked");
     reader.join().expect("reader thread panicked");
 
-    let (pid, resize_result) = received.expect("只读路径不得取主端互斥量：此刻写入正持锁");
+    let (pid, resize_result) = reply.expect("只读路径不得取主端互斥量：此刻写入正持锁");
     assert!(pid.as_raw() > 0, "child pid 应为构造期缓存的值");
     assert!(
         resize_result.is_ok(),
@@ -309,13 +309,13 @@ fn write_back_yields_the_frame_when_a_user_write_holds_the_master_lock() {
         session.drain_pty_write_back();
         let _ = sender.send(session.pty_write_back_queue.len());
     });
-    let received = receiver.recv_timeout(READ_BUDGET);
+    let reply = receiver.recv_timeout(READ_BUDGET);
 
     release_sender.send(()).expect("放行");
     user_write.join().expect("用户写入线程 panicked");
     worker.join().expect("收割线程 panicked");
 
-    let pending = received.expect("会话锁不得在用户输入持写入锁时被按住满排空上限");
+    let pending = reply.expect("会话锁不得在用户输入持写入锁时被按住满排空上限");
     assert_eq!(
         pending, 1,
         "等不到写入锁时应答须整条退回队列下帧续写，不得丢弃"

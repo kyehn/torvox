@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use super::FONT_DIRS;
 
 /// 宿主字体库里取一个真实字体文件（绝对路径）作为区域族探针。
@@ -60,10 +62,14 @@ fn region_family_deduplicates_repeated_weights() {
     let filename = "NotoSansCJK-Regular.ttc";
     let weights: String = (100..=900)
         .step_by(100)
-        .map(|weight| {
-            format!(r#"<font weight="{weight}" style="normal" index="2">{filename}</font>"#)
-        })
-        .collect();
+        .fold(String::new(), |mut weights, weight| {
+            write!(
+                weights,
+                r#"<font weight="{weight}" style="normal" index="2">{filename}</font>"#
+            )
+            .expect("写入 String 不会失败");
+            weights
+        });
     let families = super::parse_fonts_xml_document(&format!(
         r#"<familyset version="23"><family lang="zh-Hans">{weights}</family></familyset>"#
     ))

@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use super::*;
 use crate::render::font::cjk::MAX_CJK_FALLBACK_FONTS;
 
@@ -407,10 +409,14 @@ fn cjk_fallback_layer_respects_the_cap() {
     );
     let fonts_xml = entries
         .iter()
-        .map(|(filename, index)| {
-            format!(r#"<font weight="400" style="normal" index="{index}">{filename}</font>"#)
-        })
-        .collect::<String>();
+        .fold(String::new(), |mut fonts_xml, (filename, index)| {
+            write!(
+                fonts_xml,
+                r#"<font weight="400" style="normal" index="{index}">{filename}</font>"#
+            )
+            .expect("写入 String 不会失败");
+            fonts_xml
+        });
     let xml = format!(
         r#"<familyset version="23"><family lang="zh-Hans">{fonts_xml}</family></familyset>"#
     );

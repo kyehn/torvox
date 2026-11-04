@@ -83,8 +83,9 @@ mod send_check {
     #[test]
     fn renderer_is_send() {
         fn assert_send<T: Send>() {}
-        assert_send::<super::Renderer>();
         fn assert_sync<T: Sync>() {}
+
+        assert_send::<super::Renderer>();
         assert_sync::<super::Renderer>();
     }
 }
