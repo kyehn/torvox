@@ -88,6 +88,11 @@ MUST 钳入替换后的文本范围。重放差分前 MUST 先把光标挪到旧
 - **WHEN** 批量编辑进行中输入法提交文本
 - **THEN** 该提交即时送达终端，MUST NOT 滞留至批量结束
 
+实现：批量计数（`BatchEditDepth`）只被写、从不被读——提交路径上没有任何按批量
+状态分支的缓冲，故提交逐次经 `InputBatchBuffer` 的直发分支当场送达。
+仪器测试 `ImeBatchEditDeliveryTest` 在批量结束**之前**等终端回显标记，把这条
+结构保证钉成可观测行为。
+
 ### Requirement: 光标前后删除分别使用正确键语义
 
 `deleteSurroundingText` 的光标前删除 MUST 发送退格；光标后删除 MUST 经原生

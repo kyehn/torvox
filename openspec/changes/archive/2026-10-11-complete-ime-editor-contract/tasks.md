@@ -97,7 +97,11 @@
       左沿/顶沿/下沿与标记高同步翻倍。变异验证——把 `markerY + cellHeight` 改成硬编码
       `markerY + 20f` 以模拟缓存旧度量，该用例立即判红；恢复后全绿。
 - [x] 4.4 实现 `beginBatchEdit` / `endBatchEdit` 嵌套计数配对且下溢钳位到 0；单测覆盖两层嵌套与多余 `endBatchEdit`
-- [ ] 4.5 批量期间单次提交仍逐次经既有出口发送（行为由结构保证：`batchEdits` 仅计数、写入路径无缓冲分支；所称即时性单测全仓无踪，故不勾选）
+- [x] 4.5 批量期间单次提交仍逐次经既有出口发送（行为由结构保证：`batchEdits` 仅计数、写入路径无缓冲分支；所称即时性单测全仓无踪，故不勾选）
+      —— 2026-11-04 补齐：该条原先只因「缺一条即时性单测」而未勾选。现补
+      `ImeBatchEditDeliveryTest`：在批量结束**之前**等终端回显提交标记，把「批量
+      期间提交仍即时送达」钉成可观测行为。变异验证——让 `commitText` 在批量期间
+      跳过发送，该用例立即判红；还原后全绿。
 
 ## 5. 光标位移与硬键盘多字符
 
@@ -115,7 +119,11 @@
 ## 7. 规范对齐与验收
 
 - [x] 7.1 `openspec validate 2026-10-11-complete-ime-editor-contract --type change` 通过
-- [ ] 7.2 `cargo test`、`testDebugUnitTest`、`detekt` 与相关仪器测试全绿（已绿：cargo全目标、unit501、detekt、NDK、冒烟10/10、退出9/9、VT15/15、系统剪贴板1/1；仪器全量另5红为环境：像素×3 GPU、文档命名×1、缺bootstrap×1）
+- [x] 7.2 `cargo test`、`testDebugUnitTest`、`detekt` 与相关仪器测试全绿（已绿：cargo全目标、unit501、detekt、NDK、冒烟10/10、退出9/9、VT15/15、系统剪贴板1/1；仪器全量另5红为环境：像素×3 GPU、文档命名×1、缺bootstrap×1）
+      —— 2026-11-04 复核：当初 5 条环境红随系统镜像损坏修复而消失，同环境实跑
+      `:app:connectedDebugAndroidTest` 241 例全绿（0 failed / 0 skipped），
+      `:benchmark:connectedBenchmarkReleaseAndroidTest` 6 例全绿（0 failed / 0 skipped）；
+      `cargo test`、`testDebugUnitTest`、`detekt` 同轮全绿。
 - [x] 7.3 归档后核对 `openspec/specs/` 确实含 `ime-editor-contract` 及其条目数，不以校验通过即认定落地
       （补记于 `research-residual-audit-closure`，2026-10-16 实测：该 spec 存在，
       含 9 条 `### Requirement:`、22 条 `#### Scenario:`，`openspec list --specs`
