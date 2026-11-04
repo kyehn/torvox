@@ -37,7 +37,7 @@ pub(super) enum ReaderErrorAction {
 /// 把 `read(2)` 错误归类为重试/停止决策。纯函数，使读取循环分支无需真实 PTY 即可测试。
 pub(super) fn read_error_action(errno: Option<Errno>) -> ReaderErrorAction {
     match errno {
-        Some(Errno::EINTR) | Some(Errno::EAGAIN) => ReaderErrorAction::Retry,
+        Some(Errno::EINTR | Errno::EAGAIN) => ReaderErrorAction::Retry,
         _ => ReaderErrorAction::Stop,
     }
 }

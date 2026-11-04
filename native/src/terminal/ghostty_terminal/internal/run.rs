@@ -35,12 +35,9 @@ impl super::GhosttyTerminal {
         // 「维度变化 → 全量重建」，行级脏标记恒为全脏（实测命中率 0%）。
         // 创建失败即终止 VT 线程：缺了它们既取不到网格也读不到光标，
         // 以「本帧返回空网格」延后只会在第一次渲染时静默降级。
-        let mut extractors = match RenderExtractors::new() {
-            Some(extractors) => extractors,
-            None => {
-                log::error!("ghostty_terminal: render extractors unavailable — thread exiting");
-                return;
-            }
+        let Some(mut extractors) = RenderExtractors::new() else {
+            log::error!("ghostty_terminal: render extractors unavailable — thread exiting");
+            return;
         };
         // 测试构建：换成该终端实例自己的计数句柄，使并行用例互不污染。
         #[cfg(test)]
@@ -316,12 +313,9 @@ impl super::GhosttyTerminal {
     ///
     /// 返回 `None` 表示终端实例创建失败，调用方据此退出 VT 线程。
     pub(crate) fn configure_terminal(config: &RunConfig) -> Option<Terminal<'_, '_>> {
-        let mut terminal = match Terminal::new(config.cols as u16, config.rows as u16) {
-            Ok(terminal) => terminal,
-            Err(_) => {
-                log::error!("ghostty_terminal: Terminal::new failed — thread exiting");
-                return None;
-            }
+        let Ok(mut terminal) = Terminal::new(config.cols as u16, config.rows as u16) else {
+            log::error!("ghostty_terminal: Terminal::new failed — thread exiting");
+            return None;
         };
         // 上游（git master）的 `Terminal::new` 已不再接收 options，
         // 回滚改用 `set_scrollback_max_lines` setter 配置。

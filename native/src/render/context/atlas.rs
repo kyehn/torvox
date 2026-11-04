@@ -133,9 +133,8 @@ impl Renderer {
         projection_width: f32,
         projection_height: f32,
     ) {
-        let pipeline = match self.cell_pipeline.as_ref() {
-            Some(p) => p,
-            None => return,
+        let Some(pipeline) = self.cell_pipeline.as_ref() else {
+            return;
         };
         if self.cell_uniform_buffer.is_none() {
             self.cell_uniform_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -153,20 +152,17 @@ impl Renderer {
             atlas_height,
         );
 
-        let uniform_buffer = match self.cell_uniform_buffer.as_ref() {
-            Some(buf) => buf,
-            None => return,
+        let Some(uniform_buffer) = self.cell_uniform_buffer.as_ref() else {
+            return;
         };
         self.queue
             .write_buffer(uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
-        let atlas_view = match self.atlas_view.as_ref() {
-            Some(v) => v,
-            None => return,
+        let Some(atlas_view) = self.atlas_view.as_ref() else {
+            return;
         };
-        let atlas_sampler = match self.atlas_sampler.as_ref() {
-            Some(s) => s,
-            None => return,
+        let Some(atlas_sampler) = self.atlas_sampler.as_ref() else {
+            return;
         };
 
         self.cell_bind_group = Some(Self::create_text_bind_group(

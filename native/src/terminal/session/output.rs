@@ -225,8 +225,7 @@ impl Session {
         // 行里带上窗口内累计的丢弃条数，条数不因限频而丢失。
         if let Some(dropped_in_window) = self.clipboard_drop_log.record_events(dropped) {
             log::warn!(
-                "clipboard queue overflow (>{} pending); dropped {dropped_in_window} oldest writes",
-                MAX_CLIPBOARD_TEXT_QUEUE,
+                "clipboard queue overflow (>{MAX_CLIPBOARD_TEXT_QUEUE} pending); dropped {dropped_in_window} oldest writes",
             );
         }
     }

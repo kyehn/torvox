@@ -63,7 +63,7 @@ fn wait_finished(handle: &std::thread::JoinHandle<()>, timeout: Duration) -> boo
 /// join 已完成的句柄并报告 panic。
 fn join_finished(handle: std::thread::JoinHandle<()>) {
     if let Err(error) = handle.join() {
-        log::error!("session: thread panicked: {:?}", error);
+        log::error!("session: thread panicked: {error:?}");
     }
 }
 

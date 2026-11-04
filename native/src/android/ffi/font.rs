@@ -194,7 +194,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHig
             // （否则陈旧高亮会一直残留到下次 PTY 输出——正是 #5 这类回归）。
             render_state.dirty.store(true, Ordering::Relaxed);
         }
-    })
+    });
 }
 
 /// 把视口命中折算成可绘制的高亮区间。
@@ -257,12 +257,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
     scroll_offset: jint,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
-        let query_tx = match session_query_channel(session_id as u64) {
-            Some(query_tx) => query_tx,
-            None => {
-                log::error!("applySearchHighlights: session {session_id} not found");
-                return Ok(());
-            }
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
+            log::error!("applySearchHighlights: session {session_id} not found");
+            return Ok(());
         };
         let highlights =
             crate::terminal::ghostty_terminal::GhosttyTerminal::search_viewport_highlights_on(
@@ -300,7 +297,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHig
         // 置脏标志：无 PTY 流量时新高亮也必须绘制到下一帧
         //（#5 空闲屏回归）。
         render_state.dirty.store(true, Ordering::Relaxed);
-    })
+    });
 }
 
 /// 设置下一渲染帧的活动文本选区。
@@ -427,7 +424,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         }
         drop(state);
         log::info!("setTheme: session {id} theme={name}");
-    })
+    });
 }
 
 /// 读取 JNI `int[]`（调色板覆盖通道）。
@@ -498,7 +495,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorStyle
             .set_cursor_style(cursor_style);
         drop(registry);
         log::info!("setCursorStyle: session {id} style={cursor_style:?}");
-    })
+    });
 }
 
 /// 抛 `IllegalArgumentException`。错误路径可能已在 JNI 上挂起异常，重复抛会
@@ -559,9 +556,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPause
             if !paused {
                 render_state.renderer.frame_invalidated = true;
             }
-            log::info!("setRenderPaused: paused={}", paused);
+            log::info!("setRenderPaused: paused={paused}");
         }
-    })
+    });
 }
 
 /// 设置渲染器字体管线的字体族；找到该族时返回 true。
@@ -691,11 +688,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
         // 不丢则丢字/错位/行高混杂（压扁·撕裂）。
         render_state.renderer.cell_cache = None;
         render_state.dirty.store(true, Ordering::Relaxed);
-        log::info!(
-            "setFontSizeInPlace: {} -> cell {cell_width:.1}x{cell_height:.1}",
-            size_tenths
-        );
-    })
+        log::info!("setFontSizeInPlace: {size_tenths} -> cell {cell_width:.1}x{cell_height:.1}");
+    });
 }
 
 /// 原生接受的光栅缩放区间 `[min, max]` → JNI `FloatArray`（原生为唯一真源）。
@@ -750,7 +744,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale
             render_state.renderer.cell_cache = None;
             render_state.dirty.store(true, Ordering::Relaxed);
         }
-    })
+    });
 }
 
 /// 把自定义字体文件载入渲染器的字体库。返回文件中的首个字体族名，失败时 null。
@@ -813,7 +807,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
         if family.is_empty() {
             return Ok(std::ptr::null_mut());
         }
-        log::info!("loadFontFile: {} -> family {family}", path_str);
+        log::info!("loadFontFile: {path_str} -> family {family}");
         string_to_jstring(env, &family)
     })
 }
@@ -845,7 +839,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocal
             render_state.renderer.cell_cache = None;
             render_state.dirty.store(true, Ordering::Relaxed);
         }
-    })
+    });
 }
 
 /// 登记额外的字体目录/文件（应用私有字体目录）：供字体列表枚举（`family_index`）
@@ -902,5 +896,5 @@ pub unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtr
             let _ = (env, paths);
             log::warn!("setExtraFontPaths: unsupported on this target");
         }
-    })
+    });
 }

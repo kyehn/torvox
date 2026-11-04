@@ -17,17 +17,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resize(
     cols: jint,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
-        resize_inner(env, _class, session_id, rows, cols)
-    })
+        resize_inner(env, session_id, rows, cols);
+    });
 }
 
-pub(super) fn resize_inner(
-    env: &mut Env,
-    _class: JClass,
-    session_id: jlong,
-    rows: jint,
-    cols: jint,
-) {
+pub(super) fn resize_inner(env: &mut Env, session_id: jlong, rows: jint, cols: jint) {
     let id = session_id as u64;
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&id) else {
@@ -35,25 +29,19 @@ pub(super) fn resize_inner(
         return;
     };
     let mut session = entry.session.lock();
-    let rows = match u32::try_from(rows) {
-        Ok(r) => r,
-        Err(_) => {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("resize: rows must be non-negative"),
-            );
-            return;
-        }
+    let Ok(rows) = u32::try_from(rows) else {
+        let _ = env.throw_new(
+            jni_str!("java/lang/IllegalArgumentException"),
+            jni_str!("resize: rows must be non-negative"),
+        );
+        return;
     };
-    let cols = match u32::try_from(cols) {
-        Ok(c) => c,
-        Err(_) => {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("resize: cols must be non-negative"),
-            );
-            return;
-        }
+    let Ok(cols) = u32::try_from(cols) else {
+        let _ = env.throw_new(
+            jni_str!("java/lang/IllegalArgumentException"),
+            jni_str!("resize: cols must be non-negative"),
+        );
+        return;
     };
     // 网格命令被丢弃时只记日志：PTY 已缩放而网格滞后，下次缩放事件重试，
     // 不向 Kotlin 抛异常（调用方按固定节拍重发，异常会刷爆日志）。
@@ -94,13 +82,12 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPixelSize(
     height_px: jint,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
-        set_pixel_size_inner(env, _class, session_id, width_px, height_px)
-    })
+        set_pixel_size_inner(env, session_id, width_px, height_px);
+    });
 }
 
 pub(super) fn set_pixel_size_inner(
     env: &mut Env,
-    _class: JClass,
     session_id: jlong,
     width_px: jint,
     height_px: jint,
@@ -187,11 +174,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedPty(
     data: jbyteArray,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
-        feed_pty_inner(env, _class, session_id, data)
-    })
+        feed_pty_inner(env, session_id, data);
+    });
 }
 
-pub(super) fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, data: jbyteArray) {
+pub(super) fn feed_pty_inner(env: &mut Env, session_id: jlong, data: jbyteArray) {
     let id = session_id as u64;
 
     // 传原始字节而非 String：PTY 输入可能是任意二进制（粘贴的 GBK/ISO-8859-1 文本、
@@ -242,7 +229,7 @@ pub(super) fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, d
         if let crate::terminal::session::SessionError::Io(io_error) = &write_error
             && matches!(
                 io_error.raw_os_error().map(nix::errno::Errno::from_raw),
-                Some(nix::errno::Errno::EIO) | Some(nix::errno::Errno::EPIPE)
+                Some(nix::errno::Errno::EIO | nix::errno::Errno::EPIPE)
             )
         {
             log::debug!(
@@ -275,8 +262,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedTerminal(
     data: jbyteArray,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
-        feed_terminal_inner(env, session_id, data)
-    })
+        feed_terminal_inner(env, session_id, data);
+    });
 }
 
 /// 读 JNI 字节数组：失败即抛 `RuntimeException` 并返回 `None`。
@@ -393,8 +380,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEve
 // 决定，而非设计选择。参数个数由 ABI 固定，不可能在不配套修改 Kotlin 的情况下减少。
 /// 鼠标事件被丢弃时的空字节数组（上报关闭/编码失败/空编码三处复用）。
 pub(super) fn empty_java_byte_array(env: &mut Env) -> jbyteArray {
-    env.byte_array_from_slice(&[])
-        .map_or(std::ptr::null_mut(), |array| array.into_raw())
+    env.byte_array_from_slice(&[]).map_or(
+        std::ptr::null_mut(),
+        jni::objects::JPrimitiveArray::into_raw,
+    )
 }
 
 /// 把编码器的字节结果交给 JVM：空结果交回空数组（Kotlin 侧按「本按键不产生序列」
@@ -407,8 +396,10 @@ pub(super) fn java_bytes_or_empty(env: &mut Env, bytes: &[u8]) -> jbyteArray {
     if bytes.is_empty() {
         return empty_java_byte_array(env);
     }
-    env.byte_array_from_slice(bytes)
-        .map_or(std::ptr::null_mut(), |array| array.into_raw())
+    env.byte_array_from_slice(bytes).map_or(
+        std::ptr::null_mut(),
+        jni::objects::JPrimitiveArray::into_raw,
+    )
 }
 
 pub(super) fn encode_mouse_event_inner(
@@ -646,16 +637,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodePaste(
     data: jbyteArray,
 ) -> jbyteArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        encode_paste_inner(env, _class, session_id, data)
+        encode_paste_inner(env, session_id, data)
     })
 }
 
-pub(super) fn encode_paste_inner(
-    env: &mut Env,
-    _class: JClass,
-    session_id: jlong,
-    data: jbyteArray,
-) -> jbyteArray {
+pub(super) fn encode_paste_inner(env: &mut Env, session_id: jlong, data: jbyteArray) -> jbyteArray {
     // SAFETY: `data` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效。
     let Some(input) = (unsafe { read_byte_array(env, data, "encodePaste") }) else {
         return std::ptr::null_mut();

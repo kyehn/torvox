@@ -109,7 +109,7 @@ fn build_instances(c: &mut Criterion) {
                 &mut instances,
             ));
             black_box(instances.len());
-        })
+        });
     });
 }
 

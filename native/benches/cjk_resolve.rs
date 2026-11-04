@@ -32,7 +32,7 @@ fn cjk_resolve_steady_state(criterion: &mut Criterion) {
             for glyph in &line {
                 black_box(pipeline.glyph_information(black_box(*glyph)));
             }
-        })
+        });
     });
 }
 

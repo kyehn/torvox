@@ -12,7 +12,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listSessions<'
     _class: JClass<'local>,
 ) -> jlongArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        list_sessions_inner(env, _class)
+        list_sessions_inner(env)
     })
 }
 
@@ -118,10 +118,7 @@ pub(crate) fn string_to_jstring(env: &mut Env, text: &str) -> jstring {
 }
 
 /// 会话标识列表 → JNI `LongArray`；注册表为空时返回空数组。
-pub(super) fn list_sessions_inner<'local>(
-    env: &mut Env<'local>,
-    _class: JClass<'local>,
-) -> jlongArray {
+pub(super) fn list_sessions_inner<'local>(env: &mut Env<'local>) -> jlongArray {
     let ids: Vec<u64> = rlock_session_registry().keys().copied().collect();
     u64_vec_to_long_array(env, &ids)
 }

@@ -42,9 +42,8 @@ impl Renderer {
     /// 离开时的画面，而不是 300ms 的纯底色；累加器缺席或已失效（冷启动、尺寸/
     /// 格式变化）才退回背景色清屏。
     pub fn warmup(&self) {
-        let surface = match self.surface.as_ref() {
-            Some(s) => s,
-            None => return,
+        let Some(surface) = self.surface.as_ref() else {
+            return;
         };
         let Some(config) = self.surface_config.as_ref() else {
             return;

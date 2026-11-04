@@ -22,7 +22,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
     jni_export_guard!(&mut unowned_env, 0, |env| {
         init_session_inner(
             env,
-            _class,
             rows,
             cols,
             shell,
@@ -64,7 +63,6 @@ pub(super) fn read_jni_string(
 
 pub(super) fn init_session_inner(
     env: &mut Env,
-    _class: JClass,
     rows: jint,
     cols: jint,
     shell: JString,
@@ -74,25 +72,19 @@ pub(super) fn init_session_inner(
     mkshrc_path: JString,
     scrollback_lines: jint,
 ) -> jlong {
-    let rows = match u32::try_from(rows) {
-        Ok(r) => r,
-        Err(_) => {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("initSession: rows must be non-negative"),
-            );
-            return 0;
-        }
+    let Ok(rows) = u32::try_from(rows) else {
+        let _ = env.throw_new(
+            jni_str!("java/lang/IllegalArgumentException"),
+            jni_str!("initSession: rows must be non-negative"),
+        );
+        return 0;
     };
-    let cols = match u32::try_from(cols) {
-        Ok(c) => c,
-        Err(_) => {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("initSession: cols must be non-negative"),
-            );
-            return 0;
-        }
+    let Ok(cols) = u32::try_from(cols) else {
+        let _ = env.throw_new(
+            jni_str!("java/lang/IllegalArgumentException"),
+            jni_str!("initSession: cols must be non-negative"),
+        );
+        return 0;
     };
 
     let Some(shell_path) = read_jni_string(env, &shell, "initSession", "shell path") else {
@@ -187,7 +179,7 @@ pub(super) fn init_session_inner(
                 std::sync::atomic::Ordering::Relaxed,
             );
 
-            log::info!("FFI: initSession -> id={}", id);
+            log::info!("FFI: initSession -> id={id}");
             id as jlong
         }
         Err(error) => {
@@ -211,11 +203,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_destroySession
     session_id: jlong,
 ) -> jboolean {
     jni_export_guard!(&mut _unowned, JNI_FALSE, |env| {
-        destroy_session_inner(env, _class, session_id)
+        destroy_session_inner(env, session_id)
     })
 }
 
-pub(super) fn destroy_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> jboolean {
+pub(super) fn destroy_session_inner(_env: &mut Env, session_id: jlong) -> jboolean {
     let id = session_id as u64;
     // 先把条目从注册表取出并在**丢弃之前**释放写锁：`Session::drop` 会杀死子进程并 join
     // 其读取/等待线程（数十至数百毫秒），期间持有全局注册表锁会阻塞所有会话的
@@ -254,10 +246,10 @@ pub(super) fn destroy_session_inner(_env: &mut Env, _class: JClass, session_id: 
     // `removed_entry` 在**此处**、写锁之外丢弃（`Session::drop` 会杀死并 join 子进程线程）。
 
     if removed {
-        log::info!("FFI: destroySession id={}", id);
+        log::info!("FFI: destroySession id={id}");
         JNI_TRUE
     } else {
-        log::warn!("FFI: destroySession id={} not found", id);
+        log::warn!("FFI: destroySession id={id} not found");
         JNI_FALSE
     }
 }
@@ -273,11 +265,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_switchSession(
     session_id: jlong,
 ) -> jboolean {
     jni_export_guard!(&mut _unowned, JNI_FALSE, |env| {
-        switch_session_inner(env, _class, session_id)
+        switch_session_inner(env, session_id)
     })
 }
 
-pub(super) fn switch_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> jboolean {
+pub(super) fn switch_session_inner(_env: &mut Env, session_id: jlong) -> jboolean {
     let id = session_id as u64;
     // 在**写锁**下原子地检查并写入：先读锁检查再无锁写入会留下 TOCTOU 窗口——
     // 并发的 `destroySession` 可能在其间删除该 id，导致存入陈旧的活跃 id。
@@ -285,7 +277,7 @@ pub(super) fn switch_session_inner(_env: &mut Env, _class: JClass, session_id: j
     {
         let guard = wlock_session_registry();
         if !guard.contains_key(&id) {
-            log::warn!("FFI: switchSession id={} not found", id);
+            log::warn!("FFI: switchSession id={id} not found");
             return JNI_FALSE;
         }
         ACTIVE_SESSION_ID.store(id, std::sync::atomic::Ordering::Release);
@@ -313,7 +305,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resetTerminal(
             return Ok(());
         };
         session.lock().reset_terminal();
-    })
+    });
 }
 
 // ══════════════════════════════════════════════════════════════════════════

@@ -239,9 +239,8 @@ impl Renderer {
                 ..Default::default()
             }));
         }
-        let sampler = match self.kgp_sampler.as_ref() {
-            Some(s) => s,
-            None => return,
+        let Some(sampler) = self.kgp_sampler.as_ref() else {
+            return;
         };
 
         if self.kgp_uniform_buffer.is_none() {
@@ -252,9 +251,8 @@ impl Renderer {
                 mapped_at_creation: false,
             }));
         }
-        let uniform_buffer = match self.kgp_uniform_buffer.as_ref() {
-            Some(b) => b,
-            None => return,
+        let Some(uniform_buffer) = self.kgp_uniform_buffer.as_ref() else {
+            return;
         };
 
         let uniforms = self.cell_uniforms(
@@ -266,13 +264,11 @@ impl Renderer {
         self.queue
             .write_buffer(uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
-        let texture = match self.kgp_texture.as_ref() {
-            Some(t) => t,
-            None => return,
+        let Some(texture) = self.kgp_texture.as_ref() else {
+            return;
         };
-        let pipeline = match self.kgp_pipeline.as_ref() {
-            Some(p) => p,
-            None => return,
+        let Some(pipeline) = self.kgp_pipeline.as_ref() else {
+            return;
         };
 
         // 绑定组只在其依赖的图集纹理变化时重建。

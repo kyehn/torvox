@@ -124,7 +124,7 @@ impl super::GhosttyTerminal {
                         cache_stats: cache_stats_for_run.clone(),
                         #[cfg(test)]
                         batch_stats: batch_stats_for_run.clone(),
-                    })
+                    });
                 }));
                 if let Err(panic) = result {
                     let panic_message = crate::panic_text(panic.as_ref());
@@ -199,7 +199,7 @@ impl super::GhosttyTerminal {
         let mut guard = self
             .pty_write_responses
             .lock()
-            .unwrap_or_else(|error| error.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         std::mem::take(&mut *guard)
     }
 

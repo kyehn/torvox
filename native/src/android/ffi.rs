@@ -87,11 +87,11 @@ impl<T: Copy + Default, E: std::error::Error> jni::errors::ErrorPolicy<T, E>
         failure: &mut T,
         payload: Box<dyn std::any::Any + Send + 'static>,
     ) -> jni::errors::Result<T> {
-        if !env.exception_check() {
-            let _ = env.throw(format!("Rust panic: {}", take_panic_text_and_leak(payload)));
-        } else {
+        if env.exception_check() {
             // 已有 Java 异常在飞，载荷只需处置掉：仍走同一条「不销毁」路径。
             take_panic_text_and_leak(payload);
+        } else {
+            let _ = env.throw(format!("Rust panic: {}", take_panic_text_and_leak(payload)));
         }
         Ok(*failure)
     }
@@ -616,7 +616,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_prefetchRender
                 log::error!("render state prefetch skipped: {initialization_error}");
             }
         }
-    })
+    });
 }
 
 /// 确保渲染状态存在，首次使用时创建渲染器与字体管线。GPU 初始化失败时 panic
@@ -624,7 +624,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_prefetchRender
 fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
     let mut guard = RENDER_STATE
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if guard.is_none() {
         let renderer = crate::render::context::Renderer::new_with_no_surface();
         let font_pipeline = crate::render::font::FontPipeline::new(

@@ -181,7 +181,7 @@ impl super::GhosttyTerminal {
             }
             Ok(false) => {}
             Err(error) => {
-                log::warn!("ghostty_terminal: reading colour scheme mode failed: {error}")
+                log::warn!("ghostty_terminal: reading colour scheme mode failed: {error}");
             }
         }
     }

@@ -83,9 +83,8 @@ impl Renderer {
                 self.consecutive_skip_frames = self.consecutive_skip_frames.saturating_add(1);
                 if self.consecutive_skip_frames == SKIP_FATAL_FRAME_LIMIT {
                     log::error!(
-                        "begin_frame: {} consecutive frames skipped (acquire worker dead or repeatedly timing out); \
-                         screen frozen until the worker recovers",
-                        SKIP_FATAL_FRAME_LIMIT
+                        "begin_frame: {SKIP_FATAL_FRAME_LIMIT} consecutive frames skipped (acquire worker dead or repeatedly timing out); \
+                         screen frozen until the worker recovers"
                     );
                 }
             }
@@ -654,11 +653,7 @@ impl Renderer {
             .checked_mul(4)
             .and_then(|row| row.checked_mul(height as usize))
         else {
-            log::warn!(
-                "set_kgp_atlas: {}x{} overflows usize; atlas rejected",
-                width,
-                height
-            );
+            log::warn!("set_kgp_atlas: {width}x{height} overflows usize; atlas rejected");
             self.reject_kgp_atlas();
             return false;
         };
@@ -681,9 +676,7 @@ impl Renderer {
         let max_side = self.device.limits().max_texture_dimension_2d;
         if width > max_side || height > max_side {
             log::warn!(
-                "set_kgp_atlas: {}x{} exceeds device limit {max_side}; atlas rejected",
-                width,
-                height
+                "set_kgp_atlas: {width}x{height} exceeds device limit {max_side}; atlas rejected"
             );
             self.reject_kgp_atlas();
             return false;

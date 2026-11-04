@@ -401,12 +401,7 @@ impl FontPipeline {
         self.reset_atlas();
         self.refresh_cell_metrics();
         let (cw, ch) = self.cell_metrics();
-        log::debug!(
-            "FONT_SIZE_IN_PLACE: size={} cell={:.1}x{:.1}",
-            new_size,
-            cw,
-            ch
-        );
+        log::debug!("FONT_SIZE_IN_PLACE: size={new_size} cell={cw:.1}x{ch:.1}");
         (cw, ch)
     }
 
@@ -425,7 +420,7 @@ impl FontPipeline {
         // 负缓存的成立条件是「当前光栅尺寸下全库扫描描得出图」，故与光栅尺寸同批失效。
         self.caches.unresolvable_glyphs.clear();
         self.reset_atlas();
-        log::debug!("RASTER_SCALE: scale={:.3}", scale);
+        log::debug!("RASTER_SCALE: scale={scale:.3}");
     }
 
     pub fn get_raster_scale(&self) -> f32 {

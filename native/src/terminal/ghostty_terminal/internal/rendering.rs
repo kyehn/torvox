@@ -194,22 +194,19 @@ impl super::GhosttyTerminal {
             let mut cached_flags = 0u32;
 
             while let Some(cell) = cell_iter_impl.next() {
-                let raw = match cell.raw_cell() {
-                    Ok(raw_cell) => raw_cell,
-                    Err(_) => {
-                        // `raw_cell()` 失败则宽度无从得知（宽度只存在于 raw cell），
-                        // 只能按 1 列推进——这是该失败路径的固有上限。
-                        Self::push_blank_cell(
-                            &mut row_data,
-                            default_foreground,
-                            default_background,
-                            current_row,
-                            current_col,
-                            1,
-                        );
-                        current_col += 1;
-                        continue;
-                    }
+                let Ok(raw) = cell.raw_cell() else {
+                    // `raw_cell()` 失败则宽度无从得知（宽度只存在于 raw cell），
+                    // 只能按 1 列推进——这是该失败路径的固有上限。
+                    Self::push_blank_cell(
+                        &mut row_data,
+                        default_foreground,
+                        default_background,
+                        current_row,
+                        current_col,
+                        1,
+                    );
+                    current_col += 1;
+                    continue;
                 };
 
                 let style_id = raw.style_id().ok();
@@ -421,9 +418,9 @@ impl super::GhosttyTerminal {
         // 故不复用 `build_cell_data` 跨帧持有的那一套。上游的脏状态按实例保存
         // （见 render.rs 模块文档「dirty tracking」），两套实例互不消费对方的
         // 脏标记——共用会使行级判定读到已被快照路径 `clean` 清掉的状态。
-        let (mut render_state, mut row_iter, mut cell_iter) = match create_render_iterators() {
-            Some(iterator_bundle) => iterator_bundle,
-            None => return GridSnapshot::fallback(rows, cols),
+        let Some((mut render_state, mut row_iter, mut cell_iter)) = create_render_iterators()
+        else {
+            return GridSnapshot::fallback(rows, cols);
         };
 
         let snapshot = match render_state.update(terminal) {

@@ -285,10 +285,7 @@ pub fn last_content_row(
 
 /// 码点是否为可见内容：排除 `NUL`（未写入）、空格与制表（终端内已展开为空格）。
 fn is_content_codepoint(codepoint: u32) -> bool {
-    !matches!(
-        char::from_u32(codepoint),
-        None | Some(' ') | Some('\t') | Some('\0')
-    )
+    !matches!(char::from_u32(codepoint), None | Some(' ' | '\t' | '\0'))
 }
 
 /// 增量渲染的行级实例缓存（FR-013 / NFR-010）。

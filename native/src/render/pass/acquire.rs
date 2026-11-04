@@ -56,7 +56,7 @@ impl AcquireLane {
         let mut in_flight = self
             .in_flight
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *in_flight += 1;
     }
 
@@ -69,7 +69,7 @@ impl AcquireLane {
         let mut in_flight = self
             .in_flight
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *in_flight = in_flight.saturating_sub(1);
         if *in_flight == 0 {
             self.idle.notify_all();
@@ -84,7 +84,7 @@ impl AcquireLane {
         let mut in_flight = self
             .in_flight
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         while *in_flight > 0 {
             let now = std::time::Instant::now();
             if now >= deadline {
@@ -93,7 +93,7 @@ impl AcquireLane {
             let (guard, wait) = self
                 .idle
                 .wait_timeout(in_flight, deadline - now)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             in_flight = guard;
             if wait.timed_out() && *in_flight > 0 {
                 return false;

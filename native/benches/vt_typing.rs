@@ -42,7 +42,7 @@ fn typing_latency(c: &mut Criterion) {
             terminal.flush();
             let count = black_box(terminal.receive_cell_data().map(|(cells, _)| cells.len()));
             black_box(count);
-        })
+        });
     });
 }
 

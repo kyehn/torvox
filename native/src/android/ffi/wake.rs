@@ -57,7 +57,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wakeRender(
         if let Some(wake) = wake {
             wake.notify();
         }
-    })
+    });
 }
 
 // ── 事件轮询 ────────────────────────────────────────────────────

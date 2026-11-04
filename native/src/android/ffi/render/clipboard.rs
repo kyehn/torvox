@@ -98,8 +98,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clipboardResul
     text: JString<'local>,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
-        clipboard_result_inner(env, _class, session_id, request_id, text)
-    })
+        clipboard_result_inner(env, session_id, request_id, text);
+    });
 }
 
 /// 剪贴板应答回写失败是否属于「会话已结束」这一正常终态。
@@ -111,7 +111,7 @@ fn clipboard_write_back_session_gone(error: &SessionError) -> bool {
         SessionError::Closed => true,
         SessionError::Io(io_error) => matches!(
             io_error.raw_os_error().map(nix::errno::Errno::from_raw),
-            Some(nix::errno::Errno::EIO) | Some(nix::errno::Errno::EPIPE)
+            Some(nix::errno::Errno::EIO | nix::errno::Errno::EPIPE)
         ),
         _ => false,
     }
@@ -128,7 +128,6 @@ fn log_clipboard_write_back_failure(error: &SessionError) {
 
 pub(super) fn clipboard_result_inner<'local>(
     env: &mut Env<'local>,
-    _class: JClass<'local>,
     session_id: jlong,
     request_id: jlong,
     text: JString<'local>,

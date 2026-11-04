@@ -47,11 +47,11 @@ pub(super) fn cell_metrics_packed_from(width: f32, height: f32) -> jlong {
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsColsPacked(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
-    _session_id: jlong,
+    session_id: jlong,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, 0, |_env| {
         let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&(_session_id as u64)) else {
+        let Some(entry) = registry.get(&(session_id as u64)) else {
             return Ok(0);
         };
         let session = entry.session.lock();
@@ -127,13 +127,13 @@ pub(super) fn scroll_target(target: i64, last_offset: i64) -> Option<ViewportTar
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffset(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
-    _session_id: jlong,
+    session_id: jlong,
     offset: jint,
 ) -> jboolean {
     jni_export_guard!(&mut unowned_env, JNI_TRUE, |_env| {
         let target = offset.max(0) as i64;
         let (sent, request_id) = {
-            let Some(session) = session_handle(_session_id as u64) else {
+            let Some(session) = session_handle(session_id as u64) else {
                 return Ok(JNI_TRUE);
             };
             // 每会话独立计算增量：此前代码按单一全局 `render_state.scroll_offset`
@@ -205,7 +205,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollYPx(
         // 触摸滚动的每个 MOVE 都会走到这里（数十次/手势），日志级别取 trace：
         // 与同路径的 `setScrollOffset` 同级，debug 级只会把 logcat 刷满。
         log::trace!("setScrollYPx: {offset_px}");
-    })
+    });
 }
 
 /// 远端当前是否处于备用屏幕缓冲（vim / less / htop）。无锁读取 VT 线程在每次
