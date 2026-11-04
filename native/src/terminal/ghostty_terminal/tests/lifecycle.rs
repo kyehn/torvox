@@ -35,16 +35,30 @@ fn scroll_viewport_reuses_shifted_rows() {
 /// 输出发生在滚动之后时，待平移量必须丢弃：否则平移帧会跳过上游脏标记，
 /// 把滚动前的旧行当成新内容复用。计数是唯一判别力来源——内容断言在
 /// 视口外的输出上看不出差别。
+///
+/// 判别力只在「滚动与写入同一批」时成立：写入若另起一批，滚动帧已先行消费
+/// 待平移量，写入帧走的是常规脏行路径，两种批划分下计数同为 2，缺陷即不可见。
+/// 故用零容量通道做栅栏把二者钉进同一批：`FlushAck` 的应答在批尾同步发送，
+/// 零容量通道让 VT 线程在应答处阻塞到本用例收下应答为止；此期间滚动与写入
+/// 已按序排队，VT 线程恢复后必在同一批内取出二者。
 #[test]
 fn write_after_scroll_does_not_reuse_shifted_rows() {
     let mut terminal_under_test = terminal_with_twenty_lines();
     terminal_under_test.take_cache_stats();
 
+    let (barrier_tx, barrier_rx) = flume::bounded(0);
+    terminal_under_test
+        .cmd_tx
+        .try_send(Command::FlushAck(barrier_tx))
+        .expect("栅栏命令须入队");
     assert!(
         terminal_under_test.scroll_viewport(ViewportTarget::Delta(-2)),
         "scroll_viewport should accept delta"
     );
     terminal_under_test.vt_write(b"post-scroll output\n");
+    // 收下栅栏应答：VT 线程此前一直阻塞在批尾的应答发送上。
+    barrier_rx.recv().expect("栅栏应答");
+
     terminal_under_test.flush();
     assert!(
         terminal_under_test.receive_cell_data().is_some(),
