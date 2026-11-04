@@ -29,6 +29,11 @@ internal class DocumentQueries(
      */
     private val listDirectoryEntries: (File) -> Array<File>? = { it.listFiles() },
 ) {
+    companion object {
+        /** 编辑器替换保存流程的让位文件后缀（`deploy.sh` → `15398985.rollback`）。 */
+        const val ROLLBACK_SUFFIX = ".rollback"
+    }
+
     /**
      * 暴露给系统文件选择器的家目录，返回**规范形式**：`encodeDocId` 以
      * `rootDir.canonicalPath` 剥前缀，若这里交出词法路径形式（`/data/user/0/…` 之类
@@ -104,6 +109,15 @@ internal class DocumentQueries(
             listDirectoryEntries(parentCanonical)
                 ?: throw FileNotFoundException("queryChildDocuments: cannot list directory '$parentRel'")
         for (child in children) {
+            // 编辑器「替换保存」的让位文件（rename 原文件为 `.rollback` → 建同名
+            // 新文件 → 删让位文件）是过程性临时名，不是用户文件：列表不显示它。
+            // 显示的后果是客户端缓存列表里留下已删除的幽灵行，回查幽灵行触发
+            // 框架 W 级日志「DocumentsProvider: Failed during query ... no such
+            // document '*.rollback'」。rename/delete 走 docId 直呼不经列表，
+            // 隐藏它不影响编辑器的替换流程本身。
+            if (child.name.endsWith(ROLLBACK_SUFFIX)) {
+                continue
+            }
             val attributes =
                 try {
                     Files.readAttributes(

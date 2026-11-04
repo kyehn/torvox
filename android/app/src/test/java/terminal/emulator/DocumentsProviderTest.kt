@@ -862,6 +862,29 @@ class DocumentsProviderTest {
     }
 
     @Test
+    fun queryChildDocuments_hides_rollback_placeholder_files() {
+        // 编辑器「替换保存」的让位文件是过程性临时名：列表显示它，客户端缓存
+        // 的幽灵行会在删除后回查，触发框架 W 级「Failed during query ...
+        // no such document '*.rollback'」。列表不含它，幽灵行与回查都不发生。
+        val provider = ensureProvider()
+        val kept = java.io.File(rootDir(), "deploy.sh").apply { writeText("#!/bin/sh\n") }
+        java.io.File(rootDir(), "15398985.rollback").apply { writeText("superseded") }
+        java.io.File(rootDir(), "rollback").apply { writeText("plain name is NOT hidden") }
+        val childCursor = provider.queryChildDocuments("terminal_home", null, null as String?)
+        val names = mutableListOf<String>()
+        childCursor.use {
+            val nameIndex = it.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            while (it.moveToNext()) names.add(it.getString(nameIndex))
+        }
+        assertTrue("普通文件必须仍在列表", names.contains(kept.name))
+        assertTrue("无后缀的同名条目不是让位文件，不得隐藏", names.contains("rollback"))
+        assertTrue(
+            "`.rollback` 让位文件不得出现在列表（缓存幽灵行是 W 级日志的根源）",
+            names.none { it.endsWith(DocumentQueries.ROLLBACK_SUFFIX) },
+        )
+    }
+
+    @Test
     fun queryChildDocuments_missing_directory_throws() {
         // 空游标会把「目录已消失」伪装成「空目录」，客户端继续往不存在处写入。
         try {
