@@ -17,7 +17,7 @@
 
 ## 受保护文件
 
-以下文件更改时需谨慎，须遵循 `docs/specification/` 和用户要求：
+以下文件更改时需谨慎，须遵循 `docs/specification/` 和用户要求，需用户同意后方可修改实际内容，严禁非法修改：：
 
 - `Cargo.toml`
 - `build.gradle.kts`

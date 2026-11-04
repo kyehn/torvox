@@ -18,16 +18,6 @@ jobs:
         with:
           repository: ${{ github.actor }}/kudzu
           path: result-kudzu
-      # 与 build.yml 同因：镜像预装的 dotnet/ghc/boost/ghcup/mono 用不到，而 nix
-      # 闭包解包需要数 GB——不回收就把根分区吃满，install-nix 阶段 ENOSPC
-      # （CI 实录：copying path ... No space left on device）。
-      - name: 释放 runner 磁盘
-        run: |
-          df -h /
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/.ghcup /usr/lib/mono
-          sudo apt-get clean
-          sudo docker image prune --all --force || true
-          df -h /
       - uses: ./result-kudzu/.github/actions/install-nix
       - uses: cachix/cachix-action@master
         continue-on-error: true

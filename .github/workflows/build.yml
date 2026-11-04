@@ -1,6 +1,12 @@
 name: build
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'release'
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: '0 6 * * *'
 concurrency:
@@ -11,25 +17,14 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 55
     steps:
+      - run: sudo rm --recursive --force /opt/hostedtoolcache /opt/google /opt/microsoft /var/lib/docker /snap /var/lib/snapd /usr/lib/snapd /usr/share/doc /usr/share/man /usr/share/info
       - uses: actions/checkout@main
       - uses: actions/checkout@main
         with:
           repository: ${{ github.actor }}/kudzu
           path: result-kudzu
-      # ubuntu-26.04 镜像上 `install-nix` 自带的清理步骤全部 skipped（日志里三个
-      # rm 步骤结论均为 skipped），于是「4.7GB 缓存 + nix 闭包」把根分区吃满，
-      # 闭包解包时 write 直接 ENOSPC。这里显式回收与本次构建无关的预装工具链：
-      # dotnet/ghc/boost/ghcup/mono 都用不到，Android SDK（含 NDK）与系统镜像
-      # 必须保留——构建与模拟器步骤都依赖它们。
-      - name: 释放 runner 磁盘
-        run: |
-          df -h /
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/.ghcup /usr/lib/mono
-          sudo apt-get clean
-          sudo docker image prune --all --force || true
-          df -h /
       - uses: ./result-kudzu/.github/actions/install-nix
       - uses: cachix/cachix-action@master
         continue-on-error: true
@@ -76,8 +71,6 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
-          # API 35 系统自身占用高；1.5G 时 warmStart 十轮后内存压力累积，
-          # coldStart 阶段 adbd 直接掉线（CI 实录 device offline），3G 保证宏基准完整跑完。
           ram-size: 3072M
           emulator-boot-timeout: 600
           cores: 2
@@ -86,11 +79,13 @@ jobs:
           script: |
             set -e
             nix develop --command nu ${{ github.workspace }}/scripts/test-emulator.nu
-      - run: |
+      - if: ${{ inputs.release }}
+        run: |
           git tag --force 0.1.0
           git push origin 0.1.0 --force
           scripts/build-apk.nu --release
-      - uses: softprops/action-gh-release@master
+      - if: ${{ inputs.release }}
+        uses: softprops/action-gh-release@master
         with:
           tag_name: 0.1.0
           generate_release_notes: false
