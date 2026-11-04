@@ -1,8 +1,5 @@
 package terminal.emulator.settings
 
-import kotlin.math.floor
-import kotlin.math.sqrt
-
 /**
  * `~/.termux/colors.properties` 的解析结果：对终端主题的**部分覆盖**。
  *
@@ -11,6 +8,10 @@ import kotlin.math.sqrt
  * 之上，未写的槽沿用主题原色。
  *
  * 色值一律 `0xRRGGBB`：alpha 恒为不透明（上游的 `TerminalColors.parse` 也只产出不透明色）。
+ *
+ * 这里只搬运用户**写了的**颜色：光标色随背景亮度的自适应属于调色板规则，由原生的
+ * `Palette::with_overrides` 处理（见 `theme.rs`）。Kotlin 侧再实现一份，两端的规则
+ * 就有了两份，改一处忘另一处时表现是「改了背景，光标有时跟着变有时不变」。
  */
 data class ColorsProperties(
     val foreground: Int? = null,
@@ -29,6 +30,9 @@ data class ColorsProperties(
      * 未覆盖的槽填 [NO_OVERRIDE]，由原生按当前主题补齐——Kotlin 侧不持有主题色副本，
      * 替它猜一个值就是「改了背景，光标跟着变白」。槽位顺序是跨语言契约，与原生
      * `theme::PALETTE_OVERRIDE_SLOTS` 对齐。
+     *
+     * [NO_OVERRIDE] 取 `-1`：色值是 `0xRRGGBB`（最高 `0xFFFFFF`），负值落在色值域之外，
+     * 故它不可能与任何合法颜色相撞。
      */
     fun toPaletteOverride(): IntArray {
         val slots = IntArray(PALETTE_OVERRIDE_SLOTS) { NO_OVERRIDE }
@@ -111,12 +115,13 @@ internal object ColorsPropertiesParser {
             }
         }
 
+        // 显式键优先于别名。
         val effectiveForeground = foreground ?: aliasedForeground
         val effectiveBackground = background ?: aliasedBackground
-        // 背景被覆盖而光标未指定时，光标色按背景亮度定（上游
-        // `TerminalColorScheme.setCursorColorForBackground`）：主题自带的光标色是按主题
-        // 背景算的，背景换掉后它可能与新背景同色而看不见。
-        val effectiveCursor = cursor ?: aliasedCursor ?: effectiveBackground?.let { cursorForBackground(it) }
+        // 光标色只搬运用户写了的值：背景被覆盖而光标未指定时，光标随背景亮度的自适应
+        // 由原生的调色板合并处理（上游 `TerminalColorScheme.setCursorColorForBackground`
+        // 的口径），Kotlin 侧不再算一遍。
+        val effectiveCursor = cursor ?: aliasedCursor
 
         return ColorsPropertiesLoad(
             ColorsProperties(effectiveForeground, effectiveBackground, effectiveCursor, ansi),
@@ -160,22 +165,3 @@ internal fun parseXQueryColor(raw: String): Int? {
     val blue = (components[2].toLong(16) * scale).toInt()
     return (red shl 16) or (green shl 8) or blue
 }
-
-/**
- * 上游 `TerminalColors.getPerceivedBrightnessOfColor` 的 HSP 感知亮度，值域 0..255。
- */
-private fun perceivedBrightness(color: Int): Int {
-    val red = (color shr 16) and 0xFF
-    val green = (color shr 8) and 0xFF
-    val blue = color and 0xFF
-    return floor(sqrt(0.241 * red * red + 0.691 * green * green + 0.068 * blue * blue)).toInt()
-}
-
-/**
- * 背景被覆盖而光标未指定时的光标色（上游 `TerminalColorScheme.setCursorColorForBackground`）：
- * 背景暗取白，背景亮取黑。阈值 130 是上游的亮度分界。
- */
-private fun cursorForBackground(background: Int): Int = if (perceivedBrightness(background) < 130) WHITE else BLACK
-
-private const val WHITE = 0xFFFFFF
-private const val BLACK = 0x000000

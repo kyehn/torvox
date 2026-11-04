@@ -27,7 +27,16 @@ pub enum ViewportTarget {
 pub enum Command {
     Write(Vec<u8>),
     FlushAck(Sender<()>),
-    SetTheme(&'static crate::terminal::theme::Theme),
+    /// 换主题：主题与其上叠加的 `colors.properties` 覆盖**合并后**的调色板。
+    ///
+    /// 合并在下发前完成，命令只携带一份调色板：终端默认色、ANSI 调色板、光标色与
+    /// 搜索高亮色都从它取，不存在第二份颜色副本。
+    SetTheme {
+        /// 主题标识（日志与诊断用）。
+        name: &'static str,
+        /// 合并后的调色板。
+        palette: crate::terminal::theme::Palette,
+    },
     /// 默认光标样式（`termux.properties` 的 `terminal-cursor-style`）。
     ///
     /// 是**默认值**：程序仍可用 DECSCUSR 覆盖它，覆盖优先级与 termux 一致。

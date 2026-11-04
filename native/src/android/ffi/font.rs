@@ -357,12 +357,17 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
 
 /// 按标识应用主题：终端默认色与调色板进 VT 线程，光标色与搜索高亮色供渲染态取用。
 /// 标识未知即抛异常——主题真源在 [`crate::terminal::theme`]，Kotlin 无从构造清单外的主题。
+///
+/// `overrides` 是 `colors.properties` 的覆盖通道：19 个槽位（背景、前景、光标、16 个
+/// ANSI 色），负值表示该槽沿用主题原色。合并只在此处做一次，故终端默认色、ANSI 调色板、
+/// 光标色与搜索高亮色全都取自同一份合并后的调色板。
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
     theme_name: JString,
+    overrides: jintArray,
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
         let id = session_id as u64;
@@ -376,7 +381,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
             );
             return Ok(());
         };
-        let background = entry.palette.background;
+        // SAFETY: `overrides` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效。
+        let Some(slots) = (unsafe { read_int_array(env, overrides, "setTheme") }) else {
+            return Ok(());
+        };
+        let palette_override = match theme::PaletteOverride::from_slots(&slots) {
+            Ok(palette_override) => palette_override,
+            Err(message) => {
+                throw_illegal_argument(env, &format!("setTheme: {message}"));
+                return Ok(());
+            }
+        };
+        let palette = entry.palette.with_overrides(&palette_override);
+        let background = palette.background;
         {
             let registry = rlock_session_registry();
             let Some(session_entry) = registry.get(&id) else {
@@ -384,7 +401,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
                 return Ok(());
             };
             let session = session_entry.session.lock();
-            session.terminal().set_theme(entry);
+            session
+                .terminal()
+                .set_theme_palette(entry.name, palette.clone());
             // 先让 VT 线程把换主题后的单元数据推出来，再标记渲染脏：
             // 否则渲染线程可能先用旧单元数据 + 新背景色重绘一帧，造成新旧底色混屏。
             session.terminal().flush();
@@ -398,7 +417,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         // `is_default_background` 恒为 false，背景色判定失效。
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
-            render_state.palette = entry.palette.clone();
+            render_state.palette = palette;
             render_state.renderer.set_background_color(background);
             // 主题色存于实例缓存，闲时无新 CellData 则颜色过期，一并重绘。
             render_state.renderer.cell_cache = None;
@@ -409,6 +428,35 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         drop(state);
         log::info!("setTheme: session {id} theme={name}");
     })
+}
+
+/// 读取 JNI `int[]`（调色板覆盖通道）。
+///
+/// # Safety
+/// `data` 须是本次 JNI 调用期间有效的 `jintArray`（JNI 方法参数即满足）。
+unsafe fn read_int_array(env: &mut Env, data: jintArray, label: &str) -> Option<Vec<i32>> {
+    // SAFETY: 调用方保证 `data` 在本次调用期间有效；`from_raw` 只包装指针而不
+    // 取得所有权，局部引用由 JVM 在本 native 方法返回时释放。
+    let array = unsafe { jni::objects::JIntArray::from_raw(env, data) };
+    let length = match array.len(env) {
+        Ok(length) => length,
+        Err(error) => {
+            let message = jni::strings::JNIString::from(format!(
+                "{label}: failed to read the override array length: {error}"
+            ));
+            let _ = env.throw_new(jni_str!("java/lang/RuntimeException"), &message);
+            return None;
+        }
+    };
+    let mut values = vec![0i32; length];
+    if let Err(error) = array.get_region(env, 0, &mut values) {
+        let message = jni::strings::JNIString::from(format!(
+            "{label}: failed to read the override array: {error}"
+        ));
+        let _ = env.throw_new(jni_str!("java/lang/RuntimeException"), &message);
+        return None;
+    }
+    Some(values)
 }
 
 /// 设置会话的默认光标样式（`termux.properties` 的 `terminal-cursor-style`）。

@@ -29,8 +29,10 @@ impl super::GhosttyTerminal {
                 batch.acks.push(tx);
                 CommandOutcome::Continue
             }
-            Command::SetTheme(theme) => {
-                Self::apply_theme_command(theme, config, terminal, extractors, state, batch);
+            Command::SetTheme { name, palette } => {
+                Self::apply_theme_command(
+                    name, &palette, config, terminal, extractors, state, batch,
+                );
                 CommandOutcome::Continue
             }
             Command::SetCursorStyle(style) => {
@@ -94,20 +96,21 @@ impl super::GhosttyTerminal {
 
     /// 换主题。
     ///
-    /// 默认前景/背景参与每个单元的颜色解算，故缓存中的颜色逐行过时。
+    /// 传入的调色板已与 `colors.properties` 覆盖合并：默认前景/背景参与每个单元的
+    /// 颜色解算，故缓存中的颜色逐行过时。
     fn apply_theme_command<'term>(
-        theme: &'static crate::terminal::theme::Theme,
+        name: &str,
+        palette: &crate::terminal::theme::Palette,
         config: &RunConfig,
         terminal: &mut Terminal<'term, '_>,
         extractors: &mut RenderExtractors<'term>,
         state: &mut CommandState,
         batch: &mut BatchState,
     ) {
-        state.default_background = Self::color_to_float(theme.palette.background);
-        state.default_foreground = Self::color_to_float(theme.palette.foreground);
+        state.default_background = Self::color_to_float(palette.background);
+        state.default_foreground = Self::color_to_float(palette.foreground);
         log::debug!(
-            "SetTheme: {} -> default_background={:?} default_foreground={:?}",
-            theme.name,
+            "SetTheme: {name} -> default_background={:?} default_foreground={:?}",
             state.default_background,
             state.default_foreground
         );
@@ -115,8 +118,10 @@ impl super::GhosttyTerminal {
         // OSC 默认色转义（默认值归内嵌方所有，OSC 4 覆盖由上游处理），
         // 所以 OSC 方案会静默保留内置的 xterm 调色板。
         // 这些 setter 写入的默认色正是上游单元颜色查询的解析基准。
-        Self::apply_theme(terminal, &theme.palette);
-        Self::report_color_scheme_on_change(terminal, config, theme.dark);
+        Self::apply_theme(terminal, palette);
+        // 明暗按**合并后**的背景亮度判定：深色主题被 `colors.properties` 覆盖成浅色
+        // 背景时，仍须向 PTY 上报日间模式。
+        Self::report_color_scheme_on_change(terminal, config, palette.is_dark());
         mark_grid_dirty(&mut state.grid_dirty, &mut state.cached_all_text);
         extractors.invalidate_row_cache();
         state.cell_data_dirty = true;

@@ -110,18 +110,13 @@ class ColorsPropertiesParserTest {
     }
 
     /**
-     * 背景被覆盖而光标未指定时，光标按背景亮度定（上游
-     * `setCursorColorForBackground`）：主题自带的光标色是按主题背景算的，背景换掉后
-     * 它可能与新背景同色而看不见。
+     * 光标色只搬运用户写了的值：背景被覆盖而光标未指定时，光标随背景亮度的自适应
+     * 由原生的调色板合并处理（上游 `setCursorColorForBackground` 的口径）。Kotlin 侧
+     * 再算一遍，两端的规则就有了两份。
      */
     @Test
-    fun `the cursor follows the overridden background`() {
-        assertEquals(0x000000, parse("background = #FFFFFF").properties.cursor)
-        assertEquals(0xffffff, parse("background = #101010").properties.cursor)
-    }
-
-    @Test
-    fun `an explicit cursor wins over the background derived one`() {
+    fun `the cursor is only carried over when it is written`() {
+        assertNull(parse("background = #FFFFFF").properties.cursor)
         assertEquals(0xff0000, parse("background = #FFFFFF\ncursor = #FF0000").properties.cursor)
     }
 

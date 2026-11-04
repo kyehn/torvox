@@ -27,8 +27,8 @@
 
 应用 MUST NOT 创建、写入或修改该文件。
 
-`colors.properties` 与 `termux.float.properties` MUST NOT 被读取或解析；终端配色只来自
-内置主题，浮动窗口功能不在本仓范围。
+`termux.float.properties` MUST NOT 被读取或解析；浮动窗口功能不在本仓范围。终端配色的
+部分覆盖由 `colors-configuration` 能力定义，不在本能力范围内。
 
 #### Scenario: 文件写到一半
 
@@ -62,8 +62,8 @@
 
 #### Scenario: 其他 properties 文件不生效
 
-- **WHEN** 用户写入 `~/.termux/colors.properties` 或 `~/.termux/termux.float.properties`
-- **THEN** 两个文件均不被读取，不影响配色或任何其他行为
+- **WHEN** 用户写入 `~/.termux/termux.float.properties`
+- **THEN** 该文件不被读取，不影响窗口行为或任何其他行为
 
 ### Requirement: properties 语法
 

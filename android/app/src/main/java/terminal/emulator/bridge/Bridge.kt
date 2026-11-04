@@ -410,11 +410,12 @@ class Bridge(private val config: TerminalConfig) {
     }
 
     // ── 主题 / 外观 ──
-    // 端到端接线：只下发主题标识，终端默认色、ANSI 调色板、光标色与搜索高亮色都由
-    // 原生按同一份构建期嵌入的 alacritty 主题解析，故两端不可能各自持一份颜色。
-    fun setTheme(themeName: String) {
+    // 端到端接线：只下发主题标识与 `colors.properties` 的覆盖槽，终端默认色、ANSI
+    // 调色板、光标色与搜索高亮色都由原生按同一份构建期嵌入的 alacritty 主题解析并
+    // 合并覆盖，故两端不可能各自持一份颜色。
+    fun setTheme(themeName: String, overrides: IntArray) {
         LogUtil.debug(TAG, "setTheme: $themeName")
-        onSession("setTheme", Unit) { NativeBridge.setTheme(it, themeName) }
+        onSession("setTheme", Unit) { NativeBridge.setTheme(it, themeName, overrides) }
     }
 
     /** 默认光标样式（`terminal-cursor-style`）；程序用 DECSCUSR 覆盖时以程序为准。 */

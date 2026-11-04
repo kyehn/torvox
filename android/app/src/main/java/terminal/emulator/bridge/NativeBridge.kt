@@ -404,9 +404,15 @@ object NativeBridge {
     /** RIS 全重置当前会话：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。 */
     @JvmStatic external fun resetTerminal(sessionId: Long)
 
-    /** 按标识应用主题：调色板真源在原生，Kotlin 只传设置里存的标识。 */
+    /**
+     * 按标识应用主题：调色板真源在原生，Kotlin 只传设置里存的标识。
+     *
+     * [overrides] 是 `~/.termux/colors.properties` 的覆盖通道：19 个槽位（背景、前景、
+     * 光标、16 个 ANSI 色），负值表示该槽沿用主题原色。合并在原生侧做一次，故终端
+     * 默认色、ANSI 调色板、光标色与搜索高亮色全都取自同一份调色板。
+     */
     @JvmStatic
-    external fun setTheme(sessionId: Long, themeName: String)
+    external fun setTheme(sessionId: Long, themeName: String, overrides: IntArray)
 
     /**
      * 设置会话的默认光标样式（`termux.properties` 的 `terminal-cursor-style`）。

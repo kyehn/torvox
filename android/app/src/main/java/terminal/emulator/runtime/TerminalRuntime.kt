@@ -46,6 +46,7 @@ import terminal.emulator.monitor.FrameMarks
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.resolveEffectiveFontFamily
 import terminal.emulator.service.TerminalForegroundService
+import terminal.emulator.settings.ColorsProperties
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.settings.TerminalCursorStyle
 import terminal.emulator.settings.TermuxPropertiesRepository
@@ -2616,9 +2617,10 @@ constructor(
         }
         // LogUtil.d 已写入 logcat，不重复输出。
         LogUtil.debug("Runtime", "start() called: surface=$surface width=$width height=$height")
-        // 首帧前读一次 termux.properties：这份文件不经过本应用的设置页
-        // （用户用 `adb push`、SAF 或装包脚本改写），规格要求只在应用启动时读一次，
-        // 之后文件的变化等下次启动生效。读失败不阻断启动——最坏是用内置默认值。
+        // 首帧前读一次 termux 配置文件（termux.properties 与 colors.properties）：这些
+        // 文件不经过本应用的设置页（用户用 `adb push`、SAF 或装包脚本改写），规格要求
+        // 只在应用启动时读一次，之后文件的变化等下次启动生效。读失败不阻断启动——最坏
+        // 是用内置默认值。
         termuxProperties.loadOnce()
         if (!NativeBridge.isNativeLoaded()) {
             // NativeInit 线程后台加载 libnative：首帧 surface 就绪时可能尚未完成。
@@ -3642,6 +3644,7 @@ constructor(
                 themeName = config.themeName,
                 rasterScale = spToPxScale,
                 cursorStyleNativeValue = termux.properties.terminalCursorStyle.nativeValue,
+                themeOverrides = termux.colors.toPaletteOverride(),
             )
         sessions.values.forEach { entry ->
             try {
@@ -4409,6 +4412,7 @@ constructor(
                 themeName = config.themeName,
                 rasterScale = spToPxScale,
                 cursorStyleNativeValue = termux.properties.terminalCursorStyle.nativeValue,
+                themeOverrides = termux.colors.toPaletteOverride(),
             ),
         )
         appliedFontSizeTenths = config.fontSizeTenths
@@ -4802,7 +4806,7 @@ internal val rasterScaleRange: ClosedFloatingPointRange<Float> by lazy {
  * 字形被拉伸，单元格度量与网格整体偏掉一个 fontScale 倍。
  */
 private fun Bridge.applyRenderContract(contract: RenderContract) {
-    setTheme(contract.themeName)
+    setTheme(contract.themeName, contract.themeOverrides)
     setCursorStyle(contract.cursorStyleNativeValue)
     applyFontContract(contract.fontFamily, contract.fontSizeTenths, contract.rasterScale)
 }
@@ -4829,6 +4833,13 @@ private data class RenderContract(
     val rasterScale: Float,
     /** `termux.properties` 的 `terminal-cursor-style`，取 `TerminalCursorStyle.nativeValue`。 */
     val cursorStyleNativeValue: Int = TerminalCursorStyle.BLOCK.nativeValue,
+    /**
+     * `colors.properties` 的调色板覆盖槽（19 个，未覆盖的槽为负值）。
+     *
+     * 随主题一起下发：覆盖是**全局配置**，不随主题切换消失，故每次换主题都带上它。
+     * 默认值是「全部槽不覆盖」——原生按固定长度解包，槽数不对会被拒收。
+     */
+    val themeOverrides: IntArray = IntArray(ColorsProperties.PALETTE_OVERRIDE_SLOTS) { ColorsProperties.NO_OVERRIDE },
 )
 
 /**

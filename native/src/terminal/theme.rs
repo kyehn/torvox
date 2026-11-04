@@ -183,6 +183,145 @@ impl Palette {
             ansi,
         })
     }
+
+    /// 用 `overrides` 逐槽覆盖自身，未覆盖的槽保持原值。
+    ///
+    /// 光标色是唯一的**派生**槽：背景被覆盖而光标未指定时，光标按背景的感知亮度取
+    /// 白色或黑色（上游 termux `TerminalColorScheme.setCursorColorForBackground` 的
+    /// 口径）——主题自带的光标色是按主题背景算的，背景换掉后它可能与新背景同色而
+    /// 看不见。背景未被覆盖时，主题的光标色原样保留。
+    ///
+    /// 选区底色没有对应键——`colors.properties` 没有它——原样保留，故覆盖后的选区色
+    /// 仍与主题一致。
+    pub fn with_overrides(&self, overrides: &PaletteOverride) -> Self {
+        let background = overrides.background.unwrap_or(self.background);
+        let cursor = overrides
+            .cursor
+            .unwrap_or_else(|| match overrides.background {
+                Some(_) => cursor_for_background(background),
+                None => self.cursor,
+            });
+        let mut ansi = self.ansi;
+        for (index, color) in overrides.ansi.iter().enumerate() {
+            if let Some(color) = color {
+                ansi[index] = *color;
+            }
+        }
+        Self {
+            background,
+            foreground: overrides.foreground.unwrap_or(self.foreground),
+            cursor,
+            selection_background: self.selection_background,
+            ansi,
+        }
+    }
+
+    /// 深底判定：与 [`Theme::dark`] 同口径（背景的 ghostty 感知亮度不超过 0.5）。
+    ///
+    /// 明暗上报取的是**合并后**的背景：深色主题被 `colors.properties` 覆盖成浅色
+    /// 背景时，须向 PTY 上报日间模式。
+    pub fn is_dark(&self) -> bool {
+        self.background.perceived_luminance() <= 0.5
+    }
+}
+
+/// 调色板覆盖的槽位数：背景、前景、光标，随后 16 个 ANSI 色。
+///
+/// 槽位顺序是跨语言契约，与 Kotlin `ColorsProperties.PALETTE_OVERRIDE_SLOTS` 对齐。
+pub const PALETTE_OVERRIDE_SLOTS: usize = 19;
+
+/// 覆盖通道的槽位下标（跨语言契约）。
+pub const OVERRIDE_BACKGROUND: usize = 0;
+pub const OVERRIDE_FOREGROUND: usize = 1;
+pub const OVERRIDE_CURSOR: usize = 2;
+pub const OVERRIDE_ANSI_FIRST: usize = 3;
+
+/// ANSI 槽数：覆盖通道的 16 个 ANSI 色。
+const ANSI_SLOTS: usize = 16;
+
+/// 一份调色板覆盖：每个槽位为 `None` 表示沿用主题原色。
+///
+/// 来源是 `~/.termux/colors.properties`：它是**主题的部分覆盖**而非完整主题，未写的
+/// 槽保持主题值。选区底色没有对应键，故不在覆盖通道里。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PaletteOverride {
+    pub background: Option<RgbColor>,
+    pub foreground: Option<RgbColor>,
+    pub cursor: Option<RgbColor>,
+    /// ANSI 十六色槽 0..15 的覆盖值。
+    pub ansi: [Option<RgbColor>; ANSI_SLOTS],
+}
+
+impl PaletteOverride {
+    /// 从整数槽位数组构造覆盖：负值表示该槽不覆盖，沿用主题原色。
+    ///
+    /// 长度不符即报错：静默截断会让颜色整体错位一格，而错位表现为「某些颜色不对」，
+    /// 无从定位。色值超出 `0xRRGGBB` 同样报错——把它当成颜色会用错的高位切出别的
+    /// 颜色，而「颜色不对」比「调用失败」难查得多。
+    pub fn from_slots(slots: &[i32]) -> Result<Self, String> {
+        if slots.len() != PALETTE_OVERRIDE_SLOTS {
+            return Err(format!(
+                "期望 {PALETTE_OVERRIDE_SLOTS} 个覆盖槽位，实际 {} 个",
+                slots.len()
+            ));
+        }
+        let mut ansi = [None; ANSI_SLOTS];
+        for (index, slot) in ansi.iter_mut().enumerate() {
+            *slot = slot_color(slots, OVERRIDE_ANSI_FIRST + index)?;
+        }
+        Ok(Self {
+            background: slot_color(slots, OVERRIDE_BACKGROUND)?,
+            foreground: slot_color(slots, OVERRIDE_FOREGROUND)?,
+            cursor: slot_color(slots, OVERRIDE_CURSOR)?,
+            ansi,
+        })
+    }
+}
+
+/// 槽位值 → 颜色：负值表示不覆盖，沿用主题原色。
+fn slot_color(slots: &[i32], index: usize) -> Result<Option<RgbColor>, String> {
+    let value = slots[index];
+    if value < 0 {
+        return Ok(None);
+    }
+    if value > 0x00FF_FFFF {
+        return Err(format!("覆盖槽位 {index} 的值 {value} 超出 0xRRGGBB 范围"));
+    }
+    Ok(Some(RgbColor {
+        r: ((value >> 16) & 0xFF) as u8,
+        g: ((value >> 8) & 0xFF) as u8,
+        b: (value & 0xFF) as u8,
+    }))
+}
+
+/// 上游 termux `TerminalColors.getPerceivedBrightnessOfColor` 的 HSP 感知亮度，值域 0..255。
+///
+/// 与 ghostty 的 [`RgbColor::perceived_luminance`] 不是同一个公式：光标自适应用的是
+/// termux 的口径，故此处按上游公式另算，不借用上游那个。
+fn perceived_brightness(color: RgbColor) -> f64 {
+    let red = f64::from(color.r);
+    let green = f64::from(color.g);
+    let blue = f64::from(color.b);
+    (0.241 * red * red + 0.691 * green * green + 0.068 * blue * blue).sqrt()
+}
+
+/// 背景被覆盖而光标未指定时的光标色：背景暗取白，背景亮取黑。
+///
+/// 阈值 130 是上游 `TerminalColorScheme.setCursorColorForBackground` 的分界。
+fn cursor_for_background(background: RgbColor) -> RgbColor {
+    if perceived_brightness(background) < 130.0 {
+        RgbColor {
+            r: 0xFF,
+            g: 0xFF,
+            b: 0xFF,
+        }
+    } else {
+        RgbColor {
+            r: 0x00,
+            g: 0x00,
+            b: 0x00,
+        }
+    }
 }
 
 /// `InvertedCellColors` 的底色。缺段回退到前景色（同上游默认值）；
@@ -225,7 +364,7 @@ static THEMES: LazyLock<Vec<Theme>> = LazyLock::new(|| {
             Theme {
                 name,
                 // 上游文档：背景亮度超过 0.5 即视为浅色，故此处取其补。
-                dark: palette.background.perceived_luminance() <= 0.5,
+                dark: palette.is_dark(),
                 palette,
             }
         })

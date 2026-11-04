@@ -405,3 +405,137 @@ fn literal_colors(name: &str, source: &str) -> (RgbColor, RgbColor, [RgbColor; 1
         }),
     )
 }
+
+/// 覆盖只动写了的槽：未写的槽沿用主题原色。
+///
+/// `colors.properties` 是**主题的部分覆盖**而非完整主题，主题的其余颜色（尤其是
+/// 选区底色——它没有对应键）必须原样保留。
+#[test]
+fn overrides_only_touch_the_written_slots() {
+    let palette = parse(INVERTED_SECTIONS_MISSING);
+    let overrides = PaletteOverride {
+        foreground: Some(color(0x11, 0x22, 0x33)),
+        ..PaletteOverride::default()
+    };
+    let overridden = palette.with_overrides(&overrides);
+    assert_eq!(overridden.foreground, color(0x11, 0x22, 0x33));
+    assert_eq!(overridden.background, palette.background);
+    // 背景没被覆盖时主题的光标色原样保留；背景被覆盖时光标另算（见下一条）。
+    assert_eq!(overridden.cursor, palette.cursor);
+    assert_eq!(
+        overridden.selection_background,
+        palette.selection_background
+    );
+    assert_eq!(overridden.ansi, palette.ansi);
+}
+
+/// 十六色槽逐个覆盖，未覆盖的槽保持主题值。
+#[test]
+fn ansi_slots_are_overridden_one_by_one() {
+    let palette = parse(INVERTED_SECTIONS_MISSING);
+    let mut ansi = [None; 16];
+    ansi[1] = Some(color(0xAA, 0xBB, 0xCC));
+    let overrides = PaletteOverride {
+        ansi,
+        ..PaletteOverride::default()
+    };
+    let overridden = palette.with_overrides(&overrides);
+    assert_eq!(overridden.ansi[1], color(0xAA, 0xBB, 0xCC));
+    for (index, color) in palette.ansi.iter().enumerate() {
+        if index != 1 {
+            assert_eq!(overridden.ansi[index], *color, "第 {index} 槽不该被改动");
+        }
+    }
+}
+
+/// 背景被覆盖而光标未指定时，光标按背景的感知亮度重算（上游 termux 的口径）。
+///
+/// 主题自带的光标色是按主题背景算的：背景换掉后它可能与新背景同色，光标就此看不见。
+#[test]
+fn the_cursor_follows_the_overridden_background() {
+    let palette = parse(INVERTED_SECTIONS_MISSING);
+    let light = PaletteOverride {
+        background: Some(color(0xFF, 0xFF, 0xFF)),
+        ..PaletteOverride::default()
+    };
+    assert_eq!(
+        palette.with_overrides(&light).cursor,
+        color(0x00, 0x00, 0x00),
+        "浅背景配深色光标"
+    );
+    let dark = PaletteOverride {
+        background: Some(color(0x10, 0x10, 0x10)),
+        ..PaletteOverride::default()
+    };
+    assert_eq!(
+        palette.with_overrides(&dark).cursor,
+        color(0xFF, 0xFF, 0xFF),
+        "深背景配浅色光标"
+    );
+}
+
+/// 显式写了光标色就不按背景重算。
+#[test]
+fn an_explicit_cursor_wins_over_the_background_derived_one() {
+    let palette = parse(INVERTED_SECTIONS_MISSING);
+    let overrides = PaletteOverride {
+        background: Some(color(0xFF, 0xFF, 0xFF)),
+        cursor: Some(color(0xFF, 0x00, 0x00)),
+        ..PaletteOverride::default()
+    };
+    assert_eq!(
+        palette.with_overrides(&overrides).cursor,
+        color(0xFF, 0x00, 0x00)
+    );
+}
+
+/// 覆盖通道的槽位顺序与「负值表示不覆盖」是跨语言契约：Kotlin 按同一顺序打包，
+/// 负值是「沿用主题原色」的唯一表示。
+#[test]
+fn override_slots_are_read_from_the_cross_language_array() {
+    let mut slots = vec![-1; PALETTE_OVERRIDE_SLOTS];
+    slots[OVERRIDE_BACKGROUND] = 0x112233;
+    slots[OVERRIDE_ANSI_FIRST] = 0x445566;
+    let overrides = PaletteOverride::from_slots(&slots).expect("长度相符即应可解析");
+    assert_eq!(overrides.background, Some(color(0x11, 0x22, 0x33)));
+    assert_eq!(overrides.ansi[0], Some(color(0x44, 0x55, 0x66)));
+    assert_eq!(overrides.cursor, None);
+}
+
+/// 长度不符即拒绝：静默截断会让颜色整体错位一格，错位表现为「某些颜色不对」，
+/// 无从定位。
+#[test]
+fn a_wrong_sized_override_array_is_rejected() {
+    assert!(PaletteOverride::from_slots(&[0x112233]).is_err());
+    assert!(PaletteOverride::from_slots(&[-1; PALETTE_OVERRIDE_SLOTS + 1]).is_err());
+}
+
+/// 超出 `0xRRGGBB` 的值即拒绝：把它当成颜色会用错的高位切出别的颜色，而「颜色不对」
+/// 比「调用失败」难查得多。
+#[test]
+fn an_out_of_range_override_value_is_rejected() {
+    let mut slots = vec![-1; PALETTE_OVERRIDE_SLOTS];
+    slots[OVERRIDE_FOREGROUND] = 0x0100_0000;
+    assert!(PaletteOverride::from_slots(&slots).is_err());
+}
+
+/// 明暗判定取**合并后**的背景：深色主题被覆盖成浅色背景时须按浅色上报。
+#[test]
+fn darkness_follows_the_overridden_background() {
+    let palette = parse(INVERTED_SECTIONS_MISSING);
+    let light = PaletteOverride {
+        background: Some(color(0xFF, 0xFF, 0xFF)),
+        ..PaletteOverride::default()
+    };
+    assert!(!palette.with_overrides(&light).is_dark());
+    let dark = PaletteOverride {
+        background: Some(color(0x10, 0x10, 0x10)),
+        ..PaletteOverride::default()
+    };
+    assert!(palette.with_overrides(&dark).is_dark());
+}
+
+/// 构造一个 `RgbColor`，省掉满屏的分量名。
+fn color(r: u8, g: u8, b: u8) -> RgbColor {
+    RgbColor { r, g, b }
+}

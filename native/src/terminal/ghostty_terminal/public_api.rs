@@ -342,10 +342,18 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// 换主题。主题取自静态清单，故命令只携带引用，不复制调色板。
+    /// 换主题，主题原样下发（无 `colors.properties` 覆盖）。
     pub fn set_theme(&self, theme: &'static crate::terminal::theme::Theme) {
+        self.set_theme_palette(theme.name, theme.palette.clone());
+    }
+
+    /// 下发**已合并**的调色板。
+    ///
+    /// 合并（主题 + `colors.properties` 覆盖）在下发前完成：命令只携带一份调色板，
+    /// 终端默认色、ANSI 调色板、光标色与搜索高亮色都从它取，不存在第二份颜色副本。
+    pub fn set_theme_palette(&self, name: &'static str, palette: crate::terminal::theme::Palette) {
         // try_send：与 resize 同非阻塞策略。
-        if let Err(error) = self.cmd_tx.try_send(Command::SetTheme(theme)) {
+        if let Err(error) = self.cmd_tx.try_send(Command::SetTheme { name, palette }) {
             self.warn_command_dropped("set_theme", &error);
         }
     }
