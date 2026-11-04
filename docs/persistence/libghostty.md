@@ -38,7 +38,7 @@
 | `selection::gesture` | 50 | 0 | 50 |
 | 合计 | 718 | 222 | 496 |
 
-调用点集中在 `native/src/terminal/ghostty_terminal/internal/`（VT 线程主循环及命令、渲染、选区、Kitty 图像子模块）、`public_api.rs`、`commands.rs`、`theme.rs`、`session.rs` 与 `render/context.rs`；其余模块全未接线。
+调用点集中在 `native/src/terminal/ghostty_terminal/internal/`（VT 线程主循环及命令、渲染、选区、Kitty 图像子模块）、`public_api.rs`、`commands.rs`、`theme.rs`、`session/` 与 `render/context/`（这两处已由单文件拆为目录，入口为各自的 `mod.rs`）；其余模块全未接线。
 
 ## 2. 已使用 API
 
@@ -853,7 +853,7 @@
 
 ### 3.15 `focus`（2 项）
 
-焦点上报序列必须直写子 PTY，送入 VT 引擎会被当作 CHT（光标水平制表）。序列本身是定长三字节（模式 1004 规范的 CSI I / CSI O），`session.rs` 的 `focus_event_bytes` 以字面量直写并经测试钉住（模式 1004 门控）；`Event::encode` 编码同一字节且多一次 FFI 往返，无净收益。
+焦点上报序列必须直写子 PTY，送入 VT 引擎会被当作 CHT（光标水平制表）。序列本身是定长三字节（模式 1004 规范的 CSI I / CSI O），`session/output.rs` 的 `focus_event_bytes` 以字面量直写并经测试钉住（模式 1004 门控）；`Event::encode` 编码同一字节且多一次 FFI 往返，无净收益。
 
 | 项 | 说明 |
 | --- | --- |

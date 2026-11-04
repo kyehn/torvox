@@ -76,7 +76,7 @@ termlib（Compose + libvterm JNI）`TerminalEmulator` 回调集：`onBell`、`on
 
 ## 对本仓的落地含义
 
-**现状**：本仓已处理 OSC 0/2（标题）、7（cwd）、8（链接）、52（剪贴板，见 `native/src/terminal/ghostty_terminal/internal/run.rs` 的 `register_clipboard_write_callback`），但全仓无 `desktop_notification` 接线——OSC 9/777/99 目前被 libghostty-vt 静默忽略。BEL 响铃已按 termux 语义接线：`on_bell` 回调 → `Event::Bell` → `runtime/BellPlayer.kt` 三态执行（`vibrate`/`beep`/`ignore`），记录见 `docs/STATUS.md`。
+**现状**：本仓已处理 OSC 0/2（标题）、7（cwd）、8（链接）、52（剪贴板，见 `native/src/terminal/ghostty_terminal/internal/run.rs` 的 `register_clipboard_write_callback`），但全仓无 `desktop_notification` 接线——OSC 9/777/99 目前被 libghostty-vt 静默忽略。BEL 响铃已按 termux 语义接线：`on_bell` 回调 → `Event::Bell` → `runtime/BellPlayer.kt` 三态执行（`vibrate`/`beep`/`ignore`），规约见 `openspec/specs/termux-configuration/spec.md` 的「bell-character 的三态执行」。
 
 **可行性（已核实锁定 rev 同样具备）**：`crates/libghostty-vt/src/terminal.rs` 提供：
 
@@ -114,7 +114,7 @@ termlib（Compose + libvterm JNI）`TerminalEmulator` 回调集：`onBell`、`on
 | foot | 无 bell 配置项（BEL 默认无显式处理） | — |
 | termux-app | vibrate（默认，50ms，限频 150ms）/ beep（`bell.ogg`）/ ignore，仅 Activity 可见时 | `bell-character` |
 | ConnectBot | 前台 beep；后台 → 系统通知（NotificationCompat，含主机） | bell 开关/音量/振动/通知开关 |
-| 本仓 | 忽略 BEL（`DESIGN.md` 明示），不注册 `on_bell` | — |
+| 本仓 | `on_bell` 回调 → `Event::Bell` → `runtime/BellPlayer.kt` 三态执行（`vibrate`/`beep`/`ignore`），限频窗口内的重复响铃静默丢弃 | `bell-character`（`termux-configuration` 规约） |
 
 ### 通知呈现形式
 
@@ -135,7 +135,7 @@ termlib（Compose + libvterm JNI）`TerminalEmulator` 回调集：`onBell`、`on
 
 - `docs/persistence/terminal-protocols.md`：OSC 段已登记 `9 / 1337 / 777` 为"不接：零消费者"，且"将来计划"登记了桌面通知/进度上报条目；本文件提供外部实现对比与接线路径。
 - `docs/persistence/termux-app.md`：`bell-character` 属性三态（vibrate/beep/ignore）与 `NotificationUtils` 说明。
-- `docs/persistence/libghostty.md`：`DesktopNotification`/`on_desktop_notification`/`on_progress_report`/`on_bell` 列入未使用 API 表；本文件补充外部实现对比。
+- `docs/persistence/libghostty.md`：`DesktopNotification`/`on_desktop_notification`/`on_progress_report` 列入未使用 API 表，`on_bell` 列入已使用 API 表；本文件补充外部实现对比。
 
 ## 来源
 

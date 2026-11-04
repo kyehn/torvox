@@ -515,14 +515,14 @@ final Typeface newTypeface = (fontFile.exists && fontFile.length > 0)
 
 - `termux.env` 文件及相关逻辑（对应上游 1.9 节末段）。
 - 插件体系全部：`com.termux.api`、`com.termux.boot`、`com.termux.window`、`com.termux.styling`、`com.termux.tasker`、`com.termux.widget`，以及 `~/.termux/boot/`、`~/.termux/tasker/`、`~/.shortcuts/`、`termux.float.properties`。
-- `termux.properties` 及其设置项体系（本项目设置已另行定规，故 5.1 整节作为「上游契约记录」而非「待复刻清单」）。本文补齐了键级别的完整清单与错误处理语义。
+- `termux.properties` 的键白名单本身已按 `docs/specification/CONFIG.md` 声明的键集实现（18 项，另有三个 `shortcut.*`），取值集合、默认值与容错口径对齐上游；上游白名单里未在 CONFIG.md 声明的键（`night-mode`、`disable-*`、`allow-external-apps` 等）按「只允许下面声明的键」跳过。本文 5.1 整节因此是「上游契约记录＋本仓取舍依据」，键级别的完整清单与错误处理语义见 `openspec/specs/termux-configuration/spec.md`。
 - `RunCommandService` / `com.termux.permission.RUN_COMMAND` / `allow-external-apps` / `com.termux.files` ContentProvider（外部命令执行面）。
 - `am.sock` 与 `run-termux-am-socket-server`（内建命令均不提供）。
 - `~/storage` 符号链接组、`~/crash_log.md` 轮转（`DESIGN.md` 不得创建 `~/storage`）。
 
 ### 值得留意的设计点
 
-1. **properties 的键白名单是安全边界，不只是便利**：未知键被丢弃，使外部应用即便拿到文件写权限也无法引入新语义。本项目若不实现 properties 体系，`DESIGN.md` 的「只允许设置下列环境变量」即等价约束。
+1. **properties 的键白名单是安全边界，不只是便利**：未知键被丢弃，使外部应用即便拿到文件写权限也无法引入新语义。本仓已实现 properties 体系（`settings/TermuxProperties.kt`），白名单落在 `docs/specification/CONFIG.md` 的声明键集，未声明键一律跳过——与上游同口径。
 2. **`colors.properties` 的「一个坏条目毁掉整份配置」**：`updateWith` 先 `reset` 再逐项写，中途抛异常导致后续条目丢失且不提示用户。本项目若将来支持用户颜色文件，应在解析阶段做全量校验后再原子提交。
 3. **两份 properties 文件编码不一致**（`termux.properties` UTF-8 vs `colors.properties` Latin-1）：上游的实现细节差异，复刻时应统一为 UTF-8。
 4. **符号链接一律不跟随**：文件选择（`getPropertiesFileFromList`）与可执行文件校验（`FileUtils.getFileType(..., false)`）都显式关闭符号链接跟随，并各自注明安全理由。本项目 bootstrap 与文档提供者可对照自查。
@@ -533,4 +533,4 @@ final Typeface newTypeface = (fontFile.exists && fontFile.length > 0)
 
 - termux-app 的对外契约共 10 类（Manifest 暴露面、权限双门禁、RUN_COMMAND Intent、结果回传、TERMUX_SERVICE Intent、广播、am.sock 协议、文件共享/文档提供者、环境变量三层、bootstrap zip 与崩溃日志），全部常量集中在 `TermuxConstants` 与 `TermuxPropertyConstants` 两个文件，第三方插件可原样 import 而非复制。
 - `~/.termux` 下 6 个条目中，主 app 实际读取 4 个：`termux.properties`（键白名单 + 两级回落 + 只读）、`colors.properties`（4 类 key + 2 种颜色语法 + 异常部分生效）、`font.ttf`（exists && length>0 否则 MONOSPACE）、`termux.float.properties`（仅强制只读）。`boot/` 与 `tasker/` 是给独立插桩的路径声明。
-- 对本项目：已对齐项集中在字体与 bootstrap 环境变量；禁止项覆盖其余全部。两份「设计陷阱」（colors 的部分生效、编码不一致）记录为将来若放开用户配置文件时的自查点。
+- 对本项目：已对齐项集中在字体、bootstrap 环境变量与 `termux.properties` 键集；禁止项覆盖其余全部。两份「设计陷阱」（colors 的部分生效、编码不一致）记录为将来若放开用户配置文件时的自查点。
