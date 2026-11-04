@@ -33,12 +33,7 @@
 
 ## colors.properties
 
-- 路径：`/data/data/com.termux/files/home/.termux/colors.properties`（上游只有这一条路径）
-- 只在应用启动时读取一次，不创建、不写入、不修改；符号链接与非常规文件跳过，超过
-  64 KiB 视为无效，读取失败按无覆盖处理
-- 键：`foreground`、`background`、`cursor`、`color0`..`color15`，以及
-  `color256`/`color257`/`color258`（前三个键的别名）；`color16`..`color255` 不支持并记警告
-- 值：XQueryColor 语法（`#RGB`、`#RRGGBB`、`#RRRGGGBBB`、`#RRRRGGGGBBBB`、
-  `rgb:R/G/B`），alpha 恒为不透明
+- 路径：`/data/data/com.termux/files/home/.termux/colors.properties`
+- 只在应用启动时读取一次，不创建、不写入、不修改；符号链接与非常规文件跳过，读取失败按无覆盖处理
 - 语义：对当前终端主题的部分覆盖，未写的键沿用主题原色；背景被覆盖而光标未指定时，
   光标色按背景的感知亮度取白或黑
