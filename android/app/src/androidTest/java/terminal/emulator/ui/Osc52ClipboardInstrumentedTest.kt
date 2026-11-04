@@ -59,11 +59,15 @@ class Osc52ClipboardInstrumentedTest : ComposeTerminalLogcatTest() {
             "VT inject rejected",
             bridge.feedTerminal("\u001B]52;c;$encoded\u0007".toByteArray(Charsets.UTF_8)),
         )
+        // 轮询与断言共用「成功那一拍的快照」：读到 marker 后再重读一遍会引入竞态
+        // 窗口——实测模拟器上偶发 marker 写入后剪贴板又被改回空串，重读得 "" 而
+        // 把「已写入成功」误报成失败。读取本身即 OSC52 链路的终态证据。
+        var actual: String? = null
         val seen =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
-                clipboard.primaryClip?.getItemAt(0)?.text?.toString() == marker
+                actual = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+                actual == marker
             }
-        val actual = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
         assertNotNull("clipboard never received OSC52 marker $marker (got: $actual)", seen)
         assertTrue(
             "clipboard must equal marker, got: $actual",

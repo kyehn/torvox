@@ -76,6 +76,25 @@ class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
                     stored.nightThemeName == ThemeRepository.defaultDarkName()
             }
         assertNotNull("主题设置没有落盘", applied)
+
+        // 清屏：残留判定靠颜色计数，而默认浅色主题底色（#eff1f5）与默认深色主题
+        // 前景（#f8f8f2）各通道差 ≤ 9——matchColor 的容差 24 无法区分「日间底色
+        // 残留」与「夜间前景文字」。前序用例留下的输出越多，被误判的像素越多
+        // （实测 27487 个全是文字笔画，同一 head 上多轮结果随内容漂移）。
+        // 直写解析器清屏（不过 shell，无回显残留），让画面只剩底色，判据回归
+        // 「底色本身」而非「底色 + 文字」。
+        val bridgeReady =
+            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+                composeTestRule.getBridge() != null
+            }
+        assertNotNull("运行时桥必须就绪（30s 未孵化）", bridgeReady)
+        checkNotNull(composeTestRule.getBridge())
+            .feedTerminal("\u001B[2J\u001B[H".toByteArray(Charsets.UTF_8))
+        val cleared =
+            UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
+                composeTestRule.pumpedTerminalText().isNullOrBlank()
+            }
+        assertNotNull("清屏后终端必须无文本（前序输出残留会污染残留判定）", cleared)
     }
 
     @After
