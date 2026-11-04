@@ -23,11 +23,15 @@ private const val TAG = "TermuxProperties"
 data class TermuxConfiguration(
     val properties: TermuxProperties = TermuxProperties(),
     val propertiesPath: String? = null,
+    /** `colors.properties` 的配色覆盖：终端主题的部分覆盖。 */
+    val colors: ColorsProperties = ColorsProperties(),
+    val colorsPath: String? = null,
     val errors: List<String> = emptyList(),
 )
 
 /**
- * `~/.termux/termux.properties` 的读取与缓存。
+ * termux 配置文件（`~/.termux/termux.properties` 与 `~/.termux/colors.properties`）的
+ * 读取与缓存。
  *
  * 读取时机是显式的 [loadOnce]：应用启动时（`TerminalRuntime.start`）读一次，
  * 进程存活期间不再重读。不用 `FileObserver`——它只覆盖 inotify 可达的路径，用户用
@@ -73,11 +77,29 @@ constructor(@ApplicationContext private val context: Context) {
                         } ?: TermuxProperties()
                     }
 
+                // colors.properties 只有主路径：上游 `TermuxConstants` 里的
+                // `TERMUX_COLOR_PROPERTIES_FILE` 是 `~/.termux/colors.properties`，
+                // 没有 `~/.config/termux/` 那一份。
+                val colorsFile = File(File(home, ".termux"), "colors.properties")
+                    .takeIf { isReadableRegularFile(it) }
+                val colors =
+                    if (colorsFile == null) {
+                        ColorsProperties()
+                    } else {
+                        readFile(colorsFile, errors)?.let { text ->
+                            val parsed = ColorsPropertiesParser.parse(text)
+                            errors += parsed.errors.map { "${colorsFile.name}: $it" }
+                            parsed.properties
+                        } ?: ColorsProperties()
+                    }
+
                 for (error in errors) LogUtil.warn(TAG, error)
                 _configuration.value =
                     TermuxConfiguration(
                         properties = properties,
                         propertiesPath = propertiesFile?.absolutePath,
+                        colors = colors,
+                        colorsPath = colorsFile?.absolutePath,
                         errors = errors,
                     )
             }

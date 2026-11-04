@@ -110,4 +110,57 @@ class TermuxPropertiesRepositoryTest {
         assertEquals(TermuxProperties(), repository.configuration.value.properties)
         assertTrue(repository.configuration.value.errors.isEmpty())
     }
+
+    @Test
+    fun `the colours file is read`() {
+        writeConfig(".termux/colors.properties", "background = #101010")
+        val repository = TermuxPropertiesRepository(context)
+        load(repository)
+        assertEquals(0x101010, repository.configuration.value.colors.background)
+        assertTrue(repository.configuration.value.colorsPath?.endsWith("colors.properties") == true)
+    }
+
+    /**
+     * 符号链接不是常规文件：跳过它，而不是跟着链接把别处的文件读成配色。
+     *
+     * 配色直接决定终端画面的颜色，链接指向的文件一旦被换掉，用户看到的颜色会在下次
+     * 启动时无声改变。
+     */
+    @Test
+    fun `a symlinked colours file is skipped`() {
+        val target = writeConfig("elsewhere/colors.properties", "background = #101010")
+        val link = File(homeDirectory(), ".termux/colors.properties")
+        link.parentFile?.mkdirs()
+        java.nio.file.Files.createSymbolicLink(link.toPath(), target.toPath())
+        val repository = TermuxPropertiesRepository(context)
+        load(repository)
+        assertNull(repository.configuration.value.colors.background)
+        assertNull(repository.configuration.value.colorsPath)
+    }
+
+    /**
+     * `colors.properties` 只有主路径：上游 `TermuxConstants` 里的
+     * `TERMUX_COLOR_PROPERTIES_FILE` 没有 `~/.config/termux/` 那一份。
+     */
+    @Test
+    fun `the secondary path is not used for colours`() {
+        writeConfig(".config/termux/colors.properties", "background = #101010")
+        val repository = TermuxPropertiesRepository(context)
+        load(repository)
+        assertNull(repository.configuration.value.colors.background)
+        assertNull(repository.configuration.value.colorsPath)
+    }
+
+    /** 超过 64 KiB 的配色文件按无效处理：配色文件是手写的小文件。 */
+    @Test
+    fun `an oversized colours file is skipped`() {
+        writeConfig(".termux/colors.properties", "background = #101010\n" + "#".repeat(64 * 1024))
+        val repository = TermuxPropertiesRepository(context)
+        load(repository)
+        assertNull(repository.configuration.value.colors.background)
+        assertTrue(
+            "超大文件必须留痕: ${repository.configuration.value.errors}",
+            repository.configuration.value.errors.any { it.contains("larger than") },
+        )
+    }
 }
