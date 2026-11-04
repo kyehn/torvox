@@ -1,0 +1,2378 @@
+[2026-11-05 05:13:14.927 Uid(value=10327):24757:24757 I/libc]
+SetHeapTaggingLevel: tag level set to 0
+
+[2026-11-05 05:13:14.933 Uid(value=10327):24757:24757 E/com.termux]
+Not starting debugger since process cannot load the jdwp agent.
+
+[2026-11-05 05:13:14.965 Uid(value=10327):24757:24757 W/ziparchive]
+Unable to open '/system_ext/framework/unisoc-framework.dm': No such file or directory
+
+[2026-11-05 05:13:14.965 Uid(value=10327):24757:24757 W/ziparchive]
+Unable to open '/system_ext/framework/unisoc-framework.dm': No such file or directory
+
+[2026-11-05 05:13:14.971 Uid(value=10327):24757:24757 D/FeatureOpt]
+get all features from system,count=488
+
+[2026-11-05 05:13:14.972 Uid(value=10327):24757:24757 W/FeatureOpt]
+ensureGetRight for getInt, key=zte_foldable,valueType=101,result=0
+
+[2026-11-05 05:13:15.016 Uid(value=10327):24757:24770 W/libc]
+Access denied finding property "vendor.MB.running"
+
+[2026-11-05 05:13:15.026 Uid(value=10327):24757:24757 D/CompatibilityChangeReporter]
+Compat change id reported: 171979766; UID 10327; state: DISABLED
+
+[2026-11-05 05:13:15.028 Uid(value=10327):24757:24757 D/Typeface]
+ZTEZhengYuan Available:true
+
+[2026-11-05 05:13:15.030 Uid(value=10327):24757:24757 D/ApplicationLoaders]
+Returning zygote-cached class loader: /system/framework/android.test.base.jar
+
+[2026-11-05 05:13:15.040 Uid(value=10327):24757:24757 V/GraphicsEnvironment]
+ANGLE Developer option for 'com.termux' set to: 'default'
+
+[2026-11-05 05:13:15.041 Uid(value=10327):24757:24757 V/GraphicsEnvironment]
+ANGLE GameManagerService for com.termux: false
+
+[2026-11-05 05:13:15.041 Uid(value=10327):24757:24757 V/GraphicsEnvironment]
+Neither updatable production driver nor prerelease driver is supported.
+
+[2026-11-05 05:13:15.044 Uid(value=10327):24757:24757 I/LoadedApk]
+No resource references to update in package androidzte
+
+[2026-11-05 05:13:15.044 Uid(value=10327):24757:24757 D/NetworkSecurityConfig]
+No Network Security Config specified, using platform default
+
+[2026-11-05 05:13:15.044 Uid(value=10327):24757:24757 D/NetworkSecurityConfig]
+No Network Security Config specified, using platform default
+
+[2026-11-05 05:13:15.045 Uid(value=10327):24757:24757 I/ZteBinderProxy]
+initLastBindTime: USE_CACHE = true
+
+[2026-11-05 05:13:15.063 Uid(value=10327):24757:24781 I/NativeBridge]
+Native library loaded: native on native-preload
+
+[2026-11-05 05:13:15.160 Uid(value=10327):24757:24757 W/FeatureOpt]
+ensureGetRight for getInt, key=zte_foldable,valueType=101,result=0
+
+[2026-11-05 05:13:15.174 Uid(value=10327):24757:24757 E/Typeface]
+updateDefaultTypeface(fontPath: /data/resource-cache/font/default_font_android_id)
+
+[2026-11-05 05:13:15.198 Uid(value=10327):24757:24757 D/WindowClient]
+Add to mViews: DecorView@1e35723[MainActivity], this = android.view.WindowManagerGlobal@a6af420mViews.size()=1
+
+[2026-11-05 05:13:15.198 Uid(value=10327):24757:24757 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-05 05:13:15.231 Uid(value=10327):24757:24757 D/CompatibilityChangeReporter]
+Compat change id reported: 193247900; UID 10327; state: DISABLED
+
+[2026-11-05 05:13:15.401 Uid(value=10327):24757:24757 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-05 05:13:15.445 Uid(value=10327):24757:24757 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:13:15.453 Uid(value=10327):24757:24786 D/vulkan]
+searching for layers in '/data/app/~~Fjbf-a9TWTRQD5JvIf1sHA==/com.termux-6bX4vmsNtQc5g3wu9UERgw==/lib/arm64'
+
+[2026-11-05 05:13:15.453 Uid(value=10327):24757:24786 D/vulkan]
+searching for layers in '/data/app/~~Fjbf-a9TWTRQD5JvIf1sHA==/com.termux-6bX4vmsNtQc5g3wu9UERgw==/base.apk!/lib/arm64-v8a'
+
+[2026-11-05 05:13:15.490 Uid(value=10327):24757:24786 I/native::render::wgpu_backend]
+GPU adapter: Mali-G57 (backend=Vulkan, type=IntegratedGpu)
+
+[2026-11-05 05:13:15.490 Uid(value=10327):24757:24786 W/wgpu_core::instance]
+Missing downlevel flags: DownlevelFlags(SURFACE_VIEW_FORMATS)
+The underlying API or device in use does not support enough features to be a fully compliant implementation of WebGPU. A subset of the features can still be used. If you are running this program on native and not in a browser and wish to limit the features you use to the supported subset, call Adapter::downlevel_properties or Device::downlevel_properties to get a listing of the features the current platform supports.
+
+[2026-11-05 05:13:15.490 Uid(value=10327):24757:24786 W/wgpu_core::instance]
+DownlevelCapabilities {
+    flags: DownlevelFlags(
+        COMPUTE_SHADERS | FRAGMENT_WRITABLE_STORAGE | INDIRECT_EXECUTION | BASE_VERTEX | READ_ONLY_DEPTH_STENCIL | NON_POWER_OF_TWO_MIPMAPPED_TEXTURES | CUBE_ARRAY_TEXTURES | COMPARISON_SAMPLERS | INDEPENDENT_BLEND | VERTEX_STORAGE | ANISOTROPIC_FILTERING | FRAGMENT_STORAGE | MULTISAMPLED_SHADING | DEPTH_TEXTURE_AND_BUFFER_COPIES | WEBGPU_TEXTURE_FORMAT_SUPPORT | BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED | UNRESTRICTED_INDEX_BUFFER | FULL_DRAW_INDEX_UINT32 | DEPTH_BIAS_CLAMP | VIEW_FORMATS | UNRESTRICTED_EXTERNAL_TEXTURE_COPIES | NONBLOCKING_QUERY_RESOLVE | SHADER_F16_IN_F32 | MSL2_1 | TEXTURE_COMPRESSION,
+    ),
+    limits: DownlevelLimits,
+    shader_model: Sm5,
+}
+
+[2026-11-05 05:13:15.522 Uid(value=10327):24757:24786 I/native::render::wgpu_backend]
+GPU device created, queue ok
+
+[2026-11-05 05:13:15.525 Uid(value=10327):24757:24786 D/native::render::font::font_db]
+FONT_XML: 跳过 62 个 fallbackFor 字体（回退链：serif）
+
+[2026-11-05 05:13:15.525 Uid(value=10327):24757:24786 D/native::render::font::font_db]
+FONT_XML: monospace targets=["DroidSansMono.ttf", "CutiveMono.ttf"]
+
+[2026-11-05 05:13:15.526 Uid(value=10327):24757:24786 D/native::render::font::font_db]
+FONT_LOAD: loaded 3 font files, 3 faces
+
+[2026-11-05 05:13:15.526 Uid(value=10327):24757:24786 D/native::render::font::font_db]
+FONT_SELECT: fonts.xml monospace id=ID(InnerId(1v1)) stem='DroidSansMono'
+
+[2026-11-05 05:13:15.538 Uid(value=10327):24757:24786 D/native::render::font::rasterization]
+FONT_RASTERIZE_ASCII: before=0 after=94 font_id=Some(ID(InnerId(1v1)))
+
+[2026-11-05 05:13:15.538 Uid(value=10327):24757:24786 I/native::android::ffi]
+render state initialized (renderer + font pipeline)
+
+[2026-11-05 05:13:15.543 Uid(value=10327):24757:24786 D/native::render::font::font_db]
+FONT_LOAD: 1 extra font paths
+
+[2026-11-05 05:13:15.543 Uid(value=10327):24757:24786 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:15.596 Uid(value=10327):24757:24786 D/native::render::font::rasterization]
+FONT_RASTERIZE_ASCII: before=0 after=94 font_id=Some(ID(InnerId(4v1)))
+
+[2026-11-05 05:13:15.596 Uid(value=10327):24757:24786 D/native::render::font::cjk]
+CJK_FALLBACK: skipped (locale not yet known)
+
+[2026-11-05 05:13:15.596 Uid(value=10327):24757:24786 I/native::android::ffi::font]
+loadFontFile: /data/user/0/com.termux/files/home/.termux/font.ttf -> family Maple Mono Normal NF CN
+
+[2026-11-05 05:13:15.596 Uid(value=10327):24757:24786 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:15.597 Uid(value=10327):24757:24786 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:13:15.605 Uid(value=10327):24757:24786 D/native::render::font::rasterization]
+FONT_RASTERIZE_ASCII: before=0 after=94 font_id=Some(ID(InnerId(4v1)))
+
+[2026-11-05 05:13:15.605 Uid(value=10327):24757:24786 D/native::render::font::pipeline]
+RASTER_SCALE: scale=1.331
+
+[2026-11-05 05:13:15.606 Uid(value=10327):24757:24786 I/native::terminal::session::spawn]
+Session::spawn: shell='/data/user/0/com.termux/files/usr/bin/login', rows=28, cols=42, cwd=None
+
+[2026-11-05 05:13:15.609 Uid(value=10327):24757:24786 I/native::terminal::pty]
+SPAWN_DIRECT_ET_EXEC: shell=/data/user/0/com.termux/files/usr/bin/login (non-PIE, skip linker)
+
+[2026-11-05 05:13:15.619 Uid(value=10327):24757:24786 I/native::terminal::session::spawn]
+Session::spawn: PtyPair::spawn OK
+
+[2026-11-05 05:13:15.619 Uid(value=10327):24757:24786 I/native::terminal::session::spawn]
+Session::spawn: set_nonblocking OK
+
+[2026-11-05 05:13:15.619 Uid(value=10327):24757:24786 I/native::terminal::session::spawn]
+Session::spawn: cloning master fd for reader
+
+[2026-11-05 05:13:15.619 Uid(value=10327):24757:24786 I/native::terminal::session::spawn]
+Session::spawn_with_pty: creating Arc/Channel
+
+[2026-11-05 05:13:15.620 Uid(value=10327):24757:24786 I/native::terminal::session::spawn]
+Session::spawn: spawning reader thread
+
+[2026-11-05 05:13:15.620 Uid(value=10327):24757:24786 I/native::android::ffi::session]
+FFI: initSession -> id=1
+
+[2026-11-05 05:13:15.621 Uid(value=10327):24757:24821 I/native::terminal::session::spawn]
+wait thread: waiting for child pid=24817
+
+[2026-11-05 05:13:15.622 Uid(value=10327):24757:24803 I/native::android::ffi]
+render state prefetched
+
+[2026-11-05 05:13:15.622 Uid(value=10327):24757:24786 I/native::android::ffi::font]
+setSystemLocale: zh-CN
+
+[2026-11-05 05:13:15.623 Uid(value=10327):24757:24786 D/native::render::font::font_db]
+FONT_LOAD: locale='zh-CN' 补装 45 个区域回退族面
+
+[2026-11-05 05:13:15.623 Uid(value=10327):24757:24786 D/native::render::font::cjk]
+CJK_FALLBACK: skipped (primary font already supports CJK)
+
+[2026-11-05 05:13:15.624 Uid(value=10327):24757:24818 D/native::terminal::ghostty_terminal::internal::commands]
+SetTheme: dracula_plus -> default_background=[0.12941177, 0.12941177, 0.12941177, 1.0] default_foreground=[0.972549, 0.972549, 0.9490196, 1.0]
+
+[2026-11-05 05:13:15.626 Uid(value=10327):24757:24786 I/native::android::ffi::font]
+setTheme: session 1 theme=dracula_plus
+
+[2026-11-05 05:13:15.626 Uid(value=10327):24757:24786 I/native::android::ffi::font]
+setCursorStyle: session 1 style=Block
+
+[2026-11-05 05:13:15.626 Uid(value=10327):24757:24818 I/native::terminal::ghostty_terminal::internal::commands]
+SetCursorStyle: Block
+
+[2026-11-05 05:13:15.626 Uid(value=10327):24757:24786 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:15.626 Uid(value=10327):24757:24786 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:13:15.627 Uid(value=10327):24757:24786 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x768764dbf0 472x819
+
+[2026-11-05 05:13:15.627 Uid(value=10327):24817:24817 W/DefaultDispatch]
+type=1400 audit(0.0:1024095): avc: granted { execute } for name="login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:15.627 Uid(value=10327):24817:24817 W/DefaultDispatch]
+type=1400 audit(0.0:1024096): avc: granted { execute_no_trans } for path="/data/user/0/com.termux/files/usr/bin/login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:15.636 Uid(value=10327):24757:24786 W/libc]
+Access denied finding property "persist.vendor.gpu.fbc"
+
+[2026-11-05 05:13:15.636 Uid(value=10327):24757:24786 I/mali_gralloc]
+SPRD: get persist.vendor.gpu.fbc 1
+
+[2026-11-05 05:13:15.636 Uid(value=10327):24757:24786 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:15.636 Uid(value=10327):24757:24786 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:15.637 Uid(value=10327):24757:24786 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:15.637 Uid(value=10327):24757:24786 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:15.637 Uid(value=10327):24757:24786 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:15.637 Uid(value=10327):24757:24786 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:15.637 Uid(value=10327):24757:24786 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:15.637 Uid(value=10327):24757:24786 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:15.639 Uid(value=10327):24757:24786 I/mali_gralloc]
+register: id=0x29300012268, importpid=-1
+
+[2026-11-05 05:13:15.635 Uid(value=10327):24817:24817 W/login]
+type=1400 audit(0.0:1024097): avc: granted { execute } for path="/data/user/0/com.termux/files/usr/bin/login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:15.642 Uid(value=10327):24757:24786 I/mali_gralloc]
+register: id=0x29300012269, importpid=-1
+
+[2026-11-05 05:13:15.642 Uid(value=10327):24757:24786 I/mali_gralloc]
+register: id=0x2930001226a, importpid=-1
+
+[2026-11-05 05:13:15.643 Uid(value=10327):24757:24786 I/mali_gralloc]
+register: id=0x2930001226b, importpid=-1
+
+[2026-11-05 05:13:15.643 Uid(value=10327):24757:24786 I/native::render::context::renderer]
+ensure_frame_texture: creating accumulator 472x819 (Rgba8Unorm)
+
+[2026-11-05 05:13:15.644 Uid(value=10327):24757:24786 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-05 05:13:15.650 Uid(value=10327):24757:24786 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-05 05:13:15.654 Uid(value=10327):24757:24803 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:15.654 Uid(value=10327):24757:24803 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:13:15.663 Uid(value=10327):24757:24757 D/CompatibilityChangeReporter]
+Compat change id reported: 160794467; UID 10327; state: DISABLED
+
+[2026-11-05 05:13:15.679 Uid(value=10327):24817:24817 W/login]
+type=1400 audit(0.0:1024098): avc: denied { getattr } for path="/proc/modules" dev="proc" ino=4026532130 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:proc_modules:s0 tclass=file permissive=0 app=com.termux
+
+[2026-11-05 05:13:15.679 Uid(value=10327):24817:24817 W/login]
+type=1400 audit(0.0:1024099): avc: denied { getattr } for path="/proc/bus/pci/devices" dev="proc" ino=4026532146 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:proc:s0 tclass=file permissive=0 app=com.termux
+
+[2026-11-05 05:13:15.687 Uid(value=10327):24817:24817 W/login]
+type=1400 audit(0.0:1024100): avc: granted { execute } for name="chroot-ng" dev="dm-38" ino=7165871 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:15.687 Uid(value=10327):24817:24817 W/login]
+type=1400 audit(0.0:1024101): avc: granted { execute_no_trans } for path="/data/data/com.termux/files/usr/nix/store/irg6rvvsbbhvd80345yh7gai1hlc5sb2-fake-chroot-ng-static-aarch64-unknown-linux-musl-1.6.0-unstable-2026-10-30/bin/chroot-ng" dev="dm-38" ino=7165871 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:15.707 Uid(value=10327):24757:24827 I/native::render::context::renderer]
+initialize_pipeline_and_bind_group: pipeline=true atlas=2048x2048 surface=472x819
+
+[2026-11-05 05:13:15.735 Uid(value=10327):24757:24827 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 1 instances, partial=false, dirty_bands=0)
+
+[2026-11-05 05:13:15.735 Uid(value=10327):24757:24827 W/native::android::ffi::render::frame]
+SLOW_RENDER_INNER phase1=62.802ms receive=0.008ms lock=0.001ms render=9.865ms total=72.675ms count=1
+
+[2026-11-05 05:13:15.736 Uid(value=10327):24757:24827 I/Runtime]
+first frame presented
+
+[2026-11-05 05:13:15.736 Uid(value=10327):24757:24827 W/Runtime]
+SLOW_FRAME session=1 render=73.294423 count=1 newOutput=false scrollOffset=0 scrollRemainderPx=0.0
+
+[2026-11-05 05:13:15.737 Uid(value=10327):24757:24827 W/Runtime]
+SLOW_LOOP session=1 total=74.154423ms gate=0.001923ms pre=0.103923ms render=73.295461ms backoff=0.0ms poll=0.718385ms tail=0.034731ms
+
+[2026-11-05 05:13:15.744 Uid(value=10327):24757:24757 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-11-05 05:13:15.782 Uid(value=10327):24757:24782 I/mali_gralloc]
+register: id=0x2930001226c, importpid=-1
+
+[2026-11-05 05:13:15.833 Uid(value=10327):24757:24782 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-05 05:13:15.863 Uid(value=10327):24757:24757 W/libc]
+Access denied finding property "persist.unipnp.debug"
+
+[2026-11-05 05:13:15.863 Uid(value=10327):24757:24757 W/libc]
+Access denied finding property "persist.unipnp.debug"
+
+[2026-11-05 05:13:15.863 Uid(value=10327):24757:24757 W/ziparchive]
+Unable to open '/system_ext/framework/unipnp-framework.dm': No such file or directory
+
+[2026-11-05 05:13:15.863 Uid(value=10327):24757:24757 W/ziparchive]
+Unable to open '/system_ext/framework/unipnp-framework.dm': No such file or directory
+
+[2026-11-05 05:13:15.935 Uid(value=10327):24757:24757 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-05 05:13:15.935 Uid(value=10327):24757:24757 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{d8ca259 VFED..... .F...... 0,0-472,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-11-05 05:13:15.977 Uid(value=10327):24757:24827 I/Runtime]
+session 1 first output received
+
+[2026-11-05 05:13:16.032 Uid(value=10327):24757:24757 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-05 05:13:16.047 Uid(value=10327):24757:24782 I/mali_gralloc]
+register: id=0x29300012270, importpid=-1
+
+[2026-11-05 05:13:16.244 Uid(value=10327):24757:24782 I/mali_gralloc]
+register: id=0x29300012275, importpid=-1
+
+[2026-11-05 05:13:16.612 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.800044ms p95=24.204192ms max=74.154423ms pre_max=0.205307ms pre_p95=0.094423ms ≈63fps
+
+[2026-11-05 05:13:16.612 Uid(value=10327):24757:24785 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.36341ms p95=0.202231ms max=73.294423ms scrollback=0 rows
+
+[2026-11-05 05:13:16.613 Uid(value=10327):24757:24786 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:16.614 Uid(value=10327):24757:24786 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:13:17.349 Uid(value=10327):24757:24764 I/com.termux]
+Compiler allocated 5210KB to compile java.lang.Object terminal.emulator.runtime.TerminalRuntime$RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend(java.lang.Object)
+
+[2026-11-05 05:13:17.614 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.68383ms p95=17.272539ms max=18.3605ms pre_max=0.183846ms pre_p95=0.025308ms ≈59fps
+
+[2026-11-05 05:13:17.615 Uid(value=10327):24757:24803 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.079781ms p95=0.146692ms max=0.175154ms scrollback=0 rows
+
+[2026-11-05 05:13:18.599 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.403594ms p95=17.326ms max=25.504154ms pre_max=0.038039ms pre_p95=0.029039ms ≈60fps
+
+[2026-11-05 05:13:18.599 Uid(value=10327):24757:24804 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.089525ms p95=0.122038ms max=0.175231ms scrollback=0 rows
+
+[2026-11-05 05:13:19.635 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.251334ms p95=17.552154ms max=34.311423ms pre_max=0.030654ms pre_p95=0.027154ms ≈57fps
+
+[2026-11-05 05:13:19.635 Uid(value=10327):24757:24786 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.071871ms p95=0.099385ms max=0.123923ms scrollback=0 rows
+
+[2026-11-05 05:13:20.123 Uid(value=10327):24757:24757 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=0
+
+[2026-11-05 05:13:20.156 Uid(value=10327):24757:24757 I/native::android::ffi::font]
+setRenderPaused: paused=true
+
+[2026-11-05 05:13:20.689 Uid(value=10327):24757:24786 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.100226ms p95=0.212384ms max=0.310962ms scrollback=0 rows
+
+[2026-11-05 05:13:20.689 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=17.555563ms p95=20.863847ms max=34.454192ms pre_max=0.158846ms pre_p95=0.034692ms ≈56fps
+
+[2026-11-05 05:13:20.739 Uid(value=10327):24757:24764 I/com.termux]
+Compiler allocated 5210KB to compile java.lang.Object terminal.emulator.runtime.TerminalRuntime$RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend(java.lang.Object)
+
+[2026-11-05 05:13:21.093 Uid(value=10327):24757:24859 D/ProfileInstaller]
+Installing profile for com.termux
+
+[2026-11-05 05:13:21.708 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.946332ms p95=23.951269ms max=34.725038ms pre_max=0.118616ms pre_p95=0.048ms ≈59fps
+
+[2026-11-05 05:13:21.708 Uid(value=10327):24757:24786 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.126558ms p95=0.145769ms max=1.165653ms scrollback=0 rows
+
+[2026-11-05 05:13:22.446 Uid(value=10327):24757:24757 D/CompatibilityChangeReporter]
+Compat change id reported: 171228096; UID 10327; state: ENABLED
+
+[2026-11-05 05:13:23.276 Uid(value=10327):24757:24757 I/native::android::ffi::font]
+setRenderPaused: paused=false
+
+[2026-11-05 05:13:23.282 Uid(value=10327):24757:24827 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 25 instances, partial=false, dirty_bands=1)
+
+[2026-11-05 05:13:23.286 Uid(value=10327):24757:24757 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=0
+
+[2026-11-05 05:13:23.311 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=26.695774ms p95=20.471231ms max=500.548961ms pre_max=0.164923ms pre_p95=0.057308ms ≈37fps
+
+[2026-11-05 05:13:23.312 Uid(value=10327):24757:24803 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.211346ms p95=0.136962ms max=6.029539ms scrollback=0 rows
+
+[2026-11-05 05:13:23.795 Uid(value=10327):24757:24757 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-05 05:13:23.795 Uid(value=10327):24757:24757 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{d8ca259 VFED..... .F...... 0,0-472,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-11-05 05:13:23.873 Uid(value=10327):24757:24757 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-05 05:13:24.009 Uid(value=10327):24757:24764 I/com.termux]
+Compiler allocated 5210KB to compile java.lang.Object terminal.emulator.runtime.TerminalRuntime$RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend(java.lang.Object)
+
+[2026-11-05 05:13:24.280 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.096792ms p95=17.309116ms max=20.661769ms pre_max=0.202846ms pre_p95=0.117847ms ≈62fps
+
+[2026-11-05 05:13:24.280 Uid(value=10327):24757:24785 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.149407ms p95=0.431462ms max=0.737154ms scrollback=0 rows
+
+[2026-11-05 05:13:25.283 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.685866ms p95=17.451385ms max=18.233384ms pre_max=0.108846ms pre_p95=0.035153ms ≈59fps
+
+[2026-11-05 05:13:25.283 Uid(value=10327):24757:24803 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.105091ms p95=0.156307ms max=0.4335ms scrollback=0 rows
+
+[2026-11-05 05:13:25.583 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024120): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:25.583 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024121): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:25.594 Uid(value=10327):24757:24827 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 26 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:25.679 Uid(value=10327):24757:24764 I/com.termux]
+Compiler allocated 5929KB to compile java.lang.Object terminal.emulator.runtime.TerminalRuntime$RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend(java.lang.Object)
+
+[2026-11-05 05:13:26.169 Uid(value=10327):24757:24803 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.349504ms p95=0.346192ms max=8.3925ms scrollback=0 rows
+
+[2026-11-05 05:13:26.169 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.745498ms p95=17.481039ms max=18.421231ms pre_max=0.212423ms pre_p95=0.0275ms ≈67fps
+
+[2026-11-05 05:13:27.031 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024122): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:27.044 Uid(value=10327):24757:24827 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 44 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:27.086 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.254826ms p95=17.693577ms max=18.528039ms pre_max=0.729ms pre_p95=0.212115ms ≈65fps
+
+[2026-11-05 05:13:27.086 Uid(value=10327):24757:24786 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.34857ms p95=0.390769ms max=7.908539ms scrollback=0 rows
+
+[2026-11-05 05:13:28.089 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.67526ms p95=17.340923ms max=17.614385ms pre_max=0.048731ms pre_p95=0.028731ms ≈59fps
+
+[2026-11-05 05:13:28.089 Uid(value=10327):24757:24786 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.158346ms p95=0.316961ms max=0.471846ms scrollback=0 rows
+
+[2026-11-05 05:13:28.247 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024123): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:28.247 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024124): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:28.262 Uid(value=10327):24757:24827 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 27 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:28.990 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.998904ms p95=17.535923ms max=17.681961ms pre_max=0.142769ms pre_p95=0.009077ms ≈66fps
+
+[2026-11-05 05:13:28.990 Uid(value=10327):24757:24803 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.403359ms p95=0.514654ms max=9.559616ms scrollback=0 rows
+
+[2026-11-05 05:13:29.063 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024125): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:29.063 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024126): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:29.076 Uid(value=10327):24757:24827 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 44 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:29.543 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024127): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:29.679 Uid(value=10327):24757:24818 W/stream]
+unimplemented CSI action: ESC [ * {  } x
+
+[2026-11-05 05:13:29.680 Uid(value=10327):24757:24818 W/kitty_gfx]
+failed to open image file: error.FileNotFound
+
+[2026-11-05 05:13:29.680 Uid(value=10327):24757:24818 W/kitty_gfx]
+erroneous kitty graphics response: EINVAL: invalid data
+
+[2026-11-05 05:13:29.680 Uid(value=10327):24757:24818 W/kitty_gfx]
+erroneous kitty graphics response: EINVAL: unsupported medium
+
+[2026-11-05 05:13:29.775 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.068685ms p95=17.36073ms max=17.493346ms pre_max=0.035577ms pre_p95=0.008269ms ≈76fps
+
+[2026-11-05 05:13:29.775 Uid(value=10327):24757:24804 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.419833ms p95=0.441193ms max=8.916077ms scrollback=0 rows
+
+[2026-11-05 05:13:29.777 Uid(value=10327):24757:24803 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:29.778 Uid(value=10327):24757:24803 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:13:30.127 Uid(value=10327):24757:24827 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 1 instances, partial=false, dirty_bands=2)
+
+[2026-11-05 05:13:30.127 Uid(value=10327):24757:24827 W/native::android::ffi::render::frame]
+SLOW_RENDER_INNER phase1=0.004ms receive=0.007ms lock=0.001ms render=37.794ms total=37.805ms count=1
+
+[2026-11-05 05:13:30.128 Uid(value=10327):24757:24827 W/Runtime]
+SLOW_FRAME session=1 render=38.103539 count=1 newOutput=true scrollOffset=0 scrollRemainderPx=0.0
+
+[2026-11-05 05:13:30.128 Uid(value=10327):24757:24827 W/Runtime]
+SLOW_LOOP session=1 total=52.179692ms gate=13.860308ms pre=0.002961ms render=38.103616ms backoff=0.0ms poll=0.203884ms tail=0.008923ms
+
+[2026-11-05 05:13:30.527 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.524344ms p95=17.663846ms max=52.179692ms pre_max=0.051115ms pre_p95=0.009192ms ≈79fps
+
+[2026-11-05 05:13:30.528 Uid(value=10327):24757:24803 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.765055ms p95=0.330231ms max=38.103539ms scrollback=2 rows
+
+[2026-11-05 05:13:30.530 Uid(value=10327):24757:24803 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:30.531 Uid(value=10327):24757:24803 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:13:31.301 Uid(value=10327):24757:24827 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 26 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:31.430 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.027361ms p95=17.488654ms max=17.600076ms pre_max=0.051193ms pre_p95=0.027231ms ≈66fps
+
+[2026-11-05 05:13:31.430 Uid(value=10327):24757:24785 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.394298ms p95=0.214154ms max=8.364ms scrollback=2 rows
+
+[2026-11-05 05:13:31.801 Uid(value=10327):24757:24827 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 27 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:31.795 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024135): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:32.332 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.022783ms p95=17.3105ms max=18.8935ms pre_max=0.076ms pre_p95=0.009193ms ≈66fps
+
+[2026-11-05 05:13:32.332 Uid(value=10327):24757:24786 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.21202ms p95=0.277116ms max=3.652961ms scrollback=2 rows
+
+[2026-11-05 05:13:32.507 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024136): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:32.507 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024137): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:32.517 Uid(value=10327):24757:24827 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 30 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:32.951 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024138): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:32.959 Uid(value=10327):24938:24938 W/clear]
+type=1400 audit(0.0:1024139): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/9ahnm6gsklq4dn20fjlz1wn36c34dik0-ncurses-6.6/lib/libncursesw.so.6.6" dev="dm-38" ino=6816017 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:32.963 Uid(value=10327):24938:24938 W/clear]
+type=1400 audit(0.0:1024140): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libc.so.6" dev="dm-38" ino=6821988 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:33.066 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.221467ms p95=17.37523ms max=18.627269ms pre_max=0.089577ms pre_p95=0.05077ms ≈81fps
+
+[2026-11-05 05:13:33.067 Uid(value=10327):24757:24803 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.522609ms p95=4.972654ms max=7.906692ms scrollback=0 rows
+
+[2026-11-05 05:13:34.043 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024141): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:34.049 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.359911ms p95=17.350077ms max=17.613885ms pre_max=0.008116ms pre_p95=0.007077ms ≈61fps
+
+[2026-11-05 05:13:34.050 Uid(value=10327):24757:24803 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.111257ms p95=0.24ms max=0.363154ms scrollback=0 rows
+
+[2026-11-05 05:13:34.059 Uid(value=10327):24757:24827 D/native::render::pass::frame]
+render_frame: presented 5 frames (last: 26 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:34.937 Uid(value=10327):24757:24785 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.445432ms p95=0.523808ms max=9.16477ms scrollback=0 rows
+
+[2026-11-05 05:13:34.937 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.788651ms p95=17.513731ms max=19.612577ms pre_max=0.008308ms pre_p95=0.00777ms ≈67fps
+
+[2026-11-05 05:13:34.959 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024142): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:34.963 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024143): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:34.974 Uid(value=10327):24757:24827 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 30 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:35.447 Uid(value=10327):24817:24817 W/fish]
+type=1400 audit(0.0:1024144): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:35.451 Uid(value=10327):24946:24946 W/clear]
+type=1400 audit(0.0:1024145): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/9ahnm6gsklq4dn20fjlz1wn36c34dik0-ncurses-6.6/lib/libncursesw.so.6.6" dev="dm-38" ino=6816017 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:35.451 Uid(value=10327):24946:24946 W/clear]
+type=1400 audit(0.0:1024146): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libc.so.6" dev="dm-38" ino=6821988 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:35.739 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.356387ms p95=17.447653ms max=18.053539ms pre_max=0.044423ms pre_p95=0.007385ms ≈74fps
+
+[2026-11-05 05:13:35.740 Uid(value=10327):24757:24804 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.487129ms p95=2.835231ms max=10.0135ms scrollback=0 rows
+
+[2026-11-05 05:13:36.743 Uid(value=10327):24757:24827 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.692856ms p95=18.403923ms max=19.055846ms pre_max=0.079769ms pre_p95=0.007577ms ≈59fps
+
+[2026-11-05 05:13:36.744 Uid(value=10327):24757:24803 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.138019ms p95=0.239808ms max=1.011ms scrollback=0 rows
+
+[2026-11-05 05:13:36.850 Uid(value=10327):24757:24757 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:13:36.881 Uid(value=10327):24757:24757 I/native::android::ffi::font]
+setRenderPaused: paused=true
+
+[2026-11-05 05:13:36.914 Uid(value=10327):24757:24782 I/mali_gralloc]
+unregister: id=0x2930001226c, base=0x0, importpid=24757
+
+[2026-11-05 05:13:36.915 Uid(value=10327):24757:24782 I/mali_gralloc]
+unregister: id=0x29300012275, base=0x0, importpid=24757
+
+[2026-11-05 05:13:36.926 Uid(value=10327):24757:24757 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-05 05:13:36.928 Uid(value=10327):24757:24757 I/mali_gralloc]
+unregister: id=0x29300012270, base=0x0, importpid=24757
+
+[2026-11-05 05:13:36.940 Uid(value=10327):24757:24757 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-05 05:13:44.340 Uid(value=10327):25141:25141 I/libc]
+SetHeapTaggingLevel: tag level set to 0
+
+[2026-11-05 05:13:44.349 Uid(value=10327):25141:25141 E/com.termux]
+Not starting debugger since process cannot load the jdwp agent.
+
+[2026-11-05 05:13:44.395 Uid(value=10327):25141:25141 W/ziparchive]
+Unable to open '/system_ext/framework/unisoc-framework.dm': No such file or directory
+
+[2026-11-05 05:13:44.395 Uid(value=10327):25141:25141 W/ziparchive]
+Unable to open '/system_ext/framework/unisoc-framework.dm': No such file or directory
+
+[2026-11-05 05:13:44.404 Uid(value=10327):25141:25141 D/FeatureOpt]
+get all features from system,count=488
+
+[2026-11-05 05:13:44.405 Uid(value=10327):25141:25141 W/FeatureOpt]
+ensureGetRight for getInt, key=zte_foldable,valueType=101,result=0
+
+[2026-11-05 05:13:44.412 Uid(value=10327):25141:25156 W/libc]
+Access denied finding property "vendor.MB.running"
+
+[2026-11-05 05:13:44.422 Uid(value=10327):25141:25141 D/CompatibilityChangeReporter]
+Compat change id reported: 171979766; UID 10327; state: DISABLED
+
+[2026-11-05 05:13:44.424 Uid(value=10327):25141:25141 D/Typeface]
+ZTEZhengYuan Available:true
+
+[2026-11-05 05:13:44.427 Uid(value=10327):25141:25141 D/ApplicationLoaders]
+Returning zygote-cached class loader: /system/framework/android.test.base.jar
+
+[2026-11-05 05:13:44.438 Uid(value=10327):25141:25141 V/GraphicsEnvironment]
+ANGLE Developer option for 'com.termux' set to: 'default'
+
+[2026-11-05 05:13:44.438 Uid(value=10327):25141:25141 V/GraphicsEnvironment]
+ANGLE GameManagerService for com.termux: false
+
+[2026-11-05 05:13:44.438 Uid(value=10327):25141:25141 V/GraphicsEnvironment]
+Neither updatable production driver nor prerelease driver is supported.
+
+[2026-11-05 05:13:44.440 Uid(value=10327):25141:25141 I/LoadedApk]
+No resource references to update in package androidzte
+
+[2026-11-05 05:13:44.440 Uid(value=10327):25141:25141 D/NetworkSecurityConfig]
+No Network Security Config specified, using platform default
+
+[2026-11-05 05:13:44.441 Uid(value=10327):25141:25141 D/NetworkSecurityConfig]
+No Network Security Config specified, using platform default
+
+[2026-11-05 05:13:44.441 Uid(value=10327):25141:25141 I/ZteBinderProxy]
+initLastBindTime: USE_CACHE = true
+
+[2026-11-05 05:13:44.463 Uid(value=10327):25141:25163 I/NativeBridge]
+Native library loaded: native on native-preload
+
+[2026-11-05 05:13:44.482 Uid(value=10327):25141:25141 W/FeatureOpt]
+ensureGetRight for getInt, key=zte_foldable,valueType=101,result=0
+
+[2026-11-05 05:13:44.495 Uid(value=10327):25141:25141 E/Typeface]
+updateDefaultTypeface(fontPath: /data/resource-cache/font/default_font_android_id)
+
+[2026-11-05 05:13:44.521 Uid(value=10327):25141:25141 D/WindowClient]
+Add to mViews: DecorView@1e35723[MainActivity], this = android.view.WindowManagerGlobal@a6af420mViews.size()=1
+
+[2026-11-05 05:13:44.521 Uid(value=10327):25141:25141 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-05 05:13:44.556 Uid(value=10327):25141:25141 D/CompatibilityChangeReporter]
+Compat change id reported: 193247900; UID 10327; state: DISABLED
+
+[2026-11-05 05:13:44.720 Uid(value=10327):25141:25141 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-05 05:13:44.752 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:13:44.767 Uid(value=10327):25141:25169 D/vulkan]
+searching for layers in '/data/app/~~Fjbf-a9TWTRQD5JvIf1sHA==/com.termux-6bX4vmsNtQc5g3wu9UERgw==/lib/arm64'
+
+[2026-11-05 05:13:44.767 Uid(value=10327):25141:25169 D/vulkan]
+searching for layers in '/data/app/~~Fjbf-a9TWTRQD5JvIf1sHA==/com.termux-6bX4vmsNtQc5g3wu9UERgw==/base.apk!/lib/arm64-v8a'
+
+[2026-11-05 05:13:44.811 Uid(value=10327):25141:25169 I/native::render::wgpu_backend]
+GPU adapter: Mali-G57 (backend=Vulkan, type=IntegratedGpu)
+
+[2026-11-05 05:13:44.811 Uid(value=10327):25141:25169 W/wgpu_core::instance]
+Missing downlevel flags: DownlevelFlags(SURFACE_VIEW_FORMATS)
+The underlying API or device in use does not support enough features to be a fully compliant implementation of WebGPU. A subset of the features can still be used. If you are running this program on native and not in a browser and wish to limit the features you use to the supported subset, call Adapter::downlevel_properties or Device::downlevel_properties to get a listing of the features the current platform supports.
+
+[2026-11-05 05:13:44.811 Uid(value=10327):25141:25169 W/wgpu_core::instance]
+DownlevelCapabilities {
+    flags: DownlevelFlags(
+        COMPUTE_SHADERS | FRAGMENT_WRITABLE_STORAGE | INDIRECT_EXECUTION | BASE_VERTEX | READ_ONLY_DEPTH_STENCIL | NON_POWER_OF_TWO_MIPMAPPED_TEXTURES | CUBE_ARRAY_TEXTURES | COMPARISON_SAMPLERS | INDEPENDENT_BLEND | VERTEX_STORAGE | ANISOTROPIC_FILTERING | FRAGMENT_STORAGE | MULTISAMPLED_SHADING | DEPTH_TEXTURE_AND_BUFFER_COPIES | WEBGPU_TEXTURE_FORMAT_SUPPORT | BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED | UNRESTRICTED_INDEX_BUFFER | FULL_DRAW_INDEX_UINT32 | DEPTH_BIAS_CLAMP | VIEW_FORMATS | UNRESTRICTED_EXTERNAL_TEXTURE_COPIES | NONBLOCKING_QUERY_RESOLVE | SHADER_F16_IN_F32 | MSL2_1 | TEXTURE_COMPRESSION,
+    ),
+    limits: DownlevelLimits,
+    shader_model: Sm5,
+}
+
+[2026-11-05 05:13:44.847 Uid(value=10327):25141:25169 I/native::render::wgpu_backend]
+GPU device created, queue ok
+
+[2026-11-05 05:13:44.850 Uid(value=10327):25141:25169 D/native::render::font::font_db]
+FONT_XML: 跳过 62 个 fallbackFor 字体（回退链：serif）
+
+[2026-11-05 05:13:44.850 Uid(value=10327):25141:25169 D/native::render::font::font_db]
+FONT_XML: monospace targets=["DroidSansMono.ttf", "CutiveMono.ttf"]
+
+[2026-11-05 05:13:44.851 Uid(value=10327):25141:25169 D/native::render::font::font_db]
+FONT_LOAD: loaded 3 font files, 3 faces
+
+[2026-11-05 05:13:44.851 Uid(value=10327):25141:25169 D/native::render::font::font_db]
+FONT_SELECT: fonts.xml monospace id=ID(InnerId(1v1)) stem='DroidSansMono'
+
+[2026-11-05 05:13:44.864 Uid(value=10327):25141:25169 D/native::render::font::rasterization]
+FONT_RASTERIZE_ASCII: before=0 after=94 font_id=Some(ID(InnerId(1v1)))
+
+[2026-11-05 05:13:44.864 Uid(value=10327):25141:25169 I/native::android::ffi]
+render state initialized (renderer + font pipeline)
+
+[2026-11-05 05:13:44.864 Uid(value=10327):25141:25169 D/native::render::font::font_db]
+FONT_LOAD: 1 extra font paths
+
+[2026-11-05 05:13:44.864 Uid(value=10327):25141:25169 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:44.906 Uid(value=10327):25141:25169 D/native::render::font::rasterization]
+FONT_RASTERIZE_ASCII: before=0 after=94 font_id=Some(ID(InnerId(4v1)))
+
+[2026-11-05 05:13:44.906 Uid(value=10327):25141:25169 D/native::render::font::cjk]
+CJK_FALLBACK: skipped (locale not yet known)
+
+[2026-11-05 05:13:44.906 Uid(value=10327):25141:25169 I/native::android::ffi::font]
+loadFontFile: /data/user/0/com.termux/files/home/.termux/font.ttf -> family Maple Mono Normal NF CN
+
+[2026-11-05 05:13:44.906 Uid(value=10327):25141:25169 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:44.907 Uid(value=10327):25141:25169 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:13:44.915 Uid(value=10327):25141:25169 D/native::render::font::rasterization]
+FONT_RASTERIZE_ASCII: before=0 after=94 font_id=Some(ID(InnerId(4v1)))
+
+[2026-11-05 05:13:44.915 Uid(value=10327):25141:25169 D/native::render::font::pipeline]
+RASTER_SCALE: scale=1.331
+
+[2026-11-05 05:13:44.916 Uid(value=10327):25141:25169 I/native::terminal::session::spawn]
+Session::spawn: shell='/data/user/0/com.termux/files/usr/bin/login', rows=28, cols=42, cwd=None
+
+[2026-11-05 05:13:44.916 Uid(value=10327):25141:25169 I/native::terminal::pty]
+SPAWN_DIRECT_ET_EXEC: shell=/data/user/0/com.termux/files/usr/bin/login (non-PIE, skip linker)
+
+[2026-11-05 05:13:44.927 Uid(value=10327):25141:25169 I/native::terminal::session::spawn]
+Session::spawn: PtyPair::spawn OK
+
+[2026-11-05 05:13:44.927 Uid(value=10327):25141:25169 I/native::terminal::session::spawn]
+Session::spawn: set_nonblocking OK
+
+[2026-11-05 05:13:44.927 Uid(value=10327):25141:25169 I/native::terminal::session::spawn]
+Session::spawn: cloning master fd for reader
+
+[2026-11-05 05:13:44.927 Uid(value=10327):25141:25169 I/native::terminal::session::spawn]
+Session::spawn_with_pty: creating Arc/Channel
+
+[2026-11-05 05:13:44.928 Uid(value=10327):25141:25169 I/native::terminal::session::spawn]
+Session::spawn: spawning reader thread
+
+[2026-11-05 05:13:44.928 Uid(value=10327):25141:25169 I/native::android::ffi::session]
+FFI: initSession -> id=1
+
+[2026-11-05 05:13:44.928 Uid(value=10327):25141:25207 I/native::terminal::session::spawn]
+wait thread: waiting for child pid=25204
+
+[2026-11-05 05:13:44.930 Uid(value=10327):25141:25189 I/native::android::ffi]
+render state prefetched
+
+[2026-11-05 05:13:44.930 Uid(value=10327):25141:25169 I/native::android::ffi::font]
+setSystemLocale: zh-CN
+
+[2026-11-05 05:13:44.931 Uid(value=10327):25141:25169 D/native::render::font::font_db]
+FONT_LOAD: locale='zh-CN' 补装 45 个区域回退族面
+
+[2026-11-05 05:13:44.931 Uid(value=10327):25141:25169 D/native::render::font::cjk]
+CJK_FALLBACK: skipped (primary font already supports CJK)
+
+[2026-11-05 05:13:44.932 Uid(value=10327):25141:25205 D/native::terminal::ghostty_terminal::internal::commands]
+SetTheme: dracula_plus -> default_background=[0.12941177, 0.12941177, 0.12941177, 1.0] default_foreground=[0.972549, 0.972549, 0.9490196, 1.0]
+
+[2026-11-05 05:13:44.935 Uid(value=10327):25141:25169 I/native::android::ffi::font]
+setTheme: session 1 theme=dracula_plus
+
+[2026-11-05 05:13:44.935 Uid(value=10327):25141:25169 I/native::android::ffi::font]
+setCursorStyle: session 1 style=Block
+
+[2026-11-05 05:13:44.931 Uid(value=10327):25204:25204 W/DefaultDispatch]
+type=1400 audit(0.0:1024206): avc: granted { execute } for name="login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:44.931 Uid(value=10327):25204:25204 W/DefaultDispatch]
+type=1400 audit(0.0:1024207): avc: granted { execute_no_trans } for path="/data/user/0/com.termux/files/usr/bin/login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:44.935 Uid(value=10327):25141:25205 I/native::terminal::ghostty_terminal::internal::commands]
+SetCursorStyle: Block
+
+[2026-11-05 05:13:44.935 Uid(value=10327):25141:25169 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:44.935 Uid(value=10327):25141:25169 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:13:44.936 Uid(value=10327):25141:25169 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x768764dbf0 472x819
+
+[2026-11-05 05:13:44.942 Uid(value=10327):25141:25169 W/libc]
+Access denied finding property "persist.vendor.gpu.fbc"
+
+[2026-11-05 05:13:44.942 Uid(value=10327):25141:25169 I/mali_gralloc]
+SPRD: get persist.vendor.gpu.fbc 1
+
+[2026-11-05 05:13:44.942 Uid(value=10327):25141:25169 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:44.942 Uid(value=10327):25141:25169 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:44.943 Uid(value=10327):25141:25169 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:44.943 Uid(value=10327):25141:25169 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:44.943 Uid(value=10327):25141:25169 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:44.943 Uid(value=10327):25141:25169 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:44.944 Uid(value=10327):25141:25169 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:44.944 Uid(value=10327):25141:25169 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:44.939 Uid(value=10327):25204:25204 W/login]
+type=1400 audit(0.0:1024208): avc: granted { execute } for path="/data/user/0/com.termux/files/usr/bin/login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:44.946 Uid(value=10327):25141:25169 I/mali_gralloc]
+register: id=0x293000122a6, importpid=-1
+
+[2026-11-05 05:13:44.948 Uid(value=10327):25141:25169 I/mali_gralloc]
+register: id=0x293000122a7, importpid=-1
+
+[2026-11-05 05:13:44.943 Uid(value=10327):25204:25204 W/login]
+type=1400 audit(0.0:1024209): avc: denied { getattr } for path="/proc/modules" dev="proc" ino=4026532130 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:proc_modules:s0 tclass=file permissive=0 app=com.termux
+
+[2026-11-05 05:13:44.943 Uid(value=10327):25204:25204 W/login]
+type=1400 audit(0.0:1024210): avc: denied { getattr } for path="/proc/bus/pci/devices" dev="proc" ino=4026532146 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:proc:s0 tclass=file permissive=0 app=com.termux
+
+[2026-11-05 05:13:44.949 Uid(value=10327):25141:25169 I/mali_gralloc]
+register: id=0x293000122a8, importpid=-1
+
+[2026-11-05 05:13:44.949 Uid(value=10327):25141:25169 I/mali_gralloc]
+register: id=0x293000122a9, importpid=-1
+
+[2026-11-05 05:13:44.950 Uid(value=10327):25141:25169 I/native::render::context::renderer]
+ensure_frame_texture: creating accumulator 472x819 (Rgba8Unorm)
+
+[2026-11-05 05:13:44.950 Uid(value=10327):25141:25169 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-05 05:13:44.956 Uid(value=10327):25141:25169 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-05 05:13:44.959 Uid(value=10327):25141:25189 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:44.961 Uid(value=10327):25141:25189 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:13:44.979 Uid(value=10327):25141:25141 D/CompatibilityChangeReporter]
+Compat change id reported: 160794467; UID 10327; state: DISABLED
+
+[2026-11-05 05:13:44.993 Uid(value=10327):25141:25219 I/native::render::context::renderer]
+initialize_pipeline_and_bind_group: pipeline=true atlas=2048x2048 surface=472x819
+
+[2026-11-05 05:13:45.018 Uid(value=10327):25141:25219 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 1 instances, partial=false, dirty_bands=0)
+
+[2026-11-05 05:13:45.018 Uid(value=10327):25141:25219 W/native::android::ffi::render::frame]
+SLOW_RENDER_INNER phase1=43.230ms receive=0.007ms lock=0.001ms render=6.033ms total=49.271ms count=1
+
+[2026-11-05 05:13:45.018 Uid(value=10327):25141:25219 I/Runtime]
+first frame presented
+
+[2026-11-05 05:13:45.019 Uid(value=10327):25141:25219 W/Runtime]
+SLOW_FRAME session=1 render=49.872577 count=1 newOutput=false scrollOffset=0 scrollRemainderPx=0.0
+
+[2026-11-05 05:13:45.019 Uid(value=10327):25141:25219 W/Runtime]
+SLOW_LOOP session=1 total=50.518154ms gate=0.003884ms pre=0.171693ms render=49.873923ms backoff=0.0ms poll=0.444307ms tail=0.024347ms
+
+[2026-11-05 05:13:45.028 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-11-05 05:13:45.066 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122aa, importpid=-1
+
+[2026-11-05 05:13:45.102 Uid(value=10327):25141:25219 I/Runtime]
+session 1 first output received
+
+[2026-11-05 05:13:45.105 Uid(value=10327):25141:25164 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-05 05:13:45.131 Uid(value=10327):25141:25141 W/libc]
+Access denied finding property "persist.unipnp.debug"
+
+[2026-11-05 05:13:45.132 Uid(value=10327):25141:25141 W/libc]
+Access denied finding property "persist.unipnp.debug"
+
+[2026-11-05 05:13:45.132 Uid(value=10327):25141:25141 W/ziparchive]
+Unable to open '/system_ext/framework/unipnp-framework.dm': No such file or directory
+
+[2026-11-05 05:13:45.132 Uid(value=10327):25141:25141 W/ziparchive]
+Unable to open '/system_ext/framework/unipnp-framework.dm': No such file or directory
+
+[2026-11-05 05:13:45.207 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-05 05:13:45.207 Uid(value=10327):25141:25141 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{d8ca259 VFED..... .F...... 0,0-472,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-11-05 05:13:45.281 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-05 05:13:45.299 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122ae, importpid=-1
+
+[2026-11-05 05:13:45.478 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122b3, importpid=-1
+
+[2026-11-05 05:13:45.862 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.875371ms p95=21.907ms max=50.518154ms pre_max=0.179ms pre_p95=0.110423ms ≈67fps
+
+[2026-11-05 05:13:45.862 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.018397ms p95=0.175654ms max=49.872577ms scrollback=0 rows
+
+[2026-11-05 05:13:45.864 Uid(value=10327):25141:25189 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:45.864 Uid(value=10327):25141:25189 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:13:46.601 Uid(value=10327):25141:25149 I/com.termux]
+Compiler allocated 5210KB to compile java.lang.Object terminal.emulator.runtime.TerminalRuntime$RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend(java.lang.Object)
+
+[2026-11-05 05:13:46.864 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.68363ms p95=17.154846ms max=17.188308ms pre_max=0.146731ms pre_p95=0.025807ms ≈59fps
+
+[2026-11-05 05:13:46.864 Uid(value=10327):25141:25189 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.08328ms p95=0.111154ms max=0.118923ms scrollback=0 rows
+
+[2026-11-05 05:13:47.105 Uid(value=10327):25141:25219 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 26 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:47.783 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.301083ms p95=16.991423ms max=34.350039ms pre_max=0.034384ms pre_p95=0.025154ms ≈65fps
+
+[2026-11-05 05:13:47.783 Uid(value=10327):25141:25189 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.16463ms p95=0.104154ms max=2.588923ms scrollback=0 rows
+
+[2026-11-05 05:13:48.079 Uid(value=10327):25141:25219 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 44 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:48.156 Uid(value=10327):25141:25149 I/com.termux]
+Compiler allocated 5929KB to compile java.lang.Object terminal.emulator.runtime.TerminalRuntime$RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend(java.lang.Object)
+
+[2026-11-05 05:13:48.543 Uid(value=10327):25204:25204 W/fish]
+type=1400 audit(0.0:1024250): avc: granted { execute } for name="comma" dev="dm-38" ino=6813171 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:48.551 Uid(value=10327):25371:25371 W/comma]
+type=1400 audit(0.0:1024251): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/c1h1q4h9bfmb5d0w342qwjmhw8cxkxzc-gcc-16.2.0-libgcc/lib/libgcc_s.so.1" dev="dm-38" ino=6819978 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:48.551 Uid(value=10327):25371:25371 W/comma]
+type=1400 audit(0.0:1024252): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libc.so.6" dev="dm-38" ino=6821988 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:48.551 Uid(value=10327):25371:25371 W/comma]
+type=1400 audit(0.0:1024253): avc: denied { open } for path=2F6D656D66643A636E672D70726F633A2F70726F632F32353337312F6D617073202864656C6574656429 dev="tmpfs" ino=24194300 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:appdomain_tmpfs:s0:c71,c257,c512,c768 tclass=file permissive=0 app=com.termux
+
+[2026-11-05 05:13:48.568 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.075962ms p95=17.070692ms max=26.725077ms pre_max=0.046769ms pre_p95=0.035193ms ≈76fps
+
+[2026-11-05 05:13:48.570 Uid(value=10327):25141:25169 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.267876ms p95=0.165885ms max=7.340424ms scrollback=0 rows
+
+[2026-11-05 05:13:48.573 Uid(value=10327):25141:25189 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:48.574 Uid(value=10327):25141:25189 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:13:48.579 Uid(value=10327):25371:25371 W/kitten]
+type=1400 audit(0.0:1024254): avc: denied { open } for path=2F6D656D66643A636E672D70726F633A2F70726F632F32353337312F6D6F756E74696E666F202864656C6574656429 dev="tmpfs" ino=24194302 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:appdomain_tmpfs:s0:c71,c257,c512,c768 tclass=file permissive=0 app=com.termux
+
+[2026-11-05 05:13:48.651 Uid(value=10327):25141:25205 W/stream]
+unimplemented CSI action: ESC [ * {  } x
+
+[2026-11-05 05:13:48.651 Uid(value=10327):25141:25205 W/kitty_gfx]
+failed to open image file: error.FileNotFound
+
+[2026-11-05 05:13:48.651 Uid(value=10327):25141:25205 W/kitty_gfx]
+erroneous kitty graphics response: EINVAL: invalid data
+
+[2026-11-05 05:13:48.651 Uid(value=10327):25141:25205 W/kitty_gfx]
+erroneous kitty graphics response: EINVAL: unsupported medium
+
+[2026-11-05 05:13:49.009 Uid(value=10327):25141:25219 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 1 instances, partial=false, dirty_bands=2)
+
+[2026-11-05 05:13:49.103 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=8.90616ms p95=17.551ms max=36.823423ms pre_max=0.220769ms pre_p95=0.087731ms ≈112fps
+
+[2026-11-05 05:13:49.104 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.58058ms p95=0.184039ms max=29.245615ms scrollback=2 rows
+
+[2026-11-05 05:13:49.106 Uid(value=10327):25141:25189 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:13:49.106 Uid(value=10327):25141:25189 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:13:49.162 Uid(value=10327):25141:25149 I/com.termux]
+Compiler allocated 5210KB to compile java.lang.Object terminal.emulator.runtime.TerminalRuntime$RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend(java.lang.Object)
+
+[2026-11-05 05:13:50.106 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.687215ms p95=17.300884ms max=17.630961ms pre_max=0.283961ms pre_p95=0.066192ms ≈59fps
+
+[2026-11-05 05:13:50.106 Uid(value=10327):25141:25185 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.0756ms p95=0.243538ms max=0.2595ms scrollback=2 rows
+
+[2026-11-05 05:13:50.128 Uid(value=10327):25141:25514 D/ProfileInstaller]
+Skipping profile installation for com.termux
+
+[2026-11-05 05:13:50.695 Uid(value=10327):25204:25204 W/fish]
+type=1400 audit(0.0:1024258): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:50.710 Uid(value=10327):25141:25219 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 26 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:50.905 Uid(value=10327):25141:25149 I/com.termux]
+Compiler allocated 5929KB to compile java.lang.Object terminal.emulator.runtime.TerminalRuntime$RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend(java.lang.Object)
+
+[2026-11-05 05:13:51.025 Uid(value=10327):25141:25189 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.293961ms p95=0.227576ms max=8.478615ms scrollback=2 rows
+
+[2026-11-05 05:13:51.026 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.300914ms p95=17.594115ms max=18.577385ms pre_max=0.165808ms pre_p95=0.0425ms ≈65fps
+
+[2026-11-05 05:13:51.583 Uid(value=10327):25204:25204 W/fish]
+type=1400 audit(0.0:1024259): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:51.583 Uid(value=10327):25204:25204 W/fish]
+type=1400 audit(0.0:1024260): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:51.595 Uid(value=10327):25141:25219 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 30 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:51.910 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.712839ms p95=17.401ms max=17.573923ms pre_max=0.292423ms pre_p95=0.124808ms ≈67fps
+
+[2026-11-05 05:13:51.910 Uid(value=10327):25141:25185 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.259089ms p95=0.157692ms max=7.915193ms scrollback=2 rows
+
+[2026-11-05 05:13:52.143 Uid(value=10327):25204:25204 W/fish]
+type=1400 audit(0.0:1024261): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:52.153 Uid(value=10327):25141:25219 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 30 instances, partial=false, dirty_bands=1)
+
+[2026-11-05 05:13:52.151 Uid(value=10327):25523:25523 W/clear]
+type=1400 audit(0.0:1024262): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/9ahnm6gsklq4dn20fjlz1wn36c34dik0-ncurses-6.6/lib/libncursesw.so.6.6" dev="dm-38" ino=6816017 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:52.151 Uid(value=10327):25523:25523 W/clear]
+type=1400 audit(0.0:1024263): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libc.so.6" dev="dm-38" ino=6821988 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:52.729 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.622605ms p95=17.532653ms max=18.040231ms pre_max=0.130346ms pre_p95=0.026347ms ≈73fps
+
+[2026-11-05 05:13:52.729 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.407796ms p95=0.256423ms max=9.453269ms scrollback=0 rows
+
+[2026-11-05 05:13:53.243 Uid(value=10327):25204:25204 W/fish]
+type=1400 audit(0.0:1024264): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:53.256 Uid(value=10327):25141:25219 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 30 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:53.613 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.733364ms p95=17.4565ms max=18.0155ms pre_max=0.071769ms pre_p95=0.0235ms ≈67fps
+
+[2026-11-05 05:13:53.614 Uid(value=10327):25141:25185 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.247103ms p95=0.3275ms max=6.614539ms scrollback=0 rows
+
+[2026-11-05 05:13:53.807 Uid(value=10327):25204:25204 W/fish]
+type=1400 audit(0.0:1024265): avc: granted { execute } for name="clear" dev="dm-38" ino=6822879 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:53.816 Uid(value=10327):25141:25219 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 30 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:13:53.815 Uid(value=10327):25530:25530 W/clear]
+type=1400 audit(0.0:1024266): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/9ahnm6gsklq4dn20fjlz1wn36c34dik0-ncurses-6.6/lib/libncursesw.so.6.6" dev="dm-38" ino=6816017 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:53.815 Uid(value=10327):25530:25530 W/clear]
+type=1400 audit(0.0:1024267): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libc.so.6" dev="dm-38" ino=6821988 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:13:54.431 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.613182ms p95=17.251885ms max=17.559807ms pre_max=0.011192ms pre_p95=0.010769ms ≈73fps
+
+[2026-11-05 05:13:54.432 Uid(value=10327):25141:25185 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.383829ms p95=0.337231ms max=8.078077ms scrollback=0 rows
+
+[2026-11-05 05:13:55.435 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.712684ms p95=17.462693ms max=17.837847ms pre_max=0.061654ms pre_p95=0.010154ms ≈59fps
+
+[2026-11-05 05:13:55.435 Uid(value=10327):25141:25185 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.168419ms p95=0.317769ms max=0.562884ms scrollback=0 rows
+
+[2026-11-05 05:13:56.420 Uid(value=10327):25141:25219 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.392294ms p95=18.191423ms max=19.241462ms pre_max=0.067846ms pre_p95=0.011ms ≈61fps
+
+[2026-11-05 05:13:56.420 Uid(value=10327):25141:25189 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.152194ms p95=0.288ms max=1.074846ms scrollback=0 rows
+
+[2026-11-05 05:13:57.266 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:13:57.299 Uid(value=10327):25141:25141 I/native::android::ffi::font]
+setRenderPaused: paused=true
+
+[2026-11-05 05:13:57.306 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122aa, base=0x0, importpid=25141
+
+[2026-11-05 05:13:57.306 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122b3, base=0x0, importpid=25141
+
+[2026-11-05 05:13:57.314 Uid(value=10327):25141:25141 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-05 05:13:57.315 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122ae, base=0x0, importpid=25141
+
+[2026-11-05 05:13:57.324 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-05 05:13:57.599 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:13:57.637 Uid(value=10327):25141:25141 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-05 05:13:57.641 Uid(value=10327):25141:25141 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x768768b7c0 472x819
+
+[2026-11-05 05:13:57.641 Uid(value=10327):25141:25141 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-05 05:13:57.641 Uid(value=10327):25141:25141 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-05 05:13:57.641 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122a6, base=0x0, importpid=25141
+
+[2026-11-05 05:13:57.641 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122a7, base=0x0, importpid=25141
+
+[2026-11-05 05:13:57.642 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122a8, base=0x0, importpid=25141
+
+[2026-11-05 05:13:57.642 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122a9, base=0x0, importpid=25141
+
+[2026-11-05 05:13:57.646 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:57.647 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:57.648 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:57.648 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:57.648 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:57.648 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:57.649 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:57.649 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:57.650 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122bc, importpid=-1
+
+[2026-11-05 05:13:57.652 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122bd, importpid=-1
+
+[2026-11-05 05:13:57.653 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122be, importpid=-1
+
+[2026-11-05 05:13:57.653 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122bf, importpid=-1
+
+[2026-11-05 05:13:57.654 Uid(value=10327):25141:25141 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-05 05:13:57.655 Uid(value=10327):25141:25141 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-05 05:13:57.655 Uid(value=10327):25141:25141 I/native::android::ffi::font]
+setRenderPaused: paused=false
+
+[2026-11-05 05:13:57.658 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-11-05 05:13:57.658 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-11-05 05:13:57.660 Uid(value=10327):25141:25546 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 25 instances, partial=false, dirty_bands=1)
+
+[2026-11-05 05:13:57.666 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122c0, importpid=-1
+
+[2026-11-05 05:13:57.676 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122c1, importpid=-1
+
+[2026-11-05 05:13:57.681 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122c2, importpid=-1
+
+[2026-11-05 05:13:57.757 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:13:58.608 Uid(value=10327):25141:25546 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.835536ms p95=17.417308ms max=18.250231ms pre_max=0.127462ms pre_p95=0.089846ms ≈63fps
+
+[2026-11-05 05:13:58.610 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.130028ms p95=0.137231ms max=2.772193ms scrollback=0 rows
+
+[2026-11-05 05:13:59.156 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:13:59.183 Uid(value=10327):25141:25141 I/native::android::ffi::font]
+setRenderPaused: paused=true
+
+[2026-11-05 05:13:59.196 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122c0, base=0x0, importpid=25141
+
+[2026-11-05 05:13:59.197 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122c2, base=0x0, importpid=25141
+
+[2026-11-05 05:13:59.201 Uid(value=10327):25141:25141 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-05 05:13:59.203 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122c1, base=0x0, importpid=25141
+
+[2026-11-05 05:13:59.210 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-05 05:13:59.468 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:13:59.494 Uid(value=10327):25141:25141 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-05 05:13:59.496 Uid(value=10327):25141:25141 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x7687685190 472x819
+
+[2026-11-05 05:13:59.496 Uid(value=10327):25141:25141 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-05 05:13:59.496 Uid(value=10327):25141:25141 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-05 05:13:59.497 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122bc, base=0x0, importpid=25141
+
+[2026-11-05 05:13:59.497 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122bd, base=0x0, importpid=25141
+
+[2026-11-05 05:13:59.497 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122be, base=0x0, importpid=25141
+
+[2026-11-05 05:13:59.498 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122bf, base=0x0, importpid=25141
+
+[2026-11-05 05:13:59.499 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:59.499 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:59.500 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:59.500 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:59.503 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:59.503 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:59.504 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:13:59.504 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:13:59.505 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122c7, importpid=-1
+
+[2026-11-05 05:13:59.506 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122c8, importpid=-1
+
+[2026-11-05 05:13:59.507 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122c9, importpid=-1
+
+[2026-11-05 05:13:59.510 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122ca, importpid=-1
+
+[2026-11-05 05:13:59.511 Uid(value=10327):25141:25141 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-05 05:13:59.514 Uid(value=10327):25141:25141 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-05 05:13:59.514 Uid(value=10327):25141:25141 I/native::android::ffi::font]
+setRenderPaused: paused=false
+
+[2026-11-05 05:13:59.516 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-11-05 05:13:59.516 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-11-05 05:13:59.516 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=2
+
+[2026-11-05 05:13:59.518 Uid(value=10327):25141:25564 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 25 instances, partial=false, dirty_bands=1)
+
+[2026-11-05 05:13:59.525 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122cb, importpid=-1
+
+[2026-11-05 05:13:59.532 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122cc, importpid=-1
+
+[2026-11-05 05:13:59.546 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122cd, importpid=-1
+
+[2026-11-05 05:13:59.643 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:14:00.170 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-05 05:14:00.170 Uid(value=10327):25141:25141 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{d8ca259 VFED..... .F...... 0,0-472,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-11-05 05:14:00.231 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-05 05:14:00.446 Uid(value=10327):25141:25564 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.497318ms p95=17.230423ms max=17.854808ms pre_max=0.066693ms pre_p95=0.013654ms ≈64fps
+
+[2026-11-05 05:14:00.447 Uid(value=10327):25141:25189 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.118246ms p95=0.109769ms max=2.554038ms scrollback=0 rows
+
+[2026-11-05 05:14:01.449 Uid(value=10327):25141:25564 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.699092ms p95=17.4075ms max=17.744115ms pre_max=0.099269ms pre_p95=0.021385ms ≈59fps
+
+[2026-11-05 05:14:01.449 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.122817ms p95=0.315423ms max=0.359077ms scrollback=0 rows
+
+[2026-11-05 05:14:02.452 Uid(value=10327):25141:25564 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.699394ms p95=17.343423ms max=17.844346ms pre_max=0.241692ms pre_p95=0.158616ms ≈59fps
+
+[2026-11-05 05:14:02.453 Uid(value=10327):25141:25189 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.147514ms p95=0.264384ms max=0.319693ms scrollback=0 rows
+
+[2026-11-05 05:14:03.146 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:14:03.180 Uid(value=10327):25141:25141 I/native::android::ffi::font]
+setRenderPaused: paused=true
+
+[2026-11-05 05:14:03.203 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-05 05:14:03.213 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122cb, base=0x0, importpid=25141
+
+[2026-11-05 05:14:03.213 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122cc, base=0x0, importpid=25141
+
+[2026-11-05 05:14:03.214 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122cd, base=0x0, importpid=25141
+
+[2026-11-05 05:14:03.224 Uid(value=10327):25141:25141 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-05 05:14:03.489 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:14:03.523 Uid(value=10327):25141:25141 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-05 05:14:03.525 Uid(value=10327):25141:25141 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x7687696210 472x819
+
+[2026-11-05 05:14:03.526 Uid(value=10327):25141:25141 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-05 05:14:03.526 Uid(value=10327):25141:25141 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-05 05:14:03.526 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122c7, base=0x0, importpid=25141
+
+[2026-11-05 05:14:03.526 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122c8, base=0x0, importpid=25141
+
+[2026-11-05 05:14:03.526 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122c9, base=0x0, importpid=25141
+
+[2026-11-05 05:14:03.527 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122ca, base=0x0, importpid=25141
+
+[2026-11-05 05:14:03.530 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:14:03.530 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:14:03.531 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:14:03.531 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:14:03.532 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:14:03.532 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:14:03.532 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:14:03.532 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:14:03.534 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122de, importpid=-1
+
+[2026-11-05 05:14:03.536 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122df, importpid=-1
+
+[2026-11-05 05:14:03.537 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122e0, importpid=-1
+
+[2026-11-05 05:14:03.538 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122e1, importpid=-1
+
+[2026-11-05 05:14:03.538 Uid(value=10327):25141:25141 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-05 05:14:03.543 Uid(value=10327):25141:25141 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-05 05:14:03.543 Uid(value=10327):25141:25141 I/native::android::ffi::font]
+setRenderPaused: paused=false
+
+[2026-11-05 05:14:03.546 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-11-05 05:14:03.546 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-11-05 05:14:03.546 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=2
+
+[2026-11-05 05:14:03.546 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=3
+
+[2026-11-05 05:14:03.546 Uid(value=10327):25141:25588 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 25 instances, partial=false, dirty_bands=1)
+
+[2026-11-05 05:14:03.558 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122e2, importpid=-1
+
+[2026-11-05 05:14:03.567 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122e3, importpid=-1
+
+[2026-11-05 05:14:03.571 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122e4, importpid=-1
+
+[2026-11-05 05:14:03.627 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-05 05:14:03.670 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:14:04.471 Uid(value=10327):25141:25588 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.43334ms p95=17.133385ms max=17.632115ms pre_max=0.046ms pre_p95=0.013962ms ≈64fps
+
+[2026-11-05 05:14:04.471 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.125267ms p95=0.13ms max=2.031808ms scrollback=0 rows
+
+[2026-11-05 05:14:05.181 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:14:05.214 Uid(value=10327):25141:25141 I/native::android::ffi::font]
+setRenderPaused: paused=true
+
+[2026-11-05 05:14:05.236 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-05 05:14:05.248 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122e2, base=0x0, importpid=25141
+
+[2026-11-05 05:14:05.248 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122e4, base=0x0, importpid=25141
+
+[2026-11-05 05:14:05.249 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122e3, base=0x0, importpid=25141
+
+[2026-11-05 05:14:05.257 Uid(value=10327):25141:25141 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-05 05:14:05.351 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:14:05.401 Uid(value=10327):25141:25141 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-05 05:14:05.405 Uid(value=10327):25141:25141 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x76876ad8c0 472x819
+
+[2026-11-05 05:14:05.405 Uid(value=10327):25141:25141 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-05 05:14:05.405 Uid(value=10327):25141:25141 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-05 05:14:05.407 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122de, base=0x0, importpid=25141
+
+[2026-11-05 05:14:05.407 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122df, base=0x0, importpid=25141
+
+[2026-11-05 05:14:05.408 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122e0, base=0x0, importpid=25141
+
+[2026-11-05 05:14:05.409 Uid(value=10327):25141:25141 I/mali_gralloc]
+unregister: id=0x293000122e1, base=0x0, importpid=25141
+
+[2026-11-05 05:14:05.411 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:14:05.411 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:14:05.415 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:14:05.415 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:14:05.416 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:14:05.416 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:14:05.416 Uid(value=10327):25141:25141 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-05 05:14:05.416 Uid(value=10327):25141:25141 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-05 05:14:05.418 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122f2, importpid=-1
+
+[2026-11-05 05:14:05.420 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122f3, importpid=-1
+
+[2026-11-05 05:14:05.420 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122f4, importpid=-1
+
+[2026-11-05 05:14:05.421 Uid(value=10327):25141:25141 I/mali_gralloc]
+register: id=0x293000122f5, importpid=-1
+
+[2026-11-05 05:14:05.421 Uid(value=10327):25141:25141 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-05 05:14:05.424 Uid(value=10327):25141:25141 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-05 05:14:05.425 Uid(value=10327):25141:25141 I/native::android::ffi::font]
+setRenderPaused: paused=false
+
+[2026-11-05 05:14:05.427 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=0
+
+[2026-11-05 05:14:05.427 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=1
+
+[2026-11-05 05:14:05.427 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=2
+
+[2026-11-05 05:14:05.427 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=3
+
+[2026-11-05 05:14:05.427 Uid(value=10327):25141:25141 E/SurfaceSyncer]
+Failed to find sync for id=4
+
+[2026-11-05 05:14:05.428 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 25 instances, partial=false, dirty_bands=1)
+
+[2026-11-05 05:14:05.449 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122f6, importpid=-1
+
+[2026-11-05 05:14:05.459 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122f7, importpid=-1
+
+[2026-11-05 05:14:05.475 Uid(value=10327):25141:25164 I/mali_gralloc]
+register: id=0x293000122f8, importpid=-1
+
+[2026-11-05 05:14:05.527 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:14:05.541 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-05 05:14:06.375 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.812766ms p95=17.487462ms max=28.708154ms pre_max=0.109116ms pre_p95=0.054308ms ≈63fps
+
+[2026-11-05 05:14:06.376 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.140285ms p95=0.276539ms max=2.265885ms scrollback=0 rows
+
+[2026-11-05 05:14:07.378 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.691142ms p95=17.2585ms max=17.409731ms pre_max=0.435615ms pre_p95=0.02ms ≈59fps
+
+[2026-11-05 05:14:07.378 Uid(value=10327):25141:25189 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.127329ms p95=0.30273ms max=0.319539ms scrollback=0 rows
+
+[2026-11-05 05:14:08.380 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.689834ms p95=17.352384ms max=17.764654ms pre_max=0.127192ms pre_p95=0.018461ms ≈59fps
+
+[2026-11-05 05:14:08.381 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.108055ms p95=0.191038ms max=0.2885ms scrollback=0 rows
+
+[2026-11-05 05:14:09.384 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.126405ms p95=0.147308ms max=0.319692ms scrollback=0 rows
+
+[2026-11-05 05:14:09.384 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.705544ms p95=17.225154ms max=17.872885ms pre_max=0.199269ms pre_p95=0.174577ms ≈59fps
+
+[2026-11-05 05:14:10.387 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.140646ms p95=0.191269ms max=0.214384ms scrollback=0 rows
+
+[2026-11-05 05:14:10.387 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.688967ms p95=17.429884ms max=18.4135ms pre_max=0.137116ms pre_p95=0.021192ms ≈59fps
+
+[2026-11-05 05:14:12.590 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (15 frames): avg=146.84222ms p95=501.41973ms max=501.41973ms pre_max=0.199231ms pre_p95=0.199231ms ≈6fps
+
+[2026-11-05 05:14:12.591 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (15 frames): avg=0.142125ms p95=0.325385ms max=0.325385ms scrollback=0 rows
+
+[2026-11-05 05:14:15.096 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (5 frames): avg=500.927622ms p95=502.303346ms max=502.303346ms pre_max=0.023039ms pre_p95=0.023039ms ≈1fps
+
+[2026-11-05 05:14:15.096 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (5 frames): avg=0.146638ms p95=0.170423ms max=0.170423ms scrollback=0 rows
+
+[2026-11-05 05:14:17.520 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-05 05:14:17.529 Uid(value=10327):25141:25141 W/RemoteInputConnectionImpl]
+requestCursorAnchorInfo on inactive InputConnection
+
+[2026-11-05 05:14:17.534 Uid(value=10327):25141:25141 D/InputMethodManager]
+showSoftInput() view=androidx.compose.ui.platform.AndroidComposeView{2bd79a5 VFED..... .F...... 0,0-480,854 aid=1073741824} flags=0 reason=SHOW_SOFT_INPUT
+
+[2026-11-05 05:14:17.548 Uid(value=10327):25141:25141 W/RemoteInputConnectionImpl]
+requestCursorAnchorInfo on inactive InputConnection
+
+[2026-11-05 05:14:17.561 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-05 05:14:17.600 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (5 frames): avg=500.84703ms p95=501.291345ms max=501.291345ms pre_max=0.0225ms pre_p95=0.0225ms ≈1fps
+
+[2026-11-05 05:14:17.601 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (5 frames): avg=0.182154ms p95=0.316808ms max=0.316808ms scrollback=0 rows
+
+[2026-11-05 05:14:17.611 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-05 05:14:17.611 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-05 05:14:20.105 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (5 frames): avg=500.846384ms p95=501.402731ms max=501.402731ms pre_max=0.025923ms pre_p95=0.025923ms ≈1fps
+
+[2026-11-05 05:14:20.106 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (5 frames): avg=0.161954ms p95=0.183808ms max=0.183808ms scrollback=0 rows
+
+[2026-11-05 05:14:21.205 Uid(value=10327):25141:25608 I/Runtime]
+session 1 first output received
+
+[2026-11-05 05:14:21.216 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 25 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:21.912 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=30.096231ms p95=18.1935ms max=500.903962ms pre_max=0.190385ms pre_p95=0.072385ms ≈33fps
+
+[2026-11-05 05:14:21.913 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.52036ms p95=3.697962ms max=8.748116ms scrollback=0 rows
+
+[2026-11-05 05:14:22.914 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.683478ms p95=17.377654ms max=20.680538ms pre_max=0.190885ms pre_p95=0.019231ms ≈59fps
+
+[2026-11-05 05:14:22.915 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.142216ms p95=0.323923ms max=0.511269ms scrollback=0 rows
+
+[2026-11-05 05:14:23.917 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.126073ms p95=0.175308ms max=1.373923ms scrollback=0 rows
+
+[2026-11-05 05:14:23.917 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.680548ms p95=17.959615ms max=25.798961ms pre_max=0.236692ms pre_p95=0.052346ms ≈59fps
+
+[2026-11-05 05:14:24.918 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.665999ms p95=17.413115ms max=25.329307ms pre_max=0.114808ms pre_p95=0.017962ms ≈60fps
+
+[2026-11-05 05:14:24.919 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.134816ms p95=0.327615ms max=0.80527ms scrollback=0 rows
+
+[2026-11-05 05:14:25.921 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.68009ms p95=17.695192ms max=20.756076ms pre_max=0.283154ms pre_p95=0.019577ms ≈59fps
+
+[2026-11-05 05:14:25.923 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.116192ms p95=0.178038ms max=0.418154ms scrollback=0 rows
+
+[2026-11-05 05:14:26.646 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-05 05:14:26.647 Uid(value=10327):25141:25141 W/RemoteInputConnectionImpl]
+requestCursorAnchorInfo on inactive InputConnection
+
+[2026-11-05 05:14:26.691 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-05 05:14:26.848 Uid(value=10327):25141:25141 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-05 05:14:26.923 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.68793ms p95=17.494923ms max=48.594269ms pre_max=0.1985ms pre_p95=0.019846ms ≈59fps
+
+[2026-11-05 05:14:26.924 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.120221ms p95=0.154962ms max=0.841269ms scrollback=0 rows
+
+[2026-11-05 05:14:27.443 Uid(value=10327):25204:25204 W/fish]
+type=1400 audit(0.0:1024268): avc: granted { execute } for name="htop" dev="dm-38" ino=7108617 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:27.447 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 4 frames (last: 74 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:27.775 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.166144ms p95=17.4325ms max=18.226654ms pre_max=1.529846ms pre_p95=0.017885ms ≈70fps
+
+[2026-11-05 05:14:27.775 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.438485ms p95=0.360846ms max=7.947461ms scrollback=0 rows
+
+[2026-11-05 05:14:28.079 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 4 frames (last: 77 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:28.644 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.471363ms p95=17.26577ms max=17.779576ms pre_max=0.123423ms pre_p95=0.020616ms ≈69fps
+
+[2026-11-05 05:14:28.645 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.367435ms p95=0.334884ms max=8.189885ms scrollback=0 rows
+
+[2026-11-05 05:14:29.197 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 76 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:29.445 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.324237ms p95=17.103039ms max=17.60473ms pre_max=0.087462ms pre_p95=0.019039ms ≈75fps
+
+[2026-11-05 05:14:29.446 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.301685ms p95=0.342654ms max=6.40723ms scrollback=0 rows
+
+[2026-11-05 05:14:29.864 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 76 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:30.247 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.356475ms p95=17.35377ms max=17.64677ms pre_max=0.134424ms pre_p95=0.018808ms ≈74fps
+
+[2026-11-05 05:14:30.248 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.269333ms p95=0.207616ms max=5.615385ms scrollback=0 rows
+
+[2026-11-05 05:14:30.842 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 76 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:31.078 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.815513ms p95=17.27ms max=18.291615ms pre_max=0.163923ms pre_p95=0.018923ms ≈72fps
+
+[2026-11-05 05:14:31.079 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.352578ms p95=0.179539ms max=8.556423ms scrollback=0 rows
+
+[2026-11-05 05:14:31.588 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 4 frames (last: 76 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:31.812 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.227381ms p95=17.361384ms max=17.891693ms pre_max=0.24ms pre_p95=0.025462ms ≈81fps
+
+[2026-11-05 05:14:31.813 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.392783ms p95=0.320769ms max=7.784154ms scrollback=0 rows
+
+[2026-11-05 05:14:32.770 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.944208ms p95=17.366654ms max=18.144ms pre_max=0.119846ms pre_p95=0.059231ms ≈62fps
+
+[2026-11-05 05:14:32.771 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.211824ms p95=0.202039ms max=6.423654ms scrollback=0 rows
+
+[2026-11-05 05:14:32.975 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 76 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:33.505 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.225825ms p95=17.289808ms max=17.602962ms pre_max=0.111269ms pre_p95=0.019ms ≈81fps
+
+[2026-11-05 05:14:33.506 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.431259ms p95=0.459923ms max=7.656115ms scrollback=0 rows
+
+[2026-11-05 05:14:33.623 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 76 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:34.207 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 76 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:34.341 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.909048ms p95=17.389231ms max=17.502885ms pre_max=0.138154ms pre_p95=0.116039ms ≈71fps
+
+[2026-11-05 05:14:34.341 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.290648ms p95=0.273ms max=5.852616ms scrollback=0 rows
+
+[2026-11-05 05:14:34.842 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 77 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:35.058 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.400155ms p95=0.210616ms max=7.099538ms scrollback=0 rows
+
+[2026-11-05 05:14:35.059 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=11.932431ms p95=17.212192ms max=17.498ms pre_max=0.12577ms pre_p95=0.019038ms ≈83fps
+
+[2026-11-05 05:14:35.831 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 76 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:35.977 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.271021ms p95=17.218ms max=17.296923ms pre_max=0.144538ms pre_p95=0.038423ms ≈65fps
+
+[2026-11-05 05:14:35.977 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.206689ms p95=0.241846ms max=6.176ms scrollback=0 rows
+
+[2026-11-05 05:14:36.467 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 73 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:36.695 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=11.950197ms p95=17.339346ms max=19.024231ms pre_max=0.02073ms pre_p95=0.0175ms ≈83fps
+
+[2026-11-05 05:14:36.696 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.394007ms p95=0.442038ms max=7.248884ms scrollback=0 rows
+
+[2026-11-05 05:14:37.698 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.671569ms p95=17.41027ms max=18.033154ms pre_max=0.208385ms pre_p95=0.053538ms ≈59fps
+
+[2026-11-05 05:14:37.698 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.127704ms p95=0.254885ms max=0.338961ms scrollback=0 rows
+
+[2026-11-05 05:14:38.127 Uid(value=10327):25204:25204 W/fish]
+type=1400 audit(0.0:1024269): avc: granted { execute } for name="yazi" dev="dm-38" ino=6815839 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:38.139 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 1 frames (last: 74 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:38.600 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.005833ms p95=17.253308ms max=17.863192ms pre_max=0.205039ms pre_p95=0.174577ms ≈66fps
+
+[2026-11-05 05:14:38.600 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.416487ms p95=0.333462ms max=9.111923ms scrollback=0 rows
+
+[2026-11-05 05:14:39.603 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.694216ms p95=17.386346ms max=18.007308ms pre_max=0.019423ms pre_p95=0.019077ms ≈59fps
+
+[2026-11-05 05:14:39.603 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.129256ms p95=0.1745ms max=0.197115ms scrollback=0 rows
+
+[2026-11-05 05:14:39.875 Uid(value=10327):25204:25204 W/fish]
+type=1400 audit(0.0:1024270): avc: granted { execute } for name="yazi" dev="dm-38" ino=6815839 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:39.875 Uid(value=10327):25204:25204 W/fish]
+type=1400 audit(0.0:1024271): avc: granted { execute } for name="yazi" dev="dm-38" ino=6815839 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:39.890 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 77 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:40.487 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.721678ms p95=17.253039ms max=18.008769ms pre_max=0.172154ms pre_p95=0.019577ms ≈67fps
+
+[2026-11-05 05:14:40.488 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.28507ms p95=0.28927ms max=7.281461ms scrollback=0 rows
+
+[2026-11-05 05:14:40.602 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 77 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:40.607 Uid(value=10327):25204:25204 W/fish]
+type=1400 audit(0.0:1024272): avc: granted { execute } for name="yazi" dev="dm-38" ino=6815839 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:40.623 Uid(value=10327):25712:25712 W/bash]
+type=1400 audit(0.0:1024273): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libdl.so.2" dev="dm-38" ino=6821998 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:40.627 Uid(value=10327):25712:25712 W/bash]
+type=1400 audit(0.0:1024274): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libc.so.6" dev="dm-38" ino=6821988 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:40.687 Uid(value=10327):25712:25712 W/yazi]
+type=1400 audit(0.0:1024275): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/ifd54fxhvb6d6222qq9dy5l6abv6xqyy-jemalloc-5.4.0/lib/libjemalloc.so.2" dev="dm-38" ino=7087844 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:40.691 Uid(value=10327):25712:25712 W/yazi]
+type=1400 audit(0.0:1024276): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nmb2a06z0kpvjy9p920523bn5zf13dhp-oniguruma-6.9.10-lib/lib/libonig.so.5.5.0" dev="dm-38" ino=7091575 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:40.691 Uid(value=10327):25712:25712 W/yazi]
+type=1400 audit(0.0:1024277): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/c1h1q4h9bfmb5d0w342qwjmhw8cxkxzc-gcc-16.2.0-libgcc/lib/libgcc_s.so.1" dev="dm-38" ino=6819978 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:40.717 Uid(value=10327):25141:25205 W/kitty_gfx]
+erroneous kitty graphics response: EINVAL: unsupported medium
+
+[2026-11-05 05:14:40.743 Uid(value=10327):25141:25141 I/native::android::ffi::font]
+setRenderPaused: paused=true
+
+[2026-11-05 05:14:40.776 Uid(value=10327):25141:25168 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:14:40.777 Uid(value=10327):25141:25168 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:14:40.800 Uid(value=10327):25141:25141 I/native::android::ffi::font]
+setRenderPaused: paused=false
+
+[2026-11-05 05:14:40.937 Uid(value=10327):25141:25608 W/native::render::pass::frame]
+SLOW_CELL_BUILD build=128.857ms gpu=6.063ms total=136.155ms instances=1176 partial=true rows=28
+
+[2026-11-05 05:14:40.937 Uid(value=10327):25141:25608 W/native::android::ffi::render::frame]
+SLOW_RENDER_INNER phase1=0.007ms receive=0.009ms lock=0.002ms render=136.612ms total=136.629ms count=1
+
+[2026-11-05 05:14:40.937 Uid(value=10327):25141:25608 W/Runtime]
+SLOW_FRAME session=1 render=137.223307 count=1 newOutput=false scrollOffset=0 scrollRemainderPx=0.0
+
+[2026-11-05 05:14:40.938 Uid(value=10327):25141:25185 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:14:40.938 Uid(value=10327):25141:25608 W/Runtime]
+SLOW_LOOP session=1 total=151.140039ms gate=13.447616ms pre=0.065038ms render=137.232769ms backoff=0.0ms poll=0.384577ms tail=0.010039ms
+
+[2026-11-05 05:14:40.938 Uid(value=10327):25141:25185 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:14:41.306 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.624512ms p95=17.116962ms max=151.140039ms pre_max=0.065038ms pre_p95=0.017308ms ≈73fps
+
+[2026-11-05 05:14:41.307 Uid(value=10327):25141:25185 I/Runtime]
+session 1 frame timing window (60 frames): avg=2.593996ms p95=2.854347ms max=137.223307ms scrollback=0 rows
+
+[2026-11-05 05:14:41.895 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 4 frames (last: 156 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:42.175 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.461088ms p95=17.292346ms max=17.353116ms pre_max=0.159039ms pre_p95=0.032846ms ≈69fps
+
+[2026-11-05 05:14:42.175 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.428494ms p95=0.435923ms max=8.64823ms scrollback=0 rows
+
+[2026-11-05 05:14:42.996 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 156 instances, partial=false, dirty_bands=2)
+
+[2026-11-05 05:14:43.021 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.383408ms p95=3.750154ms max=5.9395ms scrollback=0 rows
+
+[2026-11-05 05:14:43.022 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.093537ms p95=17.441231ms max=17.9095ms pre_max=0.408231ms pre_p95=0.02023ms ≈70fps
+
+[2026-11-05 05:14:43.879 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.266932ms p95=17.213654ms max=17.519115ms pre_max=0.123461ms pre_p95=0.113384ms ≈70fps
+
+[2026-11-05 05:14:43.879 Uid(value=10327):25141:25168 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.186633ms p95=0.171884ms max=4.557039ms scrollback=0 rows
+
+[2026-11-05 05:14:44.550 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 6 frames (last: 158 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:44.609 Uid(value=10327):25141:25185 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:14:44.609 Uid(value=10327):25141:25185 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:14:44.622 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.36971ms p95=17.152038ms max=17.38027ms pre_max=0.436692ms pre_p95=0.157539ms ≈80fps
+
+[2026-11-05 05:14:44.625 Uid(value=10327):25141:25185 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.41078ms p95=4.174307ms max=6.461962ms scrollback=0 rows
+
+[2026-11-05 05:14:45.066 Uid(value=10327):25141:25167 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(4v1))
+
+[2026-11-05 05:14:45.066 Uid(value=10327):25141:25167 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:14:45.566 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.713253ms p95=17.528269ms max=17.977846ms pre_max=0.108846ms pre_p95=0.048231ms ≈63fps
+
+[2026-11-05 05:14:45.566 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.107271ms p95=0.291308ms max=0.357193ms scrollback=0 rows
+
+[2026-11-05 05:14:46.569 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.695913ms p95=17.407462ms max=17.766461ms pre_max=0.133846ms pre_p95=0.020154ms ≈59fps
+
+[2026-11-05 05:14:46.569 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.127014ms p95=0.187539ms max=0.334423ms scrollback=0 rows
+
+[2026-11-05 05:14:47.570 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.655119ms p95=17.466654ms max=18.291538ms pre_max=0.024807ms pre_p95=0.019384ms ≈60fps
+
+[2026-11-05 05:14:47.570 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.145118ms p95=0.309077ms max=0.327192ms scrollback=0 rows
+
+[2026-11-05 05:14:48.573 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.686637ms p95=17.620577ms max=17.937539ms pre_max=0.194731ms pre_p95=0.019538ms ≈59fps
+
+[2026-11-05 05:14:48.574 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.134185ms p95=0.186038ms max=0.576962ms scrollback=0 rows
+
+[2026-11-05 05:14:49.575 Uid(value=10327):25141:25608 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.679484ms p95=17.447885ms max=17.842654ms pre_max=0.399077ms pre_p95=0.199ms ≈59fps
+
+[2026-11-05 05:14:49.576 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.168185ms p95=0.32427ms max=0.354308ms scrollback=0 rows
+
+[2026-11-05 05:14:50.993 Uid(value=10327):25141:25185 D/native::render::font::font_db]
+FONT_LOAD: 1 extra font paths
+
+[2026-11-05 05:14:50.993 Uid(value=10327):25141:25185 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(50v1))
+
+[2026-11-05 05:14:51.020 Uid(value=10327):25141:25185 D/native::render::font::rasterization]
+FONT_RASTERIZE_ASCII: before=0 after=94 font_id=Some(ID(InnerId(50v1)))
+
+[2026-11-05 05:14:51.020 Uid(value=10327):25141:25185 D/native::render::font::cjk]
+CJK_FALLBACK: skipped (primary font already supports CJK)
+
+[2026-11-05 05:14:51.020 Uid(value=10327):25141:25185 I/native::android::ffi::font]
+loadFontFile: /data/user/0/com.termux/files/home/.termux/font.ttf -> family Maple Mono Normal NF CN
+
+[2026-11-05 05:14:51.021 Uid(value=10327):25141:25185 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(50v1))
+
+[2026-11-05 05:14:51.021 Uid(value=10327):25141:25185 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:14:51.021 Uid(value=10327):25141:25185 I/native::terminal::session::spawn]
+Session::spawn: shell='/data/user/0/com.termux/files/usr/bin/login', rows=28, cols=42, cwd=None
+
+[2026-11-05 05:14:51.021 Uid(value=10327):25141:25185 I/native::terminal::pty]
+SPAWN_DIRECT_ET_EXEC: shell=/data/user/0/com.termux/files/usr/bin/login (non-PIE, skip linker)
+
+[2026-11-05 05:14:51.035 Uid(value=10327):25141:25185 I/native::terminal::session::spawn]
+Session::spawn: PtyPair::spawn OK
+
+[2026-11-05 05:14:51.035 Uid(value=10327):25141:25185 I/native::terminal::session::spawn]
+Session::spawn: set_nonblocking OK
+
+[2026-11-05 05:14:51.035 Uid(value=10327):25141:25185 I/native::terminal::session::spawn]
+Session::spawn: cloning master fd for reader
+
+[2026-11-05 05:14:51.035 Uid(value=10327):25141:25185 I/native::terminal::session::spawn]
+Session::spawn_with_pty: creating Arc/Channel
+
+[2026-11-05 05:14:51.036 Uid(value=10327):25141:25185 I/native::terminal::session::spawn]
+Session::spawn: spawning reader thread
+
+[2026-11-05 05:14:51.036 Uid(value=10327):25141:25185 I/native::android::ffi::session]
+FFI: initSession -> id=2
+
+[2026-11-05 05:14:51.036 Uid(value=10327):25141:25751 I/native::terminal::session::spawn]
+wait thread: waiting for child pid=25748
+
+[2026-11-05 05:14:51.036 Uid(value=10327):25141:25189 I/native::android::ffi]
+render state prefetched
+
+[2026-11-05 05:14:51.037 Uid(value=10327):25141:25185 I/native::android::ffi::font]
+setSystemLocale: zh-CN
+
+[2026-11-05 05:14:51.037 Uid(value=10327):25141:25185 D/native::render::font::cjk]
+CJK_FALLBACK: skipped (primary font already supports CJK)
+
+[2026-11-05 05:14:51.037 Uid(value=10327):25141:25749 D/native::terminal::ghostty_terminal::internal::commands]
+SetTheme: dracula_plus -> default_background=[0.12941177, 0.12941177, 0.12941177, 1.0] default_foreground=[0.972549, 0.972549, 0.9490196, 1.0]
+
+[2026-11-05 05:14:51.040 Uid(value=10327):25141:25185 I/native::android::ffi::font]
+setTheme: session 2 theme=dracula_plus
+
+[2026-11-05 05:14:51.040 Uid(value=10327):25141:25185 I/native::android::ffi::font]
+setCursorStyle: session 2 style=Block
+
+[2026-11-05 05:14:51.040 Uid(value=10327):25141:25749 I/native::terminal::ghostty_terminal::internal::commands]
+SetCursorStyle: Block
+
+[2026-11-05 05:14:51.040 Uid(value=10327):25141:25185 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(50v1))
+
+[2026-11-05 05:14:51.040 Uid(value=10327):25141:25185 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:14:51.041 Uid(value=10327):25141:25185 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x76876ad8c0 472x819
+
+[2026-11-05 05:14:51.041 Uid(value=10327):25141:25185 I/native::render::context::renderer]
+attach_surface: RECONFIGURE_SWAPCHAIN (fast path, existing surface)
+
+[2026-11-05 05:14:51.041 Uid(value=10327):25141:25185 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 2)
+
+[2026-11-05 05:14:51.039 Uid(value=10327):25748:25748 W/DefaultDispatch]
+type=1400 audit(0.0:1024296): avc: granted { execute } for name="login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:51.039 Uid(value=10327):25748:25748 W/DefaultDispatch]
+type=1400 audit(0.0:1024297): avc: granted { execute_no_trans } for path="/data/user/0/com.termux/files/usr/bin/login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:51.047 Uid(value=10327):25748:25748 W/login]
+type=1400 audit(0.0:1024298): avc: granted { execute } for path="/data/user/0/com.termux/files/usr/bin/login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-05 05:14:51.055 Uid(value=10327):25748:25748 W/login]
+type=1400 audit(0.0:1024299): avc: denied { getattr } for path="/proc/modules" dev="proc" ino=4026532130 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:proc_modules:s0 tclass=file permissive=0 app=com.termux
+
+[2026-11-05 05:14:51.055 Uid(value=10327):25748:25748 W/login]
+type=1400 audit(0.0:1024300): avc: denied { getattr } for path="/proc/bus/pci/devices" dev="proc" ino=4026532146 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:proc:s0 tclass=file permissive=0 app=com.termux
+
+[2026-11-05 05:14:51.073 Uid(value=10327):25141:25608 D/native::render::pass::frame]
+render_frame: presented 4 frames (last: 101 instances, partial=false, dirty_bands=0)
+
+[2026-11-05 05:14:51.073 Uid(value=10327):25141:25608 W/native::android::ffi::render::frame]
+SLOW_RENDER_INNER phase1=27.497ms receive=0.014ms lock=0.000ms render=4.441ms total=31.952ms count=1
+
+[2026-11-05 05:14:51.074 Uid(value=10327):25141:25608 W/Runtime]
+SLOW_FRAME session=1 render=32.115193 count=1 newOutput=false scrollOffset=0 scrollRemainderPx=0.0
+
+[2026-11-05 05:14:51.074 Uid(value=10327):25141:25608 W/Runtime]
+SLOW_LOOP session=1 total=413.403461ms gate=381.120499ms pre=0.011116ms render=32.116154ms backoff=0.0ms poll=0.150346ms tail=0.005346ms
+
+[2026-11-05 05:14:51.074 Uid(value=10327):25141:25185 D/native::android::ffi::render::window]
+detachWindow: session 1 does not own the attached surface, ignoring
+
+[2026-11-05 05:14:51.086 Uid(value=10327):25141:25185 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(50v1))
+
+[2026-11-05 05:14:51.086 Uid(value=10327):25141:25185 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:14:51.183 Uid(value=10327):25141:25764 I/Runtime]
+session 2 first output received
+
+[2026-11-05 05:14:51.931 Uid(value=10327):25141:25764 I/Runtime]
+session 2 loop timing window (60 frames): avg=14.217798ms p95=17.789192ms max=25.20673ms pre_max=0.183231ms pre_p95=0.076115ms ≈70fps
+
+[2026-11-05 05:14:51.931 Uid(value=10327):25141:25185 I/Runtime]
+session 2 frame timing window (60 frames): avg=0.238876ms p95=0.293385ms max=5.146461ms scrollback=0 rows
+
+[2026-11-05 05:14:51.933 Uid(value=10327):25141:25189 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(50v1))
+
+[2026-11-05 05:14:51.933 Uid(value=10327):25141:25189 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:14:52.485 Uid(value=10327):25141:25764 D/native::render::pass::frame]
+render_frame: presented 4 frames (last: 26 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:52.788 Uid(value=10327):25141:25764 I/Runtime]
+session 2 loop timing window (60 frames): avg=14.270903ms p95=17.355346ms max=17.872308ms pre_max=0.181462ms pre_p95=0.015962ms ≈70fps
+
+[2026-11-05 05:14:52.789 Uid(value=10327):25141:25189 I/Runtime]
+session 2 frame timing window (60 frames): avg=0.42407ms p95=0.186577ms max=8.355269ms scrollback=0 rows
+
+[2026-11-05 05:14:53.154 Uid(value=10327):25141:25764 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 29 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:53.634 Uid(value=10327):25141:25764 I/Runtime]
+session 2 loop timing window (60 frames): avg=14.086985ms p95=17.615615ms max=19.379923ms pre_max=0.149731ms pre_p95=0.018731ms ≈70fps
+
+[2026-11-05 05:14:53.635 Uid(value=10327):25141:25186 I/Runtime]
+session 2 frame timing window (60 frames): avg=0.388564ms p95=0.429808ms max=8.398654ms scrollback=0 rows
+
+[2026-11-05 05:14:54.013 Uid(value=10327):25141:25750 I/native::terminal::session::spawn]
+reader thread: PTY EOF (slave closed, EIO)
+
+[2026-11-05 05:14:54.013 Uid(value=10327):25141:25751 I/native::terminal::session::spawn]
+wait thread: child exited: Ok(Exited(Pid(25748), 0))
+
+[2026-11-05 05:14:54.016 Uid(value=10327):25141:25764 D/native::render::pass::frame]
+render_frame: presented 2 frames (last: 29 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:54.027 Uid(value=10327):25141:25764 I/Runtime]
+session 2 exited with code 0
+
+[2026-11-05 05:14:54.028 Uid(value=10327):25141:25764 I/native::android::ffi::session]
+FFI: destroySession id=2
+
+[2026-11-05 05:14:54.048 Uid(value=10327):25141:25185 D/native::render::font::pipeline::families]
+字体族 'Maple Mono Normal NF CN' 已解析为字面 ID(InnerId(50v1))
+
+[2026-11-05 05:14:54.048 Uid(value=10327):25141:25185 D/native::android::ffi::font]
+setFontFamily: Maple Mono Normal NF CN found=true changed=false
+
+[2026-11-05 05:14:54.987 Uid(value=10327):25141:25776 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.771955ms p95=17.159846ms max=17.67223ms pre_max=0.095385ms pre_p95=0.019ms ≈63fps
+
+[2026-11-05 05:14:54.988 Uid(value=10327):25141:25186 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.186492ms p95=0.279962ms max=2.887116ms scrollback=0 rows
+
+[2026-11-05 05:14:55.990 Uid(value=10327):25141:25776 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.696554ms p95=17.347231ms max=18.044539ms pre_max=0.033769ms pre_p95=0.019115ms ≈59fps
+
+[2026-11-05 05:14:55.991 Uid(value=10327):25141:25189 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.105321ms p95=0.168884ms max=0.259192ms scrollback=0 rows
+
+[2026-11-05 05:14:56.993 Uid(value=10327):25141:25776 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.68237ms p95=17.630692ms max=18.061731ms pre_max=0.141154ms pre_p95=0.021077ms ≈59fps
+
+[2026-11-05 05:14:56.993 Uid(value=10327):25141:25185 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.117349ms p95=0.202846ms max=0.749615ms scrollback=0 rows
+
+[2026-11-05 05:14:57.656 Uid(value=10327):25141:25776 I/Runtime]
+session 1 first output received
+
+[2026-11-05 05:14:57.667 Uid(value=10327):25141:25776 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 102 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:57.895 Uid(value=10327):25141:25776 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.014532ms p95=17.473577ms max=18.550423ms pre_max=0.148692ms pre_p95=0.019115ms ≈66fps
+
+[2026-11-05 05:14:57.895 Uid(value=10327):25141:25189 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.451905ms p95=0.970385ms max=9.798538ms scrollback=0 rows
+
+[2026-11-05 05:14:58.498 Uid(value=10327):25141:25776 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 106 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:58.779 Uid(value=10327):25141:25776 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.729439ms p95=17.333654ms max=17.769346ms pre_max=0.216807ms pre_p95=0.019846ms ≈67fps
+
+[2026-11-05 05:14:58.780 Uid(value=10327):25141:25189 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.289887ms p95=0.34573ms max=6.453192ms scrollback=0 rows
+
+[2026-11-05 05:14:58.979 Uid(value=10327):25141:25206 I/native::terminal::session::spawn]
+reader thread: PTY EOF (slave closed, EIO)
+
+[2026-11-05 05:14:58.979 Uid(value=10327):25141:25207 I/native::terminal::session::spawn]
+wait thread: child exited: Ok(Exited(Pid(25204), 1))
+
+[2026-11-05 05:14:58.997 Uid(value=10327):25141:25776 I/Runtime]
+session 1 exited with code 1; showing [Process completed] prompt
+
+[2026-11-05 05:14:59.008 Uid(value=10327):25141:25776 D/native::render::pass::frame]
+render_frame: presented 3 frames (last: 141 instances, partial=true, dirty_bands=1)
+
+[2026-11-05 05:14:59.442 Uid(value=10327):25141:25776 I/Runtime]
+session 1 exited with code 1
+
+[2026-11-05 05:14:59.442 Uid(value=10327):25141:25776 I/native::android::ffi::session]
+FFI: destroySession id=1
+
+[2026-11-05 05:14:59.533 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-05 05:14:59.535 Uid(value=10327):25141:25141 I/native::android::ffi::font]
+setRenderPaused: paused=true
+
+[2026-11-05 05:14:59.735 Uid(value=10327):25141:25141 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-05 05:14:59.780 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122f7, base=0x0, importpid=25141
+
+[2026-11-05 05:14:59.781 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122f8, base=0x0, importpid=25141
+
+[2026-11-05 05:14:59.781 Uid(value=10327):25141:25164 I/mali_gralloc]
+unregister: id=0x293000122f6, base=0x0, importpid=25141
+
