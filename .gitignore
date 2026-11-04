@@ -45,3 +45,4 @@ mutants.out/
 .pi-glla/
 *.p12
 .longgraph/
+logcat_*.txt

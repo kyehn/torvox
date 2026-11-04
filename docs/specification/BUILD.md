@@ -20,6 +20,8 @@
 - 代码、Gradle 配置等不得出现 `cargo build`、`cargo test`、`./gradlew`、`git clone` 等未受管理的构建和外部源引入。
 - 只支持 `arm64-v8a`、`x86_64` 架构；`x86_64` 用于构建、测试与模拟器测试。
 - Cargo/Gradle 等配置必须保持简洁和效率，Gradle 配置不进行 `jniLibs/` 检查（避免影响并发构建）
+- release 构建日志等级 `INFO`，需尽可能设置，避免输出调试信息，避免影响性能
+- release 构建必须尽可能确保性能，正确设置构建参数
 
 ## 产物
 
