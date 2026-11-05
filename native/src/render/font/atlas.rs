@@ -285,7 +285,7 @@ impl FontPipeline {
         let mut max_x = 0u32;
         let mut max_y = 0u32;
         let mut found = false;
-        for (_, info) in self.caches.glyph_cache.iter() {
+        for (_, info) in &self.caches.glyph_cache {
             if info.width <= 0 || info.height <= 0 {
                 continue;
             }
