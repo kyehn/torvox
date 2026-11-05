@@ -172,7 +172,9 @@ rules:
         - "/README.md"
         # logcat 审计表格记录 ROM 内核审计中观察到的进程名（历史证据），
         # 不是应用代码使用的 shell；与归档台账同口径，不追溯改写。
-        - "/docs/persistence/logcat-audit-*"
+        # 审计台账已随第四轮审计迁入 openspec 归档（原 docs/persistence/logcat-audit-*
+        # 已于 abda9fb6 删除），排除路径须随之指向实际位置，否则台账会被当成应用代码。
+        - "/openspec/changes/archive/**"
   - id: no-torvox-identifier
     pattern-regex: '[Tt]orvox'
     message: "Use generic terms; Torvox only in intro docs."
