@@ -280,8 +280,8 @@ class TerminalDocumentsProvider : DocumentsProvider() {
 
     override fun queryRoots(projection: Array<out String>?): Cursor {
         val columns = projection ?: ROOT_PROJECTION
-        val cursor = MatrixCursor(columns)
         val rootDir = queries.rootDir()
+        val cursor = MatrixCursor(columns)
         cursor.newRow().apply {
             if (Root.COLUMN_ROOT_ID in columns) add(Root.COLUMN_ROOT_ID, ROOT_ID)
             if (Root.COLUMN_DOCUMENT_ID in columns) add(Root.COLUMN_DOCUMENT_ID, encodeDocId(rootDir, rootDir))
@@ -308,7 +308,6 @@ class TerminalDocumentsProvider : DocumentsProvider() {
 
     override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor {
         val columns = projection ?: DOC_PROJECTION
-        val cursor = MatrixCursor(columns)
         val rootDir = queries.rootDir()
         val file = queries.resolveLinkEntry(documentId, rootDir)
         // AOSP 契约：文档不存在必须抛 FileNotFoundException（基类签名即如此声明）。
@@ -322,6 +321,10 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         ) {
             throw FileNotFoundException("queryDocument: no such document '$documentId'")
         }
+        // 游标在全部可能抛错的检查之后才建：框架吞掉 FileNotFoundException 后
+        // 只回 null，先建后抛会留下没人关闭的游标，回收时平台打出
+        // 「A resource failed to call AbstractCursor.close.」告警。
+        val cursor = MatrixCursor(columns)
         queries.addDocRow(cursor, file, rootDir, columns)
         context?.contentResolver?.let { resolver ->
             // 通知 URI 取由文件反推的行内 docId，而非客户端传来的原样字符串。
@@ -347,7 +350,6 @@ class TerminalDocumentsProvider : DocumentsProvider() {
     ): Cursor {
         val started = SystemClock.elapsedRealtime()
         val columns = projection ?: DOC_PROJECTION
-        val cursor = MatrixCursor(columns)
         val rootDir = queries.rootDir()
         val parent = decodeDocId(parentDocumentId, rootDir)
         requireInsideRoot(parent, rootDir)
@@ -365,6 +367,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         // 每项一次 lstat，排序键 `isDirectory` 与折叠名也只取一次，
         // 避免 O(n log n) 次比较各触发一次 stat，也避免默认 Locale 把 `i` 排错。
         val entries = queries.readChildren(parentCanonical, rootDir.canonicalPath)
+        val cursor = MatrixCursor(columns)
         for (entry in entries) {
             queries.addChildRow(cursor, entry, columns)
         }
@@ -547,12 +550,12 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         // 与 Termux 一致的按文件名搜索：迭代遍历、上限截断、符号链接
         // 不得跳出 home。查询词双向小写，修正 Termux 仅小写文件名的遗漏。
         val columns = projection ?: DOC_PROJECTION
-        val cursor = MatrixCursor(columns)
         val rootDir = queries.rootDir()
         val rootPath = rootDir.canonicalPath
         val needle = query.lowercase()
         val pending = ArrayDeque<File>()
         pending.addLast(decodeDocId(rootId, rootDir))
+        val cursor = MatrixCursor(columns)
         var visits = 0
         var truncated = false
         while (pending.isNotEmpty() && cursor.count < MAX_SEARCH_RESULTS) {

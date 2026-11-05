@@ -13,12 +13,14 @@ package terminal.emulator
 import android.provider.DocumentsContract
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.shadows.ShadowCloseGuard
 
 @RunWith(RobolectricTestRunner::class)
 class DocumentsProviderTest {
@@ -1622,5 +1624,59 @@ class DocumentsProviderTest {
         children().use { assertNotNull("停止前应能列举家目录", it) }
         ensureProvider().shutdown()
         children().use { assertNotNull("停止后再次查询应重新登记并返回游标", it) }
+    }
+
+    /**
+     * 查不存在的文档时不得留下未关闭的游标。
+     *
+     * 框架吞掉 `FileNotFoundException` 后只回 null：先建游标再抛错，游标就再没人
+     * 关闭，回收时平台打出「A resource failed to call AbstractCursor.close.」告警。
+     */
+    @Test
+    fun queryDocument_missing_document_leaves_no_unclosed_cursor() {
+        val provider = ensureProvider()
+        ShadowCloseGuard.reset()
+        val missingUri = DocumentsContract.buildDocumentUri(authority, "no-such-document.txt")
+        assertNull(
+            "查不存在的文档必须回 null（框架吞掉 FileNotFoundException）",
+            provider.query(missingUri, null, android.os.Bundle(), null),
+        )
+        assertTrue(
+            "失败的查询不得留下未关闭的游标",
+            ShadowCloseGuard.getErrors().none { it.message?.contains("AbstractCursor") == true },
+        )
+    }
+
+    /** 列举不存在的目录时同样不得留下未关闭的游标。 */
+    @Test
+    fun queryChildDocuments_missing_directory_leaves_no_unclosed_cursor() {
+        val provider = ensureProvider()
+        ShadowCloseGuard.reset()
+        val missingUri =
+            DocumentsContract.buildChildDocumentsUri(authority, "terminal_home/no-such-directory")
+        assertNull(
+            "列举不存在的目录必须回 null（框架吞掉 FileNotFoundException）",
+            provider.query(missingUri, null, android.os.Bundle(), null),
+        )
+        assertTrue(
+            "失败的列举不得留下未关闭的游标",
+            ShadowCloseGuard.getErrors().none { it.message?.contains("AbstractCursor") == true },
+        )
+    }
+
+    /** 搜索根目录越界时同样不得留下未关闭的游标。 */
+    @Test
+    fun querySearchDocuments_out_of_root_leaves_no_unclosed_cursor() {
+        val provider = ensureProvider()
+        ShadowCloseGuard.reset()
+        val searchUri = DocumentsContract.buildSearchDocumentsUri(authority, "..", "text")
+        assertNull(
+            "越界的搜索根必须回 null（框架吞掉 FileNotFoundException）",
+            provider.query(searchUri, null, android.os.Bundle(), null),
+        )
+        assertTrue(
+            "失败的搜索不得留下未关闭的游标",
+            ShadowCloseGuard.getErrors().none { it.message?.contains("AbstractCursor") == true },
+        )
     }
 }
