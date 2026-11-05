@@ -864,6 +864,21 @@ class DocumentsProviderTest {
     }
 
     @Test
+    fun queryDocument_missing_rollback_placeholder_throws() {
+        // 外部编辑器的「替换保存」流程会先回查让位文件——此时它还没建，框架据此
+        // 在 provider 的 catch 块打出 W 级「Failed during query ... no such
+        // document '*.rollback'」。该告警由客户端的回查时机决定，应用侧的契约
+        // 是缺失即抛 FileNotFoundException：改抛空游标或占位行会让客户端把不存在的
+        // 路径当成仍存在（新建撞「路径已存在」、列表停在旧快照）。
+        try {
+            ensureProvider().queryDocument("15398985.rollback", null)
+            fail("missing rollback placeholder must throw FileNotFoundException")
+        } catch (expected: java.io.FileNotFoundException) {
+            // expected
+        }
+    }
+
+    @Test
     fun queryChildDocuments_hides_rollback_placeholder_files() {
         // 编辑器「替换保存」的让位文件是过程性临时名：列表显示它，客户端缓存
         // 的幽灵行会在删除后回查，触发框架 W 级「Failed during query ...
