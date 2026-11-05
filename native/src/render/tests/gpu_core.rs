@@ -334,16 +334,14 @@ fn orthographic_projection_resize_full_range() {
 
 #[test]
 fn orthographic_projection_resize_gpu_uniforms() {
-    let uniforms_800 = GpuUniforms {
-        projection: orthographic_projection(800.0, 600.0),
-        atlas_size: [1024.0, 1024.0],
-        _padding: [0.0; 2],
-    };
-    let uniforms_400 = GpuUniforms {
-        projection: orthographic_projection(800.0, 400.0),
-        atlas_size: [1024.0, 1024.0],
-        _padding: [0.0; 2],
-    };
+    let uniforms_800 = GpuUniforms::new(
+        orthographic_projection(800.0, 600.0),
+        [1024.0, 1024.0],
+    );
+    let uniforms_400 = GpuUniforms::new(
+        orthographic_projection(800.0, 400.0),
+        [1024.0, 1024.0],
+    );
 
     // Same projection/atlas layout, different height
     assert_eq!(

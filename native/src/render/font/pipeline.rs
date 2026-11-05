@@ -465,7 +465,7 @@ impl FontPipeline {
     ) -> Option<crate::render::CellInstance> {
         let mark_character = char::from_u32(codepoint)?;
         let info = self.glyph_information(mark_character)?;
-        self.shaped_overlay_instance(&info, quad, cell_height)
+        Some(self.shaped_overlay_instance(&info, quad, cell_height))
     }
 
     /// 由已光栅化的整形字形构造叠加四边形（簇整形路径）：计算同上，
@@ -475,7 +475,7 @@ impl FontPipeline {
         info: &super::GlyphInfo,
         quad: super::OverlayQuad,
         cell_height: f32,
-    ) -> Option<crate::render::CellInstance> {
+    ) -> crate::render::CellInstance {
         let atlas_width = self.atlas_width as f32;
         let atlas_height = self.atlas_height as f32;
         let raster_scale = self.raster_scale;
@@ -491,7 +491,7 @@ impl FontPipeline {
             glyph_height_px,
             cell_height,
         );
-        Some(crate::render::CellInstance {
+        crate::render::CellInstance {
             quad_origin: quad.origin,
             atlas_offset,
             atlas_size,
@@ -501,7 +501,7 @@ impl FontPipeline {
             quad_size: quad.size,
             flags: quad.flags,
             bearing: [bearing_x, bearing_y],
-        })
+        }
     }
 
     /// 当前逻辑字号（sp）。

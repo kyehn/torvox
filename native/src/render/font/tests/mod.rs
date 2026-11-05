@@ -73,8 +73,7 @@ fn find_maple_mono_font(font_database: &mut fontdb::Database) -> Option<std::pat
                 .is_some_and(|(name, _)| name.to_lowercase().contains("maple"))
         })
         .find_map(|face| match &face.source {
-            fontdb::Source::File(path) => Some(path.clone()),
-            fontdb::Source::SharedFile(path, _) => Some(path.clone()),
+            fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => Some(path.clone()),
             fontdb::Source::Binary(_) => None,
         })
 }

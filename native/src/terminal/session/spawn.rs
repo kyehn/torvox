@@ -126,11 +126,10 @@ impl Session {
                     poll(&mut poll_fds, PollTimeout::from(READ_POLL_TIMEOUT_MS))
                 };
                 match poll_result {
-                    // 0 = 本轮无数据，回到循环顶部重查退出标志。
-                    Ok(0) => continue,
+                    // 0 = 本轮无数据，回到循环顶部重查退出标志；EINTR 不是失败：
+                    // 信号打断了 poll，等下一轮即可。两者都不得进入下面的读。
+                    Ok(0) | Err(Errno::EINTR) => continue,
                     Ok(_) => {}
-                    // EINTR 不是失败：信号打断了 poll，等下一轮即可。
-                    Err(Errno::EINTR) => continue,
                     Err(errno) => {
                         log::info!("reader thread: poll error: {errno}");
                         exited_read.store(true, Ordering::Release);

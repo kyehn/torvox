@@ -521,8 +521,7 @@ fn fonts_xml_result_order_follows_xml_order() {
     let mut faces: Vec<(String, u32)> = Vec::new();
     for face in font_database.faces() {
         let path = match &face.source {
-            fontdb::Source::File(path) => path,
-            fontdb::Source::SharedFile(path, _) => path,
+            fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => path,
             fontdb::Source::Binary(_) => continue,
         };
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {

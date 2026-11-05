@@ -176,7 +176,7 @@ pub struct KittyGraphicsInstance {
     /// 放置的整体透明度。
     pub alpha: f32,
     /// 对齐填充：保持实例结构 16 字节对齐，着色器不读该字段。
-    pub _padding: f32,
+    _padding: f32,
 }
 
 impl KittyGraphicsInstance {

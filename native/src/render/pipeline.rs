@@ -44,7 +44,21 @@ pub struct GpuUniforms {
     ///
     /// 这里曾有一个 `raster_scale` 字段：着色器读到它却从不使用（字形按 1:1 采样，
     /// 再乘一次会把字形缩回逻辑像素），写入它只是每帧多传一个从不参与运算的数。
-    pub _padding: [f32; 2],
+    pub(crate) _padding: [f32; 2],
+}
+
+impl GpuUniforms {
+    /// 构造 uniform 内容：投影矩阵 + 图集尺寸，尾部按 std140 规则补齐对齐。
+    ///
+    /// 尾部填充只能由本构造器写入：它必须与着色器侧的 std140 布局同步，
+    /// 散落在各调用点的结构体字面量迟早会写出对不上的尺寸。
+    pub fn new(projection: [[f32; 4]; 4], atlas_size: [f32; 2]) -> Self {
+        Self {
+            projection,
+            atlas_size,
+            _padding: [0.0; 2],
+        }
+    }
 }
 
 impl Renderer {

@@ -118,11 +118,7 @@ impl Renderer {
             self.viewport_scroll_px,
             projection_height,
         );
-        crate::render::pipeline::GpuUniforms {
-            projection: proj,
-            atlas_size: [atlas_width, atlas_height],
-            _padding: [0.0; 2],
-        }
+        crate::render::pipeline::GpuUniforms::new(proj, [atlas_width, atlas_height])
     }
 
     /// 写入 uniforms 并重建单元绑定组。

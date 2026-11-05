@@ -189,7 +189,7 @@ impl Renderer {
     /// surface 失效时重配（Lost/Outdated 的统一恢复）。
     fn reconfigure_surface(
         surface: &wgpu::Surface<'static>,
-        surface_config: &Option<wgpu::SurfaceConfiguration>,
+        surface_config: Option<&wgpu::SurfaceConfiguration>,
         device: &wgpu::Device,
     ) {
         if let Some(config) = surface_config {
@@ -245,7 +245,11 @@ impl Renderer {
                 wgpu::CurrentSurfaceTexture::Success(tex)
                 | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => AcquireOutcome::Acquired(tex),
                 wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
-                    Self::reconfigure_surface(surface, &self.surface_config, &self.device);
+                    Self::reconfigure_surface(
+                        surface,
+                        self.surface_config.as_ref(),
+                        &self.device,
+                    );
                     AcquireOutcome::SurfaceLost
                 }
                 _ => AcquireOutcome::Skipped,

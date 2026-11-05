@@ -222,8 +222,9 @@ fn wait_writable(fd: BorrowedFd<'_>, deadline: std::time::Instant) -> io::Result
             PollTimeout::try_from(remaining).expect("remaining is clamped to 0..=i32::MAX");
         let mut poll_fds = [PollFd::new(fd, PollFlags::POLLOUT)];
         match poll(&mut poll_fds, timeout) {
-            // 0 = 期限内仍不可写，交给下一轮重试（由 deadline 收敛）。
-            Ok(0) => continue,
+            // 0 = 期限内仍不可写，交给下一轮重试（由 deadline 收敛）；EINTR 是信号
+            // 打断了 poll，不是失败，同样等下一轮。
+            Ok(0) | Err(Errno::EINTR) => {}
             Ok(_) => {
                 // 必须查 revents：主端挂断（子进程退出）时 poll 立刻返回 > 0，但置的是
                 // POLLHUP/POLLERR 而非 POLLOUT。无条件 Ok(()) 会让调用方重入 write 拿到
@@ -240,8 +241,6 @@ fn wait_writable(fd: BorrowedFd<'_>, deadline: std::time::Instant) -> io::Result
                 }
                 return Ok(());
             }
-            // EINTR 不是失败：信号打断了 poll，等下去即可。
-            Err(Errno::EINTR) => continue,
             Err(errno) => return Err(io::Error::from_raw_os_error(errno as i32)),
         }
     }
