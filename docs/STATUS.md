@@ -4,16 +4,13 @@
 
 ## 未被解决的问题
 
-基于 `00b98dc9b17c9835580fc31cd1111b961127bb8b`
+基于 `0bf18b65540d55676582f77a39fe316643dcbdb0`
 
 - 使用 `kitten icat test.png` 后，输入 clear 回车不会清除图像，图像变大，文本被遮挡，再次盲输入 clear 回车被清除
 - 切换应用返回页面闪烁
 - 侧边面板过宽，布局不合理
 - 文档提供者找不出 rollback 文件警告
-- 不能加载 jdwp agent 错误
+- 终端会话概率卡死
 - mali_gralloc 错误
-- docs/persistence 内容需要重新验证和更新
-- openspec/specs 目录文档需要根据 docs/specification 重写
-- android/benchmark 需要更充分的性能测试并且断言测试结果，使用模拟器检查，优化提高性能
-- termux.properties 的所有相关代码必须根据 docs/specification termux-app 重新检查和修改，并且每个键都需要充分测试
-- 检查 docs/specification 的修改，对照项目进行修改 修复
+- 字体手势缩放大小和设置界面 精度不一致
+- 修饰键栏遇到全面屏手势会触发动画
