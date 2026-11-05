@@ -11,7 +11,7 @@ const DEFAULT_TERM: &str = "xterm-256color";
 const DEFAULT_COLORTERM: &str = "truecolor";
 const DEFAULT_LANG: &str = "en_US.UTF-8";
 
-/// 透传 Android 系统环境变量。EXTERNAL_STORAGE 是 `/system/bin/am` 在至少三星 S7 上
+/// 透传 Android 系统环境变量。`EXTERNAL_STORAGE` 是 `/system/bin/am` 在至少三星 S7 上
 /// 工作的必要条件，调用 `am`/`content` 的 Termux bootstrap shell 需要这些变量。
 ///
 /// 参考 <https://github.com/reapercanuk39/termux-kotlin-app> AndroidShellEnvironment.kt
