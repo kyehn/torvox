@@ -198,6 +198,7 @@ impl Palette {
     ///
     /// 选区底色没有对应键——`colors.properties` 没有它——原样保留，故覆盖后的选区色
     /// 仍与主题一致。
+    #[must_use]
     pub fn with_overrides(&self, overrides: &PaletteOverride) -> Self {
         let background = overrides.background.unwrap_or(self.background);
         let cursor = overrides

@@ -245,11 +245,7 @@ impl Renderer {
                 wgpu::CurrentSurfaceTexture::Success(tex)
                 | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => AcquireOutcome::Acquired(tex),
                 wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
-                    Self::reconfigure_surface(
-                        surface,
-                        self.surface_config.as_ref(),
-                        &self.device,
-                    );
+                    Self::reconfigure_surface(surface, self.surface_config.as_ref(), &self.device);
                     AcquireOutcome::SurfaceLost
                 }
                 _ => AcquireOutcome::Skipped,

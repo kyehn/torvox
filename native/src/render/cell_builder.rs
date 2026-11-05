@@ -1038,7 +1038,7 @@ fn append_row_instances(
                             quad_origin[0] + glyph.x_offset,
                             quad_origin[1] + glyph.y_offset,
                         ];
-                        if let Some(overlay) = font_pipeline.shaped_overlay_instance(
+                        instances.push(font_pipeline.shaped_overlay_instance(
                             &info,
                             crate::render::font::OverlayQuad {
                                 origin: shaped_origin,
@@ -1049,9 +1049,7 @@ fn append_row_instances(
                                 flags: cell_data_entry.flags as f32,
                             },
                             cell_height,
-                        ) {
-                            instances.push(overlay);
-                        }
+                        ));
                     }
                 }
             } else if !has_merged_glyph {
