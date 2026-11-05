@@ -15,7 +15,9 @@ import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
 import terminal.emulator.findTerminalSurface
+import terminal.emulator.hideImeAndConfirm
 import terminal.emulator.injectTap
+import terminal.emulator.isImeVisible
 import terminal.emulator.pumpedTerminalText
 import terminal.emulator.requireBridge
 import terminal.emulator.waitForSession
@@ -106,11 +108,7 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         )
         val visible =
             UxTestUtils.pollUntilTrue(timeoutMs = IME_TIMEOUT_MS, intervalMs = 200) {
-                var shown = false
-                InstrumentationRegistry.getInstrumentation().runOnMainSync {
-                    shown = surface.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
-                }
-                shown
+                isImeVisible(composeTestRule.activity)
             }
         assertNotNull("输入法必须弹出", visible)
         // 高度定居：Gboard 工具栏行后于按键弹出，键盘总高度动画可延续数秒。
@@ -286,17 +284,6 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         return sum
     }
 
-    private fun isImeVisible(): Boolean {
-        var visible = false
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            visible =
-                findTerminalSurface(
-                    composeTestRule.activity,
-                ).rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
-        }
-        return visible
-    }
-
     /** 确保输入法收起：Gboard 系统级持久，跨用例仍展开会使 before 拍到已上移态导致差分为零。 */
     private fun hideImeAndSettle() {
         // 启动期自动弹键盘会与收起竞态：只确认“某一刻隐藏”不够，before 可能在
@@ -304,28 +291,14 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         // 收起后必须经过静默窗口复核，自动弹出则重试；仍不稳定就直接失败，
         // 而不是继续走像素比较。
         UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 200) {
-            isImeVisible()
+            isImeVisible(composeTestRule.activity)
         }
         repeat(3) {
-            composeTestRule.activity.runOnUiThread {
-                val inputMethodManager =
-                    composeTestRule.activity.getSystemService(
-                        android.content.Context.INPUT_METHOD_SERVICE,
-                    ) as android.view.inputmethod.InputMethodManager
-                inputMethodManager.hideSoftInputFromWindow(
-                    composeTestRule.activity.window.decorView.windowToken,
-                    0,
-                )
-            }
-            val hidden =
-                UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 200) {
-                    !isImeVisible()
-                }
-            assertNotNull("输入法必须收起", hidden)
+            assertTrue("输入法必须收起", hideImeAndConfirm(composeTestRule.activity, 5_000))
             val stableUntil = android.os.SystemClock.uptimeMillis() + 2_000L
             var reshown = false
             while (android.os.SystemClock.uptimeMillis() < stableUntil) {
-                if (isImeVisible()) {
+                if (isImeVisible(composeTestRule.activity)) {
                     reshown = true
                     break
                 }
@@ -452,14 +425,14 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         for (attempt in 1..3) {
             hideImeAndSettle()
             before = device.takeScreenshot() ?: throw AssertionError("截图失败")
-            if (!isImeVisible()) break
+            if (!isImeVisible(composeTestRule.activity)) break
         }
         val beforeShot = before ?: throw AssertionError("截图失败")
         // 前提钉死：before 必须是无键盘态，否则「位移=0」是 before 已上移的假象
         // 而非产品未动（自动弹键盘与收起竞态，见 hideImeAndSettle 注释）。
         assertTrue(
             "before 截图时输入法必须已收起，否则位移比较无意义",
-            !isImeVisible(),
+            !isImeVisible(composeTestRule.activity),
         )
         // 前提钉死：输入法收起后终端必须回到未位移状态——残留位移既让比较失真，
         // 也在屏幕上留下键栏下方的空白带（键栏按残留高度上移）。

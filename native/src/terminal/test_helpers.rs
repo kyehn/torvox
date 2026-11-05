@@ -196,6 +196,19 @@ impl<'a> TermTestCase<'a> {
         self
     }
 
+    /// 精确 u8 RGB → 不透明浮点 RGBA。
+    ///
+    /// 前景与背景各有一份「精确 u8 断言」，换算口径必须一致：同一颜色在前背景
+    /// 上判出不同结果时，失败信息会指向颜色而不是用例本身。
+    fn exact_rgba(red: u8, green: u8, blue: u8) -> [f32; 4] {
+        [
+            GhosttyTerminal::byte_to_float(red),
+            GhosttyTerminal::byte_to_float(green),
+            GhosttyTerminal::byte_to_float(blue),
+            1.0,
+        ]
+    }
+
     /// Assert foreground color of the cell at (row, col) using exact u8 RGB values.
     pub(crate) fn assert_foreground_exact(
         self,
@@ -205,13 +218,7 @@ impl<'a> TermTestCase<'a> {
         green: u8,
         blue: u8,
     ) -> Self {
-        let expected = [
-            GhosttyTerminal::byte_to_float(red),
-            GhosttyTerminal::byte_to_float(green),
-            GhosttyTerminal::byte_to_float(blue),
-            1.0,
-        ];
-        self.assert_foreground(row, col, expected)
+        self.assert_foreground(row, col, Self::exact_rgba(red, green, blue))
     }
 
     pub(crate) fn assert_background_exact(
@@ -222,13 +229,7 @@ impl<'a> TermTestCase<'a> {
         green: u8,
         blue: u8,
     ) -> Self {
-        let expected = [
-            GhosttyTerminal::byte_to_float(red),
-            GhosttyTerminal::byte_to_float(green),
-            GhosttyTerminal::byte_to_float(blue),
-            1.0,
-        ];
-        self.assert_background(row, col, expected)
+        self.assert_background(row, col, Self::exact_rgba(red, green, blue))
     }
 
     /// Assert background color of the cell at (row, col) approximates `expected`.

@@ -11,6 +11,7 @@ import org.junit.Assert.assertTrue
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.runtime.TerminalRuntime
+import terminal.emulator.util.runCatchingCancellable
 import java.io.File
 
 /**
@@ -460,6 +461,35 @@ fun awaitShellPrompt(bridge: Bridge, timeoutMs: Long = 30_000) {
             bridge.getTerminalText()?.let { it.contains("$") || it.contains("#") } == true
         },
     )
+}
+
+/**
+ * 原生直连的 shell 探针会话：建会话 → 切为活跃 → 等提示符出现 → 交还调用方。
+ *
+ * 这几处探针用例走的是裸 JNI 路径（不经 Compose 桥），因此没有 [awaitShellPrompt]
+ * 可用；建会话、切活跃、等提示符、销毁会话此前各写一份拷贝，口径漂移时
+ * 「shell 未就绪」会误报到被测行为上。
+ *
+ * 会话在 [body] 返回（含抛异常）后必定销毁：探针会话是设备上的真实 PTY，
+ * 泄漏会让后续用例看到别人的输出。
+ */
+fun withShellProbeSession(homeName: String, timeoutMs: Long = 20_000, body: (sessionId: Long) -> Unit) {
+    val context = InstrumentationRegistry.getInstrumentation().targetContext
+    val home = context.filesDir.resolve(homeName).apply { mkdirs() }.absolutePath
+    val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "", 2000)
+    assertTrue("会话创建失败", sessionId != 0L)
+    try {
+        NativeBridge.switchSession(sessionId)
+        val ready =
+            UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 100) {
+                runCatchingCancellable { NativeBridge.pollEvent() }
+                NativeBridge.getTerminalText(sessionId)?.contains("$") == true
+            }
+        assertNotNull("shell 未就绪", ready)
+        body(sessionId)
+    } finally {
+        runCatchingCancellable { NativeBridge.destroySession(sessionId) }
+    }
 }
 
 /** SGR 转义序列：`ESC [ … m`。不占列，故落格判据须先剥除。 */

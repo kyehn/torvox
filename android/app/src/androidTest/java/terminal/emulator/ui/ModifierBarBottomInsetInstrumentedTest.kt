@@ -11,9 +11,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.findTerminalSurface
+import terminal.emulator.hideImeAndConfirm
+import terminal.emulator.isImeVisible
 import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
 
@@ -56,34 +57,9 @@ class ModifierBarBottomInsetInstrumentedTest : ComposeTerminalLogcatTest() {
     /** 收起输入法并复核隐藏：启动期自动弹键盘（hide-soft-keyboard-on-startup=false 路径）会与本用例竞态。 */
     private fun hideImeAndSettle() {
         repeat(3) {
-            composeTestRule.activity.runOnUiThread {
-                val inputMethodManager =
-                    composeTestRule.activity.getSystemService(
-                        android.content.Context.INPUT_METHOD_SERVICE,
-                    ) as android.view.inputmethod.InputMethodManager
-                inputMethodManager.hideSoftInputFromWindow(
-                    composeTestRule.activity.window.decorView.windowToken,
-                    0,
-                )
-            }
-            val hidden =
-                UxTestUtils.pollUntilTrue(timeoutMs = IME_HIDDEN_TIMEOUT_MS, intervalMs = 200) {
-                    !isImeVisible()
-                }
-            if (hidden != null) return
+            if (hideImeAndConfirm(composeTestRule.activity, IME_HIDDEN_TIMEOUT_MS)) return
         }
-        assertTrue("输入法必须收起才能测键栏落位", !isImeVisible())
-    }
-
-    private fun isImeVisible(): Boolean {
-        var visible = true
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            visible =
-                findTerminalSurface(composeTestRule.activity)
-                    .rootWindowInsets
-                    ?.isVisible(WindowInsets.Type.ime()) == true
-        }
-        return visible
+        assertTrue("输入法必须收起才能测键栏落位", !isImeVisible(composeTestRule.activity))
     }
 
     @Test

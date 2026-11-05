@@ -1,6 +1,5 @@
 package terminal.emulator.performance
 
-import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -9,7 +8,7 @@ import org.junit.runners.JUnit4
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
-import terminal.emulator.util.runCatchingCancellable
+import terminal.emulator.withShellProbeSession
 
 /**
  * 暂停恢复语义：IME 弹出暂停渲染期间写入的内容，恢复后必须呈现。
@@ -19,18 +18,7 @@ import terminal.emulator.util.runCatchingCancellable
 class RenderPauseSemanticsTest : TerminalLogcatTest() {
     @Test
     fun pausedWritesArePresentedAfterResume() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val home = context.filesDir.resolve("pause-probe-home").apply { mkdirs() }.absolutePath
-        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "", 2000)
-        assertTrue("会话创建失败", sessionId != 0L)
-        try {
-            NativeBridge.switchSession(sessionId)
-            val ready =
-                UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 100) {
-                    runCatchingCancellable { NativeBridge.pollEvent() }
-                    NativeBridge.getTerminalText(sessionId)?.contains("$") == true
-                }
-            assertNotNull("shell 未就绪", ready)
+        withShellProbeSession("pause-probe-home") { sessionId ->
             NativeBridge.feedTerminal(
                 sessionId,
                 "\u001B[31mPAUSE_RED_A\u001B[0m\r\n".toByteArray(Charsets.UTF_8),
@@ -63,8 +51,6 @@ class RenderPauseSemanticsTest : TerminalLogcatTest() {
             android.util.Log.i("PauseProbe", "resumedRender=$presented")
             val text = NativeBridge.getTerminalText(sessionId).orEmpty()
             assertTrue("恢复后网格必须含暂停期标记", text.contains("PAUSE_RED_B"))
-        } finally {
-            runCatchingCancellable { NativeBridge.destroySession(sessionId) }
         }
     }
 }

@@ -61,6 +61,20 @@ fn build_instances(c: &mut Criterion) {
         color: [1.0, 1.0, 1.0, 1.0],
     };
 
+    // 断言与采样共用同一份配置：两处各写一份时，字段增减会只改到其中一处，
+    // 断言量到的路径与基准量到的路径便不再相同。
+    let config = CellInstanceConfig {
+        rows,
+        cols,
+        grid_cell_width,
+        grid_cell_height,
+        cursor,
+        atlas_width: 2048.0,
+        atlas_height: 2048.0,
+        search_highlights: &[],
+        default_background: [0.0; 4],
+    };
+
     // 下限断言：只兜住数量级退化（逐格重建字体、O(n²) 查表），不判绝对快慢。
     //
     // 上限按 **CI 实测**校准（CI runner 2 核，比开发机慢一截）。修掉「全库扫描
@@ -71,17 +85,6 @@ fn build_instances(c: &mut Criterion) {
     //  - 25 倍余量足以吸收 CI 调度抖动与字体集差异。
     support::Floor::new("build_instances_from_cell_data", 20.0).assert_within(16, || {
         let mut instances = Vec::new();
-        let config = CellInstanceConfig {
-            rows,
-            cols,
-            grid_cell_width,
-            grid_cell_height,
-            cursor,
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
-            search_highlights: &[],
-            default_background: [0.0; 4],
-        };
         black_box(native::render::build_instances_from_cell_data(
             &cell_data,
             config,
@@ -94,17 +97,6 @@ fn build_instances(c: &mut Criterion) {
     c.bench_function("build_instances_from_cell_data", |b| {
         b.iter(|| {
             let mut instances = Vec::new();
-            let config = CellInstanceConfig {
-                rows,
-                cols,
-                grid_cell_width,
-                grid_cell_height,
-                cursor,
-                atlas_width: 2048.0,
-                atlas_height: 2048.0,
-                search_highlights: &[],
-                default_background: [0.0; 4],
-            };
             black_box(native::render::build_instances_from_cell_data(
                 &cell_data,
                 config,

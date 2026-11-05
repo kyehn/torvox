@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -18,6 +19,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
@@ -216,23 +218,41 @@ fun <T> onUiThread(block: () -> T): T {
 }
 
 /**
- * 收起输入法并等到确实收起。
+ * 输入法是否可见（主线程同步读窗口 inset）。
+ *
+ * 输入法可见性是**窗口级**状态，故只认窗口 decor 上的一处读数。终端 Surface 另有一份
+ * 读数，两处口径一旦分叉，「before 截图必须无键盘」的前提就会自相矛盾，
+ * 像素比对随之失去意义。
+ */
+fun isImeVisible(activity: Activity): Boolean = onUiThread {
+    activity.window.decorView.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
+}
+
+/**
+ * 收起输入法并确认已隐藏。
  *
  * 启动期会自动弹出输入法（`hide-soft-keyboard-on-startup = false`，对齐 termux 上游），
  * 键盘占据屏幕下半部时修饰键栏被抬到屏幕中部：按窗口几何取落点的用例会落在键栏上，
  * 手势根本到不了终端内容。只发一次隐藏指令不够——平台可能在收起动画期间再弹，
  * 故必须等到窗口 inset 里输入法确实不可见。
+ *
+ * @return true 表示在 [timeoutMs] 内确认已隐藏。
  */
-fun AndroidComposeTestRule<*, *>.hideImeAndAwaitHidden(timeoutMs: Long = 10_000L) {
+fun hideImeAndConfirm(activity: Activity, timeoutMs: Long = 10_000L): Boolean {
     val hidden =
         UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 200) {
             onUiThread {
                 val decor = activity.window.decorView
-                decor.windowInsetsController?.hide(android.view.WindowInsets.Type.ime())
-                decor.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) != true
+                decor.windowInsetsController?.hide(WindowInsets.Type.ime())
+                decor.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) != true
             }
         }
-    assertNotNull("输入法必须收起（${timeoutMs}ms 内仍未隐藏）", hidden)
+    return hidden != null
+}
+
+/** 收起输入法并等到确实收起（超时仍未收起即断言失败）。 */
+fun AndroidComposeTestRule<*, *>.hideImeAndAwaitHidden(timeoutMs: Long = 10_000L) {
+    assertTrue("输入法必须收起（${timeoutMs}ms 内仍未隐藏）", hideImeAndConfirm(activity, timeoutMs))
 }
 
 /**

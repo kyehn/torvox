@@ -1,6 +1,5 @@
 package terminal.emulator.ui
 
-import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -10,6 +9,7 @@ import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.util.runCatchingCancellable
+import terminal.emulator.withShellProbeSession
 
 /** shell 退格语义基线锁定：一个 0x08 删掉一个完整汉字（字符语义，非列语义）。
  *
@@ -20,19 +20,7 @@ import terminal.emulator.util.runCatchingCancellable
 class CjkBackspaceSemanticsTest : TerminalLogcatTest() {
     @Test
     fun probe_single_bs_deletes_one_hanzi() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val home = context.filesDir.resolve("probe-home").apply { mkdirs() }.absolutePath
-        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "", 2000)
-        assertTrue("会话创建失败", sessionId != 0L)
-        try {
-            NativeBridge.switchSession(sessionId)
-            // 等 prompt 出现，确认 shell 就绪。
-            val ready =
-                UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 100) {
-                    runCatchingCancellable { NativeBridge.pollEvent() }
-                    NativeBridge.getTerminalText(sessionId)?.contains("$") == true
-                }
-            assertNotNull("shell 未就绪", ready)
+        withShellProbeSession("probe-home") { sessionId ->
             // 在编辑行放 "AB中"，退 1 格 BS，再回车执行 echo，观察输出。
             NativeBridge.feedPty(sessionId, "echo AB中X\n".toByteArray(Charsets.UTF_8))
             val echoed =
@@ -68,8 +56,6 @@ class CjkBackspaceSemanticsTest : TerminalLogcatTest() {
             val text = NativeBridge.getTerminalText(sessionId).orEmpty()
             android.util.Log.w("CJK_PROBE", "tail=${text.takeLast(300)}")
             assertNotNull("探针无输出", probe)
-        } finally {
-            runCatchingCancellable { NativeBridge.destroySession(sessionId) }
         }
     }
 }

@@ -1,5 +1,6 @@
 use super::super::output::MAX_CLIPBOARD_TEXT_QUEUE;
 use super::super::*;
+use super::hold_pty_write_lock;
 use super::spawn_test_session;
 
 use std::time::Duration;
@@ -69,22 +70,7 @@ fn clipboard_answer_yields_when_a_user_write_holds_the_master_lock() {
     ));
 
     // 用户输入持写入锁停住（等价于 `feedPty` 卡在主端排空上），直到本用例放行。
-    let (locked_sender, locked_receiver) = mpsc::channel();
-    let (release_sender, release_receiver) = mpsc::channel();
-    let user_write = {
-        let session = Arc::clone(&session);
-        std::thread::spawn(move || {
-            // 写入面克隆出来再取锁：生产路径（`feedPty`）正是如此，
-            // 否则持锁的是会话锁而非主端写入锁，两条就不是同一个状态。
-            let pty_master = session.lock().pty_master();
-            let _order = pty_master.pty_write_order();
-            locked_sender.send(()).expect("已持锁");
-            release_receiver.recv().expect("等放行");
-        })
-    };
-    locked_receiver
-        .recv_timeout(READ_BUDGET)
-        .expect("用户写入须在期限内取到主端写入锁");
+    let hold = hold_pty_write_lock(&session, READ_BUDGET);
 
     // 应答在另一个线程里写：取不到写入锁的实现会一直等下去，直接在本线程调用
     // 会把用例挂死而不是判红——挂死的用例比判红的更难排查。
@@ -99,8 +85,8 @@ fn clipboard_answer_yields_when_a_user_write_holds_the_master_lock() {
     });
     let reply = receiver.recv_timeout(READ_BUDGET);
 
-    release_sender.send(()).expect("放行");
-    user_write.join().expect("用户写入线程 panicked");
+    // 放行用户写入并回收其线程：守卫析构即做这两件事。
+    drop(hold);
     worker.join().expect("应答线程 panicked");
 
     let (result, pending) = reply.expect("会话锁不得在用户输入持写入锁时被按住满排空上限");
