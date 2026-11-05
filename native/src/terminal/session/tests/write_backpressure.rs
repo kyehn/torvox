@@ -297,8 +297,8 @@ fn write_back_yields_the_frame_when_a_user_write_holds_the_master_lock() {
     });
     let reply = receiver.recv_timeout(READ_BUDGET);
 
-    // 放行用户写入并回收其线程：守卫析构即做这两件事。
-    drop(hold);
+    // 放行用户写入并回收其线程：持锁线程 panic 即判红（守卫析构只是兜底，不判红）。
+    hold.release();
     worker.join().expect("收割线程 panicked");
 
     let pending = reply.expect("会话锁不得在用户输入持写入锁时被按住满排空上限");

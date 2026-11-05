@@ -57,31 +57,51 @@ fn spawn_and_exit() -> Session {
     session
 }
 
-/// 持住主端写入锁的守卫：析构时放行持锁线程并回收它。
+/// 持住主端写入锁的守卫：放行并回收那条「用户输入」线程。
 ///
-/// 放行绑在析构上：忘记放行的用例会持着锁不放，把整个测试进程拖死，
+/// 放行绑在守卫上：忘记放行的用例会持着锁不放，把整个测试进程拖死，
 /// 而「挂死的用例」比「判红的用例」更难排查。
 struct PtyWriteLockHold {
     release: Option<std::sync::mpsc::Sender<()>>,
     holder: Option<std::thread::JoinHandle<()>>,
 }
 
-impl Drop for PtyWriteLockHold {
-    fn drop(&mut self) {
+impl PtyWriteLockHold {
+    /// 放行持锁线程并回收它；持锁线程 panic 即判红。
+    ///
+    /// 用例须显式调它：守卫析构只是兜底（析构里 panic 会在展开中二次 panic 而 abort），
+    /// 兜底路径不判红。原先两份拷贝里的 `join().expect(...)` 就是这条断言，
+    /// 收敛到共享夹具后不得把它丢掉。
+    fn release(mut self) {
+        self.signal_and_join(true);
+    }
+
+    /// 放行并回收；`strict` 为真时持锁线程的 panic 向上传播。
+    fn signal_and_join(&mut self, strict: bool) {
         if let Some(release) = self.release.take() {
             let _ = release.send(());
         }
-        // `JoinHandle::join` 消耗句柄，析构里只能取出来再 join。
+        // `JoinHandle::join` 消耗句柄，只能取出来再 join。
         if let Some(holder) = self.holder.take() {
-            let _ = holder.join();
+            if strict {
+                holder.join().expect("用户写入线程 panicked");
+            } else {
+                let _ = holder.join();
+            }
         }
     }
 }
 
-/// 起一条「用户输入」线程持住主端写入锁，直到返回的守卫被释放（显式 `drop` 或离开作用域）。
+impl Drop for PtyWriteLockHold {
+    fn drop(&mut self) {
+        self.signal_and_join(false);
+    }
+}
+
+/// 起一条「用户输入」线程持住主端写入锁，直到返回的守卫被释放。
 ///
 /// 持住的是**主端写入锁**（`pty_write_order`）而不是会话锁：被测路径争的正是前者，
-/// 两者不是同一个状态，否则钉不住「用户写入占着写入锁时另一条路径必须让开」这件事。
+/// 两者不是同一个状态，否则钉不住「用户输入占着写入锁时另一条路径必须让开」这件事。
 ///
 /// `acquire_budget` 是取锁等待上限：线程若迟迟拿不到锁，用例须判红而不是干等。
 fn hold_pty_write_lock(
