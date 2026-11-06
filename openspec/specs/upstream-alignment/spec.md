@@ -469,8 +469,9 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | `search::Search` 全文搜索 | 采用（2026 改判） | 自研 `regex` 搜索曾被判定合规，实为重复实现：软换行跨行、随输出增量同步、命中总数与导航滚动上游全已提供。现 VT 线程持有 `search::Search`（同生命周期的局部变量，非自引用结构），needle/总数/导航/视口命中均走上游，本仓只做「上游选区 → 按物理行网格区间」转换。代价：上游仅 ASCII 折叠、无区分大小写开关，`DESIGN.md` 修饰键栏节原「大小写匹配」与「使用库（如 `regex`）实现文本搜索」两条**已由维护者改写**（删去大小写匹配按钮、改写为使用 libghostty-vt Search，与上游口径一致）；`regex` 依赖随之删除。软换行/宽字符/CJK/真实空格的用例语义按上游口径重写，见 `text-search` 规约 |
 | `selection/gesture` 手势、`select_line`/`select_output`、`format_selection_*` | 不采用 | 连击语义与 DESIGN.md 终端页面节的「不得支持 双击 三击 多击选择」「不得支持 双击 三击 多击选择」正面冲突，该族主体（拖动手势 + 边缘自动滚动）另有两条理由：其自动滚动按定时器在边缘区持续滚动，与 `text-selection` 的 Scenario「下缘拖动逐行滚动」（每次触点移动视口滚动 1 行）与「手指静止不滚动」相反；其手势状态若由 VT 线程持有，则每个触摸帧一次跨线程往返，使拖动快路径的无跨语言调用优势尽失，并与视图侧手势所有权形成双状态机。四项上游优势的覆盖情况：词派生、跟踪选区、随滚动跟随、复制格式化已走上游；宽字符吸附的事实取自上游网格单元宽度；边缘滚动节奏不采纳；单一来源已由 `terminal.rs` 承担。 |
 | termlib `trimDetectedUrl`/括号计数/跨行拼接 | 不采用 | DESIGN「链接识别通过 `libghostty-vt` 查询，没有额外检查」即禁止移植；仅保留空白 trim 与协议白名单（属安全检查） |
-| `on_title_changed`/`on_pwd_changed`/`on_render_hold`/`on_desktop_notification`/`on_progress_report` 等回调 | 不采用 | Kotlin 侧零消费者；DESIGN「不做不必要功能」，有消费者时再注册。`on_bell` 曾被 7 处注释误记为已接线（`ghostty_terminal/commands.rs` 的 `RunConfig` 悬空附着于 `cell_size_px`、`types.rs` 的 `EVENT_CHANNEL_CAPACITY`、以及 `session/` 的 5 处收割路径文档），实际该通道只承载 OSC 52 剪贴板写入；注释已删除。`on_bell` 现已单独接线，见下一行 |
-| `Terminal::on_bell`（BEL 回调） | 采用（2026-11-03 改判） | `DESIGN.md` Shell 节要求 `bell-character` 三态与 termux-app 一致，响铃事件必须有来源。回调只置无锁标志（`ghostty_terminal/internal/run.rs` 的 `on_bell` 注册），每帧收割为 `Event::Bell { session_id }`（`native/src/android/ffi/render/pump.rs`），Kotlin 按 `bell-character` 三态限频执行（`runtime/BellPlayer.kt`），限频窗口内的重复响铃静默丢弃 |
+| `on_title_changed`/`on_pwd_changed`/`on_render_hold`/`on_progress_report` 等回调 | 不采用 | Kotlin 侧零消费者；DESIGN「不做不必要功能」，有消费者时再注册。`on_bell` 曾被 7 处注释误记为已接线（`ghostty_terminal/commands.rs` 的 `RunConfig` 悬空附着于 `cell_size_px`、`types.rs` 的 `EVENT_CHANNEL_CAPACITY`、以及 `session/` 的 5 处收割路径文档），实际该通道只承载 OSC 52 剪贴板写入；注释已删除。`on_bell` 与 `on_desktop_notification` 现已单独接线，见下两行 |
+| `Terminal::on_bell`（BEL 回调） | 采用（2026-11-03 改判） | `DESIGN.md` Shell 节要求 `bell-character` 三态与 termux-app 一致，响铃事件必须有来源。回调只置无锁标志（`ghostty_terminal/internal/run.rs` 的 `on_bell` 注册），每帧收割为 `Event::Bell { session_id }`（`android/ffi/render/pump.rs`），Kotlin 按 `bell-character` 三态限频执行（`runtime/BellPlayer.kt`），限频窗口内的重复响铃静默丢弃 |
+| `Terminal::on_desktop_notification`（OSC 9/777 回调） | 采用（2026-11-05 改判） | `DESIGN.md` 软件节要求处理 OSC 9 等通知（前台 Toast、后台系统通知、点击切换会话），通知必须有来源。回调注册在 `ghostty_terminal/internal/run.rs`；负载是程序给出的原始字节（上游文档写明不保证 UTF-8），按替换字符口径解码后按会话归属投递；Kotlin 侧按应用前后台状态分派（`runtime/DesktopNotificationPlayer.kt`），规约见 `desktop-notification` |
 | `track_grid_ref`、`width_px`/`height_px`、光标色实时查询、`set_mode`、`vt_write_until_ground` | 不采用 | 按需取用；现有轮询与原子镜像满足当前消费者，DESIGN 要求最小实现 |
 | `key::Encoder` 按键编码 | 采用（已修） | Android 键码到上游 `Key` 为机械对应表（`keymap.rs`），桥形态与 `Query::EncodeMouseEvent` 同构（编码在 VT 线程）；`TerminalInputEncoder` 仅保留输入法文本路径 |
 | `Terminal::paste` 粘贴 | 不采用 | 含换行文本返回 `Error::Rejected` 并要求确认框后 `allow_unsafe` 重试，PROHIBITED 明禁粘贴确认对话框；恒置 `allow_unsafe` 则检查失去意义 |
@@ -510,7 +511,8 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | 修饰键栏 | `termux-app` 的 `termux-shared/.../extrakeys/`（`ExtraKeysInfo`/`ExtraKeysView`/`ExtraKeysConstants`/`SpecialButton`）含布局编辑器与按键配置 | 仅采纳默认布局与粘滞语义 | 布局编辑器 | PROHIBITED（明禁） |
 | 选区拖动手柄 | `termlib` 的 `applyHandleDrag` 锚点语义 + 交叉翻转 | 已采纳（同源实现与单测） | 无 | 无 |
 | Linux 用户态 SDK | `libtermux-android` 提供 `core`/`os`/`terminal-view`/`bootstrap-*`/`shizuku` 模块（README 自述实验阶段） | 自持 bootstrap 安装与终端视图 | Shizuku 集成 | PROHIBITED（明禁）；其余能力已由本仓自实现覆盖 |
-| 其余 libghostty-rs 能力 | `gesture`/`select_output`/`format_selection_*`/`snapshot decoder`/`on_title_changed`/`on_pwd_changed`/`on_render_hold`/`on_progress_report`/`on_desktop_notification`/`device_attributes`/`xtversion`/`color_scheme`/`set_terminfo_name`/`track_grid_ref`/`width_px`/`height_px` | 均未采纳 | 无消费者 | 本仓（按需取用，见「上游 API 取用判定」表） |
+| 其余 libghostty-rs 能力 | `gesture`/`select_output`/`format_selection_*`/`snapshot decoder`/`on_title_changed`/`on_pwd_changed`/`on_render_hold`/`on_progress_report`/`device_attributes`/`xtversion`/`color_scheme`/`set_terminfo_name`/`track_grid_ref`/`width_px`/`height_px` | 均未采纳 | 无消费者 | 本仓（按需取用，见「上游 API 取用判定」表） |
+| 桌面通知回调 | `terminal.rs:3475` 的 `on_desktop_notification` 经 C ABI 的 `GhosttyTerminalDesktopNotification` 回调暴露；上游 `osc9.zig` 与 `rxvt_extension.zig` 分别把 OSC 9 与 OSC 777 的 `notify` 归到同一条 `show_desktop_notification` 命令 | 已采纳（2026-11-05 改判）：注册上游回调，通知按会话归属投递，前台 Toast、后台系统通知、点击切换会话 | 无 | 无 |
 | Kitty 图像 PNG 解码 | `kitty/graphics.rs:997` 的 `RustPngDecoder`（`pub const fn new`）经 `set_png_decoder` 注册；解码前先按 libghostty 分配器取定长缓冲，未受该上限约束的尺寸不会被 PNG 头放大 | 已采纳（本次改判）：删除本仓 60 行等价实现与 `png` 直接依赖 | 无 | 无 |
 | 颜色语法与深浅判定 | `style.rs:390` `RgbColor::parse`（3/6/9/12 位 hex、X11 名、`rgb:`/`rgbi:`）与 `style.rs:415` `perceived_luminance`（文档写明「背景亮度超过 0.5 即视为浅色」） | 已采纳：主题色值与深浅分组都走上游，本仓不再手写 `#RGB` 展开与 Rec.601 公式 | 无 | 无 |
 | 终端模式查询 | `terminal.rs:1380` `Mode::BRACKETED_PASTE`、`terminal.rs:1367` `Mode::FOCUS_EVENT` 具名常量 | 已采纳：`Query::ModeGet` 携带上游 `Mode`，删掉 `(u16, u8)` 裸号与各调用点的数字 | 无 | 无 |
@@ -540,18 +542,21 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 
 ### Requirement: 保留 JSON 的边界登记
 
-仅剩一处经实测对照后保留 JSON，逐项记录理由与替代方案的规模，避免后来者重复调研；
+经实测对照后保留 JSON 的边界逐项记录理由与替代方案的规模，避免后来者重复调研；
 保留项的字段一经变更 MUST 同步其单测，MUST NOT 把解码失败改写为空值：
+
+#### Scenario: 保留项不得腐化
+
+- **WHEN** 修改下表 JSON 边界的字段
+- **THEN** 对应单测（`PollEventTest`、`ParseEventTest`）MUST 同步更新，
+  且 MUST NOT 把反序列化失败改写为空值——空值与「真的没有」必须可区分
+
+保留的边界逐项如下：
 
 | 边界 | 形状 | 保留理由 | 直接量替代方案的实测规模 |
 | --- | --- | --- | --- |
 | `pollEvent` / `pollResult`（`event.rs`、`ffi.rs`） | 单次调用返回一个事件，3 种变体各自 2–3 个字段，`exit.code` 需表达 `null` 与 0 之别；剪贴板载荷长度不可预知 | 变体判别 + 「一次取出后即消费」的语义由一次 JSON 解码天然保证；拆成标量需跨调用保存槽位，而槽位要引入并发可见性与「取用顺序」两个新失败面 | 至少 1（判别）+ 4（文本/标识/码点/选择区）次调用，外加一处会话级槽位与其线程安全；剪贴板文本还须再加一段长度前缀与分段拉取协议 |
-
-#### Scenario: 保留项不得腐化
-
-- **WHEN** 修改上述 JSON 边界的字段
-- **THEN** 对应单测（`PollEventTest`、`ParseEventTest`）MUST 同步更新，
-  且 MUST NOT 把反序列化失败改写为空值——空值与「真的没有」必须可区分
+| `pollNotificationEvent`（通知队列） | 单次调用返回一个通知事件，含会话 id、标题、正文三个字段，负载长度不可预知 | 与事件队列同一套 `Event` 枚举、同一 Kotlin `PollEvent` 解码器；通知走独立队列只因后台泵不得取走退出事件，事件形状不变 | 若改为直接量，需新增「会话 id 数组 + 标题数组 + 正文数组」三段并行返回，三段长度必须同步，且 Kotlin 侧要重建同一 schema 镜像 |
 
 已按本标准收敛的形状（供对照，勿回流 JSON）：主题（`theme-configuration`：
 `getThemeCatalog` 一次取回整个目录，`u16` 主题数 + 逐条「标志 + 名称长度 +
@@ -568,8 +573,8 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 通道描述，MUST 删除该描述，MUST NOT 顺手接线回调——接线需先有 `DESIGN.md` 声明与
 消费者，缺一即属未声明功能。
 
-本仓的 OSC 回调事件通道只承载 OSC 52 剪贴板写入，相关容量常量与字段文档 MUST 只描述
-剪贴板写入。
+本仓的 OSC 回调通道有两条：剪贴板通道承载 OSC 52 剪贴板写入，通知通道承载 OSC 9/777
+桌面通知。两条通道的容量常量与字段文档 MUST 只描述各自承载的回调。
 
 #### Scenario: 悬空通道注释被删除
 
@@ -578,7 +583,7 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 
 #### Scenario: 事件通道容量说明只写剪贴板
 
-- **WHEN** 查阅 OSC 回调事件通道容量的说明
+- **WHEN** 查阅剪贴板事件通道容量的说明
 - **THEN** 说明只提到剪贴板写入，不出现未接线的其他回调
 
 #### Scenario: 清理不以接线收尾
@@ -714,12 +719,13 @@ JVM 侧读到待决异常后，MUST NOT 再调用任何 JNI 函数（JNI 规范�
 | 4（调色板覆盖） | 上游处理且有测试钉住生效路径 | `internal.rs` 初始主题注释；`osc4_palette_override_reaches_dumped_grid` |
 | 7（工作目录） | 上游解析，本仓不消费；透传行为有测试 | `output_processor.rs` 模块文档与 `osc7_and_osc8_pass_through`；`on_pwd_changed` 不采用见「上游 API 取用判定登记」 |
 | 8（超链接） | 上游解析；本仓经 `hyperlink_at` 查询网格单元 URI | `internal.rs` `hyperlink_at_impl`（4KiB 内联缓冲 + 越界精确重读） |
-| 9（iTerm2 通知） | 不接：零消费者 | 与 `on_desktop_notification` 同一判定（DESIGN 未声明通知语义） |
+| 9（iTerm2 通知） | 上游解析并观察：本仓注册 `on_desktop_notification` 回调，通知按会话归属投递 | `DESIGN.md` 软件节要求处理 OSC 9 通知（前台 Toast、后台系统通知、点击切换会话）；回调注册见 `ghostty_terminal/internal/run.rs`，分派见 `runtime/DesktopNotificationPlayer.kt`，规约见 `desktop-notification` |
 | 10 / 11 / 12（默认前背景色 / 光标色查询与设置） | 上游不处理，默认值归内嵌方；本仓经原生主题 setter 置默认色 | `internal.rs` 初始主题段落三处注释（默认色归内嵌方、OSC 4 覆盖归上游、故走原生 setter 而非手写 OSC 序列） |
 | 52（剪贴板读写） | 写走上游回调；读取请求由本仓扫描器收割并拼帧应答 | `upstream-alignment`「OSC 52 读取请求的收割与应答须对每个会话有界」；`output_processor.rs` `ReadScan` 状态机 |
 | 104 / 110 / 111 / 112（色重置） | 上游处理；跨分块重组有测试 | `tests.rs` OSC color reset 跨分块用例 |
 | 133（shell 集成标记） | 上游解析（若支持）；本仓不消费 | DESIGN 未声明 prompt 标记语义；`upstream-alignment` 预测线条目判「未声明，需先补 DESIGN」 |
-| 1337 / 777（媒体 / 桌面通知） | 不接：零消费者 | 同 OSC 9 判定 |
+| 777（rxvt 桌面通知） | 上游解析并观察：走上游 `on_desktop_notification` 回调（同 OSC 9） | 上游 `rxvt_extension.zig` 把 `777;notify;标题;正文` 归到 `show_desktop_notification`，与 OSC 9 同一条命令 |
+| 1337（iTerm2 媒体 / 通知） | 不接：零消费者 | 上游 `iterm2.zig` 只实现 `Copy` 与 `CurrentDir`，通知类负载（`RequestAttention`）上游记为未实现；本仓不消费 |
 
 #### Scenario: 新增 OSC 消费者时先补 DESIGN
 
