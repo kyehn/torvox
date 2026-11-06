@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -288,6 +289,12 @@ fun TerminalScreen(
             }
         }
     }
+    // 键栏的 `KEYBOARD` 特殊键与抽屉里的键盘按钮共用这一份动作。
+    // 动作本身每次组合都会重建，而键栏动作集合是被 `remember` 住的（见
+    // `buildModifierBarActions`）：直接捕获会把首次组合那一份钉住，
+    // `soft-keyboard-toggle-behaviour` 变化后读到的粘滞态就是旧的。
+    // `rememberUpdatedState` 让被记忆的委托始终指向最新实现。
+    val toggleKeyboardState = rememberUpdatedState(toggleKeyboard)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE) {
@@ -903,7 +910,9 @@ fun TerminalScreen(
                         // 参数并转交下去。
                         val modifierBarActions =
                             remember(viewModel, scope, drawerState) {
-                                buildModifierBarActions(viewModel, scope, drawerState)
+                                buildModifierBarActions(viewModel, scope, drawerState) {
+                                    toggleKeyboardState.value()
+                                }
                             }
                         // `extra-keys` 解析出零行（用户显式写了 `extra-keys = []`）时整条不画：
                         // 画一个空条会在终端底部留一条点不动、也看不见内容的色带，
@@ -915,6 +924,7 @@ fun TerminalScreen(
                                 onKey = modifierBarActions.onKey,
                                 onConsumeModifiers = modifierBarActions.onConsumeModifiers,
                                 onDrawerClick = modifierBarActions.onDrawerClick,
+                                onKeyboardClick = modifierBarActions.onKeyboardClick,
                                 onPasteClick = modifierBarActions.onPasteClick,
                                 onScrollClick = modifierBarActions.onScrollClick,
                                 onMacro = modifierBarActions.onMacro,
@@ -980,6 +990,7 @@ private fun buildModifierBarActions(
     viewModel: TerminalViewModel,
     scope: CoroutineScope,
     drawerState: DrawerState,
+    onKeyboardClick: () -> Unit,
 ): ModifierBarActions = ModifierBarActions(
     // 文本输入页：输入法文本不经按键编码器，原样直写。
     onSubmit = { data: String ->
@@ -998,6 +1009,7 @@ private fun buildModifierBarActions(
     onLockCtrl = { viewModel.lockCtrlState() },
     onLockAlt = { viewModel.lockAltState() },
     onPasteClick = { viewModel.pasteFromClipboard() },
+    onKeyboardClick = onKeyboardClick,
     onMacro = { steps -> viewModel.sendMacro(steps) },
     onConsumeModifiers = { viewModel.consumeOneShotModifiers() },
 )

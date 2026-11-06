@@ -46,6 +46,7 @@ class ModifierBarRobolectricTest {
                 var alt by remember { mutableStateOf(ModifierState.Off) }
                 ModifierBar(
                     onSubmit = {},
+                    onKeyboardClick = {},
                     onKey = { _, _ -> false },
                     ctrlState = ctrl,
                     altState = alt,
@@ -77,7 +78,7 @@ class ModifierBarRobolectricTest {
     private fun setClickCountingBar(onKey: (Int, Int) -> Boolean) {
         composeRule.setContent {
             MaterialTheme {
-                ModifierBar(onSubmit = {}, onKey = onKey)
+                ModifierBar(onSubmit = {}, onKeyboardClick = {}, onKey = onKey)
             }
         }
     }
@@ -133,6 +134,7 @@ class ModifierBarRobolectricTest {
             MaterialTheme {
                 ModifierBar(
                     onSubmit = {},
+                    onKeyboardClick = {},
                     onKey = { _, _ -> false },
                     ctrlState = ctrl,
                     onToggleCtrl = { ctrl = ctrl.toggled() },
@@ -151,7 +153,7 @@ class ModifierBarRobolectricTest {
         val sent = mutableListOf<Pair<Int, Int>>()
         composeRule.setContent {
             MaterialTheme {
-                ModifierBar(onSubmit = {}, onKey = { keyCode, modifiers ->
+                ModifierBar(onSubmit = {}, onKeyboardClick = {}, onKey = { keyCode, modifiers ->
                     sent.add(keyCode to modifiers)
                     true
                 })
@@ -175,6 +177,7 @@ class ModifierBarRobolectricTest {
             MaterialTheme {
                 ModifierBar(
                     onSubmit = {},
+                    onKeyboardClick = {},
                     onKey = { keyCode, modifiers ->
                         sent.add(keyCode to modifiers)
                         true
@@ -202,6 +205,7 @@ class ModifierBarRobolectricTest {
             MaterialTheme {
                 ModifierBar(
                     onSubmit = {},
+                    onKeyboardClick = {},
                     onKey = { keyCode, modifiers ->
                         sent.add(keyCode to modifiers)
                         true
@@ -214,6 +218,31 @@ class ModifierBarRobolectricTest {
         composeRule.waitForIdle()
         org.junit.Assert.assertTrue("DRAWER 不得进入按键编码通道", sent.isEmpty())
         org.junit.Assert.assertEquals(1, drawerOpens)
+    }
+
+    @Test
+    fun `keyboard special key toggles the soft keyboard`() {
+        // `extra-keys` 里的 `KEYBOARD` 是 termux 的软键盘行为键：按下必须触发切换动作，
+        // 而不是画出一个有动画、无反应的键帽。
+        var toggles = 0
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onSubmit = {},
+                    onKeyboardClick = { toggles++ },
+                    onKey = { _, _ -> false },
+                    layout =
+                    buildExtraKeySlots(
+                        listOf(listOf(ExtraKey("KEYBOARD"))),
+                        ExtraKeysStyle.DEFAULT,
+                        true,
+                    ),
+                )
+            }
+        }
+        composeRule.onNodeWithTag("Key_KEYBOARD").performClick()
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(1, toggles)
     }
 
     @Test
@@ -240,6 +269,7 @@ class ModifierBarRobolectricTest {
             MaterialTheme {
                 ModifierBar(
                     onSubmit = {},
+                    onKeyboardClick = {},
                     onKey = { _, _ -> false },
                     onDrawerClick = { drawerOpens++ },
                     onPasteClick = { pastes++ },
@@ -264,6 +294,7 @@ class ModifierBarRobolectricTest {
             MaterialTheme {
                 ModifierBar(
                     onSubmit = {},
+                    onKeyboardClick = {},
                     onKey = { _, _ -> false },
                     onDrawerClick = { drawerOpens++ },
                     onPasteClick = { pastes++ },
@@ -290,6 +321,7 @@ class ModifierBarRobolectricTest {
             MaterialTheme {
                 ModifierBar(
                     onSubmit = { submitted.add(it) },
+                    onKeyboardClick = {},
                     onKey = { keyCode, modifiers ->
                         sent.add(keyCode to modifiers)
                         true
@@ -343,6 +375,7 @@ class ModifierBarRobolectricTest {
             MaterialTheme {
                 ModifierBar(
                     onSubmit = {},
+                    onKeyboardClick = {},
                     onKey = { keyCode, modifiers ->
                         sent.add(keyCode to modifiers)
                         true

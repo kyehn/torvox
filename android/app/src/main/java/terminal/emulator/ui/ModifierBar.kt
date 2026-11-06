@@ -374,6 +374,8 @@ fun ModifierBar(
      * 调用方据此保留证据并消耗一次性粘滞态。
      */
     onKey: (keyCode: Int, modifiers: Int) -> Boolean,
+    /** `KEYBOARD` 键：切换软键盘（termux 的软键盘行为键）。 */
+    onKeyboardClick: () -> Unit,
     modifier: Modifier = Modifier,
     onDrawerClick: () -> Unit = {},
     onScrollClick: () -> Unit = {},
@@ -388,8 +390,6 @@ fun ModifierBar(
     onLockAlt: () -> Unit = {},
     /** Termux `DRAWER` 键长按：粘贴剪贴板（`popup: 'PASTE'`）。 */
     onPasteClick: () -> Unit = {},
-    /** `KEYBOARD` 键：切换软键盘（termux 的软键盘行为键）。 */
-    onKeyboardClick: () -> Unit = {},
     /** 播放宏（`{macro: "CTRL f d"}`）。 */
     onMacro: (steps: List<MacroStep>) -> Unit = {},
     textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
@@ -483,13 +483,13 @@ internal data class ModifierBarActions(
     val onScrollClick: () -> Unit,
     val onToggleCtrl: () -> Unit,
     val onToggleAlt: () -> Unit,
+    /** `KEYBOARD` 键：切换软键盘。 */
+    val onKeyboardClick: () -> Unit,
     /** Termux 同款长按锁定 CTRL/ALT（轻点只切换一次性态）。 */
     val onLockCtrl: () -> Unit = {},
     val onLockAlt: () -> Unit = {},
     /** Termux `DRAWER` 键的 `popup: 'PASTE'`：长按粘贴剪贴板。 */
     val onPasteClick: () -> Unit = {},
-    /** `KEYBOARD` 键：切换软键盘。 */
-    val onKeyboardClick: () -> Unit = {},
     /** 播放宏（`{macro: "CTRL f d"}`）。 */
     val onMacro: (steps: List<MacroStep>) -> Unit = {},
     /** 发送会产生终端输入的按键；返回 false 表示未被发送。 */
