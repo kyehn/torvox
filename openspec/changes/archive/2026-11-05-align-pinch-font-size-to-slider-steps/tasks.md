@@ -31,4 +31,4 @@
 - [x] 4.1 `./gradlew --no-parallel --max-workers=1 :app:testDebugUnitTest` 全绿。
 - [x] 4.2 `detekt`、`spotlessCheck`、`lintDebug`、`:app:compileDebugAndroidTestKotlin`
       全绿。
-- [ ] 4.3 同步 `openspec/specs/font-selection/spec.md` 并归档本变更。
+- [x] 4.3 同步 `openspec/specs/font-selection/spec.md` 并归档本变更。
