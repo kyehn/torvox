@@ -803,8 +803,13 @@ class Bridge(private val config: TerminalConfig) {
         /** render 缺省返回值：无可渲染的会话（未建立或已销毁），按 idle 处理。 */
         private const val RENDER_IDLE = 0
 
-        /** pollAll() 每帧最多排空的事件数，限定渲染线程开销。 */
-        private const val MAX_EVENTS_PER_POLL = 32
+        /**
+         * pollAll() 每帧最多排空的事件数，限定渲染线程开销。
+         *
+         * 供桌面通知排空取同值（`MAX_NOTIFICATIONS_PER_DRAIN`）：两条路径面对的都是
+         * 「远端程序可无限触发」的输入，量级相同。
+         */
+        internal const val MAX_EVENTS_PER_POLL = 32
     }
 }
 

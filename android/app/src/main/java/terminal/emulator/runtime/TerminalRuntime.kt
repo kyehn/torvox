@@ -36,10 +36,8 @@ import terminal.emulator.BuildConfig
 import terminal.emulator.R
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
-import terminal.emulator.bridge.PollEvent
 import terminal.emulator.bridge.Shell
 import terminal.emulator.bridge.TerminalConfig
-import terminal.emulator.bridge.pollEventJson
 import terminal.emulator.installer.BootstrapDownloader
 import terminal.emulator.installer.BootstrapInstaller
 import terminal.emulator.installer.BootstrapOrchestrator
@@ -2343,41 +2341,29 @@ constructor(
     /**
      * 排空待上报的桌面通知并逐条投递。
      *
-     * 解码失败只丢这一条：解码器把出错的片段带进异常消息，而通知正文可能含敏感
-     * 内容，故只记异常类名与 JSON 长度。
+     * 排空有界（见 `drainDesktopNotifications`）：一轮最多取用
+     * `MAX_NOTIFICATIONS_PER_DRAIN` 条，其余留在原生队列里，下一轮继续。
      */
     private fun drainNotifications() {
-        while (true) {
-            val json = NativeBridge.pollNotificationEvent() ?: return
-            val event =
-                try {
-                    pollEventJson.decodeFromString<PollEvent>(json)
-                } catch (exception: Exception) {
-                    LogUtil.warn(
-                        TAG,
-                        "desktop notification dropped (${exception.javaClass.simpleName}, ${json.length} chars)",
-                    )
-                    continue
-                }
-            if (event !is PollEvent.DesktopNotification) continue
-            // 会话序号取会话表的升序下标（与抽屉里的顺序一致）：序号随会话增删变化，
-            // 故每次投递时现算，不缓存。
-            val sessionNumber = _state.value.sessionIds.indexOf(event.sessionId) + 1
-            desktopNotificationPlayer.dispatch(
-                SessionNotification(
-                    sessionId = event.sessionId,
-                    sessionLabel =
-                    if (sessionNumber > 0) {
-                        context.getString(R.string.session_number, sessionNumber)
-                    } else {
-                        ""
-                    },
-                    title = event.title,
-                    body = event.body,
-                ),
-                appForeground,
-            )
-        }
+        drainDesktopNotifications(
+            pollEvent = { NativeBridge.pollNotificationEvent() },
+            sessionLabel = ::desktopNotificationSessionLabel,
+            deliver = { notification ->
+                desktopNotificationPlayer.dispatch(notification, appForeground)
+            },
+        )
+    }
+
+    /**
+     * 桌面通知的会话序号标签（如「会话 3」）；会话已关闭时为空串。
+     *
+     * 序号取会话表的升序下标（与抽屉里的顺序一致）：序号随会话增删变化，故每次投递时
+     * 现算，不缓存。
+     */
+    private fun desktopNotificationSessionLabel(sessionId: Long): String {
+        val sessionNumber = _state.value.sessionIds.indexOf(sessionId) + 1
+        if (sessionNumber <= 0) return ""
+        return context.getString(R.string.session_number, sessionNumber)
     }
 
     private companion object {
