@@ -421,7 +421,7 @@ MUST 采纳的资产 MUST 附实测数字（今日直接通过的用例数与差
 | WebView 远程终端作为移动端形态 | `marshallku/copad` 的 `copad-mobile` | DESIGN 无网络终端面（未声明）；终端状态与渲染须在本机（本仓 kotlin + Rust 本地栈） |
 | 安全契约的正面不变量（外部 Intent 数据不得键入 PTY、只走工作目录／argv／环境变量等结构化通道；外部路径逐段校验且不跟随既有链接；检查失败即拒绝不落回宽松路径；每次漏洞修复留永久回归测试） | `Lord1Egypt/AndroidThothTerm`（`docs/security/THORNS.md`） | 仅参照，建议落为规范正面不变量：本仓 `PROHIBITED.md` 只列禁止项，尚无「外部数据不得键入 PTY」条目；本仓对外入口仅文档提供器，其路径防护见 `android/app/src/main/java/terminal/emulator/DocumentMutations.kt` 的 `canonicalFile` 比对 |
 | 导出面策略测试（从构建产物读合并清单并与策略文件精确比对，多一项即失败） | `Lord1Egypt/AndroidThothTerm`（`tests/security/exported_components.py` 与 `tests/security/policy/`） | 仅参照：本仓导出面为启动 Activity 与文档提供器（`android/app/src/main/AndroidManifest.xml`），可用同样思路钉住不得新增导出组件；若采纳，检查体系须只用 Nushell（`STYLE.md`），不得新增 Python 体系 |
-| 上传到会话当前目录（用 `/proc` 前台进程组解析会话真实工作目录，暂存加一步改名，只增不改） | `Lord1Egypt/AndroidThothTerm`（`term/src/main/java/com/thothterm/upload/` 的 `SessionDirectory`、`ProcFiles`、`StagingJournal`） | 未声明，不立项：本仓 `DESIGN.md` 无「上传到会话工作目录」条目；前台进程组解析为可靠技术判据，该判据的登记处即本行（原研究笔记所在的 `docs/persistence/android-thoth-term.md` 已随提交 `6ecc3b68` 删除） |
+| 上传到会话当前目录（用 `/proc` 前台进程组解析会话真实工作目录，暂存加一步改名，只增不改） | `Lord1Egypt/AndroidThothTerm`（`term/src/main/java/com/thothterm/upload/` 的 `SessionDirectory`、`ProcFiles`、`StagingJournal`） | 未声明，不立项：本仓 `DESIGN.md` 无「上传到会话工作目录」条目；前台进程组解析为可靠技术判据，该判据的登记处即本行（原研究笔记所在的 `docs/persistence/android-thoth-term.md` 已删除） |
 
 ### Requirement: 复查的否定结论不得用未经验证的概括
 
