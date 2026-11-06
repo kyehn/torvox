@@ -83,7 +83,7 @@ object UxTestUtils {
     /**
      * 同尺寸两图的逐像素数组：尺寸不一致即失败。
      *
-     * 差异像素计数与差异包围盒共用同一取像素口径，故收归此处一处实现。
+     * 差异像素计数共用同一取像素口径，故收归此处一处实现。
      */
     private fun sameSizePixels(before: Bitmap, after: Bitmap): Pair<IntArray, IntArray> {
         require(before.width == after.width && before.height == after.height) {
@@ -132,34 +132,6 @@ object UxTestUtils {
             }
         }
         return count
-    }
-
-    /**
-     * Bounding box of pixels differing between [before] and [after], or null when nothing changed
-     * beyond [tolerance]. Used by the cursor geometry test: diffing cursor-at-col-A vs
-     * cursor-at-col-B isolates exactly the two cursor quads — their bbox IS the measurable cursor
-     * geometry, independent of theme colors.
-     */
-    fun changedBoundingBox(before: Bitmap, after: Bitmap, tolerance: Int = 12): Rect? {
-        val (beforePixels, afterPixels) = sameSizePixels(before, after)
-        val width = before.width
-        val height = before.height
-        var minX = Int.MAX_VALUE
-        var minY = Int.MAX_VALUE
-        var maxX = Int.MIN_VALUE
-        var maxY = Int.MIN_VALUE
-        for (row in 0 until height) {
-            for (column in 0 until width) {
-                val pixelIndex = row * width + column
-                if (channelsDiffer(beforePixels[pixelIndex], afterPixels[pixelIndex], tolerance)) {
-                    if (column < minX) minX = column
-                    if (column > maxX) maxX = column
-                    if (row < minY) minY = row
-                    if (row > maxY) maxY = row
-                }
-            }
-        }
-        return if (maxX < minX) null else Rect(minX, minY, maxX, maxY)
     }
 
     /**
@@ -563,15 +535,4 @@ fun placeTextAtRow(bridge: Bridge, row: Int, text: String, timeoutMs: Long = 15_
         "标记必须落格于 ($row,$expectedColumn): [${SGR_SEQUENCE.replace(text, "")}]",
         landed,
     )
-}
-
-/** Minimal int rect used by [UxTestUtils.changedBoundingBox]. */
-class Rect(val left: Int, val top: Int, val right: Int, val bottom: Int) {
-    val width: Int
-        get() = right - left + 1
-
-    val height: Int
-        get() = bottom - top + 1
-
-    override fun toString(): String = "Rect(l=$left,t=$top,r=$right,b=$bottom ${width}x$height)"
 }
