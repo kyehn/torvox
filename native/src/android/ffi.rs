@@ -849,6 +849,8 @@ mod idle_repaint_gate_tests;
 #[cfg(test)]
 mod kitty_placement_keys_tests;
 #[cfg(test)]
+mod notification_poll_tests;
+#[cfg(test)]
 mod panic_payload_tests;
 #[cfg(test)]
 mod render_sample_bits_tests;

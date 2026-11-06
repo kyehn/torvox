@@ -3,6 +3,7 @@ use super::{
     Arc, Duration, EVENT_QUEUE, Env, EnvUnowned, Event, JClass, NOTIFICATION_QUEUE,
     ThrowRuntimeExAndFailure, jlong, jstring, rlock_session_registry,
 };
+use crate::event::EventQueue;
 
 // ── 渲染唤醒 ────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
@@ -124,26 +125,29 @@ pub(super) fn poll_notification_event_inner<'local>(
     env: &mut Env<'local>,
     _class: JClass<'local>,
 ) -> jstring {
-    // 步骤 1：先取已入队的通知。取到即返回，不推进会话。
-    //
-    // 推进只在队列为空时做（步骤 2）：排空方每取一条通知就调一次本入口，先推进后取
-    // 等于每条通知一次全量会话推进（推进要取会话锁并解析 VT 输出，与渲染线程争锁）。
-    // 队列非空说明已有通知待取，此时推进与否都不改变这一轮的取用结果。
-    if let Some(event) = NOTIFICATION_QUEUE.pop() {
-        return serialize_notification_event(env, event);
-    }
-
-    // 步骤 2：队列为空时推进全部会话（把 PTY 输出灌入终端，收割上游通知回调）。
-    // 与 `poll_event_inner` 同构：通知的产出依赖会话推进（OSC 9 序列要先被 VT
-    // 解析，回调才会触发），故本入口在无通知可取时自带推进，不能指望渲染循环或
-    // 后台推进泵恰好先跑过一轮。
-    pump_sessions();
-
-    // 步骤 3：取收割到的通知。
-    match NOTIFICATION_QUEUE.pop() {
+    // 取用与推进的先后由 `take_notification_event` 决定：队列非空直接取，队列为空
+    // 才推进会话收割一轮。
+    match take_notification_event(&NOTIFICATION_QUEUE, pump_sessions) {
         Some(event) => serialize_notification_event(env, event),
         None => std::ptr::null_mut(),
     }
+}
+
+/// 取一条待上报的桌面通知。
+///
+/// 队列非空时直接取用，**不推进会话**：排空方每取一条通知就调一次轮询入口，
+/// 先推进后取等于每条通知一次全量会话推进（推进要取会话锁并解析 VT 输出，与
+/// 渲染线程争锁）。队列非空说明已有通知待取，此时推进与否都不改变这一轮的取用结果。
+///
+/// 队列为空时推进一次会话再取：通知的产出依赖会话推进（OSC 9 序列要先被 VT 解析，
+/// 回调才会触发），故本入口在无通知可取时自带推进，不能指望渲染循环或后台推进泵
+/// 恰好先跑过一轮。
+pub(super) fn take_notification_event(queue: &EventQueue, pump: impl FnOnce()) -> Option<Event> {
+    if let Some(event) = queue.pop() {
+        return Some(event);
+    }
+    pump();
+    queue.pop()
 }
 
 /// 通知事件序列化为 JSON 字符串（两条取用路径共用）。
