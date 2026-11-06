@@ -158,13 +158,49 @@ class FontSizeRangeTest {
             SettingsRepository.clampFontSize(96f, 2.625f, 360f),
             0f,
         )
-        // 区间内原样返回：钳位不得把用户选定的合法值挪到别的档位。
+        // 区间内的合法档位原样返回：用户自己拖出来的值不得被挪到别的档位。
         assertEquals(20f, SettingsRepository.clampFontSize(20f, 2.625f, 360f), 0f)
         // 低于下限（旧版本或外部导入可能写 0）抬到下限，而不是让 Slider 画在负区间。
         assertEquals(4f, SettingsRepository.clampFontSize(0f, 2.625f, 360f), 0f)
         // 幂等：设置页每次重组都会再收敛一次，反复收敛不得继续漂移。
         val clamped = SettingsRepository.clampFontSize(96f, 2.625f, 360f)
         assertEquals(clamped, SettingsRepository.clampFontSize(clamped, 2.625f, 360f), 0f)
+    }
+
+    @Test
+    fun clampSnapsOffDetentValuesToTheNearestDetent() {
+        // 区间内但不在档位网格上的值（旧版本捏合落下的 17.6sp）必须被挪到最近档位：
+        // 调节条给不出 17.6sp，读数按整数打印（显示「18 SP」）而实际渲染 17.6sp，
+        // 展示与生效分家；拇指停在非档位位置，用户触碰一次滑块还会被改写成档位值。
+        assertEquals(18f, SettingsRepository.clampFontSize(17.6f, 2.625f, 1200f), 0f)
+        // 就近取整（不是一律向下）：16.9sp 归 16sp，17.1sp 归 18sp。
+        assertEquals(16f, SettingsRepository.clampFontSize(16.9f, 2.625f, 1200f), 0f)
+        assertEquals(18f, SettingsRepository.clampFontSize(17.1f, 2.625f, 1200f), 0f)
+        // 收敛后必在档位网格上：逐点核对，不靠「钳位后仍合法」这种弱断言。
+        listOf(0f, 4.1f, 9.9f, 15.38f, 23.7f, 96f).forEach { stored ->
+            val size = SettingsRepository.clampFontSize(stored, 2.625f, 1200f)
+            val detents = (size - SettingsRepository.FONT_SIZE_MIN_SP) / SettingsRepository.FONT_SIZE_STEP_SP
+            assertEquals(
+                "存量 $stored 收敛到的 $size 不在档位网格上",
+                detents,
+                detents.roundToInt().toFloat(),
+                0.001f,
+            )
+        }
+    }
+
+    @Test
+    fun clampNeverExceedsTheUpperBound() {
+        // 上界本身不是档位时，收敛结果不得越过它（取整不越界）。
+        // 用「步长取整会向上跨过上界」的构造：区间上界 30sp，档位 30 已在界内，
+        // 而 31sp 越界后必须被压回 30sp 而不是落到 32sp。
+        assertEquals(30f, SettingsRepository.clampFontSize(31f, 2.625f, 360f), 0f)
+        assertEquals(30f, SettingsRepository.clampFontSize(1e9f, 2.625f, 360f), 0f)
+        assertTrue(
+            "收敛结果必须不高于上界",
+            SettingsRepository.clampFontSize(29.9f, 2.625f, 360f) <=
+                SettingsRepository.fontSizeMaxSp(2.625f, 360f),
+        )
     }
 
     @Test

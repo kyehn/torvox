@@ -2547,11 +2547,14 @@ constructor(
      * 回落必须走 [SettingsRepository.defaultFontSize] 这唯一一处缺省策略：曾硬编码
      * 14sp，于是宽屏设备（真实缺省可达 24sp）的「字体实际大小」恒报 14sp，
      * 与设置页与渲染实际都矛盾。
+     *
+     * 回落值同样经 [clampFontSizeSp] 收敛：原生接受的是收敛后的值（可设档位），
+     * 这里报未经收敛的缺省值会让「字体实际大小」与实际渲染差一档。
      */
     fun appliedFontSizeSp(): Float {
         val tenths = appliedFontSizeTenths
         if (tenths > 0) return tenths / TENTHS_PER_UNIT.toFloat()
-        return settingsRepository.defaultFontSize
+        return clampFontSizeSp(settingsRepository.defaultFontSize)
     }
 
     internal suspend fun resolveThemeName(): String {

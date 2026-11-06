@@ -181,17 +181,34 @@ constructor(private val provider: SettingsDataStoreProvider) {
             ((fontSizeMaxSp(spToPxScale, screenWidthDp) - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt() - 1
 
         /**
-         * 把任意字号收敛到**本机当前**的可选区间：调节条、捏合预览、落盘值与设置页展示
-         * 都经这一处，四者永远对同一区间给出一致结果。
+         * 把任意字号收敛到**本机当前的可设档位**：调节条、捏合预览、落盘值与设置页展示
+         * 都经这一处，四者永远对同一集合给出一致结果。
          *
-         * 必须存在是因为区间本身随设备变化：宽屏存下的 96sp 旋转到 360dp 竖屏后上界只剩
-         * 30sp，分屏、改系统字体缩放同理。Slider 对越界值只钳拇指不钳读数（拇指停在轨末，
-         * 读数仍打印原值），而首次触摸会按指针位置换算出区间端点写回——用户只是看了一眼
-         * 设置，值就被悄悄改掉。收敛后的值才是实际渲染的值（原生同样按此区间钳位），
-         * 故展示与生效从此同源。
+         * 可设档位 = 区间 [FONT_SIZE_MIN_SP]..[fontSizeMaxSp] 与「[FONT_SIZE_MIN_SP]
+         * 起、每档 [FONT_SIZE_STEP_SP] 的网格」的交集：区间外的值收敛到区间端点，
+         * 区间内的**非档位**值收敛到最近的档位。
+         *
+         * 必须存在有两个原因：
+         *
+         * ① 区间本身随设备变化：宽屏存下的 96sp 旋转到 360dp 竖屏后上界只剩
+         *    30sp，分屏、改系统字体缩放同理。Slider 对越界值只钳拇指不钳读数（拇指停在
+         *    轨末，读数仍打印原值），而首次触摸会按指针位置换算出区间端点写回——用户只是
+         *    看了一眼设置，值就被悄悄改掉。
+         * ② 档位网格是调节条能给出的**全部**取值：非档位值（如捏合未取整时给出的
+         *    17.6sp）一旦落盘，滑块读数按整数打印（显示「18 SP」）而实际渲染与落盘的
+         *    是 17.6sp，展示与生效分家；拇指停在非档位位置，用户只是触碰一次滑块，
+         *    控件按指针位置换算出的档位值就被写回，用户字号被静默改动。
+         *
+         * 收敛后的值才是实际渲染的值（原生同样按此区间钳位），故展示与生效从此同源。
+         * 取整不得越过上界：上界本身不是档位时，结果取不高于上界的档位。
          */
-        fun clampFontSize(sp: Float, spToPxScale: Float, screenWidthDp: Float): Float =
-            sp.coerceIn(FONT_SIZE_MIN_SP, fontSizeMaxSp(spToPxScale, screenWidthDp))
+        fun clampFontSize(sp: Float, spToPxScale: Float, screenWidthDp: Float): Float {
+            val upperBound = fontSizeMaxSp(spToPxScale, screenWidthDp)
+            val clamped = sp.coerceIn(FONT_SIZE_MIN_SP, upperBound)
+            val steps = ((clamped - FONT_SIZE_MIN_SP) / FONT_SIZE_STEP_SP).roundToInt()
+            return (FONT_SIZE_MIN_SP + steps * FONT_SIZE_STEP_SP)
+                .coerceIn(FONT_SIZE_MIN_SP, upperBound)
+        }
     }
 
     /**

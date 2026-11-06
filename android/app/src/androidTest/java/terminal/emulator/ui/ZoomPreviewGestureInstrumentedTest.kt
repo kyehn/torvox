@@ -10,6 +10,7 @@ import terminal.emulator.MainActivity
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
+import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
@@ -25,7 +26,6 @@ class ZoomPreviewGestureInstrumentedTest : ComposeTerminalLogcatTest() {
         private const val GRID_TIMEOUT_MS = 30_000L
         private const val OUTPUT_TIMEOUT_MS = 20_000L
         private const val SIZE_EPSILON_SP = 0.15f
-        private const val TICK_COUNT = 6
     }
 
     private fun readGridState(): Triple<Float, Int, Int> {
@@ -42,6 +42,35 @@ class ZoomPreviewGestureInstrumentedTest : ComposeTerminalLogcatTest() {
         return Triple(appliedSize, rowCount, colCount)
     }
 
+    /** 本机可选字号上界：与调节条、捏合共用同一入口（`SettingsRepository.fontSizeMaxSp`）。 */
+    private fun fontSizeMaxSp(): Float {
+        var maxSp = 0f
+        composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+            val runtime = activity.runtime
+            maxSp = SettingsRepository.fontSizeMaxSp(runtime.spToPxScale, runtime.screenWidthDp)
+        }
+        return maxSp
+    }
+
+    /**
+     * 把字号收敛到本机可设档位：与生产收敛入口（`SettingsRepository.clampFontSize`）同一条。
+     *
+     * 手势与调节条给出的每个字号都落在档位网格上，故断言「精确落在请求值上」的前提是
+     * 请求值本身就在网格上——否则收敛入口会把它挪到最近档位，断言将永远不成立。
+     */
+    private fun clampToDetent(sizeSp: Float): Float {
+        var clamped = 0f
+        composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+            val runtime = activity.runtime
+            clamped = SettingsRepository.clampFontSize(
+                sizeSp,
+                runtime.spToPxScale,
+                runtime.screenWidthDp,
+            )
+        }
+        return clamped
+    }
+
     private fun tickPreview(sizeSp: Float) {
         composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
             val surface = findTerminalSurface(activity) as TerminalSurface
@@ -49,6 +78,26 @@ class ZoomPreviewGestureInstrumentedTest : ComposeTerminalLogcatTest() {
             assertNotNull("手势预览回调必须已接线", previewCallback)
             requireNotNull(previewCallback).invoke(sizeSp)
         }
+    }
+
+    /**
+     * 基准与目标之间的档位序列（含目标）：生产手势给出的每个字号都落在档位网格上
+     * （4sp 起、步长 [SettingsRepository.FONT_SIZE_STEP_SP]），故预览 tick 逐档走。
+     *
+     * 步数有上界保护：目标若不是从基准走整档能到的值（区间钳位把它截断过），
+     * 最后一档直接落到目标，不得死循环。
+     */
+    private fun detentSequence(baselineSize: Float, targetSize: Float, growing: Boolean): List<Float> {
+        val step =
+            if (growing) SettingsRepository.FONT_SIZE_STEP_SP else -SettingsRepository.FONT_SIZE_STEP_SP
+        val sizes = mutableListOf<Float>()
+        var size = baselineSize
+        var remaining = 64
+        while (size != targetSize && remaining-- > 0) {
+            size = if (growing) minOf(size + step, targetSize) else maxOf(size + step, targetSize)
+            sizes.add(size)
+        }
+        return sizes
     }
 
     private fun pumpedText(): String {
@@ -76,21 +125,32 @@ class ZoomPreviewGestureInstrumentedTest : ComposeTerminalLogcatTest() {
         assertTrue("基准字号必须为正, 实际: $baselineSize", baselineSize > 0)
         assertTrue("基准列数必须为正, 实际: $baselineCols", baselineCols > 0)
         // 手势界内取目标：上行空间不足则下行，保证尺寸真实变化。
-        val growing = baselineSize < 30f
+        // 生产手势给出的每一个字号都落在档位网格上（4sp 起、步长 2sp），故这里也
+        // 逐档走而不是线性插值：插值出的非档位值会被收敛入口挪到最近档位，
+        // 断言「精确落在请求值上」将永远不成立。
+        val maxSizeSp = fontSizeMaxSp()
+        val growing = baselineSize < maxSizeSp
+        val startSize = clampToDetent(baselineSize)
         val targetSize =
-            if (growing) {
-                (baselineSize + 8f).coerceIn(14f, 40f)
-            } else {
-                (baselineSize - 6f).coerceIn(14f, 48f)
-            }
+            clampToDetent(
+                if (growing) {
+                    baselineSize + 8f
+                } else {
+                    baselineSize - 6f
+                },
+            )
         assertTrue(
             "目标字号必须真实变化 (基准=$baselineSize 目标=$targetSize)",
-            kotlin.math.abs(targetSize - baselineSize) > 1f,
+            kotlin.math.abs(targetSize - startSize) > 1f,
         )
+        assertTrue(
+            "目标字号必须落在可设区间内 (上界=$maxSizeSp 目标=$targetSize)",
+            targetSize <= maxSizeSp,
+        )
+        val previewSizes = detentSequence(startSize, targetSize, growing)
         try {
             // 模拟手势 tick（生产节流 60ms，此处 100ms 足够 Native 落地）。
-            repeat(TICK_COUNT) { tickIndex ->
-                val previewSize = baselineSize + (targetSize - baselineSize) * (tickIndex + 1) / TICK_COUNT
+            previewSizes.forEach { previewSize ->
                 tickPreview(previewSize)
                 val landed =
                     UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
@@ -140,13 +200,13 @@ class ZoomPreviewGestureInstrumentedTest : ComposeTerminalLogcatTest() {
             assertNotNull("缩放后 Shell 必须回显标记 $marker", echoed)
         } finally {
             composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
-                activity.terminalViewModel.setFontSize(baselineSize)
+                activity.terminalViewModel.setFontSize(startSize)
             }
             val restored =
                 UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
-                    kotlin.math.abs(readGridState().first - baselineSize) < SIZE_EPSILON_SP
+                    kotlin.math.abs(readGridState().first - startSize) < SIZE_EPSILON_SP
                 }
-            assertNotNull("字号必须恢复基准 $baselineSize", restored)
+            assertNotNull("字号必须恢复基准 $startSize", restored)
         }
     }
 }

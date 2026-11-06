@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import terminal.emulator.settings.SettingsRepository
+import kotlin.math.abs
 
 /**
  * 从 TerminalSurface 抽出的纯交互逻辑（边缘滚动区、像素→格映射、宽字符对齐、
@@ -196,8 +197,52 @@ class TerminalSurfaceLogicTest {
 
     @Test
     fun `zoom scales around the gesture base size`() {
-        assertEquals(25f, zoomFontSize(20f, 1.25f, zoomSpToPxScale, zoomScreenWidthDp))
-        assertEquals(15f, zoomFontSize(20f, 0.75f, zoomSpToPxScale, zoomScreenWidthDp))
+        // 基准 20sp：放大 1.2 倍得 24sp、缩小 0.8 倍得 16sp，两端都落在档位网格上。
+        assertEquals(24f, zoomFontSize(20f, 1.2f, zoomSpToPxScale, zoomScreenWidthDp))
+        assertEquals(16f, zoomFontSize(20f, 0.8f, zoomSpToPxScale, zoomScreenWidthDp))
+    }
+
+    @Test
+    fun `zoom lands on the same detents as the settings slider`() {
+        // 手势给出的每一个字号都必须落在调节条的档位网格上（4sp 起、步长 2sp）：
+        // 否则落盘的是调节条给不出的值（如 17.6sp），读数按整数打印（显示「18 SP」）
+        // 而实际渲染 17.6，展示与生效分家，拇指还停在非档位位置。
+        val step = SettingsRepository.FONT_SIZE_STEP_SP
+        val floor = SettingsRepository.FONT_SIZE_MIN_SP
+        var factor = 0.3f
+        while (factor < 8f) {
+            val size = zoomFontSize(16f, factor, zoomSpToPxScale, zoomScreenWidthDp)
+            val detents = (size - floor) / step
+            assertEquals(
+                "factor=$factor 给出的 $size 不在 ${floor}sp 起、步长 ${step}sp 的网格上",
+                detents,
+                kotlin.math.round(detents),
+                0.001f,
+            )
+            factor *= 1.07f
+        }
+    }
+
+    @Test
+    fun `zoom result is a value the slider can produce`() {
+        // 捏合落定值 MUST 是调节条拖得出来的值：上界一致，且每一档都能在调节条的
+        // 档位序列里找到（不是「区间内就算」——区间内的非档位值调节条给不出）。
+        val maxSp = SettingsRepository.fontSizeMaxSp(zoomSpToPxScale, zoomScreenWidthDp)
+        assertEquals(maxSp, zoomFontSize(16f, 100f, zoomSpToPxScale, zoomScreenWidthDp))
+        val detents = mutableListOf<Float>()
+        val step = SettingsRepository.FONT_SIZE_STEP_SP
+        var detent = SettingsRepository.FONT_SIZE_MIN_SP
+        while (detent <= maxSp) {
+            detents.add(detent)
+            detent += step
+        }
+        listOf(0.7f, 1.0f, 1.35f, 2.2f, 5.0f).forEach { factor ->
+            val size = zoomFontSize(16f, factor, zoomSpToPxScale, zoomScreenWidthDp)
+            assertTrue(
+                "factor=$factor 给出的 $size 不是调节条的档位值",
+                detents.any { abs(it - size) < 0.001f },
+            )
+        }
     }
 
     @Test
@@ -255,7 +300,8 @@ class TerminalSurfaceLogicTest {
         // Begin(16sp) → previews → end: cumulative factor decides one outcome.
         var factor = 1.0f
         factor *= 1.1f
-        assertEquals(17.6f, zoomFontSize(16f, factor, zoomSpToPxScale, zoomScreenWidthDp))
+        // 17.6sp 收敛到最近的档位 18sp——预览与落定是同一个值，手势结束不跳档。
+        assertEquals(18f, zoomFontSize(16f, factor, zoomSpToPxScale, zoomScreenWidthDp))
         factor *= 1.1f
         val finalSize = zoomFontSize(16f, factor, zoomSpToPxScale, zoomScreenWidthDp)
         assertTrue(zoomSettledOnNewSize(16f, finalSize))
@@ -263,17 +309,18 @@ class TerminalSurfaceLogicTest {
 
     @Test
     fun `pinch returning to base only reverts the preview`() {
-        // Tiny drift under epsilon: no persist, just revert to the base size.
+        // Tiny drift: the gesture stays on the base detent, so no persist, just revert.
         val finalSize = zoomFontSize(16f, 1.001f, zoomSpToPxScale, zoomScreenWidthDp)
+        assertEquals(16f, finalSize)
         assertFalse(zoomSettledOnNewSize(16f, finalSize))
     }
 
     @Test
-    fun `no-op pinch on a below-zoom-min base does not settle`() {
-        // N2-96: settings allows 8sp but zoom clamps to 14sp; onScaleEnd must judge
-        // the unclamped product so a net-1.0 gesture never persists a new size.
-        val rawSizeSp = 8f * 1.0f
-        assertFalse(zoomSettledOnNewSize(8f, rawSizeSp))
+    fun `no-op pinch never settles`() {
+        // 累计因子为 1 的手势（双指落下又抬起）不得落盘新值：收敛后的字号与基准
+        // 相等即「未变化」。
+        assertFalse(zoomSettledOnNewSize(8f, zoomFontSize(8f, 1.0f, zoomSpToPxScale, zoomScreenWidthDp)))
+        assertFalse(zoomSettledOnNewSize(16f, zoomFontSize(16f, 1.0f, zoomSpToPxScale, zoomScreenWidthDp)))
     }
 
     // ── menu anchoring (design decision 3) ────────────────────────────────────

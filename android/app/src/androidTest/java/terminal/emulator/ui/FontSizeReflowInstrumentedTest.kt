@@ -255,21 +255,35 @@ class FontSizeReflowInstrumentedTest : ComposeTerminalLogcatTest() {
 
             // 目标字号取调节条区间内的相邻档：翻倍越界会被钳制导致「未落地」误报；
             // 若已处上限则改走减半，保证尺寸真实变化（变化本身是后续断言的前提）。
+            // 目标必须落在档位网格上：生产收敛入口（`SettingsRepository.clampFontSize`）
+            // 会把非档位值挪到最近档位，故这里也经同一入口取目标，否则「按目标字号
+            // 预测的宽度」与实际落地的字号不是同一个值。
             val screenWidth = screenWidthDp()
+            val maxSizeSp = SettingsRepository.fontSizeMaxSp(spToPxScale(), screenWidth)
             val doubled =
-                (originalSizeSp * 2f).coerceIn(
-                    SettingsRepository.FONT_SIZE_MIN_SP,
-                    SettingsRepository.fontSizeMaxSp(spToPxScale(), screenWidth),
-                )
+                SettingsRepository.clampFontSize(originalSizeSp * 2f, spToPxScale(), screenWidth)
             val targetSizeSp =
                 if (doubled > originalSizeSp + 0.01f) {
                     doubled
                 } else {
-                    (originalSizeSp / 2f).coerceIn(
-                        SettingsRepository.FONT_SIZE_MIN_SP,
-                        SettingsRepository.fontSizeMaxSp(spToPxScale(), screenWidth),
+                    SettingsRepository.clampFontSize(
+                        originalSizeSp / 2f,
+                        spToPxScale(),
+                        screenWidth,
                     )
                 }
+            assertTrue(
+                "目标字号必须落在档位网格上，否则原生实际生效的不是这个值：$targetSizeSp",
+                kotlin.math.abs(
+                    (targetSizeSp - SettingsRepository.FONT_SIZE_MIN_SP) /
+                        SettingsRepository.FONT_SIZE_STEP_SP -
+                        kotlin.math.round(
+                            (targetSizeSp - SettingsRepository.FONT_SIZE_MIN_SP) /
+                                SettingsRepository.FONT_SIZE_STEP_SP,
+                        ),
+                ) < 0.001f,
+            )
+            assertTrue("目标字号必须不高于上界 $maxSizeSp，实际 $targetSizeSp", targetSizeSp <= maxSizeSp)
             // 落地判据为原生单元格宽按字号比缩放（±2%，宽度是严格线性的）。
             val expectedWidthTarget = cellWidthBefore * (targetSizeSp / originalSizeSp)
             val landed = applyAndAwait(targetSizeSp) { expectedWidthTarget }

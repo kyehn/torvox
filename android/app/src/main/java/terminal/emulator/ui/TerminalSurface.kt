@@ -3070,9 +3070,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     if (!zoomActive) return
                     zoomActive = false
                     val runtime = viewModel?.runtime ?: return
-                    // 落定判定用未钳位值：钳位会把无缩放手势（8sp 基准×1.0→钳制 14sp）
-                    // 误判为新尺寸并持久化，未钳位比较只在真实缩放时落定。
-                    val rawSizeSp = zoomBaseFontSizeSp * scaleFactor
+                    // 落定判定用收敛后的字号：它就是将被落盘的值，且与基准同为档位值，
+                    // 相等即「字号未变」（手势没动，或只动到同一档）。
                     val sizeSp =
                         zoomFontSize(
                             zoomBaseFontSizeSp,
@@ -3081,7 +3080,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             runtime.screenWidthDp,
                         )
                     scaleFactor = 1.0f
-                    if (zoomSettledOnNewSize(zoomBaseFontSizeSp, rawSizeSp)) {
+                    if (zoomSettledOnNewSize(zoomBaseFontSizeSp, sizeSp)) {
                         // 手势稳定在新尺寸上：持久化并完整应用（单次网格重排）。
                         onZoomChanged?.invoke(sizeSp)
                     } else {
@@ -4396,12 +4395,13 @@ internal fun flingOffsetPx(velocityPxPerSecond: Float, elapsedMs: Long): Float {
     return velocityPxPerSecond * (FLING_TIME_CONSTANT_MS / 1000f) * decayed
 }
 
-/** 缩放手势收敛阈值：小于此差值视为回到锚点，只撤销预览不持久化。 */
-internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
-
 /**
  * 缩放手势字号换算（onScale 可测核心）。
- * 基准字号乘以累计缩放因子后钳制到字号上下限。
+ * 基准字号乘以累计缩放因子后收敛到**可设档位**（区间 + 步长网格），与调节条同一入口。
+ *
+ * 收敛到档位而非只钳上下界：档位网格是调节条能给出的全部取值，手势若给出非档位值
+ * （如 17.6sp），落盘后滑块读数按整数打印（显示「18 SP」）而实际渲染的是 17.6sp，
+ * 展示与生效分家；拇指停在非档位位置，用户触碰一次滑块还会被改写成档位值。
  *
  * @param spToPxScale sp→像素系数（见 `TerminalRuntime.spToPxScale`），非仅显示密度：
  *   调节条上限与之同源，两者用不同系数会让手势越出调节条允许的区间。
@@ -4409,17 +4409,19 @@ internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
  *   调节条给不出的字号——用户反馈的「设置条与实际可设范围不一致」正是这个分叉。
  */
 internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, spToPxScale: Float, screenWidthDp: Float): Float =
-    (baseFontSizeSp * scaleFactor).coerceIn(
-        SettingsRepository.FONT_SIZE_MIN_SP,
-        SettingsRepository.fontSizeMaxSp(spToPxScale, screenWidthDp),
+    SettingsRepository.clampFontSize(
+        baseFontSizeSp * scaleFactor,
+        spToPxScale,
+        screenWidthDp,
     )
 
 /**
  * 缩放手势是否收敛到新字号（onScaleEnd 可测核心）。
- * 终值与基准差值超过阈值才持久化，否则撤销预览恢复基准。
+ * 基准与终值同为档位值（[SettingsRepository.FONT_SIZE_MIN_SP] 起、步长
+ * [SettingsRepository.FONT_SIZE_STEP_SP]），真实变化至少相差一整档，故相等即「未变化」，
+ * 不需要容差阈值。
  */
-internal fun zoomSettledOnNewSize(baseFontSizeSp: Float, finalSizeSp: Float): Boolean =
-    abs(finalSizeSp - baseFontSizeSp) > ZOOM_FONT_SIZE_EPSILON_SP
+internal fun zoomSettledOnNewSize(baseFontSizeSp: Float, finalSizeSp: Float): Boolean = finalSizeSp != baseFontSizeSp
 
 /**
  * ACTION_MULTIPLE 的字符载荷。
