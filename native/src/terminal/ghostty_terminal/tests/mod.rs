@@ -246,6 +246,7 @@ mod batch_latency;
 mod grid_text;
 mod lifecycle;
 mod mouse_osc;
+mod osc_notification;
 mod osc_state;
 mod render_cache;
 mod selection_search;

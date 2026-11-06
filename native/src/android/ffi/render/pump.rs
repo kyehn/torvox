@@ -1,5 +1,5 @@
 use super::super::{
-    ACTIVE_SESSION_ID, Arc, EVENT_QUEUE, EnvUnowned, Event, JClass, Mutex,
+    ACTIVE_SESSION_ID, Arc, EVENT_QUEUE, EnvUnowned, Event, JClass, Mutex, NOTIFICATION_QUEUE,
     PTY_POLL_CHUNKS_PER_FRAME, Session, ThrowRuntimeExAndFailure, rlock_session_registry,
 };
 use super::clipboard::handle_clipboard_reads;
@@ -17,6 +17,9 @@ pub(crate) fn pump_sessions() {
     // 以保持锁顺序 `SESSION_REGISTRY` → `Session` → `EVENT_QUEUE`。
     // 绝不在持有 `Session` 锁时锁 `EVENT_QUEUE`。
     let mut pending_events: Vec<Event> = Vec::new();
+    // 桌面通知单列：通知队列与事件队列分开，故后台推进泵取通知时不碰退出事件
+    // （退出事件的处理与渲染循环耦合，见 `upstream-alignment` 的通知通道判定）。
+    let mut pending_notifications: Vec<Event> = Vec::new();
     // 本帧可上报 Exit 事件的会话（退出码已就绪者）及其退出结果与存活时长。
     // 退出码在会话锁内就地判定：只读一次 Mutex，不再有原先「先锁存上报标志、再忙等
     // 最多 100ms 取码」的两段式——那会在渲染线程上引入可见停顿，且超时只能上报
@@ -27,12 +30,21 @@ pub(crate) fn pump_sessions() {
         |session_id: u64,
          session: &mut Session,
          events: &mut Vec<Event>,
+         notifications: &mut Vec<Event>,
          exits: &mut Vec<(u64, crate::terminal::session::ReportedExit)>| {
             if session.take_bell() {
                 events.push(Event::Bell { session_id });
             }
             if let Some(text) = session.poll_clipboard() {
                 events.push(Event::Clipboard { session_id, text });
+            }
+            // OSC 9 / OSC 777 通知：取走全部待上报条目（宿主一次可消费多条）。
+            while let Some((title, body)) = session.poll_notification() {
+                notifications.push(Event::DesktopNotification {
+                    session_id,
+                    title,
+                    body,
+                });
             }
             // 退出码就绪才上报（`take_reported_exit` 内部同时锁存「已上报」），后台扫描
             // 分支走同一判定：既保证退出事件恰好一次，也保证报出的是真实退出码。
@@ -98,6 +110,7 @@ pub(crate) fn pump_sessions() {
             *session_id,
             &mut session,
             &mut pending_events,
+            &mut pending_notifications,
             &mut pending_exits,
         );
         // 会话锁在此释放（循环迭代末尾）。
@@ -116,6 +129,9 @@ pub(crate) fn pump_sessions() {
     // 推入已收集的事件——此时不持有 `Session` 或 `SESSION_REGISTRY` 锁。
     for event in pending_events {
         EVENT_QUEUE.push(event);
+    }
+    for event in pending_notifications {
+        NOTIFICATION_QUEUE.push(event);
     }
 }
 

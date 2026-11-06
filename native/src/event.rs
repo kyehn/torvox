@@ -14,6 +14,7 @@ const OVERFLOW_WARN_INTERVAL_MS: u64 = 1_000;
 
 /// Rust 发往 Kotlin UI 层的事件。触发来源：`Clipboard` = OSC 52 写入，
 /// `ClipboardRead` = OSC 52 读取请求，`Bell` = 终端响铃（BEL，0x07），
+/// `DesktopNotification` = OSC 9 / OSC 777 桌面通知，
 /// `Exit` = `session.is_exited()`；
 /// 均由 `session` 产生（`Exit` 亦可经 `pollEvent` 上报）。
 ///
@@ -41,6 +42,18 @@ pub enum Event {
     Bell {
         /// 事件归属的会话 id。
         session_id: u64,
+    },
+    /// OSC 9 / OSC 777 桌面通知：程序请求弹出一条通知。
+    ///
+    /// 标题与正文是程序给出的原始字节按替换字符解码的结果；OSC 9 不带标题，
+    /// 故标题常为空串。
+    DesktopNotification {
+        /// 事件归属的会话 id。
+        session_id: u64,
+        /// 通知标题；协议未给出时为空串。
+        title: String,
+        /// 通知正文。
+        body: String,
     },
     /// OSC 52 剪贴板读取请求（`ESC ] 52 ; c ; ?`）：宿主读系统剪贴板后经
     /// `clipboardResult()` JNI 应答，Rust 写回 PTY。携带请求的 selection 名。
@@ -123,6 +136,7 @@ impl EventQueue {
             Event::Clipboard { session_id, .. } => ("clipboard", *session_id),
             Event::ClipboardRead { session_id, .. } => ("clipboard_read", *session_id),
             Event::Bell { session_id } => ("bell", *session_id),
+            Event::DesktopNotification { session_id, .. } => ("desktop_notification", *session_id),
             Event::Exit { session_id, .. } => ("exit", *session_id),
         };
         if self.overflow_warn.should_log() {
@@ -345,6 +359,38 @@ mod bell_tests {
         // 响铃是「发生过」提示：限频执行器随后还会收窄，丢一条不导致失步，
         // 故允许被淘汰——队列满时 Exit/ClipboardRead 优先存活。
         assert!(is_evictable(&Event::Bell { session_id: 1 }));
+    }
+}
+
+#[cfg(test)]
+mod notification_tests {
+    use super::*;
+
+    #[test]
+    fn desktop_notification_serializes_with_snake_case_tag() {
+        // Kotlin `PollEvent.DesktopNotification` 的解码契约：`@SerialName("desktop_notification")`
+        // 匹配事件标签，`session_id`/`title`/`body` 匹配字段名。标签或字段名漂移会让
+        // kotlinx-serialization 抛 UnknownField/MissingField，通知整批丢弃。
+        let json = serde_json::to_string(&Event::DesktopNotification {
+            session_id: 9,
+            title: "Title".to_string(),
+            body: "Body".to_string(),
+        })
+        .expect("desktop notification serializes");
+        assert_eq!(
+            json,
+            r#"{"event":"desktop_notification","session_id":9,"title":"Title","body":"Body"}"#
+        );
+    }
+
+    #[test]
+    fn desktop_notification_is_evictable_when_queue_full() {
+        // 通知可被程序洪泛，队列满时允许淘汰：丢一条通知不会失步（不涉及协议应答）。
+        assert!(is_evictable(&Event::DesktopNotification {
+            session_id: 1,
+            title: String::new(),
+            body: "Body".to_string(),
+        }));
     }
 }
 

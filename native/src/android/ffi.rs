@@ -722,6 +722,13 @@ fn repack_kitty_atlas(
 
 static EVENT_QUEUE: crate::event::EventQueue = crate::event::EventQueue::new();
 
+/// 桌面通知队列：与事件队列分开。
+///
+/// 后台期间只有会话推进泵在跑，它必须能取到通知（否则通知要等用户回到应用才
+/// 出现），却不得取走退出事件——退出事件的处理与渲染循环耦合，由后台线程消费
+/// 会留下无人回收的会话。故通知单列一条队列。
+static NOTIFICATION_QUEUE: crate::event::EventQueue = crate::event::EventQueue::new();
+
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 /// 待宿主应用作答的剪贴板应答通道发送端，按 (会话 id, 请求 id) 存入

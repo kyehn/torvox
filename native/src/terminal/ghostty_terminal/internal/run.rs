@@ -315,8 +315,32 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 注册 OSC 9 / OSC 777 桌面通知回调。
+    ///
+    /// 上游把两类序列归到同一条 `show_desktop_notification` 命令；负载是程序给出的
+    /// 原始字节（上游文档写明不保证 UTF-8），故按替换字符口径解码——保留可读内容，
+    /// 又不让一条通知带崩进程。回调在 VT 写入路径上同步执行：通道满时丢弃并记
+    /// 日志，绝不阻塞 VT 线程。
+    pub(crate) fn register_desktop_notification_callback(
+        terminal: &mut Terminal<'_, '_>,
+        notification_tx: flume::Sender<(String, String)>,
+    ) {
+        let result = terminal.on_desktop_notification(move |_terminal, notification| {
+            let title = String::from_utf8_lossy(notification.title()).into_owned();
+            let body = String::from_utf8_lossy(notification.body()).into_owned();
+            if notification_tx.try_send((title, body)).is_err() {
+                log::warn!("OSC 9 desktop notification dropped: channel full");
+            }
+        });
+        if let Err(error) = result {
+            log::error!(
+                "ghostty_terminal: on_desktop_notification callback registration failed: {error}"
+            );
+        }
+    }
+
     /// 创建上游终端实例并注册应答回调：回滚上限、Kitty 介质、PTY 回写、
-    /// OSC 52 写回与 XTWINOPS 尺寸。
+    /// OSC 52 写回、OSC 9/777 通知与 XTWINOPS 尺寸。
     ///
     /// 返回 `None` 表示终端实例创建失败，调用方据此退出 VT 线程。
     pub(crate) fn configure_terminal(config: &RunConfig) -> Option<Terminal<'_, '_>> {
@@ -372,6 +396,9 @@ impl super::GhosttyTerminal {
         // VT 线程；OSC 52 读取请求（`?`）上游明确忽略，仍由 OutputProcessor
         // 的最小扫描器拦截（FR-036）。
         Self::register_clipboard_write_callback(&mut terminal, config.clipboard_tx.clone());
+        // OSC 9 / OSC 777 桌面通知（DESIGN：前台 Toast、后台系统通知）：走上游
+        // on_desktop_notification 回调，本仓不另建 OSC 解析器。
+        Self::register_desktop_notification_callback(&mut terminal, config.notification_tx.clone());
         // 终端响铃（BEL，0x07）走上游 on_bell 回调：只置无锁标志，收割方每帧
         // 取走复位。回调在 VT 写入路径上同步执行，不得阻塞——原子量恰好满足。
         if let Err(error) = terminal.on_bell({

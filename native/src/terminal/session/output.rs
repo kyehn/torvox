@@ -235,6 +235,14 @@ impl Session {
         self.clipboard_text.lock().pop_front()
     }
 
+    /// 取走一条待上报的桌面通知 `(标题, 正文)`；无通知时为 None。
+    ///
+    /// 通知不入会话队列：它可被程序洪泛，而宿主一次能消费多条，故直接取走上游
+    /// 回调通道里的事件（通道本身有界，满则丢弃并告警）。
+    pub fn poll_notification(&self) -> Option<(String, String)> {
+        self.terminal.poll_notification_event()
+    }
+
     /// 取走响铃标志：自上次取走后终端收到过 BEL 返回 `true`，同时复位。
     /// 推送方（`drain_callback_events`）与取走方（`pump_sessions`）都持会话锁，
     /// 单槽布尔即可，无需队列。

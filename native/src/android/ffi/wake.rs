@@ -1,7 +1,7 @@
 use super::render::{pump_sessions, string_to_jstring};
 use super::{
-    Arc, Duration, EVENT_QUEUE, Env, EnvUnowned, JClass, ThrowRuntimeExAndFailure, jlong, jstring,
-    rlock_session_registry,
+    Arc, Duration, EVENT_QUEUE, Env, EnvUnowned, JClass, NOTIFICATION_QUEUE,
+    ThrowRuntimeExAndFailure, jlong, jstring, rlock_session_registry,
 };
 
 // ── 渲染唤醒 ────────────────────────────────────────────────────
@@ -91,6 +91,45 @@ pub(super) fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'lo
                 Ok(json) => json,
                 Err(err) => {
                     log::error!("pollEvent: event serialization failed: {err}");
+                    return std::ptr::null_mut();
+                }
+            };
+            string_to_jstring(env, &json)
+        }
+        None => std::ptr::null_mut(),
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI 导出：pollNotificationEvent
+// ══════════════════════════════════════════════════════════════════════════
+
+/// 取走一个待上报的桌面通知事件（JSON）；无通知时返回 null。
+///
+/// 与 `pollEvent` 分开：后台期间只有会话推进泵在跑，它要取得到通知（否则通知
+/// 要等用户回到应用才出现），却不得取走退出事件。
+#[unsafe(no_mangle)]
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_pollNotificationEvent<
+    'local,
+>(
+    mut unowned_env: EnvUnowned<'local>,
+    class: JClass<'local>,
+) -> jstring {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        poll_notification_event_inner(env, class)
+    })
+}
+
+pub(super) fn poll_notification_event_inner<'local>(
+    env: &mut Env<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    match NOTIFICATION_QUEUE.pop() {
+        Some(event) => {
+            let json = match serde_json::to_string(&event) {
+                Ok(json) => json,
+                Err(err) => {
+                    log::error!("pollNotificationEvent: event serialization failed: {err}");
                     return std::ptr::null_mut();
                 }
             };

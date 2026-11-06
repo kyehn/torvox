@@ -382,6 +382,11 @@ pub struct CellSnapshot {
 }
 
 pub(crate) const COMMAND_CHANNEL_CAPACITY: usize = 1024;
+/// 上游 OSC 9/777 通知回调通道容量（桌面通知，低频；满则丢弃，VT 线程永不阻塞）。
+///
+/// 与剪贴板通道分开计量：两者都是上游回调的入口，但语义无关（通知可被程序
+/// 洪泛，剪贴板写入则有协议级应答），混在一条通道里会让洪泛的通知挤掉剪贴板。
+pub(crate) const NOTIFICATION_CHANNEL_CAPACITY: usize = 16;
 /// VT 查询通道容量（无界语义由有界 256 + `try_send` 回退实现）。
 pub(crate) const QUERY_CHANNEL_CAPACITY: usize = 256;
 /// 上游 OSC 回调事件通道容量（剪贴板写入，低频；满则丢弃，VT 线程永不阻塞）。

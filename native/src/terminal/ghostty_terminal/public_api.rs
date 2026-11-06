@@ -14,8 +14,9 @@ use super::types::{
     DEFAULT_CELL_WIDTH, DISCONNECTED_COLS, DISCONNECTED_CURSOR_VISIBLE, DISCONNECTED_CURSOR_X,
     DISCONNECTED_CURSOR_Y, DISCONNECTED_PWD, DISCONNECTED_ROWS, DISCONNECTED_SCROLLBACK,
     DISCONNECTED_TITLE, DumpedGrid, EVENT_CHANNEL_CAPACITY, FLUSH_TIMEOUT_SECS, GridSnapshot,
-    KittyGraphicsImageData, KittyPlacementFrame, QUERY_CHANNEL_CAPACITY, QUERY_TIMEOUT_MS,
-    SearchSelection, SearchViewportHighlights, TerminalError, VT_READY_TIMEOUT_MS,
+    KittyGraphicsImageData, KittyPlacementFrame, NOTIFICATION_CHANNEL_CAPACITY,
+    QUERY_CHANNEL_CAPACITY, QUERY_TIMEOUT_MS, SearchSelection, SearchViewportHighlights,
+    TerminalError, VT_READY_TIMEOUT_MS,
 };
 
 impl super::GhosttyTerminal {
@@ -74,6 +75,8 @@ impl super::GhosttyTerminal {
         let cell_data_mailbox = FrameMailbox::new();
         let cell_data_mailbox_for_run = Arc::clone(&cell_data_mailbox);
         let (clipboard_tx, clipboard_rx) = bounded::<(String, String)>(EVENT_CHANNEL_CAPACITY);
+        let (notification_tx, notification_rx) =
+            bounded::<(String, String)>(NOTIFICATION_CHANNEL_CAPACITY);
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let pty_for_run = Arc::clone(&pty_write_responses);
         let alt_screen_active = Arc::new(AtomicBool::new(false));
@@ -128,6 +131,7 @@ impl super::GhosttyTerminal {
                         cell_data_mailbox: Arc::clone(&cell_data_mailbox_for_run),
                         frame_wake,
                         clipboard_tx,
+                        notification_tx,
                         #[cfg(test)]
                         cache_stats: cache_stats_for_run.clone(),
                         #[cfg(test)]
@@ -161,6 +165,7 @@ impl super::GhosttyTerminal {
             query_tx,
             cell_data_mailbox,
             clipboard_rx,
+            notification_rx,
             handle: Some(handle),
             pty_write_responses,
             last_pty_write_byte: 0,
@@ -215,6 +220,13 @@ impl super::GhosttyTerminal {
     /// 取走一个待上报的剪贴板事件 `(选择器名, 文本)`；无事件时为 None。
     pub fn poll_clipboard_event(&self) -> Option<(String, String)> {
         self.clipboard_rx.try_recv().ok()
+    }
+
+    /// 取走一个待上报的桌面通知 `(标题, 正文)`；无事件时为 None。
+    ///
+    /// OSC 9 不带标题，故标题常为空串；OSC 777 的 `notify` 形式带标题。
+    pub fn poll_notification_event(&self) -> Option<(String, String)> {
+        self.notification_rx.try_recv().ok()
     }
 
     /// 取走响铃标志：自上次取走后终端收到过 BEL 返回 `true`，同时复位。
