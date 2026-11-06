@@ -26,9 +26,9 @@ import terminal.emulator.ui.theme.ThemeRepository
  *
  * ## 前置条件
  *
- * 终端主题模式与软件主题模式都设为「跟随系统」，日/夜主题取默认浅色与默认深色
- * （两者底色相差极大，颜色扫描不会混淆）。系统夜览模式由 shell 切换：仪器化进程
- * 没有改系统设置的权限。
+ * 终端主题模式与软件主题模式都设为「跟随系统」，日/夜主题取一对底色与前景都拉得开的
+ * 主题（日间用默认浅色，夜间用 tokyo_night，见 [NIGHT_THEME_NAME]）。系统夜览模式由
+ * shell 切换：仪器化进程没有改系统设置的权限。
  */
 class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
 
@@ -41,6 +41,18 @@ class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
 
         /** 等待设置落盘的上限（毫秒）。 */
         const val SETTINGS_TIMEOUT_MS = 15_000L
+
+        /**
+         * 夜间主题名：刻意不用默认夜间主题。
+         *
+         * 默认夜间主题（dracula_plus）的前景 #F8F8F2 与日间主题（catppuccin_latte）
+         * 的底色 #EFF1F5 各通道差 ≤ 9，而 [UxTestUtils.matchColor] 的容差 24 覆盖
+         * 得了——夜间画面里的文字笔画会被数成「日间底色残留」，画面内容一变判据就
+         * 漂（实测整屏夜间的字迹被数成 27278 个日间底色像素，用例偶发红）。tokyo_night
+         * 的前景 #A9B1D6 与日间底色各通道差 ≥ 31，底色判定不再与文字混淆：残留计数
+         * 只可能是没换掉的日间底色。
+         */
+        const val NIGHT_THEME_NAME = "tokyo_night"
     }
 
     private var originalNightMode = "no"
@@ -48,6 +60,9 @@ class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
 
     /** 最近一次底色等待里命中的最多像素数；失败时进断言信息。 */
     private var bestPixelCount = 0
+
+    /** 最近一次底色等待里，带新底色的帧中旧底色的最少残留；null 表示没出现过这种帧。 */
+    private var bestResidualCount: Int? = null
 
     /** 最近一次底色等待里读回失败的次数；失败时进断言信息。 */
     private var captureFailures = 0
@@ -65,7 +80,7 @@ class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
             viewModel.setThemeMode(TerminalThemeMode.DAY_NIGHT)
             viewModel.setAppThemeMode(AppThemeMode.FOLLOW_SYSTEM)
             viewModel.setDayThemeName(ThemeRepository.defaultLightName())
-            viewModel.setNightThemeName(ThemeRepository.defaultDarkName())
+            viewModel.setNightThemeName(NIGHT_THEME_NAME)
         }
         val applied =
             UxTestUtils.pollUntilTrue(timeoutMs = SETTINGS_TIMEOUT_MS, intervalMs = 100) {
@@ -73,16 +88,14 @@ class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
                 stored.themeMode == TerminalThemeMode.DAY_NIGHT &&
                     stored.appThemeMode == AppThemeMode.FOLLOW_SYSTEM &&
                     stored.dayThemeName == ThemeRepository.defaultLightName() &&
-                    stored.nightThemeName == ThemeRepository.defaultDarkName()
+                    stored.nightThemeName == NIGHT_THEME_NAME
             }
         assertNotNull("主题设置没有落盘", applied)
 
-        // 清屏：残留判定靠颜色计数，而默认浅色主题底色（#eff1f5）与默认深色主题
-        // 前景（#f8f8f2）各通道差 ≤ 9——matchColor 的容差 24 无法区分「日间底色
-        // 残留」与「夜间前景文字」。前序用例留下的输出越多，被误判的像素越多
-        // （实测 27487 个全是文字笔画，同一 head 上多轮结果随内容漂移）。
-        // 直写解析器清屏（不过 shell，无回显残留），让画面只剩底色，判据回归
-        // 「底色本身」而非「底色 + 文字」。
+        // 清屏：画面里的文字笔画颜色与底色接近时会被颜色计数算进残留（历史实测
+        // 27487 个全是文字笔画，同一 head 上多轮结果随内容漂移）。夜间主题已换成
+        // 与日间底色拉得开的 tokyo_night，文字不再与底色混淆；这里仍清屏，让画面
+        // 少些干扰，判据回归「底色本身」。
         val bridgeReady =
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
                 composeTestRule.getBridge() != null
@@ -129,18 +142,19 @@ class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
     @Test
     fun terminal_background_switches_with_system_night_mode() {
         val dayBackground = ThemeRepository.byName(ThemeRepository.defaultLightName()).background.toArgb()
-        val nightBackground = ThemeRepository.byName(ThemeRepository.defaultDarkName()).background.toArgb()
+        val nightBackground = ThemeRepository.byName(NIGHT_THEME_NAME).background.toArgb()
 
-        val dayShot = awaitBackground(dayBackground, "day")
+        val dayShot = awaitBackground(dayBackground, "day", absentColor = nightBackground)
         assertNotNull(
             "日间主题底色没有出现在终端 Surface 上（命中 $bestPixelCount 像素，读回失败 $captureFailures 次）",
             dayShot,
         )
 
         setNightMode("yes", Configuration.UI_MODE_NIGHT_YES)
-        val nightShot = awaitBackground(nightBackground, "night")
+        val nightShot = awaitBackground(nightBackground, "night", absentColor = dayBackground)
         assertNotNull(
-            "系统切到夜间后，终端底色仍不是夜间主题底色（命中 $bestPixelCount 像素，读回失败 $captureFailures 次）",
+            "系统切到夜间后，终端底色仍不是夜间主题底色（命中 $bestPixelCount 像素，" +
+                "带夜间底色的帧里日间底色最少剩 ${bestResidualCount ?: "—"} 像素，读回失败 $captureFailures 次）",
             nightShot,
         )
 
@@ -150,28 +164,34 @@ class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
 
         // 再切回日间：单程切换通过不等于往返都通过（原生侧可能只认第一次换主题）。
         setNightMode("no", Configuration.UI_MODE_NIGHT_NO)
-        val backShot = awaitBackground(dayBackground, "day_back")
+        val backShot = awaitBackground(dayBackground, "day_back", absentColor = nightBackground)
         assertNotNull(
-            "系统切回日间后，终端底色仍不是日间主题底色（命中 $bestPixelCount 像素，读回失败 $captureFailures 次）",
+            "系统切回日间后，终端底色仍不是日间主题底色（命中 $bestPixelCount 像素，" +
+                "带日间底色的帧里夜间底色最少剩 ${bestResidualCount ?: "—"} 像素，读回失败 $captureFailures 次）",
             backShot,
         )
     }
 
     /**
-     * 等待终端 Surface 呈现 [color] 的底色，返回那一帧；超时返回 null。
+     * 等待终端 Surface 呈现 [color] 的底色、且 [absentColor] 的底色已经退场，返回那一帧；
+     * 超时返回 null。
+     *
+     * 两条判据必须落在**同一帧**上：只看「新底色已出现」会把换色过程中的中间帧当成
+     * 切换完成（那一帧可能还带着半屏旧底色），故要求旧底色同时退场。
      *
      * 读回很慢（软件渲染设备上一次整屏合成几百毫秒），故按固定节奏取，
      * 不用它做高频轮询——否则量具本身就把渲染循环按住了。
      *
-     * 诊断量记在 [bestPixelCount] 与 [captureFailures]：命中 0 像素且读回不失败
-     * 即「画面在但不是这个底色」，读回一直失败即「Surface 上根本没有画面」——
-     * 两者的根因完全不同，断言信息里必须能分开。
+     * 诊断量记在 [bestPixelCount]、[bestResidualCount] 与 [captureFailures]：命中 0 像素
+     * 且读回不失败即「画面在但不是这个底色」，读回一直失败即「Surface 上根本没有
+     * 画面」——两者的根因完全不同，断言信息里必须能分开。
      *
      * [metricLabel] 是计量的名字段（ASCII）：logcat 里的计量名要能直接 grep。
      */
-    private fun awaitBackground(color: Int, metricLabel: String): Bitmap? {
+    private fun awaitBackground(color: Int, metricLabel: String, absentColor: Int): Bitmap? {
         var shot: Bitmap? = null
         bestPixelCount = 0
+        bestResidualCount = null
         captureFailures = 0
         UxTestUtils.pollUntilTrue(timeoutMs = THEME_SWITCH_TIMEOUT_MS, intervalMs = 400) {
             // 每轮重新解析视图：Activity 重建后旧的 SurfaceView 引用已失效，
@@ -189,6 +209,10 @@ class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
             val matched = UxTestUtils.matchColor(captured, color).count
             if (matched > bestPixelCount) bestPixelCount = matched
             if (matched < BACKGROUND_PIXEL_FLOOR) return@pollUntilTrue false
+            val residual = UxTestUtils.matchColor(captured, absentColor).count
+            val previousBest = bestResidualCount
+            if (previousBest == null || residual < previousBest) bestResidualCount = residual
+            if (residual >= BACKGROUND_PIXEL_FLOOR) return@pollUntilTrue false
             shot = captured
             true
         }
@@ -198,6 +222,14 @@ class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
                 shot?.let {
                     UxTestUtils.matchColor(it, color).count
                 } ?: bestPixelCount
+                ).toLong(),
+        )
+        UxTestUtils.metric(
+            "theme_${metricLabel}_residual_pixels",
+            (
+                shot?.let {
+                    UxTestUtils.matchColor(it, absentColor).count
+                } ?: bestResidualCount ?: -1
                 ).toLong(),
         )
         UxTestUtils.metric("theme_${metricLabel}_capture_failures", captureFailures.toLong())
