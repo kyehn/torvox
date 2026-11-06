@@ -267,6 +267,42 @@ internal fun shouldCreateDefaultSession(
     uiSessions.isEmpty() &&
     runtimeSessionIds.isEmpty()
 
+/**
+ * 外部 Failsafe Intent 的处置。
+ *
+ * 三种情形：
+ *
+ * - 应用未启动（无会话）：只置标记。首个会话由 `runtime.start()` 建出，它读到标记
+ *   后即以 `/system/bin/sh` 启动——不必另建一个会话。
+ * - 应用已启动且 Intent 是新投递的：置标记**并**建一个新会话。`runtime.start()` 会因
+ *   「已有会话」早退，只置标记等于点了快捷方式毫无反应。
+ * - Activity 重建时重复投递的同一个启动 Intent（已有会话）：完全忽略。既不建会话
+ *   （否则每次配置变更都多出一个应急会话），也不置标记（标记会滞留到下一次任意
+ *   建会话，把无关的普通会话变成应急会话）。
+ */
+internal enum class FailsafeIntentAction {
+    /** 忽略：重复投递的旧 Intent。 */
+    IGNORE,
+
+    /** 只置标记：首个会话由 `runtime.start()` 以 `/system/bin/sh` 建出。 */
+    MARK_ONLY,
+
+    /** 置标记并建一个新会话：应用已在运行。 */
+    MARK_AND_CREATE,
+}
+
+/**
+ * Failsafe Intent 的处置决策，纯函数以便表驱动测试。
+ *
+ * @param hasSession 运行期是否已有会话
+ * @param freshIntent 本次 Intent 是否为新投递（Activity 重建会重复投递旧 Intent）
+ */
+internal fun decideFailsafeIntent(hasSession: Boolean, freshIntent: Boolean): FailsafeIntentAction = when {
+    !freshIntent && hasSession -> FailsafeIntentAction.IGNORE
+    hasSession -> FailsafeIntentAction.MARK_AND_CREATE
+    else -> FailsafeIntentAction.MARK_ONLY
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 一、字段与构造函数
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1101,11 +1137,36 @@ constructor(
     private val _state = MutableStateFlow(TerminalState())
     val state: StateFlow<TerminalState> = _state.asStateFlow()
 
-    @Volatile var currentSurface: Surface? = null
+    /**
+     * 当前可用的 Surface。
+     *
+     * 赋值即「Surface 已交付」的唯一时刻，故 setter 在此补建挂起的 Failsafe 会话
+     * （见 [createPendingFailsafeSession]）：快捷方式以标准 launchMode 新建 Activity
+     * 实例时，新实例的 Surface 要等布局之后才交付；应用从后台被拉起时同样如此。
+     * 只在非空时补建——销毁路径把 Surface 置空不代表「有新的可用窗口」。
+     */
+    @Volatile
+    var currentSurface: Surface? = null
+        set(value) {
+            field = value
+            if (value != null) {
+                createPendingFailsafeSession()
+            }
+        }
 
     @Volatile var surfaceWidth: Int = 0
 
     @Volatile var surfaceHeight: Int = 0
+
+    /**
+     * 待建的 Failsafe 会话：外部 Intent 到达时应用已在运行，但建会话所需的 Surface
+     * 尚未交付。
+     *
+     * 挂起而非丢弃：用户点了快捷方式必须有反应；也不得提前建（无 Surface 建不出
+     * 会话）。若既不建也不记下，请求要么落空，要么滞留到用户下一次任意新建会话
+     * 才生效——把一个无关的普通会话变成应急会话。
+     */
+    @Volatile private var pendingFailsafeSession = false
 
     /**
      * 待执行的会话切换请求（来自桌面通知点击）；0 表示无请求。
@@ -1133,10 +1194,66 @@ constructor(
         switchSession(sessionId)
     }
 
+    /**
+     * 外部 Failsafe Intent（应用快捷方式 / 第三方启动器）到达。
+     *
+     * 应用未启动时首个会话由 [startRuntime] → `runtime.start()` 建出，它读到 failsafe
+     * 标记后即以 `/system/bin/sh` 启动；应用已启动时 `start()` 会因「已有会话」早退，
+     * 故必须显式建一个新会话——否则快捷方式点了毫无反应，而标记滞留到用户下一次
+     * 任意新建会话时才生效（把无关的普通会话变成应急会话）。
+     *
+     * @param freshIntent 本次 Intent 是新投递的。Activity 重建会再次走 `onCreate`
+     *   并带上同一个启动 Intent；若据此再建会话，每次配置变更（密度、语言）都会
+     *   多出一个应急会话。重建时运行期已有会话，故按 [decideFailsafeIntent] 忽略。
+     */
+    fun requestFailsafeSession(freshIntent: Boolean) {
+        val hasSession = runtime.state.value.sessionIds.isNotEmpty()
+        when (decideFailsafeIntent(hasSession = hasSession, freshIntent = freshIntent)) {
+            FailsafeIntentAction.IGNORE -> {
+                LogUtil.debug(
+                    "TerminalViewModel",
+                    "requestFailsafeSession: stale launch intent, ignored",
+                )
+            }
+
+            FailsafeIntentAction.MARK_ONLY -> {
+                // 冷启动：首个会话尚未建出，runtime.start() 会读到标记。
+                runtime.requestFailsafeSession()
+            }
+
+            FailsafeIntentAction.MARK_AND_CREATE -> {
+                runtime.requestFailsafeSession()
+                pendingFailsafeSession = true
+                createPendingFailsafeSession()
+            }
+        }
+    }
+
+    /**
+     * Surface 就绪后补建挂起的 Failsafe 会话（见 [requestFailsafeSession]）。
+     *
+     * Surface 尚未交付时保持挂起：请求不得丢（用户点了快捷方式必须有反应），
+     * 也不得提前建（无 Surface 建不出会话）。
+     */
+    private fun createPendingFailsafeSession() {
+        if (!pendingFailsafeSession) return
+        if (currentSurface?.isValid != true || surfaceWidth <= 0 || surfaceHeight <= 0) {
+            LogUtil.info(
+                "TerminalViewModel",
+                "createPendingFailsafeSession: surface not ready; pending",
+            )
+            return
+        }
+        pendingFailsafeSession = false
+        createSession()
+    }
+
     fun startRuntime(surface: Surface?, width: Int, height: Int) {
-        currentSurface = surface
+        // 尺寸先于 Surface：currentSurface 的 setter 会补建挂起的 Failsafe 会话，
+        // 而建会话需要尺寸就绪（见 [createPendingFailsafeSession]）。
         surfaceWidth = width
         surfaceHeight = height
+        currentSurface = surface
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
             runtime.start(surface, width, height)
             // 通知点击带来的切换请求：此时 Surface 已就绪、启动已完成。

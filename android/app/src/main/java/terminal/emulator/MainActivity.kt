@@ -150,7 +150,7 @@ class MainActivity : ComponentActivity() {
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        handleLaunchIntent(intent)
+        handleLaunchIntent(intent, freshIntent = savedInstanceState == null)
         registerBackKeyMapping()
         // 最后一个会话结束后关闭应用（termux 语义：会话表空了就 finish，见 termux-app
         // TermuxTerminalSessionActivityClient#removeFinishedSession）。此前会话被移除后
@@ -205,10 +205,14 @@ class MainActivity : ComponentActivity() {
 
     /**
      * 应用快捷方式/第三方 intent 处理（兼容 termux）：`ACTION_RUN` +
-     * EXTRA_FAILSAFE_SESSION 把下个会话切换到应急系统 shell；
+     * EXTRA_FAILSAFE_SESSION 新建一个应急系统 shell 会话；
      * EXTRA_OPEN_SETTINGS 打开设置面板。对应 termux-app TermuxActivity.java:401-425
-     * （快捷方式 intent 在重建时会重新投递，故应急标志必须在 onNewIntent 中
+     * （快捷方式 intent 在重建时会重新投递，故应急请求必须在 onNewIntent 中
      * 重新应用，而不只是 onCreate）。
+     *
+     * @param freshIntent 本次 Intent 是否为新投递。Activity 重建会再次走 onCreate
+     *   并带上同一个启动 Intent；据此再建会话会让每次配置变更（密度、语言）都
+     *   多出一个应急会话。onNewIntent 到达的 Intent 恒为新投递。
      *
      * 打开设置请求计数：每次带 `EXTRA_OPEN_SETTINGS` 的 intent 到达即递增。
      * 用计数而不用布尔值——设置关闭后计数保持，再次到达仍能触发重组；
@@ -216,7 +220,7 @@ class MainActivity : ComponentActivity() {
      */
     private var openSettingsRequests by mutableIntStateOf(0)
 
-    private fun handleLaunchIntent(intent: Intent?) {
+    private fun handleLaunchIntent(intent: Intent?, freshIntent: Boolean) {
         if (intent == null) {
             LogUtil.debug("MainActivity", "handleLaunchIntent: null intent")
             return
@@ -226,12 +230,14 @@ class MainActivity : ComponentActivity() {
             "handleLaunchIntent: action=${intent.action} failsafe=${intent.getBooleanExtra(
                 EXTRA_FAILSAFE_SESSION,
                 false,
-            )}",
+            )} fresh=$freshIntent",
         )
         if (
             Intent.ACTION_RUN == intent.action && intent.getBooleanExtra(EXTRA_FAILSAFE_SESSION, false)
         ) {
-            runtime.requestFailsafeSession()
+            // 交给 ViewModel 决定处置：应用未启动时首个会话由 runtime.start() 以
+            // /system/bin/sh 建出；应用已启动时必须显式建一个新会话（start() 会早退）。
+            terminalViewModel.requestFailsafeSession(freshIntent)
         }
         if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
             openSettingsRequests++
@@ -260,7 +266,7 @@ class MainActivity : ComponentActivity() {
         // "intent does not match" 日志）。换掉 intent 会让测试收不到 DESTROYED，
         // 收尾永远等不到销毁态。本仓也没有任何地方读 getIntent()——launch intent 的
         // 处理全部走 onCreate/onNewIntent 的入参。
-        handleLaunchIntent(intent)
+        handleLaunchIntent(intent, freshIntent = true)
     }
 
     /**
