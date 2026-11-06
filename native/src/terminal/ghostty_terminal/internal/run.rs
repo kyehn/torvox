@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use super::super::notification_queue::NotificationQueue;
 use super::{
     ANSI_PALETTE_INDICES, BatchState, COMMAND_BATCH_BUDGET, CommandOutcome, CommandState,
     KGP_STORAGE_LIMIT, MAX_CLIPBOARD_PAYLOAD_BYTES, MAX_COMMANDS_PER_BATCH, Ordering, Query,
@@ -323,14 +324,12 @@ impl super::GhosttyTerminal {
     /// 日志，绝不阻塞 VT 线程。
     pub(crate) fn register_desktop_notification_callback(
         terminal: &mut Terminal<'_, '_>,
-        notification_tx: flume::Sender<(String, String)>,
+        notification_queue: Arc<NotificationQueue>,
     ) {
         let result = terminal.on_desktop_notification(move |_terminal, notification| {
             let title = String::from_utf8_lossy(notification.title()).into_owned();
             let body = String::from_utf8_lossy(notification.body()).into_owned();
-            if notification_tx.try_send((title, body)).is_err() {
-                log::warn!("OSC 9 desktop notification dropped: channel full");
-            }
+            notification_queue.push((title, body));
         });
         if let Err(error) = result {
             log::error!(
@@ -398,7 +397,10 @@ impl super::GhosttyTerminal {
         Self::register_clipboard_write_callback(&mut terminal, config.clipboard_tx.clone());
         // OSC 9 / OSC 777 桌面通知（DESIGN：前台 Toast、后台系统通知）：走上游
         // on_desktop_notification 回调，本仓不另建 OSC 解析器。
-        Self::register_desktop_notification_callback(&mut terminal, config.notification_tx.clone());
+        Self::register_desktop_notification_callback(
+            &mut terminal,
+            Arc::clone(&config.notification_queue),
+        );
         // 终端响铃（BEL，0x07）走上游 on_bell 回调：只置无锁标志，收割方每帧
         // 取走复位。回调在 VT 写入路径上同步执行，不得阻塞——原子量恰好满足。
         if let Err(error) = terminal.on_bell({

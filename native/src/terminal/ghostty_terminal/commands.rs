@@ -5,6 +5,7 @@ use flume::{Receiver, Sender};
 use libghostty_vt::key;
 
 use super::frame_mailbox::FrameMailbox;
+use super::notification_queue::NotificationQueue;
 use super::types::{
     CursorStyle, DumpedGrid, GridSnapshot, KittyGraphicsImageData, KittyPlacementFrame,
     SearchSelection, SearchViewportHighlights,
@@ -344,9 +345,9 @@ pub(crate) struct RunConfig {
     /// 上游 OSC 52 回调事件通道（VT 线程推送，调用方轮询）：剪贴板写入。
     /// 有界丢弃——VT 线程永不阻塞；Kotlin 经 session 锁存槽读取。
     pub(crate) clipboard_tx: flume::Sender<(String, String)>,
-    /// 上游 OSC 9/777 通知回调通道（VT 线程推送，调用方轮询）：桌面通知。
+    /// 上游 OSC 9/777 通知队列（VT 线程推送，调用方轮询）：桌面通知。
     /// 有界丢弃——VT 线程永不阻塞；收割方逐帧转成带会话归属的通知事件。
-    pub(crate) notification_tx: flume::Sender<(String, String)>,
+    pub(crate) notification_queue: Arc<NotificationQueue>,
     /// 当前单元格像素几何（XTWINOPS 14/16t 应答用）：Resize 回填默认值，
     /// `SetCellPixelSize` 回填真实字形度量；回调经此共享，无锁读取。
     pub(crate) cell_size_px: Arc<(AtomicU32, AtomicU32)>,

@@ -8,9 +8,12 @@ use std::time::Duration;
 
 use flume::Sender;
 
+use notification_queue::NotificationQueue;
+
 mod commands;
 mod frame_mailbox;
 mod internal;
+mod notification_queue;
 mod public_api;
 mod types;
 
@@ -67,9 +70,9 @@ pub struct GhosttyTerminal {
     /// 上游 OSC 52 回调事件接收端（VT 线程经 `on_clipboard_write` 推送）。
     /// session 在 flush 后收割到锁存槽；BDD 直接轮询断言。
     pub(crate) clipboard_rx: flume::Receiver<(String, String)>,
-    /// 上游 OSC 9/777 通知回调接收端（VT 线程经 `on_desktop_notification` 推送）。
+    /// 上游 OSC 9/777 通知队列（VT 线程经 `on_desktop_notification` 推送）。
     /// 收割方逐帧取走，转成带会话归属的通知事件。
-    pub(crate) notification_rx: flume::Receiver<(String, String)>,
+    pub(crate) notification_queue: Arc<NotificationQueue>,
     pub(crate) handle: Option<thread::JoinHandle<()>>,
     pub(crate) pty_write_responses: Arc<Mutex<Vec<Vec<u8>>>>,
     /// `pty_write()` 末次写入的字节，用于识别 `\r`/`\n` 跨写入块拆分，避免多余的 `\r\r\n`。
