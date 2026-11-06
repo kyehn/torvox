@@ -370,7 +370,7 @@ MUST 采纳的资产 MUST 附实测数字（今日直接通过的用例数与差
 | `sylirre/ghostty-android-terminal` | 门槛 1/2/3 均不违反，但须逐条验判别力 | 17 个文件 / 160 个 `@Test`，全在 `androidTest`。期望值锚定外部协议：`EmulatorVtTest.java:423` 断 DSR 应答字面量 `\u001b[1;1R`、`:647` 断 XTWINOPS `\u001b[8;5;20t`；大小写折叠表由脚本从 Python `unicodedata` 生成。与本仓同架构（libghostty-vt + JNI），是最正当的对照面；但本仓已有超链接、搜索、xtwinops、下划线覆盖，净增有限 |
 | `reapercanuk39/termux-kotlin-app` | 门槛 1 不违反（仅限键位编码与鼠标两类断言） | `KeyHandlerTest.java:31-45` 断言 termcap 能力名到字节序列（`kb`→`\u007f`、`kB`→`\033[Z`、`kUP`→`\033[1;2A` 等），出处为 terminfo 规范；`TerminalTest.java:59-65` 断言越界点击按边缘钳位为 `\033[<0;1;1M` 并注明 termux-app issue 501。二者均属本仓自有功能（键位编码、鼠标），非上游 VT 语义 |
 | `CocaKova/charon` | 门槛 1 不违反（仅限外部标准期望值子集）；其 corpus 门槛 1 与「可被实现覆写」均违反 | 外部标准类：`ModernContractTest`（DECRQM/DECRQSS/OSC52 按 ECMA-48）、`KittyKeyboard*`、`Utf8DecoderTest`（WHATWG 算法）、`TextSelection`；另有 `tools/conformance_vttest.py` 把外部套件跑在自己的 pty 上。反例：`CorpusTest.kt:26` 支持 `-Dcharon.regenGoldens` 用自身 `render()` 覆写期望，5 个 `.golden` 均属此类，MUST NOT 采纳；取其 IME 契约经验时，`updateSelection` 经 `javap` 实测为框架内部 @hide（API 33/36/37 公开 `InputConnection` 均无此符号，仅 IME 侧类含之），应用不可覆写，记为不采纳 |
-| `Lord1Egypt/AndroidThothTerm` | 门槛 1 不违反，但仅作判据来源登记 | 2026-11-02 复查：`emulatorview/src/test` 5 个文件 / 34 个 `@Test`，期望值为人工手写外部真相（如控制字符串不得绘制、选区按逻辑序还原）。其引擎为 `jackpal/Android-Terminal-Emulator` 血统，OSC 只有 0/1/2、DA1 自述 `ESC[?1;2c`、DECSET 仅插入模式 4、鼠标只有 1000–1003 与 1006，无 sixel/kitty，能力低于本仓上游，断言只能当边界清单。详见 `docs/persistence/android-thoth-term.md` |
+| `Lord1Egypt/AndroidThothTerm` | 门槛 1 不违反，但仅作判据来源登记 | 2026-11-02 复查：`emulatorview/src/test` 5 个文件 / 34 个 `@Test`，期望值为人工手写外部真相（如控制字符串不得绘制、选区按逻辑序还原）。其引擎为 `jackpal/Android-Terminal-Emulator` 血统，OSC 只有 0/1/2、DA1 自述 `ESC[?1;2c`、DECSET 仅插入模式 4、鼠标只有 1000–1003 与 1006，无 sixel/kitty，能力低于本仓上游，断言只能当边界清单。逐项判定见本表下方「能力裁定补齐行」与「参照面与反面做法收敛补齐行」 |
 
 **不可采纳（21 项）：**
 
@@ -421,7 +421,7 @@ MUST 采纳的资产 MUST 附实测数字（今日直接通过的用例数与差
 | WebView 远程终端作为移动端形态 | `marshallku/copad` 的 `copad-mobile` | DESIGN 无网络终端面（未声明）；终端状态与渲染须在本机（本仓 kotlin + Rust 本地栈） |
 | 安全契约的正面不变量（外部 Intent 数据不得键入 PTY、只走工作目录／argv／环境变量等结构化通道；外部路径逐段校验且不跟随既有链接；检查失败即拒绝不落回宽松路径；每次漏洞修复留永久回归测试） | `Lord1Egypt/AndroidThothTerm`（`docs/security/THORNS.md`） | 仅参照，建议落为规范正面不变量：本仓 `PROHIBITED.md` 只列禁止项，尚无「外部数据不得键入 PTY」条目；本仓对外入口仅文档提供器，其路径防护见 `android/app/src/main/java/terminal/emulator/DocumentMutations.kt` 的 `canonicalFile` 比对 |
 | 导出面策略测试（从构建产物读合并清单并与策略文件精确比对，多一项即失败） | `Lord1Egypt/AndroidThothTerm`（`tests/security/exported_components.py` 与 `tests/security/policy/`） | 仅参照：本仓导出面为启动 Activity 与文档提供器（`android/app/src/main/AndroidManifest.xml`），可用同样思路钉住不得新增导出组件；若采纳，检查体系须只用 Nushell（`STYLE.md`），不得新增 Python 体系 |
-| 上传到会话当前目录（用 `/proc` 前台进程组解析会话真实工作目录，暂存加一步改名，只增不改） | `Lord1Egypt/AndroidThothTerm`（`term/src/main/java/com/thothterm/upload/` 的 `SessionDirectory`、`ProcFiles`、`StagingJournal`） | 未声明，不立项：本仓 `DESIGN.md` 无「上传到会话工作目录」条目；前台进程组解析为可靠技术判据，已随该仓研究写入 `docs/persistence/android-thoth-term.md` 备将来立项引用 |
+| 上传到会话当前目录（用 `/proc` 前台进程组解析会话真实工作目录，暂存加一步改名，只增不改） | `Lord1Egypt/AndroidThothTerm`（`term/src/main/java/com/thothterm/upload/` 的 `SessionDirectory`、`ProcFiles`、`StagingJournal`） | 未声明，不立项：本仓 `DESIGN.md` 无「上传到会话工作目录」条目；前台进程组解析为可靠技术判据，该判据的登记处即本行（原研究笔记所在的 `docs/persistence/android-thoth-term.md` 已随提交 `6ecc3b68` 删除） |
 
 ### Requirement: 复查的否定结论不得用未经验证的概括
 
@@ -470,7 +470,7 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | `selection/gesture` 手势、`select_line`/`select_output`、`format_selection_*` | 不采用 | 连击语义与 DESIGN.md 终端页面节的「不得支持 双击 三击 多击选择」「不得支持 双击 三击 多击选择」正面冲突，该族主体（拖动手势 + 边缘自动滚动）另有两条理由：其自动滚动按定时器在边缘区持续滚动，与 `text-selection` 的 Scenario「下缘拖动逐行滚动」（每次触点移动视口滚动 1 行）与「手指静止不滚动」相反；其手势状态若由 VT 线程持有，则每个触摸帧一次跨线程往返，使拖动快路径的无跨语言调用优势尽失，并与视图侧手势所有权形成双状态机。四项上游优势的覆盖情况：词派生、跟踪选区、随滚动跟随、复制格式化已走上游；宽字符吸附的事实取自上游网格单元宽度；边缘滚动节奏不采纳；单一来源已由 `terminal.rs` 承担。 |
 | termlib `trimDetectedUrl`/括号计数/跨行拼接 | 不采用 | DESIGN「链接识别通过 `libghostty-vt` 查询，没有额外检查」即禁止移植；仅保留空白 trim 与协议白名单（属安全检查） |
 | `on_title_changed`/`on_pwd_changed`/`on_render_hold`/`on_desktop_notification`/`on_progress_report` 等回调 | 不采用 | Kotlin 侧零消费者；DESIGN「不做不必要功能」，有消费者时再注册。`on_bell` 曾被 7 处注释误记为已接线（`ghostty_terminal/commands.rs` 的 `RunConfig` 悬空附着于 `cell_size_px`、`types.rs` 的 `EVENT_CHANNEL_CAPACITY`、以及 `session/` 的 5 处收割路径文档），实际该通道只承载 OSC 52 剪贴板写入；注释已删除。`on_bell` 现已单独接线，见下一行 |
-| `Terminal::on_bell`（BEL 回调） | 采用（2026-11-03 改判） | `DESIGN.md` Shell 节要求 `bell-character` 三态与 termux-app 一致，响铃事件必须有来源。回调只置无锁标志（`ghostty_terminal/internal/run.rs` 的 `on_bell` 注册），每帧收割为 `Event::Bell { session_id }`（`android/ffi/render/pump.rs`），Kotlin 按 `bell-character` 三态限频执行（`runtime/BellPlayer.kt`），限频窗口内的重复响铃静默丢弃 |
+| `Terminal::on_bell`（BEL 回调） | 采用（2026-11-03 改判） | `DESIGN.md` Shell 节要求 `bell-character` 三态与 termux-app 一致，响铃事件必须有来源。回调只置无锁标志（`ghostty_terminal/internal/run.rs` 的 `on_bell` 注册），每帧收割为 `Event::Bell { session_id }`（`native/src/android/ffi/render/pump.rs`），Kotlin 按 `bell-character` 三态限频执行（`runtime/BellPlayer.kt`），限频窗口内的重复响铃静默丢弃 |
 | `track_grid_ref`、`width_px`/`height_px`、光标色实时查询、`set_mode`、`vt_write_until_ground` | 不采用 | 按需取用；现有轮询与原子镜像满足当前消费者，DESIGN 要求最小实现 |
 | `key::Encoder` 按键编码 | 采用（已修） | Android 键码到上游 `Key` 为机械对应表（`keymap.rs`），桥形态与 `Query::EncodeMouseEvent` 同构（编码在 VT 线程）；`TerminalInputEncoder` 仅保留输入法文本路径 |
 | `Terminal::paste` 粘贴 | 不采用 | 含换行文本返回 `Error::Rejected` 并要求确认框后 `allow_unsafe` 重试，PROHIBITED 明禁粘贴确认对话框；恒置 `allow_unsafe` 则检查失去意义 |
@@ -1206,7 +1206,7 @@ Termux 自身也被 fork 删过 `doDcs`／`sixel`）；会话不随 Activity 走
 | `06-GlobalTechInfo-RedTerm.md` | 复用 Termux jar 的 proot 多发行版运行器 | 不采纳（门槛 3）：329 例属 SSH/SFTP/proot 面；单源启动脚本、通知退出、备份替换归本规范各表 | 同仓现行索引行 `GlobalTechInfo-RedTerm.md`；复查台账 `GlobalTechInfo/RedTerm` 行；`bootstrap-install` |
 | `07-rafaelmeloreisnovo-termux-app-rafacodephi.md` | termux 重型 fork：会话加固 + 自研 bootstrap 治理 | 不采纳（门槛 1）：`terminal-emulator/src/test` 与官方逐字节相同；正例为会话加固（先进程组收尾） | 复查台账 `rafaelmeloreisnovo/termux-app-rafacodephi` 行；「参照面与反面做法收敛补齐行」整包完整性校验（BLAKE3 与 sha256 双实现）行 |
 | `08-pavelc4-Rin.md` | Rust 引擎 + Compose 壳，手写 545 行 ANSI 解析 | 不采纳（门槛 1 + 3）：手写解析必然不完备（反衬 Ghostty 单源）；Canvas 指针进 Rust 绘制违渲染分层 | 复查台账 `pavelc4/Rin` 行；「禁止项三条保留」段（不换 VT 核） |
-| `09-Lord1Egypt-AndroidThothTerm.md` | JackPal 血统 Java 仿真器 + BiDi 渲染 | 门槛 1 不违反但仅作判据来源；`tests/` 语料对全仓零引用属失效语料（2026-11-02 复查为 131 文件、仍零引用）；BiDi 已在其 `PaintRenderer` 内有实现但本仓不立项（理由见「能力裁定补齐行」RTL/BiDi 行）；交互侧可参考项本仓已有等价或更强实现——长按取词与拖拽手柄归 `text-selection`、虚拟键布局归 `modifier-bar-height-reservation`、会话列表标题监听归 `session-list`、常驻通知归 `DESIGN.md` 软件节、staging 与失败清理归 `bootstrap-install`；新增的安全契约不变量与导出面策略测试见「参照面与反面做法收敛补齐行」对应两行 | 复查台账 `Lord1Egypt/AndroidThothTerm` 行；「新增失效语料记录」行；「能力裁定补齐行」RTL/BiDi 行；「参照面与反面做法收敛补齐行」安全契约与导出面策略测试两行；`text-selection`；`modifier-bar-height-reservation`；`session-list`；`bootstrap-install`；`docs/persistence/android-thoth-term.md` |
+| `09-Lord1Egypt-AndroidThothTerm.md` | JackPal 血统 Java 仿真器 + BiDi 渲染 | 门槛 1 不违反但仅作判据来源；`tests/` 语料对全仓零引用属失效语料（2026-11-02 复查为 131 文件、仍零引用）；BiDi 已在其 `PaintRenderer` 内有实现但本仓不立项（理由见「能力裁定补齐行」RTL/BiDi 行）；交互侧可参考项本仓已有等价或更强实现——长按取词与拖拽手柄归 `text-selection`、虚拟键布局归 `modifier-bar-height-reservation`、会话列表标题监听归 `session-list`、常驻通知归 `DESIGN.md` 软件节、staging 与失败清理归 `bootstrap-install`；新增的安全契约不变量与导出面策略测试见「参照面与反面做法收敛补齐行」对应两行 | 复查台账 `Lord1Egypt/AndroidThothTerm` 行；「新增失效语料记录」行；「能力裁定补齐行」RTL/BiDi 行；「参照面与反面做法收敛补齐行」安全契约与导出面策略测试两行；`text-selection`；`modifier-bar-height-reservation`；`session-list`；`bootstrap-install` |
 | `10-ownerroc-termux-monet.md` | 同源换皮的 termux fork | 不采纳（门槛 1 成立、门槛 3 不满足）：测试为官方旧快照、零新增；缺 `ITermImage` 等属更弱上游 | 复查台账 `ownerroc/termux-monet` 行 |
 | `11-irealashu-ApexShell.md` | Compose 壳：每命令 `ProcessBuilder`，正则染色冒充 VT | 无门槛违反：无 VT 测试资产；逐命令执行／提权／历史持久化撞明禁 | 复查台账 `irealashu/ApexShell` 行；「参照面与反面做法收敛补齐行」空 catch 行 |
 | `12-Sunbr99-TerminalOS.md` | 仓内仅 README、LICENSE 与 3 行脚本；README 声称的 Go 结构不存在 | 无门槛违反：无资产可评估 | 复查台账 `Sunbr99/TerminalOS` 行 |
@@ -1444,7 +1444,7 @@ MUST NOT 攒批后一次补写。整批研究收敛为 105 个键、187 行，�
 | `javaterminal-TerminalFX.md` | 全篇（概况、结构、对比、可复用库、可借鉴项、可改用的设计、测试数据、设计模式、许可、结论） | 已处置：整体不采纳（JavaFX 无 Android 目标，见索引行）；逐项去向——其自含的 Java 终端模拟属自研 VT 面、违单一来源（索引行未展开处在此补齐），RoboVM 式嵌入不推荐；core（screen／session 抽象）与 local（PTY）解耦模型与本仓 JNI 边界同构，属既有实现，仅作对照；PTY 后端依赖（pty4j／JNA）无 Android 落点；§「测试数据」core 测试自陈 VT 合规覆盖有限，登记为无可评估资产；模块化 UI／进程分离设计课仅参考；MIT 无引入动作 |
 | `joshka-qwertty-term.md` | 全篇（概况、结构、对比、可复用库、可借鉴项、可改用的设计、测试数据、设计模式、许可、结论） | 已处置：整体不采纳（门槛 1：差分期望即其自身实现输出；换核违单一来源，见索引行）；逐项去向——「以 `qwertty-term-vt` 替换 `libghostty-vt` 并赴 Android」撞「禁止项三条保留」的「不更换 VT 核」与换核对照结论（`ghostty_platform_e` 仅 Apple 等），且其页面模型集成成本自陈高，不立项；`vt-diff` 的 176 例差分语料与 fuzz 属第三方 VT 互差分、期望非外部真值，与 bcon 行同口径不采纳；`examples/frame-capture` 的 bytes→PNG 无程序消费者，撞门槛 2（不引入无消费者的二进制资产）；refcount 样式、页式回滚、Kitty 图形模式、原生 Rust PTY 与「渲染 run／脏证明」对照本仓行级脏跟踪与既有实现，仅作对照；`miri` 子集登记为无可用资产；Metal／CoreText 渲染与 Android 无交集；MIT 及其上游署名说明如实记录，无引入动作 |
 | `kemokempo-iced_term.md` | 全篇（概况、结构、对比、可复用库、可借鉴项、可改用的设计、测试数据、设计模式、许可、结论） | 已处置：整体不采纳（alacritty 核违单一来源、ICED 非 Android UI 目标，见索引行）；逐项去向——cell 绘制、字体度量与调色板主题、命令／事件通信模式、PTY shell 设置与键位映射分别归「第三方渲染实现」不采纳行（本仓图集＋行级脏跟踪＋渲染线程帧所有权已有等价）或输入／设置面（未声明或已有实现）；其 `alacritty_terminal` 的 `Cell`／ANSI 类型不引入；§「可改用的设计」建议 MIT 借码做渲染适配，因已有等价实现且换核面冲突而无收益，不采纳；§「测试数据」examples 与 `#[cfg(test)]` 未展开，登记为无可用资产；MIT 无引入动作 |
-| `ketraterm-KetraTerm.md` | 全篇（概况、代码要点、可直接用、可间接用、可改用的设计、测试数据、设计模式、对比、结论） | 已处置：整体不采纳（JVM/Swing 无 Android 目标、oracle 为自身实现输出，见索引行与语料行）；逐项去向——渲染帧租约与 conflated worker 已由本仓渲染线程帧所有权承担（「第三方渲染实现」不采纳行）；屏存储布局（并行原生数组、簇 arena、回滚行回收）与 reflow 归上游 `libghostty-vt`，本仓只读快照，不照搬；选择（含 wrap-aware）、异步搜索、Kitty 键盘、括号粘贴、像素鼠标、OSC 超链接、Unicode 簇／宽度／emoji 与 256 真彩各有既有能力规约；`sync output`、shell integration 元数据（OSC cwd／命令状态）、补全 ranking 与学习、host-owned 权限策略均未声明不立项；Pty4J 与 BOM 依赖模型无 Android 落点；输入编码的 mode-aware 序列对照本仓 IME 与键编码规约；§「测试数据」402 测试文件、JMH 约 30 热路径、testkit／connector 假件与 `tools/xterm-oracle` 门槛 1＋3 不采纳，`docs/development/conformance-testing.md` 报告自陈未重跑，不作断言；Apache-2.0 无引入动作 |
+| `ketraterm-KetraTerm.md` | 全篇（概况、代码要点、可直接用、可间接用、可改用的设计、测试数据、设计模式、对比、结论） | 已处置：整体不采纳（JVM/Swing 无 Android 目标、oracle 为自身实现输出，见索引行与语料行）；逐项去向——渲染帧租约与 conflated worker 已由本仓渲染线程帧所有权承担（「第三方渲染实现」不采纳行）；屏存储布局（并行原生数组、簇 arena、回滚行回收）与 reflow 归上游 `libghostty-vt`，本仓只读快照，不照搬；选择（含 wrap-aware）、异步搜索、Kitty 键盘、括号粘贴、像素鼠标、OSC 超链接、Unicode 簇／宽度／emoji 与 256 真彩各有既有能力规约；`sync output`、shell integration 元数据（OSC cwd／命令状态）、补全 ranking 与学习、host-owned 权限策略均未声明不立项；Pty4J 与 BOM 依赖模型无 Android 落点；输入编码的 mode-aware 序列对照本仓 IME 与键编码规约；§「测试数据」402 测试文件、JMH 约 30 热路径、testkit／connector 假件与 `tools/xterm-oracle` 门槛 1＋3 不采纳，上游仓库的 `docs/development/conformance-testing.md` 报告自陈未重跑，不作断言；Apache-2.0 无引入动作 |
 | `kmscon-libtsm.md` | 全篇（概况、结构、对比、可复用库、可借鉴项、可改用的设计、测试数据、设计模式、许可、结论） | 已处置：整体不采纳（libtsm 为可替换 VT 核，违单一来源，见索引行）；逐项去向——「Ghostty 不可用时以 libtsm 作后端」撞「禁止项三条保留」的「不更换 VT 核」（且 `libghostty` 有 Android 外平台约束，换核对照结论已记）；经 NDK＋JNI 引入 C 库的适配成本与收益不成比例，不立项；屏行／属性／选区数据结构与 DEC 模式、状态机边界归上游引擎职责，仅作对照；「自建 harness 与 Ghostty 快照对照」不引入（上游 fuzz 已覆盖）；§「测试数据」`test/` 单元与验收套件按门槛 1＋3 不采纳（期望即其自身行为），其行为参考价值已被上游权威 fuzz 取代；报告自陈 libtsm 源文件名需另行打开确认，不作断言；MIT 无引入动作 |
 | `kshivang-BossTerm.md` | 全篇（概况、结构、对比、可复用库、可借鉴项、可改用的设计、测试数据、设计模式、许可、结论） | 已处置：整体不采纳（jEditerm 派生 VT 核冲突、Compose 同栈已有实现、LGPL-3.0 审查前置，见索引行）；逐项去向——「Ghostty 集成失败时以 BossTerm 作回退核」不得反向采纳（单一来源）；其 Maven 模块 `com.risaboss:bossterm-core` 与「additional oracle」测试按门槛 1 不采纳；`compose-ui` 面向 Kotlin/JVM 桌面、迁 Android 的改动未验证，不据以立论；`TerminalStarter`／`ScreenHistoryStorage` 为目录占位、报告未穷尽转写，且屏历史／会话共享撞会话持久化明禁，不作断言；ICU4J 字素切分与 split-width 问题对照本仓字素与 CJK 宽度实现（已有），不引入 ICU4J；其「无 JNI 的 Kotlin 直调 PTY」架构与本仓 PTY 归 Rust 的分工相反，不采用；报告自陈 `minSdk=24`，与本仓 `android/app/build.gradle.kts` 的 `minSdk = 33` 不同，该条无落点；telnet／SSH 功能缺口属未声明面；§「测试数据」仅凭路径名声称覆盖、未列方法，登记为无可评估资产；报告 785 行已记 `split` 属误引更正 |
 | `leoberbert-zashterminal.md` | 全篇（概况、结构、对比、可复用库、可借鉴项、可改用的设计、测试数据、设计模式、许可、结论） | 已处置：整体不采纳（VTE/GTK 桌面形态，无 Android 落点，见索引行）；逐项去向——会话管理与 SecureCRT 导入撞会话持久化明禁（配置／会话序列化另属未声明面），不立项；文件管理器侧栏、快捷提示、语法高亮与 AI 助手集成（含「显式发送」隐私模型）均属未声明不立项（能力裁定行已记）；**输入广播（多会话同发）**此处补齐判定：`DESIGN.md` 无声明，不立项；GTK 设置面板无 Android 对应；§「测试数据」仅记仓库内存在测试、未列断言且自陈对 VT 无用，登记为无可评估资产；GPL-3.0 无引入动作；C 级结论维持 |
@@ -1479,3 +1479,30 @@ MUST NOT 攒批后一次补写。整批研究收敛为 105 个键、187 行，�
 | `vercel-labs-wterm.md` | 全篇（概况、结构、对比、可复用库、可借鉴项、可改用的设计、测试数据、设计模式、许可、结论） | 已处置：整体不采纳（Web/WASM＋DOM 形态，见索引行）；逐项去向——「Pluggable core：`TerminalCore` 接口＋Zig/WASM 与 Ghostty WASM 两套后端」正是单一来源的反面，不采纳（本仓已直接使用 Rust 绑定）；`@wterm/ghostty` 的 Ghostty 封装层内存管理，其中 WASM 线性内存「页面零初始化」修复属 WASM 形态专属、无 Android 落点，其分配器／Stream／screen pages／pin tracking 一类同引擎 FFI 模式已由本仓 wrapper 覆盖（同引擎第四家口径）；无障碍／文本捕获（`readText`）未声明不立项（朗读形态另撞明禁）；WebSocket 传输的背压与重连、框架绑定、`just-bash`／`markdown` 包均属未声明面，仅在日后开网络终端时参考；`check-wasm`／CI 二进制比对的借鉴登记在禁改区候选行（`.github/` 待维护者裁定，本轮不改）；Kitty 图像、OSC 序列、软换行元数据与跨 scrollback 搜索归上游或本仓已有；§「测试数据」Vitest 矩阵、Playwright e2e 与文档站场景按门槛 3 不采纳，报告自陈期望值皆 Web／DOM 行为；Ghostty 封装的 Zig 0.15.2 版本矩阵与本仓工具链无关；Apache-2.0 无引入动作，亦不 vendor 其 Zig 片段 |
 | `wilsonglasser-oryxis.md` | 全篇（概况、结构、对比、可复用库、可借鉴项、可改用的设计、测试数据、设计模式、许可、结论） | 已处置：整体不采纳（iced 桌面 SSH 客户端＋alacritty 核，见索引行）；逐项去向——SSH／SFTP／serial／telnet／mosh 协议面与 FIDO2 无本仓落点（本仓为 local-only 用户终端）；「config vault 与跨设备同步」撞会话持久化明禁且含隐私面，不立项；crate tests（含 alacritty VT 套件）按门槛 1＋未编目不采纳；ZMODEM 类文件传输按未声明不立项；iced/wgpu 终端 widget 不移植（本仓 wgpu 渲染自持、UI 为 Compose）；「app＋core＋terminal」分层与本仓既有分层同构，无改动；报告自陈 `oryxis-terminal` 的渲染器耦合关系未判定，不作断言；AGPL-3.0 无引入动作 |
 | `z-hunter-Scanline-term.md` | 全篇（概况、代码要点、可直接用、间接有用、可改用的设计、测试数据、设计模式、对比、结论） | 已处置：整体不采纳（Tauri＋React＋xterm.js 桌面 Web 终端，见索引行）；逐项去向——xterm.js／React／WebGL 渲染替换路线违第三方渲染与单一来源两条，且无 Android 落点；`conpty-oxide` 与随包 Windows ConPTY 动态库属平台专有且撞 `BUILD.md`「可以从外部下载可以自动处理的文件不得 vendor」，不移植；`mcp.rs` 的 agent 终端桥（`terminal-n` 句柄、生命周期错误面）撞 MCP 明禁，AI 助手／agent 请求面归 AI 集成未声明口径；会话恢复与多 tab 分属会话持久化明禁与未声明；集成浏览器标签页、preset／home 控制器、CRT 特效分别按未声明与视觉特效未声明不立项；`scanline-virtual-screen` 宿主与模拟器属 Web 渲染器形态，ConPTY 状态机读写仅在日后增平台时有参照意义；§「测试数据」vitest 前端测试按无 VT 资产不采纳（报告自陈断言未编目、无 conformance 套件、无测试矩阵、无性能资产）；`outputs/readme` 的「超轻量、即时读取」设计原则与「文档仍属可用设计空间」仅作参照；报告自陈仓内 `AGENTS.md` 非项目专用，不作依据；MIT 无引入动作 |
+
+### Requirement: 规范内的路径指针必须指向现存文件
+
+规范正文、表格与索引行里以代码路径形式给出的**本仓文件**指针 MUST 指向工作树中
+现存的文件，MUST NOT 指向已删除或从未存在的路径——读者按图索骥落空时，规范就把
+「去哪里看」这件事说错了。
+
+历史性陈述（已删除文件的历史路径、用于说明「已随 X 移入 Y」的旧路径）不在此限，
+但那类陈述 MUST 带「已删除／已退场／已移入」等状态标记，MUST NOT 读作现役指针。
+
+判定与依据本就写在规范内时（台账行、索引行即是载体），失效指针 MUST 改为指向规范
+内的判定载体，MUST NOT 靠一句「详见某文件」把结论托管给不存在的文件。
+
+#### Scenario: 失效指针被发现即订正
+
+- **WHEN** 规范里的本仓路径指针在仓库中不存在
+- **THEN** MUST 订正为现存路径，或改写为不指向具体文件的表述
+
+#### Scenario: 历史路径不冒充现役指针
+
+- **WHEN** 规范提到一个已删除文件的历史路径
+- **THEN** 该处 MUST 带「已删除／已退场／已移入」等状态标记
+
+#### Scenario: 结论的载体是规范本身
+
+- **WHEN** 某项判定与依据已完整写在规范的台账行或索引行内
+- **THEN** 该行 MUST NOT 以「详见某文件」把结论托管给规范之外的文件
