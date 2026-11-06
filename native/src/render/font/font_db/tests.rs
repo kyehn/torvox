@@ -26,6 +26,30 @@ fn probe_fonts_xml(filename: &str) -> String {
     )
 }
 
+/// 同一字体文件只装入一次：真机 `fonts.xml` 的 `lang` 块按字重把同一个 TTC
+/// 重复声明九次，不去重则它被 mmap 并解析九次，库内多出同族同字形的重复面。
+///
+/// 判据是「库内面数与只装一次时相同」：重复装入的拷贝与原件同族同字形，
+/// 只看装入计数看不出重复面，须与参照库比面数。
+#[test]
+fn load_files_loads_the_same_file_only_once() {
+    let probe = probe_font_file();
+    let mut font_database = fontdb::Database::new();
+    let loaded = super::load_files(
+        &mut font_database,
+        &[probe.clone(), probe.clone(), probe.clone()],
+    );
+    assert_eq!(loaded, 1, "同一文件只装一次");
+
+    let mut reference = fontdb::Database::new();
+    reference.load_font_file(&probe).expect("探针字体须可装入");
+    assert_eq!(
+        font_database.faces().count(),
+        reference.faces().count(),
+        "库内面数须与只装一次时相同，不得有重复面"
+    );
+}
+
 /// 设备上的真实时序：字体库在 locale 到达之前就已定型（spawn 前的 locale
 /// 调用被 `Bridge.onSession` 的 `sessionId == 0` 守卫丢弃），区域族此时
 /// 必须被报为「缺失」以便事后补装；补装后不得再报，否则会重复装入。

@@ -158,20 +158,19 @@ pub(crate) fn load_font_database() -> fontdb::Database {
 
         // 主字体：fonts.xml 的 monospace 族**整族**。只装族内首个时，该文件一旦不可用
         // 就再无任何面可降级，等于把「某个字体文件缺失」升级成崩溃。
-        let mut loaded = load_files(
-            &mut font_database,
-            &resolve_font_files(&document.families.monospace),
-        );
+        let mut paths = resolve_font_files(&document.families.monospace);
 
         // 一个符号族 + 一个区域族：符号缺失只是 ▶ ⏵ ♥ ★ 变豆腐块，区域缺失只是 CJK
         // 变豆腐块，都不该让应用不可用。
-        let symbol = resolve_font_files(&document.symbol_files);
-        loaded += load_files(&mut font_database, &symbol);
-        let region = resolve_font_files(&locale_fallback_files(
+        paths.extend(resolve_font_files(&document.symbol_files));
+        paths.extend(resolve_font_files(&locale_fallback_files(
             &document.families,
             &current_locale(),
-        ));
-        loaded += load_files(&mut font_database, &region);
+        )));
+
+        // 三族合成一份清单后统一装入：`load_files` 的去重是单次调用内的，同一文件
+        // 被两个族声明时（用户投放字体与系统字体同名）只有合成后才不会重复装入。
+        let mut loaded = load_files(&mut font_database, &paths);
 
         if !db_has_monospaced(&font_database) {
             loaded += widen_to_declared_set(&mut font_database, &document.declared_files);
@@ -555,10 +554,24 @@ pub(crate) fn resolve_font_entry(entry: &str) -> Option<std::path::PathBuf> {
     resolve_font_path(entry)
 }
 
-#[cfg(target_os = "android")]
+/// 装入字体文件到字体库，返回实际装入的文件数。
+///
+/// 同一文件只装一次：`fonts.xml` 的声明单位是「面」而字体库的单位是「文件」，
+/// 一个 TTC 装一次即含其全部面。`lang` 块却按字重把同一个 TTC 重复声明多次
+/// （真机 `zh-Hans` 块声明九次），不去重则一份 TTC 被 mmap 并解析九次，库内
+/// 多出同族同字形的重复面——全库扫描找字形逐面重建 charmap，代价按倍数放大。
+///
+/// 去重键取**解析后的路径**而非声明里的文件名：同一份文件可能被不同族以不同
+/// 文件名声明（用户投放字体与系统字体同名即是一例），按文件名去重会漏。
+#[cfg(any(target_os = "android", test))]
 fn load_files(font_database: &mut fontdb::Database, paths: &[std::path::PathBuf]) -> u32 {
     let mut count = 0u32;
+    let mut seen: Vec<&std::path::Path> = Vec::with_capacity(paths.len());
     for path in paths {
+        if seen.contains(&path.as_path()) {
+            continue;
+        }
+        seen.push(path.as_path());
         if let Err(error) = font_database.load_font_file(path) {
             // 只记文件名：完整路径可能带出用户主目录。
             log::warn!(
