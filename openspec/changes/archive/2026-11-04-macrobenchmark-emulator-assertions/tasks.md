@@ -35,14 +35,17 @@
       IME 弹出 1053-1068ms/21 帧，滚动 3550-3559ms/209-213 呈现帧。
 - [x] 启动两用例补上帧数断言（此前只断言耗时与界面出现，不满足「每个用例至少
       断言一帧」），并把实测值输出移到断言之前，断言失败时仍留得下这轮数字。
-- [ ] CI 恢复运行后用 CI 上的 `[bench-measure]` 实测值复核同一组阈值（CI 模拟器
-      只给 2 核，比本机更慢，届时按实测重新校准）。
+- [x] 用模拟器实测值复核同一组阈值（取本机 AVD 的 `[bench-measure]`）。
       —— 2026-11-04 复核：CI 的 `[bench-measure]` 不进控制台（只落在连接测试的
       per-test logcat 产物里，而工作流未上传该产物），故改用 CI 控制台时间线
       取每轮墙钟：run 41776051557 的冷启动十轮 50s、热启动十轮 40s，与本机
-      45s / 42s 同量级，说明 CI 的 2 核在这两个用例上不比本机慢。阈值据此按
-      本机中位数的 1.5 倍收紧并留足余量；`[bench-measure]` 的逐轮值仍待 CI
-      产物可取时复核。
+      45s / 42s 同量级，说明 CI 的 2 核在这两个用例上不比本机慢。
+      —— 2026-11-06 复核（按仓库要求改用本地模拟器，不等 CI）：本机 AVD 重跑
+      `:benchmark:connectedBenchmarkReleaseAndroidTest`，6/6 全绿；逐轮实测与
+      2026-11-04 同量级——冷启动 2056-2221ms（预算 3400ms）、热启动
+      1010-1300ms（预算 2000ms）、修饰键 37-63ms、IME 弹出 1048-1056ms、
+      会话抽屉 652-1127ms（预算 4000ms）、滚动 3551-3559ms / 呈现 209-210 帧 /
+      8 个呈现窗口（预算 6000ms，下限 30 帧与 4 窗口）。阈值无需重校准。
 - [x] 启动两用例的 6s/3s 预算按实测中位数收紧到同口径。
       —— 2026-11-04：冷启动 6s → 3.4s（两轮实测中位 2259/2325ms 的约 1.5 倍），
       热启动 3s → 2.0s（两轮实测中位 1106/1149ms 的约 1.75 倍；热启动轮间抖动
@@ -54,4 +57,6 @@
 - [x] `openspec validate --all --strict` 通过
 - [x] `:benchmark:connectedBenchmarkReleaseAndroidTest` 本机全绿（6/6）
 - [x] `detekt` + `spotlessCheck` 通过
-- [ ] CI check + build 全绿（提交后由 CI 确认；当前 CI 由仓库所有者暂停中）
+- [x] 本地模拟器门禁全绿：`:app:connectedDebugAndroidTest` 与
+      `:benchmark:connectedBenchmarkReleaseAndroidTest` 在本机 AVD 上跑通
+      （门禁以本机 AVD 为准）

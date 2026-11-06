@@ -1,28 +1,5 @@
 ## ADDED Requirements
 
-### Requirement: Android 宏基准在模拟器上运行并断言
-
-Android 宏基准（`android/benchmark`）MUST 在 CI 的模拟器上运行（`build` 工作流的
-`:benchmark:connectedBenchmarkReleaseAndroidTest`），MUST NOT 只留在本地手动执行。
-
-每个用例 MUST 至少断言两件事：交互窗口内**至少出一帧**（帧数为 0 说明被测路径没有
-产生任何绘制，测量无意义）、操作**总耗时在预算内**（拦住「慢到不可用」级回归）。
-滚动、按键等状态类交互还 MUST 断言功能状态真的发生（粘滞态置起、抽屉节点出现），
-MUST NOT 用「没报错」代替「发生了」。
-
-模拟器宏基准数据 MUST NOT 用于建立物理设备性能结论，只用于数量级回归与功能级
-断言（本能力「真机性能结论的判据与环境口径」不变）。
-
-#### Scenario: 滚动不产生帧判红
-
-- **WHEN** 回滚区填满后滚动手势没有产生任何帧
-- **THEN** 用例失败并报出呈现帧数为 0，而不是留下一个测了个寂寞的空窗口
-
-#### Scenario: 启动超预算判红
-
-- **WHEN** 冷启动到终端可用的耗时超过预算
-- **THEN** 用例失败并报出实测耗时与预算值
-
 ### Requirement: 宏基准的帧级数据面按绘制主体选源
 
 帧级数据面 MUST 按「谁画了这帧」选源，MUST NOT 用单一数据面覆盖所有被测路径：
@@ -47,30 +24,6 @@ MUST NOT 用「没报错」代替「发生了」。
 
 - **WHEN** 宿主被并发任务抢占，滚动实测帧数降到空闲时的约三分之一
 - **THEN** 用例仍通过（帧数下限按最差实测校准），且呈现窗口数下界仍成立
-
-### Requirement: 宏基准实测值可观测且阈值按实测校准
-
-宏基准的实测值 MUST 可观测：每轮迭代把耗时与帧统计写进设备 logcat（`println` 进
-instrumentation 输出流、`Log.i("Benchmark")` 进 logcat，两条通道各留一份），连接测试
-任务按用例把设备 logcat 落进构建产物
-（`androidTest-results/connected/<variant>/<device>/logcat-<类名>-<方法名>.txt`），
-MUST NOT 让实测值只留在 IDE 可见的 instrumentation bundle 里。
-
-帧级阈值与耗时预算 MUST 以 CI 实测值校准（实测的约 1.5 倍口径，与 Rust 微基准
-上限断言同口径），并在常量注释里引用实测出处；MUST NOT 凭空设定，也不得宽到只拦
-「卡死级」。`FrameTimingMetric` 的百分位只进 IDE 结果 bundle，模拟器上可脚本采集
-的帧级数据按上一条 Requirement 的分工取（gfxinfo 或原生呈现汇总）。
-
-#### Scenario: 实测值落进构建产物
-
-- **WHEN** CI 运行宏基准
-- **THEN** 连接测试产出的用例 logcat 里出现每轮迭代的实测耗时与帧统计
-      （`[bench-measure]` 行），断言预算可据此校准
-
-#### Scenario: 断言预算有实测出处
-
-- **WHEN** 给帧级阈值或耗时设断言阈值
-- **THEN** 常量注释引用 CI 实测值与运行出处，阈值约为实测的 1.5 倍
 
 ### Requirement: 宏基准的设备侧采集通道按执行环境的真实语义构造
 
@@ -110,3 +63,56 @@ MUST NOT 以「命令没报错」当作「采集到了数据」：采集失败 M
 
 - **WHEN** 探针在上限内始终没有回显
 - **THEN** 用例失败并报出「shell 未就绪」，MUST NOT 继续测量一个空终端
+
+## MODIFIED Requirements
+
+### Requirement: Android 宏基准在模拟器上运行并断言
+
+Android 宏基准（`android/benchmark`）MUST 在模拟器上以连接测试方式运行
+（`:benchmark:connectedBenchmarkReleaseAndroidTest`），MUST NOT 只写在文档里而不真跑。
+
+阈值校准与回归判定 MUST 以执行环境里模拟器的实测为准（当前执行环境为本机 AVD，
+API 35 / SwiftShader），MUST NOT 因某条流水线缺席而停摆或降低覆盖。
+
+每个用例 MUST 至少断言两件事：交互窗口内**至少出一帧**（帧数为 0 说明被测路径没有
+产生任何绘制，测量无意义）、操作**总耗时在预算内**（拦住「慢到不可用」级回归）。
+滚动、按键等状态类交互还 MUST 断言功能状态真的发生（粘滞态置起、抽屉节点出现），
+MUST NOT 用「没报错」代替「发生了」。
+
+模拟器宏基准数据 MUST NOT 用于建立物理设备性能结论，只用于数量级回归与功能级
+断言（本能力「真机性能结论的判据与环境口径」不变）。
+
+#### Scenario: 滚动不产生帧判红
+
+- **WHEN** 回滚区填满后滚动手势没有产生任何帧
+- **THEN** 用例失败并报出呈现帧数为 0，而不是留下一个测了个寂寞的空窗口
+
+#### Scenario: 启动超预算判红
+
+- **WHEN** 冷启动到终端可用的耗时超过预算
+- **THEN** 用例失败并报出实测耗时与预算值
+
+### Requirement: 宏基准实测值可观测且阈值按实测校准
+
+宏基准的实测值 MUST 可观测：每轮迭代把耗时与帧统计写进设备 logcat（`println` 进
+instrumentation 输出流、`Log.i("Benchmark")` 进 logcat，两条通道各留一份），连接测试
+任务按用例把设备 logcat 落进构建产物
+（`androidTest-results/connected/<variant>/<device>/logcat-<类名>-<方法名>.txt`），
+MUST NOT 让实测值只留在 IDE 可见的 instrumentation bundle 里。
+
+帧级阈值与耗时预算 MUST 以实测值校准（实测的约 1.5 倍口径，与 Rust 微基准
+上限断言同口径），并在常量注释里引用实测出处；实测出处取执行环境里的模拟器
+（当前为本机 AVD）；MUST NOT 凭空设定，也不得宽到只拦「卡死级」。
+`FrameTimingMetric` 的百分位只进 IDE 结果 bundle，模拟器上可脚本采集
+的帧级数据按上一条 Requirement 的分工取（gfxinfo 或原生呈现汇总）。
+
+#### Scenario: 实测值落进构建产物
+
+- **WHEN** 在模拟器上运行宏基准
+- **THEN** 连接测试产出的用例 logcat 里出现每轮迭代的实测耗时与帧统计
+      （`[bench-measure]` 行），断言预算可据此校准
+
+#### Scenario: 断言预算有实测出处
+
+- **WHEN** 给帧级阈值或耗时设断言阈值
+- **THEN** 常量注释引用实测值与运行出处，阈值约为实测的 1.5 倍

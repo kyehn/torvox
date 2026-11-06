@@ -6,13 +6,13 @@
 基准时测试失败，基准需要和实际测试结果相对接近以发现之后的性能降低」且
 「macrobenchmark 需要在模拟器上运行并断言，要求在模拟器上流畅运行」。本能力的现有
 Requirement 只覆盖 Rust 微基准与真机探针，**没有覆盖 Android 宏基准**
-（`android/benchmark`，CI build 工作流在模拟器上每轮运行的五→六用例），而它正是
+（`android/benchmark`，连接测试在模拟器上每轮运行的五→六用例），而它正是
 TESTING.md 两条要求的直接对象。
 
 现状缺口（STATUS 挂账「android/benchmark 需要更充分的性能测试并且断言测试结果」）：
 
 1. 宏基准的断言只有「帧数 ≥ 1」与粗粒度耗时预算，`FrameTimingMetric` 的帧耗时
-   百分位只进 instrumentation 结果 bundle（IDE 可见），CI 控制台与日志里**看不到
+   百分位只进 instrumentation 结果 bundle（IDE 可见），控制台与日志里**看不到
    任何实测值**——「实际测试获得基准值」没有数据来源，断言预算只能是拍的。
 2. `dumpsys gfxinfo` 的帧统计（帧数、janky 占比、p50/p90/p95/p99）是模拟器上
    唯一可脚本采集的帧级数据面，未被纳入断言与采集口径。TESTING.md 的覆盖范围把
@@ -44,5 +44,5 @@ TESTING.md 两条要求的直接对象。
   `openspec/specs/performance-measurement/spec.md`）。
 - 代码：`android/benchmark` 下的基准源码；`android/app` 的 `TerminalRuntime` 在首个
   PTY 输出时记一条 INFO 日志（宏基准据此判定 shell 已开口）。
-- 待办：CI 恢复运行后按 CI 上的 `[bench-measure]` 实测值复核断言阈值（tasks.md
-  未勾项；当前阈值已按本机 AVD 的最差实测校准）。
+- 待办：无。断言阈值已按本机 AVD 的实测校准并在本地模拟器复核，门禁以本机 AVD
+  为准。
