@@ -320,8 +320,8 @@ impl super::GhosttyTerminal {
     ///
     /// 上游把两类序列归到同一条 `show_desktop_notification` 命令；负载是程序给出的
     /// 原始字节（上游文档写明不保证 UTF-8），故按替换字符口径解码——保留可读内容，
-    /// 又不让一条通知带崩进程。回调在 VT 写入路径上同步执行：通道满时丢弃并记
-    /// 日志，绝不阻塞 VT 线程。
+    /// 又不让一条通知带崩进程。回调在 VT 写入路径上同步执行：队列满时丢最旧的一条
+    /// 并限频告警，绝不阻塞 VT 线程。
     pub(crate) fn register_desktop_notification_callback(
         terminal: &mut Terminal<'_, '_>,
         notification_queue: Arc<NotificationQueue>,
