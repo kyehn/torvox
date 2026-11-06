@@ -1180,8 +1180,19 @@ constructor(
     /**
      * 切到指定会话；Surface 未就绪时记下请求，待 [startRuntime] 拿到可用 Surface
      * 后执行。
+     *
+     * @param freshIntent 本次 Intent 是否为新投递。Activity 重建会再次走 `onCreate`
+     *   并带上同一个启动 Intent；据此再切一次会话，用户在重建前手动切走的会话会被
+     *   拽回去。与 Failsafe Intent 同一纪律：重建时的重复投递不重放状态改写。
      */
-    fun requestSessionSwitch(sessionId: Long) {
+    fun requestSessionSwitch(sessionId: Long, freshIntent: Boolean) {
+        if (!freshIntent) {
+            LogUtil.info(
+                "TerminalViewModel",
+                "requestSessionSwitch: stale launch intent, ignored (id=$sessionId)",
+            )
+            return
+        }
         if (currentSurface?.isValid != true || surfaceWidth <= 0 || surfaceHeight <= 0) {
             pendingSessionSwitchId = sessionId
             LogUtil.info(

@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
@@ -239,15 +240,18 @@ class MainActivity : ComponentActivity() {
             // /system/bin/sh 建出；应用已启动时必须显式建一个新会话（start() 会早退）。
             terminalViewModel.requestFailsafeSession(freshIntent)
         }
-        if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
+        // 重建时重复投递的启动 Intent 不重放状态改写：否则用户关闭设置页后的一次
+        // 配置变更（密度、语言）会把设置页重新打开。
+        if (freshIntent && intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
             openSettingsRequests++
         }
         // 桌面通知点击：切到通知所属的会话。Surface 未就绪时 ViewModel 记下请求，
         // 待 Surface 交付后再执行（通知点击常把应用从后台拉起，那时还没有 Surface）。
+        // 重建时重复投递的同一个 Intent 不重放切换——用户在重建前切走的会话会被拽回去。
         val notificationSessionId = intent.getLongExtra(EXTRA_NOTIFICATION_SESSION_ID, 0L)
         if (notificationSessionId != 0L) {
             LogUtil.info(TAG, "handleLaunchIntent: switching to session $notificationSessionId")
-            terminalViewModel.requestSessionSwitch(notificationSessionId)
+            terminalViewModel.requestSessionSwitch(notificationSessionId, freshIntent)
         }
         // 仅测试用的引导安装入口（TermuxBootstrapRealTerminalTest）。
         // 仅限 debug 构建：release APK 绝不能携带该安装后门 extra
@@ -434,7 +438,11 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalViewModel = hiltViewModel()) {
-    var showSettings by remember { mutableStateOf(openSettingsRequests > 0) }
+    // 设置覆盖层的开合状态跨 Activity 重建保持：用 `rememberSaveable`（随实例状态
+    // 保存），不用 `remember`（随组合丢弃）。重建前打开的仍打开；已关闭的不得因重建
+    // 重新打开——后者过去由启动 Intent 决定，于是「关掉设置页后改一次系统语言」会把
+    // 设置页弹回来，而手动打开的设置页又会在重建后凭空消失。
+    var showSettings by rememberSaveable { mutableStateOf(openSettingsRequests > 0) }
     LaunchedEffect(openSettingsRequests) {
         if (openSettingsRequests > 0) showSettings = true
     }
