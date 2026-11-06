@@ -13,8 +13,8 @@ private const val FRAME_READ_RETRY_MILLIS = 300L
  * 一次交互窗口内被测应用的帧统计，解析自 `dumpsys gfxinfo <pkg>` 的聚合输出。
  *
  * 比 `FrameTimingMetric` 多一层用途：Metric 的百分位只进 instrumentation 结果
- * bundle（Studio/IDE 可见，CI 控制台看不到），而 [FrameStats] 来自 shell 输出，
- * 可以 `println` 进设备 logcat（连接测试按用例把 logcat 落进构建产物），让 CI
+ * bundle（Studio/IDE 可见，控制台看不到），而 [FrameStats] 来自 shell 输出，
+ * 可以 `println` 进设备 logcat（连接测试按用例把 logcat 落进构建产物），让门禁
  * 拿到实测帧耗时做基准校准，也可以直接对字段断言拦住卡顿回归。
  */
 internal data class FrameStats(
@@ -74,7 +74,7 @@ internal fun parseFrameStats(output: String): FrameStats? {
  * 把实测值打进测试输出：`println` 进 instrumentation 输出流（logcat 的
  * `System.out` 标签），`Log.i("Benchmark")` 进 logcat（与 androidx 基准库同 tag，
  * 本地调试 `adb logcat -s Benchmark` 直达）。连接测试任务按用例把设备 logcat 落进
- * 构建产物，故实测值在 CI 里可复核。
+ * 构建产物，故实测值在构建产物里可复核。
  *
  * 这是「实际测试获得基准值」的采集通道：断言预算必须先有实测，再按实测收紧。
  */
@@ -100,7 +100,7 @@ internal fun printMeasured(label: String, elapsedMillis: Long, stats: FrameStats
     emitMeasured(line)
 }
 
-/** 实测行的公共前缀：统一标签与耗时字段，CI 按 `[bench-measure]` grep。 */
+/** 实测行的公共前缀：统一标签与耗时字段，按 `[bench-measure]` grep。 */
 internal fun measuredLinePrefix(label: String, elapsedMillis: Long): String =
     "[bench-measure] $label elapsed=${elapsedMillis}ms"
 
@@ -125,7 +125,7 @@ internal fun readFrameStats(device: UiDevice): FrameStats =
  *
  * [UiDevice.waitForIdle] 只等输入/事件队列空闲，而交互反馈帧由 Choreographer 在
  * 其后的 vsync 上产出；`dumpsys` 的 shell 往返快于首帧落地时（软件渲染模拟器一帧
- * 可达数百毫秒），真实跑过的动画会被记成 0 帧——CI 实测同一用例上一轮通过、
+ * 可达数百毫秒），真实跑过的动画会被记成 0 帧——实测同一用例上一轮通过、
  * 下一轮 frames=0，正是这个竞态。0 帧时按 vsync 周期短暂重读；重试耗尽仍为 0
  * 才交给断言判失败（动画真的没跑时依然拦得住）。
  */
