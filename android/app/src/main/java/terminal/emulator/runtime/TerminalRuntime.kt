@@ -2327,7 +2327,14 @@ constructor(
         notificationPollingStarted = true
         scope.launch {
             while (isActive) {
-                drainNotifications()
+                try {
+                    drainNotifications()
+                } catch (exception: Exception) {
+                    // 单次轮询失败不终止轮询：原生侧把 VT 处理的 panic 转成 Java 异常
+                    // 抛出（见 `pollEvent` 的同类保护），异常逸出协程会走默认的未捕获
+                    // 异常处理——直接带崩进程。渲染循环对同类失败也是记日志后继续。
+                    LogUtil.error(TAG, "desktop notification polling failed", exception)
+                }
                 delay(NOTIFICATION_POLL_INTERVAL_MS)
             }
         }
