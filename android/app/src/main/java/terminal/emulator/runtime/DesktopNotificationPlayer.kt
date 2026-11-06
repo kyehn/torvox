@@ -113,8 +113,9 @@ class DesktopNotificationPlayer internal constructor(
                 return
             }
             createChannel(context, manager)
-            // 点击通知后切到目标会话：请求码取会话 id，同一会话的多次通知复用同一条
+            // 点击通知后切到目标会话：请求码取桌面通知 id，同一会话的多次通知复用同一条
             // PendingIntent（FLAG_UPDATE_CURRENT 会更新携带的 extra）。
+            val notificationId = desktopNotificationId(notification.sessionId)
             val intent =
                 Intent(context, MainActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -123,7 +124,7 @@ class DesktopNotificationPlayer internal constructor(
             val pending =
                 PendingIntent.getActivity(
                     context,
-                    notification.sessionId.toInt(),
+                    notificationId,
                     intent,
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                 )
@@ -139,7 +140,7 @@ class DesktopNotificationPlayer internal constructor(
                     .setCategory(Notification.CATEGORY_EVENT)
                     .build()
             try {
-                manager.notify(notification.sessionId.toInt(), built)
+                manager.notify(notificationId, built)
             } catch (exception: Exception) {
                 // POST_NOTIFICATIONS 未授权时 notify 抛 SecurityException：通知进不来
                 // 不该带崩运行期。
@@ -161,3 +162,26 @@ class DesktopNotificationPlayer internal constructor(
         }
     }
 }
+
+/**
+ * 桌面通知的系统通知 id。
+ *
+ * 系统通知的 id 在整个应用内共享一张表，同 id 即同一条通知：桌面通知顶掉前台服务的
+ * 常驻通知，用户就丢了「退出」与「唤醒锁」入口；常驻通知刷新（会话数变化）顶掉桌面
+ * 通知，用户刚收到的提醒凭空消失。首个会话的 id 是 1，与常驻通知的 id 相同，故桌面
+ * 通知的 id 落在独立号段里。
+ *
+ * 号段自 [DESKTOP_NOTIFICATION_ID_BASE] 起、容量 [DESKTOP_NOTIFICATION_ID_SPACE]：会话
+ * id 由原生侧单调自增，实际取值远小于号段容量；取模使结果恒落在号段内，既不会与常驻
+ * 通知的 id 相撞，也不会溢出成负数。
+ *
+ * 同一会话恒得同一 id：同一会话的后续通知仍顶替先前那条，而不是在通知栏里堆叠。
+ */
+internal fun desktopNotificationId(sessionId: Long): Int =
+    DESKTOP_NOTIFICATION_ID_BASE + (sessionId % DESKTOP_NOTIFICATION_ID_SPACE).toInt()
+
+/** 桌面通知 id 号段的起点：与前台服务的常驻通知 id（1）分区。 */
+private const val DESKTOP_NOTIFICATION_ID_BASE = 1_000_000
+
+/** 桌面通知 id 号段的容量。 */
+private const val DESKTOP_NOTIFICATION_ID_SPACE = 1_000_000
