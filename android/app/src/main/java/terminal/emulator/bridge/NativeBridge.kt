@@ -222,6 +222,17 @@ object NativeBridge {
      */
     @JvmStatic external fun pollEvent(): String?
 
+    /**
+     * 轮询桌面通知队列，返回 JSON 编码的通知事件或 null；无通知时为 null。
+     *
+     * 与 [pollEvent] 分开：通知队列独立于事件队列，后台期间只有会话推进泵在跑，
+     * 它要取得到通知（否则通知要等用户回到应用才出现），却不得取走退出事件。
+     *
+     * 事件 JSON 格式：
+     * {"event":"desktop_notification","session_id":1,"title":"","body":"build done"}
+     */
+    @JvmStatic external fun pollNotificationEvent(): String?
+
     // ── 渲染唤醒 ──
 
     /**

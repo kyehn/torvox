@@ -61,6 +61,8 @@
     <!-- Notifications -->
     <string name="notification_channel_name">终端会话</string>
     <string name="notification_channel_desc">用于活跃终端会话的持久通知</string>
+    <string name="notification_desktop_channel_name">桌面通知</string>
+    <string name="notification_desktop_channel_desc">程序在终端里请求的通知（OSC 9 / OSC 777）</string>
     <string name="notification_active_single">终端会话活跃中</string>
     <string name="notification_active_multiple">%d 个终端会话活跃中</string>
     <string name="notification_starting">终端启动中</string>

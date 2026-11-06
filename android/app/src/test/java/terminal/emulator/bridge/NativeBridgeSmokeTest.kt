@@ -176,6 +176,27 @@ class NativeBridgeSmokeTest {
     }
 
     @Test
+    fun `feedTerminal OSC9 surfaces desktop notification poll event`() {
+        withSession { sessionId ->
+            // OSC 9 全链（host 可验）：feedTerminal 直注解析器，上游
+            // on_desktop_notification 回调经通知队列由 pollNotificationEvent 以
+            // JSON 报出。通知走独立队列（与事件队列分开），故不经 pollEvent。
+            val marker = "SMOKE9_${System.currentTimeMillis() % 100000}"
+            NativeBridge.feedTerminal(
+                sessionId,
+                "\u001B]9;$marker\u0007".toByteArray(Charsets.UTF_8),
+            )
+            val seen =
+                awaitTrue("desktop notification poll event") {
+                    generateSequence { NativeBridge.pollNotificationEvent() }.take(50).any { json ->
+                        json.contains("desktop_notification") && json.contains(marker)
+                    }
+                }
+            assertTrue("OSC9 must surface as desktop notification poll event", seen)
+        }
+    }
+
+    @Test
     fun `feedTerminal text is queryable via getTerminalText`() {
         withSession { sessionId ->
             NativeBridge.feedTerminal(sessionId, "hello jni roundtrip".toByteArray())

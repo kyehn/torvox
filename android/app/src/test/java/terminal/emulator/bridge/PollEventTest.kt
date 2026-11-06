@@ -32,6 +32,18 @@ class PollEventTest {
     }
 
     @Test
+    fun `desktop notification event decodes with event discriminator`() {
+        val event: PollEvent =
+            pollEventJson.decodeFromString(
+                """{"event":"desktop_notification","session_id":7,"title":"构建","body":"完成"}""",
+            )
+        assertEquals(
+            PollEvent.DesktopNotification(sessionId = 7L, title = "构建", body = "完成"),
+            event,
+        )
+    }
+
+    @Test
     fun `unknown fields are ignored`() {
         val event: PollEvent =
             pollEventJson.decodeFromString("""{"event":"clipboard","session_id":1,"text":"x","future_field":42}""")
@@ -54,6 +66,7 @@ class PollEventTest {
                 """{"event":"exit","session_id":1,"code":0}""",
                 """{"event":"bell","session_id":1}""",
                 """{"event":"clipboard_read","session_id":1,"request_id":2,"selection":"x"}""",
+                """{"event":"desktop_notification","session_id":1,"title":"","body":"x"}""",
             )
         samples.forEach { sample ->
             // Decoding succeeding is the assertion: a missing/renamed

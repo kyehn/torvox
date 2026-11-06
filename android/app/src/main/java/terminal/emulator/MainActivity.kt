@@ -77,6 +77,13 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_SETTINGS = "terminal.emulator.open_settings"
 
         /**
+         * 桌面通知点击携带的会话 id：点击后切到该会话。
+         *
+         * 0 表示无此请求（extra 缺省）。会话 id 从 1 起，故 0 不会与真实 id 撞车。
+         */
+        const val EXTRA_NOTIFICATION_SESSION_ID = "terminal.emulator.notification_session_id"
+
+        /**
          * 仅测试用的 extra：从本地路径安装引导 zip，供引导程序真实终端测试使用
          * ——instrumentation 进程无法写应用 filesDir（SELinux app_data 类目）。
          * 仅 debug 构建响应，release 构建不携带该后门。
@@ -229,6 +236,13 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
             openSettingsRequests++
         }
+        // 桌面通知点击：切到通知所属的会话。Surface 未就绪时 ViewModel 记下请求，
+        // 待 Surface 交付后再执行（通知点击常把应用从后台拉起，那时还没有 Surface）。
+        val notificationSessionId = intent.getLongExtra(EXTRA_NOTIFICATION_SESSION_ID, 0L)
+        if (notificationSessionId != 0L) {
+            LogUtil.info(TAG, "handleLaunchIntent: switching to session $notificationSessionId")
+            terminalViewModel.requestSessionSwitch(notificationSessionId)
+        }
         // 仅测试用的引导安装入口（TermuxBootstrapRealTerminalTest）。
         // 仅限 debug 构建：release APK 绝不能携带该安装后门 extra
         // （否则任何应用都能把我们指向任意 zip）。
@@ -261,6 +275,23 @@ class MainActivity : ComponentActivity() {
             Intent(this, BootstrapInstallService::class.java)
                 .putExtra(BootstrapInstallService.EXTRA_ZIP_PATH, zipPath),
         )
+    }
+
+    /**
+     * 应用进入前台：桌面通知改用 Toast（用户在终端前，无需离开当前界面）。
+     *
+     * 判据取 Activity 生命周期而非「渲染是否暂停」：后者在设置页打开、输入法弹出
+     * 时也为真，那时用户仍看着终端。
+     */
+    override fun onStart() {
+        super.onStart()
+        runtime.setAppForeground(true)
+    }
+
+    /** 应用退到后台：桌面通知改用系统通知（Toast 在后台不可见）。 */
+    override fun onStop() {
+        runtime.setAppForeground(false)
+        super.onStop()
     }
 
     override fun onDestroy() {

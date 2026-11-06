@@ -34,6 +34,20 @@ sealed class PollEvent {
     @SerialName("bell")
     data class Bell(@SerialName("session_id") val sessionId: Long = 0) : PollEvent()
 
+    /**
+     * OSC 9 / OSC 777 桌面通知：程序请求弹出一条通知。
+     *
+     * OSC 9 不带标题，故 [title] 常为空串；负载是程序给出的原始字节，原生侧按替换
+     * 字符解码后才到这里。
+     */
+    @Serializable
+    @SerialName("desktop_notification")
+    data class DesktopNotification(
+        @SerialName("session_id") val sessionId: Long = 0,
+        val title: String = "",
+        val body: String = "",
+    ) : PollEvent()
+
     @Serializable
     @SerialName("clipboard_read")
     data class ClipboardRead(

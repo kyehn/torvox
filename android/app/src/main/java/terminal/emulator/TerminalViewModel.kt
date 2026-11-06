@@ -1107,12 +1107,44 @@ constructor(
 
     @Volatile var surfaceHeight: Int = 0
 
+    /**
+     * 待执行的会话切换请求（来自桌面通知点击）；0 表示无请求。
+     *
+     * 通知点击常把应用从后台拉起，那时 Surface 尚未交付——直接切换会因「surface null
+     * or invalid」失败，用户点了通知却什么都没发生。故记下请求，待 Surface 就绪
+     * 后再执行。
+     */
+    @Volatile private var pendingSessionSwitchId: Long = 0L
+
+    /**
+     * 切到指定会话；Surface 未就绪时记下请求，待 [startRuntime] 拿到可用 Surface
+     * 后执行。
+     */
+    fun requestSessionSwitch(sessionId: Long) {
+        if (currentSurface?.isValid != true || surfaceWidth <= 0 || surfaceHeight <= 0) {
+            pendingSessionSwitchId = sessionId
+            LogUtil.info(
+                "TerminalViewModel",
+                "requestSessionSwitch: surface not ready; pending id=$sessionId",
+            )
+            return
+        }
+        pendingSessionSwitchId = 0L
+        switchSession(sessionId)
+    }
+
     fun startRuntime(surface: Surface?, width: Int, height: Int) {
         currentSurface = surface
         surfaceWidth = width
         surfaceHeight = height
         viewModelScope.launch(TerminalDispatchers.inputOutput) {
             runtime.start(surface, width, height)
+            // 通知点击带来的切换请求：此时 Surface 已就绪、启动已完成。
+            val pending = pendingSessionSwitchId
+            if (pending != 0L) {
+                pendingSessionSwitchId = 0L
+                switchSession(pending)
+            }
         }
     }
 

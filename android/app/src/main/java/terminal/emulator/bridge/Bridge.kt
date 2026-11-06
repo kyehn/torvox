@@ -407,6 +407,13 @@ class Bridge(private val config: TerminalConfig) {
                 ),
             )
         }
+
+        is PollEvent.DesktopNotification -> {
+            // 桌面通知走独立的队列与轮询入口（见 NativeBridge.pollNotificationEvent）：
+            // 事件队列里不会出现它。此处显式空转以穷尽 when 分支——漏掉它会让
+            // 编译器把「新增事件变体」变成一次构建失败，而不是一次静默丢弃。
+            PollResult()
+        }
     }
 
     // ── 主题 / 外观 ──

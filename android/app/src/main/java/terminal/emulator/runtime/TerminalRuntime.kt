@@ -33,10 +33,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import terminal.emulator.BuildConfig
+import terminal.emulator.R
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.bridge.PollEvent
 import terminal.emulator.bridge.Shell
 import terminal.emulator.bridge.TerminalConfig
+import terminal.emulator.bridge.pollEventJson
 import terminal.emulator.installer.BootstrapDownloader
 import terminal.emulator.installer.BootstrapInstaller
 import terminal.emulator.installer.BootstrapOrchestrator
@@ -445,6 +448,24 @@ constructor(
 
     /** 终端响铃执行器：按 `bell-character` 三态动作，内部限频防 BEL 洪泛。 */
     private val bellPlayer = BellPlayer(context)
+
+    /** 桌面通知投递器：前台 Toast、后台系统通知（OSC 9 / OSC 777）。 */
+    private val desktopNotificationPlayer = DesktopNotificationPlayer(context)
+
+    /**
+     * 应用是否位于前台。
+     *
+     * 判据取 Activity 生命周期（MainActivity 的 onStart/onStop），而非「渲染是否
+     * 暂停」：后者在设置页打开、输入法弹出时也为真，那时用户仍看着终端，用 Toast
+     * 才对；反过来切到别的应用时渲染暂停，但用户不在应用前，Toast 看不见。
+     */
+    @Volatile var appForeground: Boolean = false
+        private set
+
+    /** 上报应用前后台状态（由 Activity 生命周期回调驱动）。 */
+    fun setAppForeground(foreground: Boolean) {
+        appForeground = foreground
+    }
 
     private val eventDispatcher = EventDispatcher()
 
@@ -2287,6 +2308,71 @@ constructor(
         }
     }
 
+    /**
+     * 桌面通知轮询协程是否已启动（幂等保护）。
+     *
+     * `start()` 可能被多次调用（每次 Surface 重建都会走到），而通知轮询必须只有一个：
+     * 两个协程同时消费同一条原生队列，通知会被随机分给其中一个投递器。
+     */
+    @Volatile private var notificationPollingStarted = false
+
+    /**
+     * 启动桌面通知轮询（幂等）。
+     *
+     * 通知走独立的原生队列（与事件队列分开），故需单独轮询；且与渲染生命周期无关——
+     * 应用在后台时通知仍须及时出现（那时只有会话推进泵在跑，它把通知推进队列）。
+     */
+    private fun startNotificationPolling() {
+        if (notificationPollingStarted) return
+        notificationPollingStarted = true
+        scope.launch {
+            while (isActive) {
+                drainNotifications()
+                delay(NOTIFICATION_POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    /**
+     * 排空待上报的桌面通知并逐条投递。
+     *
+     * 解码失败只丢这一条：解码器把出错的片段带进异常消息，而通知正文可能含敏感
+     * 内容，故只记异常类名与 JSON 长度。
+     */
+    private fun drainNotifications() {
+        while (true) {
+            val json = NativeBridge.pollNotificationEvent() ?: return
+            val event =
+                try {
+                    pollEventJson.decodeFromString<PollEvent>(json)
+                } catch (exception: Exception) {
+                    LogUtil.warn(
+                        TAG,
+                        "desktop notification dropped (${exception.javaClass.simpleName}, ${json.length} chars)",
+                    )
+                    continue
+                }
+            if (event !is PollEvent.DesktopNotification) continue
+            // 会话序号取会话表的升序下标（与抽屉里的顺序一致）：序号随会话增删变化，
+            // 故每次投递时现算，不缓存。
+            val sessionNumber = _state.value.sessionIds.indexOf(event.sessionId) + 1
+            desktopNotificationPlayer.dispatch(
+                SessionNotification(
+                    sessionId = event.sessionId,
+                    sessionLabel =
+                    if (sessionNumber > 0) {
+                        context.getString(R.string.session_number, sessionNumber)
+                    } else {
+                        ""
+                    },
+                    title = event.title,
+                    body = event.body,
+                ),
+                appForeground,
+            )
+        }
+    }
+
     private companion object {
         private const val TAG = "Runtime"
 
@@ -2373,6 +2459,9 @@ constructor(
 
         /** 渲染暂停期间会话推进泵的节拍（毫秒），对标上游读侧 16ms 合并投递。 */
         private const val SESSION_PUMP_INTERVAL_MS = 16L
+
+        /** 桌面通知轮询间隔（毫秒）：通知低频，100ms 足以让通知及时出现而不空转。 */
+        private const val NOTIFICATION_POLL_INTERVAL_MS = 100L
         private const val RENDER_MAX_RESTART_ATTEMPTS = 5
     }
 
@@ -2644,6 +2733,8 @@ constructor(
             }
             return
         }
+        // 桌面通知轮询：原生库就绪后即可开始（通知队列与渲染线程无关）。
+        startNotificationPolling()
         val displayW = context.resources.displayMetrics.widthPixels
         val displayH = context.resources.displayMetrics.heightPixels
         val density = context.resources.displayMetrics.density

@@ -124,6 +124,13 @@ pub(super) fn poll_notification_event_inner<'local>(
     env: &mut Env<'local>,
     _class: JClass<'local>,
 ) -> jstring {
+    // 步骤 1：推进全部会话（把 PTY 输出灌入终端，收割上游通知回调）。
+    // 与 `poll_event_inner` 同构：通知的产出依赖会话推进（OSC 9 序列要先被 VT
+    // 解析，回调才会触发），故本入口必须自带推进，不能指望渲染循环或后台推进
+    // 泵恰好先跑过一轮。
+    pump_sessions();
+
+    // 步骤 2：从通知队列排空一个通知。
     match NOTIFICATION_QUEUE.pop() {
         Some(event) => {
             let json = match serde_json::to_string(&event) {
