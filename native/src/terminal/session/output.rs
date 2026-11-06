@@ -237,8 +237,8 @@ impl Session {
 
     /// 取走一条待上报的桌面通知 `(标题, 正文)`；无通知时为 None。
     ///
-    /// 通知不入会话队列：它可被程序洪泛，而宿主一次能消费多条，故直接取走上游
-    /// 回调通道里的事件（通道本身有界，满则丢弃并告警）。
+    /// 通知不入会话队列：它可被程序洪泛，而宿主一次能消费多条，故直接取走终端侧
+    /// 的通知队列（`NotificationQueue`：有界，满时丢最旧并限频告警）。
     pub fn poll_notification(&self) -> Option<(String, String)> {
         self.terminal.poll_notification_event()
     }
