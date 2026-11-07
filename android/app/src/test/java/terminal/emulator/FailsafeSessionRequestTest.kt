@@ -1,6 +1,5 @@
 package terminal.emulator
 
-import android.content.Context
 import android.view.Surface
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -9,8 +8,6 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -19,11 +16,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import terminal.emulator.runtime.RuntimeState
-import terminal.emulator.runtime.TerminalRuntime
-import terminal.emulator.settings.SettingsRepository
-import terminal.emulator.settings.TermuxConfiguration
-import terminal.emulator.settings.TermuxPropertiesRepository
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -94,8 +86,8 @@ class FailsafeSessionRequestTest {
 
     @Test
     fun coldStartMarksTheRuntimeWithoutCreatingASession() {
-        val runtime = createRuntime(sessionIds = emptyList())
-        val viewModel = createViewModel(runtime)
+        val runtime = createTestRuntime(sessionIds = emptyList())
+        val viewModel = createTestViewModel(runtime)
 
         viewModel.requestFailsafeSession(freshIntent = true)
 
@@ -105,13 +97,13 @@ class FailsafeSessionRequestTest {
 
     @Test
     fun runningAppCreatesAFailsafeSessionOnceTheSurfaceArrives() {
-        val runtime = createRuntime(sessionIds = listOf(7L))
+        val runtime = createTestRuntime(sessionIds = listOf(7L))
         val created = CountDownLatch(1)
         coEvery { runtime.createSession(any(), any(), any()) } coAnswers {
             created.countDown()
             8L
         }
-        val viewModel = createViewModel(runtime)
+        val viewModel = createTestViewModel(runtime)
 
         viewModel.requestFailsafeSession(freshIntent = true)
 
@@ -131,43 +123,12 @@ class FailsafeSessionRequestTest {
 
     @Test
     fun rebuiltActivityNeitherMarksNorCreates() {
-        val runtime = createRuntime(sessionIds = listOf(7L))
-        val viewModel = createViewModel(runtime)
+        val runtime = createTestRuntime(sessionIds = listOf(7L))
+        val viewModel = createTestViewModel(runtime)
 
         viewModel.requestFailsafeSession(freshIntent = false)
 
         verify(exactly = 0) { runtime.requestFailsafeSession() }
         coVerify(exactly = 0) { runtime.createSession(any(), any(), any()) }
-    }
-
-    private fun createRuntime(sessionIds: List<Long>): TerminalRuntime {
-        val runtime = mockk<TerminalRuntime>(relaxed = true)
-        every { runtime.state } returns
-            MutableStateFlow(
-                RuntimeState(isRunning = sessionIds.isNotEmpty(), sessionIds = sessionIds),
-            )
-        return runtime
-    }
-
-    private fun createViewModel(runtime: TerminalRuntime): TerminalViewModel {
-        val settingsRepository = mockk<SettingsRepository>(relaxed = true)
-        every { settingsRepository.settings } returns
-            flowOf(
-                SettingsRepository.SettingsState(
-                    fontSize = 14f,
-                    themeName = "",
-                    dayThemeName = "",
-                    nightThemeName = "",
-                ),
-            )
-        every { settingsRepository.defaultFontSize } returns 14f
-        val termuxProperties = mockk<TermuxPropertiesRepository>(relaxed = true)
-        every { termuxProperties.configuration } returns MutableStateFlow(TermuxConfiguration())
-        return TerminalViewModel(
-            context = mockk<Context>(relaxed = true),
-            settingsRepository = settingsRepository,
-            termuxProperties = termuxProperties,
-            runtime = runtime,
-        )
     }
 }

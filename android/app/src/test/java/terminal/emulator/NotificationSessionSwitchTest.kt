@@ -1,15 +1,11 @@
 package terminal.emulator
 
-import android.content.Context
 import android.view.Surface
-import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -17,12 +13,6 @@ import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import terminal.emulator.runtime.RuntimeState
-import terminal.emulator.runtime.TerminalRuntime
-import terminal.emulator.settings.SettingsRepository
-import terminal.emulator.settings.TermuxConfiguration
-import terminal.emulator.settings.TermuxPropertiesRepository
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
@@ -52,33 +42,23 @@ class NotificationSessionSwitchTest {
 
     @Test
     fun freshNotificationSwitchesToItsSession() {
-        val runtime = createRuntime()
-        val switched = CountDownLatch(1)
-        coEvery { runtime.switchSession(any(), any(), any(), any()) } coAnswers {
-            switched.countDown()
-            true
-        }
-        val viewModel = createViewModel(runtime)
+        val (runtime, switched) = createSwitchRecordingRuntime()
+        val viewModel = createTestViewModel(runtime)
         deliverSurface(viewModel)
 
-        viewModel.requestSessionSwitch(sessionId = 7L, freshIntent = true)
+        viewModel.requestSessionSwitch(sessionId = SWITCH_TARGET_SESSION_ID, freshIntent = true)
 
         assertTrue("通知点击未切换到目标会话", switched.await(5, TimeUnit.SECONDS))
-        coVerify(exactly = 1) { runtime.switchSession(7L, any(), any(), any()) }
+        coVerify(exactly = 1) { runtime.switchSession(SWITCH_TARGET_SESSION_ID, any(), any(), any()) }
     }
 
     @Test
     fun freshNotificationWaitsForTheSurface() {
-        val runtime = createRuntime()
-        val switched = CountDownLatch(1)
-        coEvery { runtime.switchSession(any(), any(), any(), any()) } coAnswers {
-            switched.countDown()
-            true
-        }
-        val viewModel = createViewModel(runtime)
+        val (runtime, switched) = createSwitchRecordingRuntime()
+        val viewModel = createTestViewModel(runtime)
 
         // Surface 尚未交付：此刻切不了，但请求不得丢弃。
-        viewModel.requestSessionSwitch(sessionId = 7L, freshIntent = true)
+        viewModel.requestSessionSwitch(sessionId = SWITCH_TARGET_SESSION_ID, freshIntent = true)
         coVerify(exactly = 0) { runtime.switchSession(any(), any(), any(), any()) }
 
         val surface = mockk<Surface>()
@@ -86,27 +66,27 @@ class NotificationSessionSwitchTest {
         viewModel.startRuntime(surface, 1080, 2400)
 
         assertTrue("Surface 交付后未补切到目标会话", switched.await(5, TimeUnit.SECONDS))
-        coVerify(exactly = 1) { runtime.switchSession(7L, any(), any(), any()) }
+        coVerify(exactly = 1) { runtime.switchSession(SWITCH_TARGET_SESSION_ID, any(), any(), any()) }
     }
 
     @Test
     fun rebuiltActivityDoesNotReplayTheNotificationSwitch() {
-        val runtime = createRuntime()
-        val viewModel = createViewModel(runtime)
+        val runtime = createTestRuntime(sessionIds = listOf(SWITCH_TARGET_SESSION_ID))
+        val viewModel = createTestViewModel(runtime)
         deliverSurface(viewModel)
 
-        viewModel.requestSessionSwitch(sessionId = 7L, freshIntent = false)
+        viewModel.requestSessionSwitch(sessionId = SWITCH_TARGET_SESSION_ID, freshIntent = false)
 
         coVerify(exactly = 0) { runtime.switchSession(any(), any(), any(), any()) }
     }
 
     @Test
     fun rebuiltActivityLeavesNoPendingNotificationSwitch() {
-        val runtime = createRuntime()
-        val viewModel = createViewModel(runtime)
+        val runtime = createTestRuntime(sessionIds = listOf(SWITCH_TARGET_SESSION_ID))
+        val viewModel = createTestViewModel(runtime)
 
         // Surface 未就绪时的陈旧请求：既不挂起也不切换。
-        viewModel.requestSessionSwitch(sessionId = 7L, freshIntent = false)
+        viewModel.requestSessionSwitch(sessionId = SWITCH_TARGET_SESSION_ID, freshIntent = false)
 
         val surface = mockk<Surface>()
         every { surface.isValid } returns true
@@ -121,36 +101,5 @@ class NotificationSessionSwitchTest {
         viewModel.surfaceWidth = 1080
         viewModel.surfaceHeight = 2400
         viewModel.currentSurface = surface
-    }
-
-    private fun createRuntime(): TerminalRuntime {
-        val runtime = mockk<TerminalRuntime>(relaxed = true)
-        every { runtime.state } returns
-            MutableStateFlow(
-                RuntimeState(isRunning = true, sessionIds = listOf(7L)),
-            )
-        return runtime
-    }
-
-    private fun createViewModel(runtime: TerminalRuntime): TerminalViewModel {
-        val settingsRepository = mockk<SettingsRepository>(relaxed = true)
-        every { settingsRepository.settings } returns
-            flowOf(
-                SettingsRepository.SettingsState(
-                    fontSize = 14f,
-                    themeName = "",
-                    dayThemeName = "",
-                    nightThemeName = "",
-                ),
-            )
-        every { settingsRepository.defaultFontSize } returns 14f
-        val termuxProperties = mockk<TermuxPropertiesRepository>(relaxed = true)
-        every { termuxProperties.configuration } returns MutableStateFlow(TermuxConfiguration())
-        return TerminalViewModel(
-            context = mockk<Context>(relaxed = true),
-            settingsRepository = settingsRepository,
-            termuxProperties = termuxProperties,
-            runtime = runtime,
-        )
     }
 }

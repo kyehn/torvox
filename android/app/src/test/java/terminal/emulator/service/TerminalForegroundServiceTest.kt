@@ -18,6 +18,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.android.controller.ServiceController
 import org.robolectric.shadows.ShadowPowerManager
 import terminal.emulator.R
 
@@ -31,15 +32,22 @@ class TerminalForegroundServiceTest {
 
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
-    private fun startWith(sessionCount: Int): Service {
+    private fun startWith(sessionCount: Int): Service = startControllerWith(sessionCount).get()
+
+    /**
+     * 建服务并发出启动命令；需要 `destroy()` 的用例经此拿控制器。
+     *
+     * 唤醒锁与 Wi-Fi 锁两条用例都要自己收尾（`destroy()`），拿不到服务实例就无从收尾，
+     * 于是各自抄了一份「建服务 → 启命令」——同一夹具的两份拷贝。
+     */
+    private fun startControllerWith(sessionCount: Int): ServiceController<TerminalForegroundService> {
         val intent =
             Intent(context, TerminalForegroundService::class.java).apply {
                 putExtra("session_count", sessionCount)
             }
         return Robolectric.buildService(TerminalForegroundService::class.java, intent)
             .create()
-            .startCommand(0, 1)
-            .get()
+            .also { it.startCommand(0, 1) }
     }
 
     @Test
@@ -113,13 +121,7 @@ class TerminalForegroundServiceTest {
 
     @Test
     fun `wake lock is acquired on start and released on destroy`() {
-        val intent =
-            Intent(context, TerminalForegroundService::class.java).apply {
-                putExtra("session_count", 1)
-            }
-        val controller =
-            Robolectric.buildService(TerminalForegroundService::class.java, intent).create()
-        controller.startCommand(0, 1)
+        val controller = startControllerWith(1)
         val wakeLock: PowerManager.WakeLock? = ShadowPowerManager.getLatestWakeLock()
         assertNotNull("a PARTIAL_WAKE_LOCK must be created", wakeLock)
         assertTrue("wake lock must be held while sessions run", requireNotNull(wakeLock).isHeld)
@@ -137,13 +139,7 @@ class TerminalForegroundServiceTest {
     fun `wifi lock is acquired while sessions run and released on destroy`() {
         val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
         val shadowWifiManager = shadowOf(wifiManager)
-        val intent =
-            Intent(context, TerminalForegroundService::class.java).apply {
-                putExtra("session_count", 1)
-            }
-        val controller =
-            Robolectric.buildService(TerminalForegroundService::class.java, intent).create()
-        controller.startCommand(0, 1)
+        val controller = startControllerWith(1)
         assertEquals(
             "a wifi lock must be held while sessions run",
             1,
@@ -267,14 +263,7 @@ class TerminalForegroundServiceTest {
     @Test
     fun `a released wake lock is not taken back by the next session count update`() {
         ShadowPowerManager.clearWakeLocks()
-        val controller =
-            Robolectric.buildService(
-                TerminalForegroundService::class.java,
-                Intent(context, TerminalForegroundService::class.java).apply {
-                    putExtra("session_count", 1)
-                },
-            ).create()
-        controller.startCommand(0, 1)
+        val controller = startControllerWith(1)
         val wakeLock = requireNotNull(ShadowPowerManager.getLatestWakeLock())
         controller.get().onStartCommand(
             Intent(context, TerminalForegroundService::class.java)

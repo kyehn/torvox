@@ -83,6 +83,27 @@ class ModifierBarRobolectricTest {
         }
     }
 
+    /** 抽屉键的点击与粘贴计数：两条互斥断言共用同一夹具。 */
+    private class DrawerCounters {
+        var pastes = 0
+        var drawerOpens = 0
+    }
+
+    /** 装上只计数抽屉键与粘贴键的键栏；其余按键回调无副作用。 */
+    private fun setDrawerCountingBar(counters: DrawerCounters) {
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onSubmit = {},
+                    onKeyboardClick = {},
+                    onKey = { _, _ -> false },
+                    onDrawerClick = { counters.drawerOpens++ },
+                    onPasteClick = { counters.pastes++ },
+                )
+            }
+        }
+    }
+
     @Test
     fun `plain extra key fires on release within slop`() {
         // spec modifier-bar-interaction 松手确认：单击在抬手时触发一次；
@@ -263,48 +284,26 @@ class ModifierBarRobolectricTest {
     @Test
     fun `drawer long press pastes clipboard`() {
         // Termux `popup: 'PASTE'`：DRAWER 长按必须粘贴，轻点仍开抽屉。
-        var pastes = 0
-        var drawerOpens = 0
-        composeRule.setContent {
-            MaterialTheme {
-                ModifierBar(
-                    onSubmit = {},
-                    onKeyboardClick = {},
-                    onKey = { _, _ -> false },
-                    onDrawerClick = { drawerOpens++ },
-                    onPasteClick = { pastes++ },
-                )
-            }
-        }
+        val counters = DrawerCounters()
+        setDrawerCountingBar(counters)
         composeRule.onNodeWithTag("Key_DRAWER").performTouchInput {
             down(center)
             advanceEventTime(LONG_PRESS_HOLD_MS)
             up()
         }
         composeRule.waitForIdle()
-        org.junit.Assert.assertEquals("长按必须粘贴", 1, pastes)
-        org.junit.Assert.assertEquals("长按不得打开抽屉", 0, drawerOpens)
+        org.junit.Assert.assertEquals("长按必须粘贴", 1, counters.pastes)
+        org.junit.Assert.assertEquals("长按不得打开抽屉", 0, counters.drawerOpens)
     }
 
     @Test
     fun `drawer tap opens drawer without pasting`() {
-        var pastes = 0
-        var drawerOpens = 0
-        composeRule.setContent {
-            MaterialTheme {
-                ModifierBar(
-                    onSubmit = {},
-                    onKeyboardClick = {},
-                    onKey = { _, _ -> false },
-                    onDrawerClick = { drawerOpens++ },
-                    onPasteClick = { pastes++ },
-                )
-            }
-        }
+        val counters = DrawerCounters()
+        setDrawerCountingBar(counters)
         composeRule.onNodeWithTag("Key_DRAWER").performClick()
         composeRule.waitForIdle()
-        org.junit.Assert.assertEquals("轻点必须打开抽屉", 1, drawerOpens)
-        org.junit.Assert.assertEquals("轻点不得粘贴", 0, pastes)
+        org.junit.Assert.assertEquals("轻点必须打开抽屉", 1, counters.drawerOpens)
+        org.junit.Assert.assertEquals("轻点不得粘贴", 0, counters.pastes)
     }
 
     /**
