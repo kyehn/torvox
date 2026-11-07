@@ -57,6 +57,16 @@
 两个原生忙标记都是「自忙起时刻」而非代数：挂起时计数不再推进，只有起点仍有意义。
 它们是原子量，渲染线程与看门狗只读，不取会话锁。
 
+### 忙标记的时钟域必须留在原生侧
+
+忙标记存的是**原生单调时钟**的读数（自进程内某个基准起算），而宿主语言的
+`System.nanoTime()` 基准是另一个原点。两者跨边界相减得到的「时长」没有意义——
+差值可能是天文数字，也可能是负数。
+
+故 JNI 导出 MUST 已经换算成**已忙时长**（`now - marker`），宿主只拿到一个时长再
+与阈值比较。已忙时长为 0 MUST 当且仅当标记未置位：刚置位的标记也 MUST 给出正值，
+否则「忙」与「空闲」在导出值上重合。
+
 ### 为什么没有「PTY 读取层」
 
 PTY 读取线程在无输出时阻塞于 `read()`，与「读取线程卡死」在进程内**没有可观测差别**：
@@ -99,29 +109,28 @@ PTY 读取线程在无输出时阻塞于 `read()`，与「读取线程卡死」�
 
 ## 诊断信息
 
-`SessionEntry` 新增只读诊断结构（Kotlin 侧）：
+`SessionLivenessDiagnosis`（Kotlin 侧）：
 
 ```kotlin
-data class SessionLivenessDiagnosis(
-    val hungLayer: HungLayer?, // RENDER / VT / OUTPUT_BACKLOG / LIFECYCLE / null
-    val sinceNanos: Long, // 挂起起点（各层忙标记的起点）
-    val diagnosisNanos: Long,
-)
+data class SessionLivenessDiagnosis(val hungLayer: HungLayer?, val busyNanos: Long)
 ```
 
-- `hungLayer == null` 表示未挂起。
+- `hungLayer == null` 表示未挂起（含空闲会话）。
+- `busyNanos` 是命中那一层的**已忙时长**（不是挂起起点）：原生侧换算好的时长，
+  跨语言边界不存在「起点」这一可比较的量。
 - 诊断信息只在判定为挂起时更新，空闲会话不产生任何噪声。
-- 日志按 500ms 限频，避免挂起期间刷屏。
+- 看门狗每 2s 判定一次；判定为挂起时才记日志，挂起期间日志随判定节拍产生。
 
 ## 落盘位置
 
 ### Rust 侧
 
-- VT 线程：开始处理命令批前把 `SystemTime`/单调时刻写入 `vtBusySinceNanos`，批处理
-  结束后清零。
-- PTY 读取线程：开始向输出通道投递前写入 `ptySendSinceNanos`，投递成功后清零。
+- VT 线程：开始处理命令批前把单调时刻写入 `vtBusySinceNanos`，批处理结束后清零
+  （回到通道等待即清零）。
+- PTY 读取线程：开始向输出通道投递前写入 `ptySendSinceNanos`，投递完成后清零。
 - 两个标记必须是原子量且**先写忙起点、后进入可能阻塞的区段**：先清零后干活会让
   看门狗在挂起瞬间读到 0 而漏判。
+- JNI 导出把标记换算成已忙时长后交给宿主。
 
 ### Kotlin 侧
 
@@ -139,11 +148,15 @@ data class SessionLivenessDiagnosis(
 ## 测试策略
 
 - 纯函数：层级判定（给定三个忙标记与渲染帧标记，输出 `HungLayer?`）必须有 JVM 单测，
-  覆盖正常空闲、渲染挂起、VT 挂起、输出投递阻塞、生命周期挂起五种情况。
+  覆盖正常空闲、渲染挂起、VT 挂起、输出投递阻塞、生命周期挂起五种情况，以及层级
+  优先级（渲染层优先于 VT 层，VT 层优先于输出投递层）。
 - 纯函数：恢复决策（给定 `HungLayer`，输出 `RestartRenderThread` / `CloseSession` /
   `RecordOnly`）必须有单测。
 - 纯函数：关闭节流（给定上次关闭时刻，输出可否关闭）必须有单测。
 - Rust 侧：忙标记的置位/清零顺序必须有单元测试（挂起中途读取必须看到非零起点）。
+  判别力必须确定：VT 侧用「应答缓冲的互斥量」把 VT 线程卡在能力探测的代答上，
+  输出投递侧用「填满有界通道」把投递卡在背压上——不靠 sleep 猜时序。
+- Rust 侧：已忙时长的换算（空闲为 0、刚置位为正）必须有单元测试。
 - 不得用 `@Ignore`、环境检查或跳过；缺少 Rust 产物时相关测试必须失败。
 
 ## 风险与缓解
