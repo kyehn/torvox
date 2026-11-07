@@ -1950,13 +1950,9 @@ constructor(
                                             // 线程判为挂死，反复重启直至 `closeDeadSession`
                                             // 关掉用户的 shell。
                                             entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
-                                            // 自适应退避：前 10 次 50ms，之后 200ms
-                                            val sleepMs =
-                                                if (consecutiveErrors > 10) {
-                                                    RENDER_ERROR_BACKOFF_MS
-                                                } else {
-                                                    RENDER_ERROR_SLEEP_MS
-                                                }
+                                            // 自适应退避：前若干次短退避，之后长退避
+                                            // （档位见 renderErrorBackoffMillis）。
+                                            val sleepMs = renderErrorBackoffMillis(consecutiveErrors)
                                             // 退避是设计上主动等的等待：单独计量，既不进慢循环
                                             // 判定，也不并进 poll 段——否则平台收走窗口这条正常
                                             // 退化路径会在退避后记出 warn 级慢循环告警。
@@ -2429,9 +2425,6 @@ constructor(
         // 瞬时错误的日志节流间隔（每 N 次连续错误记一行）。渲染线程不按错误数退出：
         // 旋转/切应用的 Surface 中断会连续报错，退出即永久卡死（见渲染循环注释）。
         private const val RENDER_MAX_TRANSIENT_ERRORS = 50
-        private const val RENDER_ERROR_SLEEP_MS = 50L
-        private const val RENDER_ERROR_BACKOFF_MS =
-            200L // 连续 10 次瞬时错误后延长睡眠
 
         // 慢帧诊断的阈值见文件顶层的 SLOW_FRAME_LOG_THRESHOLD_MS。
 
@@ -5212,3 +5205,33 @@ internal data class SurfaceRecreateDecision(val request: Boolean = false, val ex
  * @param consecutiveErrors 本次之前已连续发生的瞬时错误数（0 = 首次）
  */
 internal fun transientRenderErrorIsWarning(consecutiveErrors: Int): Boolean = consecutiveErrors > 0
+
+/** 渲染失败后的短退避（毫秒）：连续错误未达长退避阈值时用。 */
+private const val RENDER_ERROR_SLEEP_MS = 50L
+
+/** 渲染失败后的长退避（毫秒）：连续错误超过阈值后用，避免持续失败时空转。 */
+private const val RENDER_ERROR_BACKOFF_MS = 200L
+
+/**
+ * 连续渲染错误达到该次数后退避从短改长。
+ *
+ * 阈值原为内联字面量 10，其含义只记在长退避常量的注释里——改阈值而漏改注释，
+ * 两处便各说各话。具名后阈值与含义同处一地。
+ */
+private const val RENDER_ERROR_BACKOFF_AFTER_ERRORS = 10
+
+/**
+ * 渲染失败后的退避时长（毫秒）。
+ *
+ * 连续错误数未超过 [RENDER_ERROR_BACKOFF_AFTER_ERRORS] 时用短退避，超过则用长退避：
+ * 平台收走原生窗口这类正常退化只持续一两次，短退避让恢复更快；持续失败（新窗口
+ * 迟迟不来）时长退避，避免渲染线程在无望的失败上空转。
+ *
+ * @param consecutiveErrors 到本次失败为止已连续发生的渲染错误数（调用点在计数加一后传入）
+ */
+internal fun renderErrorBackoffMillis(consecutiveErrors: Int): Long =
+    if (consecutiveErrors > RENDER_ERROR_BACKOFF_AFTER_ERRORS) {
+        RENDER_ERROR_BACKOFF_MS
+    } else {
+        RENDER_ERROR_SLEEP_MS
+    }
