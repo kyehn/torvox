@@ -2,13 +2,14 @@ package terminal.emulator.cucumber.steps
 
 import android.content.pm.ActivityInfo
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import io.cucumber.java.zh_cn.假如
 import io.cucumber.java.zh_cn.当
 import io.cucumber.java.zh_cn.那么
+import terminal.emulator.assertTerminalScreenDisplayed
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.waitForSession
+import terminal.emulator.waitForTerminalScreenNode
 import javax.inject.Inject
 
 class LifecycleSteps
@@ -40,33 +41,19 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
 
     @那么("^终端界面仍显示$")
     fun terminalScreenIsStillDisplayed() {
-        composeRuleHolder.composeRule.waitUntil(timeoutMillis = 15000) {
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("TerminalScreen"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
-            .assertIsDisplayed()
+        composeRuleHolder.composeRule.waitForTerminalScreenNode(15_000)
+        composeRuleHolder.composeRule.assertTerminalScreenDisplayed()
     }
 
     @那么("^会话仍可用$")
     fun sessionIsStillFunctional() {
         composeRuleHolder.composeRule.waitForSession()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
-            .assertIsDisplayed()
+        composeRuleHolder.composeRule.assertTerminalScreenDisplayed()
     }
 
     @那么("^会话不间断继续$")
     fun sessionContinuesWithoutInterruption() {
-        composeRuleHolder.composeRule.waitUntil(timeoutMillis = 10000) {
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("TerminalScreen"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
+        composeRuleHolder.composeRule.waitForTerminalScreenNode(10_000)
         composeRuleHolder.composeRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
     }
 }

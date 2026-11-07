@@ -10,9 +10,11 @@ import androidx.test.espresso.Espresso
 import io.cucumber.java.zh_cn.当
 import io.cucumber.java.zh_cn.那么
 import org.junit.Assert.assertTrue
+import terminal.emulator.assertTerminalScreenDisplayed
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.waitForSession
+import terminal.emulator.waitForTerminalScreenNode
 import javax.inject.Inject
 
 class ThemeSteps
@@ -69,15 +71,8 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         )
         Espresso.pressBack()
         composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule.waitUntil(timeoutMillis = 5000) {
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("TerminalScreen"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
-            .assertIsDisplayed()
+        composeRuleHolder.composeRule.waitForTerminalScreenNode(5_000)
+        composeRuleHolder.composeRule.assertTerminalScreenDisplayed()
     }
 
     @那么("^终端应用的是有效内置主题$")

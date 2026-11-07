@@ -2,7 +2,6 @@ package terminal.emulator.cucumber.steps
 
 import android.view.KeyEvent
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
@@ -11,11 +10,13 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import io.cucumber.java.zh_cn.当
 import io.cucumber.java.zh_cn.那么
+import terminal.emulator.assertTerminalScreenDisplayed
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.openDrawer
 import terminal.emulator.probeAssertion
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSettingsScreen
+import terminal.emulator.waitForTerminalScreenNode
 import javax.inject.Inject
 
 class NavigationSteps
@@ -126,15 +127,8 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
 
     @那么("^终端界面完全可见$")
     fun terminalScreenIsFullyVisible() {
-        composeRuleHolder.composeRule.waitUntil(timeoutMillis = 5000) {
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("TerminalScreen"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
-            .assertIsDisplayed()
+        composeRuleHolder.composeRule.waitForTerminalScreenNode(5_000)
+        composeRuleHolder.composeRule.assertTerminalScreenDisplayed()
     }
 
     @那么("^设置界面已显示$")

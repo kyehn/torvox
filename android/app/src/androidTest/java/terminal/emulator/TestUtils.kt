@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -93,6 +94,28 @@ fun AndroidComposeTestRule<*, *>.waitForTerminalScreen(timeoutMs: Long = 60_000)
     waitUntil(timeoutMillis = timeoutMs) {
         probeAssertion { onNodeWithTag("TerminalScreen").assertIsDisplayed() }
     }
+}
+
+/**
+ * 等待终端页面节点出现（未合并树）。
+ *
+ * 与 [waitForTerminalScreen] 的差别：后者判「节点已显示」（合并树），本函数只判
+ * 「节点已组合出来」。Cucumber 步骤的公共就绪门槛用后者——步骤随后各有自己的断言
+ * （终端页面可见、键栏可见……），就绪门槛不该替它们选断言。
+ *
+ * 超时由调用点给出：收敛只消除复制，各调用点原有的等待预算保持不变。
+ */
+fun AndroidComposeTestRule<*, *>.waitForTerminalScreenNode(timeoutMs: Long) {
+    waitUntil(timeoutMillis = timeoutMs) {
+        onAllNodes(hasTestTag("TerminalScreen"), useUnmergedTree = true)
+            .fetchSemanticsNodes()
+            .isNotEmpty()
+    }
+}
+
+/** 终端页面节点可见（未合并树）：与 [waitForTerminalScreenNode] 配套的可见性断言。 */
+fun AndroidComposeTestRule<*, *>.assertTerminalScreenDisplayed() {
+    onNodeWithTag("TerminalScreen", useUnmergedTree = true).assertIsDisplayed()
 }
 
 /**

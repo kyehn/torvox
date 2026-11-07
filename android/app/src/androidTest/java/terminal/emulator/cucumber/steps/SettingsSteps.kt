@@ -2,7 +2,6 @@ package terminal.emulator.cucumber.steps
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
@@ -10,8 +9,10 @@ import androidx.compose.ui.test.swipe
 import io.cucumber.java.zh_cn.当
 import io.cucumber.java.zh_cn.那么
 import org.junit.Assert.assertTrue
+import terminal.emulator.assertTerminalScreenDisplayed
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.openSettings
+import terminal.emulator.waitForTerminalScreenNode
 import javax.inject.Inject
 
 class SettingsSteps
@@ -68,15 +69,8 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
             .onNodeWithTag("SettingsBackButton", useUnmergedTree = true)
             .performClick()
         composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule.waitUntil(timeoutMillis = 5000) {
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("TerminalScreen"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
-            .assertIsDisplayed()
+        composeRuleHolder.composeRule.waitForTerminalScreenNode(5_000)
+        composeRuleHolder.composeRule.assertTerminalScreenDisplayed()
         // 真断言：手势必须真正驱动设置值，而不只是界面仍在。
         var fontSize = 0f
         composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
