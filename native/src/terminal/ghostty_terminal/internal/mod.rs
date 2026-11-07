@@ -730,6 +730,7 @@ impl Encoders<'_> {
 }
 mod commands;
 mod dispatch;
+mod input_filter;
 mod kitty;
 mod mouse_input;
 mod rendering;
