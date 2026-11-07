@@ -37,6 +37,19 @@ internal fun bootstrapDirectories(context: Context): BootstrapDirectories {
 }
 
 /**
+ * 把引导归档复制到 [target] 并在结束后**始终**删除该副本。
+ *
+ * 删除必须覆盖复制阶段：复制中途失败时 [target] 已写入半截内容，而中转包落在
+ * 用户数据树内（系统从不清理 filesDir），留着就是永久占用数百 MB。
+ */
+internal fun <T> withPreservedArchive(target: File, source: File, block: (File) -> T): T = try {
+    source.copyTo(target, overwrite = true)
+    block(target)
+} finally {
+    target.delete()
+}
+
+/**
  * 带硬上限的归档流复制：累计超过 [BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES] 即抛错。
  *
  * 在线下载与离线 SAF 选择共用它：任一路径都不得把无界流写进 cacheDir。

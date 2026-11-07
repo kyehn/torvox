@@ -52,13 +52,11 @@ class BootstrapInstallService : Service() {
     private fun install(zipPath: String): String {
         val directories = bootstrapDirectories(this)
         // 安装前把 zip 移到安全位置——它可能位于 home 目录之下。
-        val preserved = File(filesDir, "bootstrap-preserved.zip")
-        File(zipPath).copyTo(preserved, overwrite = true)
         // 不得预删 prefix/home/staging：原子换入路径负责旧目录随机备份、失败回滚与 staging
         // 安全清理（含符号链接守卫），预删会绕过安全机制并丢失用户数据（服务侧 deleteRecursively 无符号链接守卫）。
-        return runBlocking {
-            val installer = BootstrapInstaller(directories.prefix, directories.home, directories.staging)
-            try {
+        return withPreservedArchive(File(filesDir, "bootstrap-preserved.zip"), File(zipPath)) { preserved ->
+            runBlocking {
+                val installer = BootstrapInstaller(directories.prefix, directories.home, directories.staging)
                 installer.install(preserved).exceptionOrNull()?.let { failure ->
                     return@runBlocking failure.message ?: "install failed"
                 }
@@ -66,10 +64,6 @@ class BootstrapInstallService : Service() {
                 if (!stage.success) return@runBlocking "SECOND_STAGE_FAILED: ${stage.errors}"
                 "OK prefix=${directories.prefix} shell=${installer.installedShellEntry() ?: "none"}" +
                     " installed=${installer.isInstalled()} needsInstall=${installer.needsInstall()}"
-            } finally {
-                // 始终删除中转包：落在用户数据树内，清除应用数据按规范不得触碰，
-                // 不删即永久占用数百MB。
-                preserved.delete()
             }
         }
     }
