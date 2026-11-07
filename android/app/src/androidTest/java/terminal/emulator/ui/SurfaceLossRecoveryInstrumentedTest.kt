@@ -326,7 +326,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
      * 覆盖状态由 `surfaceBufferPresent` 表达，而它最关键的一次写入（Surface 被拆除）
      * 发生在 `onStop` 之后。组合层若用生命周期门控的收集方式，`ON_START` 重启收集
      * 与首帧绘制会抢跑——首帧按旧值（有缓冲区）画完，开孔区便透出上一个应用，
-     * 即「切换应用返回一闪」（见 `docs/STATUS.md`）。
+     * 即「切换应用返回一闪」。
      */
     @Test
     fun backgroundStopKeepsCoverStateAndResumePresentsAgain() {

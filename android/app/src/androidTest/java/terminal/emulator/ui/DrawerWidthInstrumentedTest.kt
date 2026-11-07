@@ -14,7 +14,7 @@ import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
 
 /**
- * 会话抽屉宽度验收（STATUS「侧边面板过宽，布局不合理」）。
+ * 会话抽屉宽度验收：抽屉 MUST NOT 宽于可用宽度。
  *
  * 宽度口径 = 抽屉可用宽度的 84%，上限 320dp，**无下限**：ZTE 折叠屏外屏（约 236dp）
  * 上旧的 240dp 下限会把 0.84×236≈198dp 的抽屉强制抬宽到 240dp，比可用宽度还宽。

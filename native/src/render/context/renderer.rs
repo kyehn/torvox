@@ -294,8 +294,7 @@ impl Renderer {
     /// 调用方（`window.rs`）以「surface 归属仍是本会话」判定——Surface 销毁重建
     /// （切应用返回、窗口失效自愈）路径上无人 detach，归属保持不变；会话切换则
     /// 先 detach 旧会话（归属清零），据此拒绝复用，绝不把上一会话的画面闪给新会话。
-    /// 命中时 `warmup` 呈现缓存帧而非纯底色，消除 surface 拆到重建间的内容空白
-    /// （STATUS「切换应用返回页面闪烁」的平台侧残余）。
+    /// 命中时 `warmup` 呈现缓存帧而非纯底色，消除 surface 拆到重建间的内容空白。
     ///
     /// surface 生命周期由 Android SurfaceHolder.Callback 驱动（此处挂载/释放）而非
     /// Activity 生命周期；尺寸每帧重新查询；挂载后须立即渲染一帧。Acquire 失败的
