@@ -1,6 +1,8 @@
 //! 帧提交：实例上传、脏带合成与呈现。
 use super::acquire::ACQUIRE_TIMEOUT;
-use super::bands::{ensure_instance_capacity, instance_upload_layout, partial_frame_bands};
+use super::bands::{
+    ensure_instance_capacity, instance_upload_layout, partial_frame_bands, partial_instance_uploads,
+};
 use crate::render::GpuError;
 use crate::render::Renderer;
 use crate::render::context::MIN_VERTEX_BUFFER_SIZE;
@@ -259,14 +261,36 @@ impl Renderer {
             0,
             "Instance Buffer",
         );
-        Self::upload_instances(
-            &self.device,
-            &self.queue,
-            &mut self.instance_buffer,
-            bytemuck::cast_slice(instances),
-            clear_end,
-            "Instance Buffer",
-        );
+        // 部分帧只上传脏带覆盖的实例：干净行的槽位本帧不被绘制（绘制只覆盖脏带
+        // 切片），留着上一帧的内容即可。整份上传等于每帧把约 120KB 白传给 GPU，
+        // 而部分帧实际需要的往往只有一行（不足 1KB）。
+        let instance_stride = std::mem::size_of::<crate::render::CellInstance>() as u64;
+        let uploaded_bytes = if partial {
+            let mut uploaded = 0u64;
+            for (offset, range) in partial_instance_uploads(dirty_bands, instances.len(), clear_end)
+            {
+                uploaded += range.len() as u64 * instance_stride;
+                Self::upload_instances(
+                    &self.device,
+                    &self.queue,
+                    &mut self.instance_buffer,
+                    bytemuck::cast_slice(&instances[range]),
+                    offset,
+                    "Instance Buffer",
+                );
+            }
+            uploaded
+        } else {
+            Self::upload_instances(
+                &self.device,
+                &self.queue,
+                &mut self.instance_buffer,
+                bytemuck::cast_slice(instances),
+                clear_end,
+                "Instance Buffer",
+            );
+            instances.len() as u64 * instance_stride
+        };
         Self::upload_kgp_instances(
             &self.device,
             &self.queue,
@@ -414,7 +438,7 @@ impl Renderer {
         {
             let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
             log::warn!(
-                "SLOW_RENDER_PHASE acquire={:.3}ms encode={:.3}ms submit={:.3}ms present={:.3}ms total={:.3}ms partial={partial} instances={}",
+                "SLOW_RENDER_PHASE acquire={:.3}ms encode={:.3}ms submit={:.3}ms present={:.3}ms total={:.3}ms partial={partial} instances={} upload_bytes={uploaded_bytes}",
                 ms(begin_done.duration_since(frame_start)),
                 ms(encode_done.duration_since(begin_done)),
                 ms(submit_done.duration_since(encode_done)),
@@ -429,7 +453,7 @@ impl Renderer {
         // 呈现帧数随该行一起交出——限频吞掉的是条数，不是次数。
         if let Some(presented_frames) = self.present_log.record() {
             log::debug!(
-                "render_frame: presented {presented_frames} frames (last: {} instances, partial={partial}, dirty_bands={})",
+                "render_frame: presented {presented_frames} frames (last: {} instances, upload_bytes={uploaded_bytes}, partial={partial}, dirty_bands={})",
                 instances.len(),
                 dirty_bands.len(),
             );

@@ -1,4 +1,3 @@
 schema: spec-driven
 created: 2026-11-07
 goal: 降低部分帧的 CPU->GPU 上传带宽，提升突发输出与滚动帧率
-skip_specs: true

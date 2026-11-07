@@ -1,5 +1,5 @@
 use super::acquire::{AcquireLane, acquire_worker_tx, drain_in_flight_acquires};
-use super::bands::{instance_upload_layout, partial_frame_bands};
+use super::bands::{instance_upload_layout, partial_frame_bands, partial_instance_uploads};
 use crate::render::Renderer;
 
 #[test]
@@ -98,6 +98,67 @@ fn instance_upload_layout_table() {
         );
         assert!(clear_end <= draw_end, "真实例起点不得早于清除段终点");
     }
+}
+
+/// 脏带实例上传计划：每段脏带只传自己的实例切片，偏移与绘制槽位同一坐标系。
+#[test]
+fn partial_instance_uploads_cover_only_dirty_bands() {
+    let stride = std::mem::size_of::<crate::render::CellInstance>() as u64;
+    let clear_end = 2 * stride;
+    let bands = [
+        crate::render::cell_builder::DirtyBand {
+            start_row: 1,
+            end_row_exclusive: 2,
+            instance_start: 2,
+            instance_end: 3,
+        },
+        crate::render::cell_builder::DirtyBand {
+            start_row: 5,
+            end_row_exclusive: 6,
+            instance_start: 10,
+            instance_end: 12,
+        },
+    ];
+    let plan = partial_instance_uploads(&bands, 12, clear_end);
+    assert_eq!(
+        plan,
+        vec![
+            (clear_end + 2 * stride, 2..3),
+            (clear_end + 10 * stride, 10..12)
+        ],
+        "每段脏带的字节偏移须落在自己的槽位区间"
+    );
+    // 干净行的实例不传：上传量只与脏带覆盖的实例成正比。
+    let uploaded: usize = plan.iter().map(|(_, range)| range.len()).sum();
+    assert_eq!(uploaded, 3);
+    assert!(uploaded < 12, "部分帧不得按整帧实例量上传");
+}
+
+/// 空脏带列表、空切片与整段越界的切片都不得产生非法上传段。
+#[test]
+fn partial_instance_uploads_skip_empty_and_out_of_range_bands() {
+    let stride = std::mem::size_of::<crate::render::CellInstance>() as u64;
+    let band =
+        |instance_start: usize, instance_end: usize| crate::render::cell_builder::DirtyBand {
+            start_row: 0,
+            end_row_exclusive: 1,
+            instance_start,
+            instance_end,
+        };
+    assert!(partial_instance_uploads(&[], 10, 0).is_empty());
+    assert!(
+        partial_instance_uploads(&[band(4, 4)], 10, 0).is_empty(),
+        "空切片的脏带没有可上传的实例"
+    );
+    assert!(
+        partial_instance_uploads(&[band(12, 14)], 10, 0).is_empty(),
+        "整段越界的脏带不得越界读取"
+    );
+    // 尾部越界裁到实例数末尾：仍是一段不越界的上传。
+    assert_eq!(
+        partial_instance_uploads(&[band(8, 12)], 10, 0),
+        vec![(8 * stride, 8..10)]
+    );
 }
 
 #[test]

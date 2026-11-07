@@ -65,6 +65,30 @@ pub(super) fn instance_upload_layout(clear_count: usize, draw_count: usize) -> (
     (clear_end, clear_end + draw_count as u64 * stride)
 }
 
+/// 部分帧的实例上传计划：每个脏带一段 `(字节偏移, 实例区间)`。
+///
+/// 部分帧只上传脏带覆盖的实例：干净行的槽位本帧不被绘制（绘制只覆盖脏带切片），
+/// 槽位里留着上一帧的内容即可。字节偏移 = 清除段末尾 + 实例序号 × 步长，与绘制
+/// 时用的槽位序号同一坐标系。全量帧不走本函数（整份上传）。
+pub(super) fn partial_instance_uploads(
+    bands: &[crate::render::cell_builder::DirtyBand],
+    instance_count: usize,
+    clear_end: u64,
+) -> Vec<(u64, std::ops::Range<usize>)> {
+    let stride = std::mem::size_of::<crate::render::CellInstance>() as u64;
+    bands
+        .iter()
+        .filter_map(|band| {
+            let start = band.instance_start.min(instance_count);
+            let end = band.instance_end.min(instance_count);
+            if end <= start {
+                return None;
+            }
+            Some((clear_end + start as u64 * stride, start..end))
+        })
+        .collect()
+}
+
 /// 顶点缓冲容量不足 `required_size` 时按需重建，否则原样保留。
 pub(super) fn ensure_instance_capacity(
     device: &wgpu::Device,

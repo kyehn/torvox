@@ -21,10 +21,11 @@
 
 ### Modified Capabilities
 
-无（不改变可观测渲染结果，仅减少上传量）。
+- `render-stability`：新增「部分帧只上传脏带实例」要求（上传范围与绘制槽位同坐标系）。
 
 ## Impact
 
 - `native/src/render/pass/frame.rs`：`render_frame_with_plan` 的实例上传循环
 - `native/src/render/pass/bands.rs`：脏带切片与上传布局复用
 - 测试：上传字节数/脏带切片的表驱动用例
+- `openspec/specs/render-stability/spec.md`：部分帧上传范围的要求
