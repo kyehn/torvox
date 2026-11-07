@@ -32,6 +32,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.BuildConfig
 import terminal.emulator.R
 import terminal.emulator.bridge.Bridge
@@ -2707,16 +2708,7 @@ constructor(
         // 只在应用启动时读一次，之后文件的变化等下次启动生效。读失败不阻断启动——最坏
         // 是用内置默认值。
         termuxProperties.loadOnce()
-        if (!NativeBridge.isNativeLoaded()) {
-            // NativeInit 线程后台加载 libnative：首帧 surface 就绪时可能尚未完成。
-            // 等待至多 3 秒而非直接放弃，避免浪费一轮布局重建的启动延迟。
-            var waited = 0
-            while (!NativeBridge.isNativeLoaded() && waited < 60) {
-                delay(50)
-                waited++
-            }
-        }
-        if (!NativeBridge.isNativeLoaded()) {
+        if (!awaitNativeLibraryLoad()) {
             // 与 createSession 的守卫对称。没有它，bridge.ping() 抛 RuntimeException，
             // 回滚中的 destroySession 抛 UnsatisfiedLinkError（是 Error，catch(Exception) 捕获不到），
             // 原生库缺失或 ABI 不匹配时应用会崩溃。
@@ -5235,3 +5227,27 @@ internal fun renderErrorBackoffMillis(consecutiveErrors: Int): Long =
     } else {
         RENDER_ERROR_SLEEP_MS
     }
+
+/** 等待原生库加载完成的最长时间（毫秒）。 */
+private const val NATIVE_LIBRARY_LOAD_TIMEOUT_MS = 3_000L
+
+/** 等待原生库加载期间的轮询间隔（毫秒）。 */
+private const val NATIVE_LIBRARY_LOAD_POLL_INTERVAL_MS = 50L
+
+/**
+ * 等待原生库加载完成，最多等 [NATIVE_LIBRARY_LOAD_TIMEOUT_MS] 毫秒。
+ *
+ * 原生库由 NativeInit 线程后台装载，首帧 surface 就绪时可能尚未完成；等待而非直接
+ * 放弃，避免浪费一轮布局重建的启动延迟。等待以时间预算表达，不用「轮询次数」——
+ * 轮询次数隐含「每次恰好间隔固定时长」的前提，负载高时实际等待会远超标称值。
+ *
+ * @param isLoaded 原生库是否已装载的判据
+ * @return 超时前装载完成返回 true，超时返回 false
+ */
+internal suspend fun awaitNativeLibraryLoad(isLoaded: () -> Boolean = { NativeBridge.isNativeLoaded() }): Boolean =
+    withTimeoutOrNull(NATIVE_LIBRARY_LOAD_TIMEOUT_MS) {
+        while (!isLoaded()) {
+            delay(NATIVE_LIBRARY_LOAD_POLL_INTERVAL_MS)
+        }
+        true
+    } ?: false
