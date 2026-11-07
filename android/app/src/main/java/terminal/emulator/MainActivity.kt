@@ -40,6 +40,7 @@ import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.afterVirtualCtrlKey
 import terminal.emulator.installer.BootstrapInstallService
@@ -55,9 +56,11 @@ import terminal.emulator.ui.theme.resolveMaterialColorScheme
 import terminal.emulator.util.TerminalDispatchers
 import javax.inject.Inject
 
-/** 冷启动后，设置覆盖层的暂停逻辑为等待 bridge 出现而放弃的时长（50ms × 50 = 2.5s）。 */
+/** 冷启动后，设置覆盖层的暂停逻辑等待 bridge 出现的时间预算（毫秒）。 */
+private const val BRIDGE_READY_TIMEOUT_MS = 2_500L
+
+/** 等待 bridge 出现期间的轮询间隔（毫秒）。 */
 private const val BRIDGE_READY_POLL_INTERVAL_MS = 50L
-private const val BRIDGE_READY_POLL_ATTEMPTS = 50
 
 /** 系统启动屏的最长驻留：终端首帧迟迟不来（引导未装、会话起不来）时不得永久遮挡界面。 */
 private const val SPLASH_MAX_WAIT_MS = 5_000L
@@ -453,13 +456,9 @@ private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalVi
     LaunchedEffect(showSettings) {
         if (!showSettings) return@LaunchedEffect
         // bridge 由运行期在首个会话 spawn 之后异步创建；原生暂停标志落在全局渲染器
-        // 上，渲染器尚未建立时写入即丢失，故打开设置页前先等它出现（有界轮询，
+        // 上，渲染器尚未建立时写入即丢失，故打开设置页前先等它出现（有界等待，
         // 只在带 `openSettingsOnLaunch` 的冷启动才真正等待）。
-        var attempts = 0
-        while (viewModel.runtime.bridge() == null && attempts < BRIDGE_READY_POLL_ATTEMPTS) {
-            delay(BRIDGE_READY_POLL_INTERVAL_MS)
-            attempts++
-        }
+        awaitBridgeReady { viewModel.runtime.bridge() != null }
         settingsPauseToken = viewModel.runtime.acquireRenderPause()
     }
     DisposableEffect(showSettings) {
@@ -508,6 +507,23 @@ private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalVi
  */
 internal fun shouldKeepSplashOnScreen(framePresented: Boolean, waitedMs: Long): Boolean =
     !framePresented && waitedMs < SPLASH_MAX_WAIT_MS
+
+/**
+ * 等待 bridge 出现，最多等 [BRIDGE_READY_TIMEOUT_MS] 毫秒。
+ *
+ * bridge 由运行期在首个会话 spawn 之后异步创建；原生暂停标志落在全局渲染器上，
+ * 渲染器尚未建立时写入即丢失，故打开设置页前先等它出现。等待以时间预算表达，不用
+ * 「轮询次数」——次数隐含「每次间隔恰好固定时长」的前提，负载高时实际等待会远超标称值。
+ *
+ * @param isReady bridge 是否已就绪的判据
+ * @return 预算内就绪返回 true，超时返回 false
+ */
+internal suspend fun awaitBridgeReady(isReady: () -> Boolean): Boolean = withTimeoutOrNull(BRIDGE_READY_TIMEOUT_MS) {
+    while (!isReady()) {
+        delay(BRIDGE_READY_POLL_INTERVAL_MS)
+    }
+    true
+} ?: false
 
 /**
  * 会话表清空 → 关闭应用的判据。
