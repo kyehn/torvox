@@ -7,8 +7,6 @@ on:
         required: false
         default: false
         type: boolean
-  schedule:
-    - cron: '0 6 * * *'
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
