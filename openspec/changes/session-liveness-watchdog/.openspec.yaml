@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-07
+goal: 把'终端会话概率卡死'从不可诊断的黑盒变成可定位、可恢复的工程问题
+skip_specs: true
