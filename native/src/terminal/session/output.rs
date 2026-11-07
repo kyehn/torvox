@@ -1,6 +1,6 @@
 //! 输出收割：PTY 输出处理、VT 副作用与剪贴板应答。
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 
 use super::{Session, SessionError};
 
@@ -195,6 +195,22 @@ impl Session {
     /// UI 线程完全不碰会话锁（会话锁可被 PTY 写入按住数秒）。
     pub fn mouse_tracking_active_flag(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.terminal.mouse_tracking_active)
+    }
+
+    /// VT 线程忙标记的无锁镜像：存「自忙起时刻」的单调纳秒读数，0 = 空闲等待。
+    ///
+    /// 宿主据此判「VT 层挂起」：读数非零且距今超过阈值即说明 VT 线程卡在命令
+    /// 处理里久不返回。空闲会话读数为 0，不会被误判成挂起。
+    pub fn vt_busy_since_nanos_flag(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.terminal.vt_busy_since_nanos)
+    }
+
+    /// PTY 输出投递忙标记的无锁镜像：存「自忙起时刻」的单调纳秒读数，0 = 未在投递。
+    ///
+    /// 读数非零且距今超过阈值即说明「输出已读出却交不出去」——归因指向下游
+    /// （VT 线程）未消费，而不是读取线程卡死。
+    pub fn pty_send_since_nanos_flag(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.pty_send_since_nanos)
     }
 
     /// 收割 VT 线程经上游回调上报的事件（剪贴板写入）到队列/标志位。

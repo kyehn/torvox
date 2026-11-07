@@ -1132,3 +1132,58 @@ fn scroll_request_id_is_process_wide_and_never_reused() {
         "序号必须进程级递增、跨会话不复用：{second_id} 应大于 {first_id}"
     );
 }
+
+/// VT 忙标记：卡在命令处理里时保持非零，回到等待后清零。
+///
+/// 挂起判定以「有工作在途」为前提：空闲时 VT 线程阻塞在通道等待上，计数不推进，
+/// 按「计数未推进」判定会把空闲会话判死。故标记必须在**进入可能阻塞的区段之前**
+/// 置位、在回到等待之后清零。
+///
+/// 判别力：用应答缓冲的互斥量把 VT 线程确定性地卡住，不靠 sleep 猜时序——
+/// 卡住期间读到的标记必须非零，放锁后必须归零。
+///
+/// 卡点选在 Kitty 能力探测的代答上：探测命中「文件介质打不开」时本层要回一条
+/// 应答（见 `input_filter::kitty_probe`），回写应答要取应答缓冲的互斥量。
+/// 代答必须带图像 id（`i=1`）——没有 id 时上游压根不编码应答，也就不取那把锁，
+/// 卡点随即失效（这正是本条用例最初失败的原因）。
+#[test]
+fn vt_busy_marker_tracks_work_in_flight() {
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+
+    let terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    let busy_marker = &terminal_under_test.vt_busy_since_nanos;
+
+    // 持住应答缓冲：VT 线程回写这条代答应答时会等这把锁。
+    let response_guard = terminal_under_test
+        .pty_write_responses
+        .lock()
+        .expect("应答缓冲互斥量");
+    // `t=f` 的载荷是 base64 编码的路径；此处指向一个不存在的文件，故本层代答
+    // 「打不开」并回一条带 `i=1` 的错误应答。
+    let probe = b"\x1b_Ga=q,t=f,i=1;L25vbmV4aXN0ZW50L3RvcnZveC1raXR0eS1wcm9iZQ==\x1b\\";
+    terminal_under_test
+        .cmd_tx
+        .try_send(Command::Write(probe.to_vec()))
+        .expect("写入命令必须入队");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while busy_marker.load(Ordering::Acquire) == 0 {
+        assert!(
+            Instant::now() < deadline,
+            "VT 线程卡在命令处理里时忙标记必须非零，否则挂起判定永远看不到 VT 层"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    drop(response_guard);
+
+    let idle_deadline = Instant::now() + Duration::from_secs(5);
+    while busy_marker.load(Ordering::Acquire) != 0 {
+        assert!(
+            Instant::now() < idle_deadline,
+            "VT 线程回到等待后忙标记必须清零，否则空闲会话会被判成 VT 层挂起"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}

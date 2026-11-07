@@ -422,3 +422,45 @@ fn full_command_channel_backpressures_output_instead_of_dropping() {
         Err(error) => panic!("命令通道内应有滞留块：{error}"),
     }
 }
+
+/// PTY 投递忙标记：卡在背压里时非零，投递完成即清零。
+///
+/// 背压（通道满 → `send` 阻塞）是「输出已读出却交不出去」的唯一可观测信号：
+/// 读取线程空闲时阻塞在 `read()` 上，与挂起在进程内不可区分，故不能拿
+/// 「读取线程没有进展」当挂起证据。
+#[test]
+fn pty_send_busy_marker_tracks_backpressure() {
+    use super::super::spawn::send_pty_output;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
+
+    let (output_tx, output_rx) = flume::bounded::<Vec<u8>>(1);
+    // 占满槽位：下一段输出必然卡在投递里。
+    output_tx.send(vec![b'f']).expect("占位投递必须成功");
+
+    let busy_marker = Arc::new(AtomicU64::new(0));
+    let sender = output_tx.clone();
+    let marker = Arc::clone(&busy_marker);
+    let send_thread = std::thread::spawn(move || send_pty_output(&sender, &marker, vec![b's']));
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while busy_marker.load(Ordering::Acquire) == 0 {
+        assert!(
+            Instant::now() < deadline,
+            "投递卡在背压里时忙标记必须非零，否则挂起判定看不到「输出交不出去」"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    // 腾出槽位：投递随即完成，标记必须清零（未清零前宿主会把空闲读成挂起）。
+    output_rx.recv().expect("槽位必须腾出");
+    send_thread
+        .join()
+        .expect("投递线程必须退出")
+        .expect("腾出槽位后投递必须成功");
+    assert_eq!(
+        busy_marker.load(Ordering::Acquire),
+        0,
+        "投递完成后忙标记必须清零，否则空闲会话会被判成挂起"
+    );
+}

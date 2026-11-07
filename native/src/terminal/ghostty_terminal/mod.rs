@@ -93,6 +93,12 @@ pub struct GhosttyTerminal {
     /// `Session::resize` 已按「命令已入队」把缓存尺寸发布成新值。调用方据此
     /// 让下一次 resize 事件（即使尺寸相同）重试，修复永久分歧。
     pub(crate) resize_failed: Arc<AtomicBool>,
+    /// VT 线程的忙标记：存「自忙起时刻」的单调纳秒读数，0 = 空闲等待。
+    ///
+    /// 挂起判定看的是「有工作在途却久不返回」：VT 线程卡在命令处理里时该值停在
+    /// 原处不动，判定方取当前读数相减即得挂起时长。空闲时 VT 线程阻塞在通道
+    /// 等待上，计数不推进——故不能把「计数未推进」当作挂起证据。
+    pub(crate) vt_busy_since_nanos: Arc<AtomicU64>,
     /// 行级抽取的可观测计数，仅测试使用。
     #[cfg(test)]
     pub(crate) cache_stats: internal::CacheStats,

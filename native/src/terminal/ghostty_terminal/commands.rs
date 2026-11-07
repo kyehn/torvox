@@ -342,6 +342,11 @@ pub(crate) struct RunConfig {
     pub(crate) bell_flag: Arc<AtomicBool>,
     /// VT 线程置位表示 `Terminal::resize` 失败（网格未真正改尺寸）。
     pub(crate) resize_failed: Arc<AtomicBool>,
+    /// VT 线程忙标记：存「自忙起时刻」的单调纳秒读数，0 = 空闲等待。
+    ///
+    /// 与 [`crate::terminal::ghostty_terminal::GhosttyTerminal::vt_busy_since_nanos`]
+    /// 同一份原子量：VT 线程写入，宿主读出挂起时长。
+    pub(crate) vt_busy_since_nanos: Arc<AtomicU64>,
     /// 上游 OSC 52 回调事件通道（VT 线程推送，调用方轮询）：剪贴板写入。
     /// 有界丢弃——VT 线程永不阻塞；Kotlin 经 session 锁存槽读取。
     pub(crate) clipboard_tx: flume::Sender<(String, String)>,

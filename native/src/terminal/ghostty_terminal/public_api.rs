@@ -87,6 +87,8 @@ impl super::GhosttyTerminal {
         let bell_flag_for_run = Arc::clone(&bell_flag);
         let resize_failed = Arc::new(AtomicBool::new(false));
         let resize_failed_for_run = Arc::clone(&resize_failed);
+        let vt_busy_since_nanos = Arc::new(AtomicU64::new(0));
+        let vt_busy_since_nanos_for_run = Arc::clone(&vt_busy_since_nanos);
         let cell_size_px_for_run = Arc::new((
             AtomicU32::new(DEFAULT_CELL_WIDTH),
             AtomicU32::new(DEFAULT_CELL_HEIGHT),
@@ -127,6 +129,7 @@ impl super::GhosttyTerminal {
                         mouse_tracking_active: mouse_tracking_active_for_run,
                         bell_flag: bell_flag_for_run,
                         resize_failed: resize_failed_for_run,
+                        vt_busy_since_nanos: vt_busy_since_nanos_for_run,
                         cell_size_px: cell_size_px_for_run,
                         cell_data_mailbox: Arc::clone(&cell_data_mailbox_for_run),
                         frame_wake,
@@ -173,6 +176,7 @@ impl super::GhosttyTerminal {
             mouse_tracking_active,
             bell_flag,
             resize_failed,
+            vt_busy_since_nanos,
             latest_scroll_request_id: AtomicU64::new(0),
             cmd_drop_log: crate::slow_log::CountedLogThrottle::new(),
             #[cfg(test)]

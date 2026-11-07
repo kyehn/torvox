@@ -40,6 +40,22 @@ pub(crate) fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     "non-string panic payload".to_string()
 }
 
+/// 进程内单调时钟读数（纳秒，自进程首次调用起算）。
+///
+/// 忙标记（VT 忙、输出投递忙）存的是「自忙起时刻」的读数，判定方取一次当前读数
+/// 相减即得挂起时长。两个标记必须同源：各自取基准则相减无意义。
+///
+/// 读数恒为正：忙标记以 0 表示「空闲」，基准刚建立时 `elapsed` 可能仍是 0，
+/// 那会让「刚开始忙」被读成空闲。
+pub(crate) fn monotonic_nanos() -> u64 {
+    static BASE: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    let elapsed_nanos = BASE
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_nanos();
+    elapsed_nanos.max(1) as u64
+}
+
 #[cfg(test)]
 mod panic_text_tests {
     use super::panic_text;

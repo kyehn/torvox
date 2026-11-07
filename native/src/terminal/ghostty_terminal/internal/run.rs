@@ -64,6 +64,9 @@ impl super::GhosttyTerminal {
         let mut query_channel_open = true;
 
         'vt_loop: loop {
+            // 回到等待即空闲：清掉忙标记。挂起判定看的是「有工作在途却久不返回」，
+            // 故空闲等待期间必须为 0，否则空闲会话会被判成 VT 层挂起。
+            config.vt_busy_since_nanos.store(0, Ordering::Release);
             // 本轮已从通道取出的查询：查询就绪时它已离开通道，必须一并处理。
             let mut taken_query = None;
             let mut pending = match Self::wait_for_event(&config, query_channel_open) {
@@ -80,6 +83,11 @@ impl super::GhosttyTerminal {
                     continue;
                 }
             };
+            // 有工作在途：记下起点。VT 线程若卡在这段里不再返回，起点停在原地，
+            // 宿主据此判出「VT 层挂起」；线程回到等待时由循环顶部清零。
+            config
+                .vt_busy_since_nanos
+                .store(crate::monotonic_nanos(), Ordering::Release);
             // 无命令就绪：要么节拍到点，要么有查询到达。命令与查询同属一条逻辑
             // 队列，故先取走已入队的命令——有命令就走命令批处理（批尾统一应答
             // 查询，查询因而能看到命令的效果），没有命令才直接应答查询。
@@ -121,7 +129,12 @@ impl super::GhosttyTerminal {
                 ) {
                     CommandOutcome::Continue => {}
                     CommandOutcome::EndBatch => break 'batch,
-                    CommandOutcome::Terminate => break 'vt_loop,
+                    CommandOutcome::Terminate => {
+                        // 线程就此退出：忙标记必须清零，否则宿主读到的是一个
+                        // 永不前进的起点，把已结束的会话判成 VT 层挂起。
+                        config.vt_busy_since_nanos.store(0, Ordering::Release);
+                        break 'vt_loop;
+                    }
                 }
                 // 批有两道界（见 `MAX_COMMANDS_PER_BATCH` 与 `COMMAND_BATCH_BUDGET`）：
                 // 批尾是唯一的帧发布点与查询应答点，批若只等命令通道排空，持续输出

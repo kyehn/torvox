@@ -7,7 +7,7 @@ mod spawn;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 
 use flume::Receiver;
 use thiserror::Error;
@@ -205,6 +205,13 @@ pub struct Session {
     /// 存在会话内而非注册表项内：滚动与重置两条路径都要在**注册表读锁**下取会话锁
     /// （会话锁可被 PTY 写入按住数秒），挂一个跨阻塞调用的注册表写锁会把整台终端冻住。
     last_scroll_offset: AtomicI64,
+
+    /// PTY 读取线程的投递忙标记：存「自忙起时刻」的单调纳秒读数，0 = 未在投递。
+    ///
+    /// 投递走有界通道，通道满时读取线程停在投递里（背压）。忙标记停住不动即说明
+    /// 「输出已读出却交不出去」——归因指向下游未消费，而不是读取线程本身卡死：
+    /// 读取线程空闲时阻塞在 `read()`，与挂起在进程内不可区分。
+    pub(crate) pty_send_since_nanos: Arc<AtomicU64>,
 }
 
 impl Session {

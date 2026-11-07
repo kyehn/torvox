@@ -6,7 +6,7 @@ use std::io::Read;
 use std::os::unix::io::AsFd;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 
 use flume::bounded;
 use nix::errno::Errno;
@@ -25,6 +25,22 @@ use super::{
 const READ_BUF_SIZE: usize = 8192;
 /// 信号致死退出码基数（shell 惯例：128 + 信号码）。
 const SIGNAL_EXIT_BASE: i32 = 128;
+/// 把一段 PTY 输出投递给下游，同时维护投递忙标记。
+///
+/// 通道有界且满时 `send` 阻塞（背压）：忙标记停在起点不动，判定方据此把
+/// 「输出已读出却交不出去」归因到下游未消费，而不是读取线程卡死——读取线程
+/// 空闲时阻塞在 `read()` 上，与挂起在进程内不可区分。投递完成即清零。
+pub(super) fn send_pty_output(
+    output_tx: &flume::Sender<Vec<u8>>,
+    busy_marker: &AtomicU64,
+    data: Vec<u8>,
+) -> Result<(), flume::SendError<Vec<u8>>> {
+    busy_marker.store(crate::monotonic_nanos(), Ordering::Release);
+    let send_result = output_tx.send(data);
+    busy_marker.store(0, Ordering::Release);
+    send_result
+}
+
 /// `read(2)` 失败后读取线程应采取的动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ReaderErrorAction {
@@ -110,6 +126,7 @@ impl Session {
         let exited = Arc::clone(&session.exited);
         let output_tx = session.output_tx.clone();
         let output_wake = output_wake;
+        let pty_send_since_nanos = Arc::clone(&session.pty_send_since_nanos);
 
         log::info!("Session::spawn: spawning reader thread");
         let exited_read = Arc::clone(&exited);
@@ -146,7 +163,8 @@ impl Session {
                         // 原样投递：字节级清洗的唯一归属是 `pty_write`
                         // （见 public_api 的说明），读取线程不再重复剥离。
                         let data = read_buf[..bytes_read].to_vec();
-                        if output_tx.send(data).is_err() {
+                        let send_result = send_pty_output(&output_tx, &pty_send_since_nanos, data);
+                        if send_result.is_err() {
                             log::info!("reader thread: output channel closed");
                             break;
                         }
@@ -275,6 +293,7 @@ impl Session {
             terminal_cols: AtomicU32::new(u32::from(grid_cols)),
             grid_dirty: AtomicBool::new(false),
             last_scroll_offset: AtomicI64::new(0),
+            pty_send_since_nanos: Arc::new(AtomicU64::new(0)),
         })
     }
 }
