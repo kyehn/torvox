@@ -98,11 +98,12 @@ fun SessionDrawer(
     ) {
         Spacer(modifier = Modifier.height(8.dp))
 
-        SessionDrawerHeader(
-            onClose = onClose,
-            onAddSession = onAddSession,
-            textColor = textColor,
-            accent = accent,
+        Text(
+            text = stringResource(R.string.sessions),
+            color = textColor.copy(alpha = 0.7f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 16.dp),
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -136,6 +137,15 @@ fun SessionDrawer(
             }
         }
 
+        AddSessionButton(
+            onClick = {
+                onClose()
+                onAddSession()
+            },
+            textColor = textColor,
+            accent = accent,
+        )
+
         SessionDrawerActions(
             onClose = onClose,
             onSearch = onSearch,
@@ -149,35 +159,36 @@ fun SessionDrawer(
     }
 }
 
+/**
+ * 会话列表底部的「新建会话」按钮。
+ *
+ * 位置按 `DESIGN.md` 侧边面板节：新增入口 MUST 位于会话列表底部，MUST NOT 放在标题栏。
+ */
 @Composable
-private fun SessionDrawerHeader(onClose: () -> Unit, onAddSession: () -> Unit, textColor: Color, accent: Color) {
+private fun AddSessionButton(onClick: () -> Unit, textColor: Color, accent: Color) {
     Row(
         modifier =
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .padding(horizontal = 12.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp)
+            .testTag("AddSessionButton"),
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = stringResource(R.string.sessions),
-            color = textColor.copy(alpha = 0.7f),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-        )
         Icon(
             imageVector = Icons.Default.Add,
             contentDescription = stringResource(R.string.cd_new_session),
             tint = accent,
-            modifier =
-            Modifier
-                .size(24.dp)
-                .testTag("AddSessionButton")
-                .clip(CircleShape)
-                .clickable {
-                    onClose()
-                    onAddSession()
-                }.padding(2.dp),
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = stringResource(R.string.new_session),
+            color = textColor,
+            fontSize = 13.sp,
         )
     }
 }
@@ -193,11 +204,12 @@ private fun SessionDrawerActions(
 ) {
     // 四个动作排成两行两列：两行的布局完全相同，只有数据不同。用一份列表 + chunked
     // 生成，避免把同一段 Row/weight 样板抄两遍，改每行个数也只改常量。
+    // 顺序按 `DESIGN.md` 侧边面板节：重置终端 文本搜索 / 显示、隐藏输入法 设置。
     val actions =
         listOf(
+            DrawerAction(Icons.Default.Refresh, R.string.reset_terminal, "ResetTerminalButton", onResetTerminal),
             DrawerAction(Icons.Default.Search, R.string.text_search, "SearchButton", onSearch),
             DrawerAction(Icons.Default.Keyboard, R.string.toggle_keyboard, "KeyboardToggle", onKeyboardToggle),
-            DrawerAction(Icons.Default.Refresh, R.string.reset_terminal, "ResetTerminalButton", onResetTerminal),
             DrawerAction(Icons.Default.Settings, R.string.settings_button, "SettingsButton", onSettings),
         )
     Column(
