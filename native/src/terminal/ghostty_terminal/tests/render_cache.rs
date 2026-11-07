@@ -1080,3 +1080,44 @@ fn kitty_virtual_placement_fills_placeholder_grid_and_erases_on_clear() {
         "第一次 clear 必须清掉 kitty 图像"
     );
 }
+
+/// 直接放置（`kitten icat` 的默认路径）的显示尺寸必须按 `c`/`r` 与单元格几何
+/// 解算，不得按原图像素尺寸绘制。
+///
+/// 回归背景：用户报障「`kitten icat test.png` 后输入 clear，文本被清除但图像
+/// 依旧显示且变大盖住屏幕」。规范 `kitty-graphics` 要求直接放置的显示尺寸取自
+/// 上游放置几何（程序用 `c`/`r` 指定时即「列数×单元格宽、行数×单元格高」），
+/// 按原图像素尺寸绘制正是「大图铺满并盖住屏幕」的成因。
+///
+/// 判别力：原图 64×64 像素，放置区 12 列 × 6 行（单元格 8×16 像素 → 96×96）。
+/// 按原图像素尺寸绘制得到 64×64，与 96×96 不等。
+///
+/// 清除侧的撤除语义由 `selection_search.rs` 的
+/// `ed2_removes_kitty_placements_on_first_clear` 钉住（同一直接放置通道）。
+#[test]
+fn kitty_direct_placement_display_size_follows_cell_geometry() {
+    use base64::Engine;
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(8, 16);
+    let (width, height) = (64u32, 64u32);
+    let payload =
+        base64::engine::general_purpose::STANDARD
+            .encode(vec![0x80u8; (width * height * 3) as usize]);
+    terminal.pty_write(
+        format!("\x1b_Ga=T,f=24,s={width},v={height},i=21,c=12,r=6,q=2;{payload}\x1b\\").as_bytes(),
+    );
+    terminal.flush();
+    let placements = terminal.take_kitty_placements();
+    assert_eq!(placements.len(), 1, "直接放置必须进入图像通道");
+    let placement = &placements[0];
+    assert_eq!(
+        (placement.pixel_width, placement.pixel_height),
+        (12 * 8, 6 * 16),
+        "显示尺寸必须是放置区的像素尺寸，不得按原图像素尺寸绘制"
+    );
+    assert_eq!(
+        (placement.source_width, placement.source_height),
+        (width, height),
+        "取源矩形是整幅原图，缩放由显示尺寸承担"
+    );
+}
