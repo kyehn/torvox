@@ -609,6 +609,22 @@ class Bridge(private val config: TerminalConfig) {
      */
     fun isAltScreenActive(): Boolean = onSession("getAltScreenState", false, NativeBridge::getAltScreenState)
 
+    /**
+     * VT 线程已忙多久（纳秒）；0 = 空闲等待。
+     *
+     * 供存活看门狗判「VT 层挂起」：有工作在途却久不返回。空闲会话恒为 0，
+     * 不会被误判成挂起。
+     */
+    fun vtBusyNanos(): Long = onSession("getVtBusyNanos", 0L, NativeBridge::getVtBusyNanos)
+
+    /**
+     * PTY 输出投递已阻塞多久（纳秒）；0 = 未在投递。
+     *
+     * 供存活看门狗判「输出投递阻塞」：非零且久不归零即输出交不出去，
+     * 归因指向下游未消费。
+     */
+    fun ptySendBusyNanos(): Long = onSession("getPtySendBusyNanos", 0L, NativeBridge::getPtySendBusyNanos)
+
     fun processKeyEvent(keyCode: Int, modifiers: Int, action: Int, unicodeChar: Int, unshiftedChar: Int): Boolean {
         LogUtil.debug(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
         // 仅 ACTION_DOWN 产生输出：onKeyDown 与 onKeyUp 都走这里，若在 UP 也写入

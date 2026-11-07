@@ -11,11 +11,16 @@ import terminal.emulator.util.TerminalDispatchers
 /** 单帧起止时刻的不可变快照；看门狗每次只读一次，起止必定来自同一帧。 */
 data class FrameMarks(val startNanos: Long = 0L, val doneNanos: Long = 0L)
 
+/**
+ * 会话存活看门狗：周期判定会话是否挂在某一层，并把层级交给会话管理器处置。
+ *
+ * 判定本身在 [diagnoseSessionLiveness]（纯函数），看门狗只负责「周期触发判定」与
+ * 「代次闸门」——陈旧看门狗在重启后触发回调会把*新*渲染线程标记为死亡。
+ */
 class RenderWatchDog(
-    private val getMarks: () -> FrameMarks,
+    private val diagnose: () -> SessionLivenessDiagnosis,
     private val isRunning: () -> Boolean,
-    private val onHangDetected: () -> Unit,
-    private val hangTimeoutNanos: Long = 10_000_000_000L,
+    private val onHangDetected: (SessionLivenessDiagnosis) -> Unit,
     private val checkIntervalMs: Long = CHECK_INTERVAL_MS,
 ) {
     companion object {
@@ -70,14 +75,18 @@ class RenderWatchDog(
         // 从不随 job 取消而结束，恒为真，等于一个永不生效的死条件。
         while (true) {
             delay(checkIntervalMs)
-            // 一次读出整条记录：起止分两次读时，可能拿到新 start 配旧 done，
-            // 伪造出 `start > done` 并误杀健康的渲染线程。
-            val marks = getMarks()
-            val elapsed = System.nanoTime() - marks.startNanos
-            if (marks.startNanos > marks.doneNanos && elapsed > hangTimeoutNanos && isRunning()) {
-                LogUtil.error(TAG, "Render hang detected: elapsed=${elapsed / 1_000_000L}ms")
-                synchronized(fireLock) { if (generation == ownGeneration) onHangDetected() }
-            }
+            // 会话不在运行时不判定：会话已切走或渲染线程已被标记死亡时，
+            // 残留的忙标记只会误报。
+            if (!isRunning()) continue
+            // 判定输入是一次快照：起止分两次读时，可能拿到新 start 配旧 done，
+            // 伪造出「帧在途」并误杀健康的渲染线程。
+            val diagnosis = diagnose()
+            val hungLayer = diagnosis.hungLayer ?: continue
+            LogUtil.error(
+                TAG,
+                "session hang detected: layer=$hungLayer busy=${diagnosis.busyNanos / 1_000_000L}ms",
+            )
+            synchronized(fireLock) { if (generation == ownGeneration) onHangDetected(diagnosis) }
         }
     }
 }

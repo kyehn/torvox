@@ -8,9 +8,12 @@ import java.util.concurrent.TimeUnit
 import kotlin.system.measureTimeMillis
 
 /**
- * RenderWatchDog fires onHangDetected when the render thread stalls past
- * hangTimeoutNanos. Interval and timeout are injected so a JVM test runs
- * in milliseconds instead of the production 2 s / 10 s values.
+ * RenderWatchDog 在判定为挂起时触发回调，并把挂起层级交给会话管理器。
+ *
+ * 判定本身在 [diagnoseSessionLiveness]（纯函数，另有一组单测）；本组只测看门狗
+ * 的 plumbing：周期触发、不误报、代次闸门、`stop` 非阻塞。
+ *
+ * 间隔由构造参数注入，使 JVM 测试跑在毫秒级而不是生产的 2s。
  */
 class RenderWatchDogTest {
 
@@ -19,21 +22,24 @@ class RenderWatchDogTest {
         const val STOP_BUDGET_MS = 100L
     }
 
-    private val fastTimeout = 1_000_000L // 1 ms
     private val fastInterval = 10L // 10 ms
 
+    /** 构造一份「某层挂起」的诊断。 */
+    private fun hungDiagnosis(layer: HungLayer = HungLayer.RENDER): SessionLivenessDiagnosis =
+        SessionLivenessDiagnosis(hungLayer = layer, busyNanos = 30_000_000_000L)
+
     @Test
-    fun `stalled render thread triggers the hang callback`() {
+    fun `stalled session triggers the hang callback with its layer`() {
         var hangs = 0
-        // Start timestamp in the past, done never advanced past it:
-        // start > done means a frame began and never finished.
-        val stalledStart = System.nanoTime() - 10_000_000_000L
+        var reported: HungLayer? = null
         val watchdog =
             RenderWatchDog(
-                getMarks = { FrameMarks(startNanos = stalledStart) },
+                diagnose = { hungDiagnosis(HungLayer.VT) },
                 isRunning = { true },
-                onHangDetected = { hangs++ },
-                hangTimeoutNanos = fastTimeout,
+                onHangDetected = { diagnosis ->
+                    hangs++
+                    reported = diagnosis.hungLayer
+                },
                 checkIntervalMs = fastInterval,
             )
         watchdog.start()
@@ -44,27 +50,24 @@ class RenderWatchDogTest {
             Thread.sleep(10)
         }
         watchdog.stop()
-        assertTrue("stalled renderer must trigger the callback", hangs > 0)
+        assertTrue("stalled session must trigger the callback", hangs > 0)
+        assertEquals("callback must carry the hung layer", HungLayer.VT, reported)
     }
 
     @Test
-    fun `progressing render thread stays silent`() {
+    fun `healthy session stays silent`() {
         var hangs = 0
         val watchdog =
             RenderWatchDog(
-                getMarks = {
-                    val now = System.nanoTime()
-                    FrameMarks(startNanos = now, doneNanos = now)
-                },
+                diagnose = { SessionLivenessDiagnosis(hungLayer = null, busyNanos = 0L) },
                 isRunning = { true },
                 onHangDetected = { hangs++ },
-                hangTimeoutNanos = fastTimeout,
                 checkIntervalMs = fastInterval,
             )
         watchdog.start()
         Thread.sleep(200)
         watchdog.stop()
-        assertEquals("a healthy renderer must not trigger", 0, hangs)
+        assertEquals("a healthy session must not trigger", 0, hangs)
     }
 
     @Test
@@ -72,10 +75,9 @@ class RenderWatchDogTest {
         var hangs = 0
         val watchdog =
             RenderWatchDog(
-                getMarks = { FrameMarks() },
+                diagnose = { hungDiagnosis() },
                 isRunning = { true },
                 onHangDetected = { hangs++ },
-                hangTimeoutNanos = fastTimeout,
                 checkIntervalMs = fastInterval,
             )
         watchdog.start()
@@ -98,14 +100,13 @@ class RenderWatchDogTest {
         val release = CountDownLatch(1)
         val watchdog =
             RenderWatchDog(
-                getMarks = {
+                diagnose = {
                     probeEntered.countDown()
                     release.await()
-                    FrameMarks()
+                    SessionLivenessDiagnosis(hungLayer = null, busyNanos = 0L)
                 },
                 isRunning = { true },
                 onHangDetected = {},
-                hangTimeoutNanos = fastTimeout,
                 checkIntervalMs = fastInterval,
             )
         watchdog.start()
@@ -118,20 +119,19 @@ class RenderWatchDogTest {
     }
 
     @Test
-    fun `not-running renderer does not fire even when stalled`() {
+    fun `not-running session does not fire even when hung`() {
         var hangs = 0
         val watchdog =
             RenderWatchDog(
-                getMarks = { FrameMarks() },
+                diagnose = { hungDiagnosis() },
                 isRunning = { false },
                 onHangDetected = { hangs++ },
-                hangTimeoutNanos = fastTimeout,
                 checkIntervalMs = fastInterval,
             )
         watchdog.start()
         Thread.sleep(200)
         watchdog.stop()
-        assertEquals("a stopped renderer must not be reported as hung", 0, hangs)
+        assertEquals("a stopped session must not be reported as hung", 0, hangs)
     }
 
     /**
@@ -141,8 +141,8 @@ class RenderWatchDogTest {
      * 循环（它正卡在不可取消的探测里，取消来不及）看到复位后的 `false` 照样回调，
      * 把**新**渲染线程误判为死亡。
      *
-     * 判别力：第一次探测被刻意放行时返回「已停滞」的标记（起始时间远早于超时），
-     * 故唯一能挡住回调的就是代次判据本身——把这行判据去掉，本例即由 0 次变正数。
+     * 判别力：第一次探测被刻意放行时返回「已挂起」的诊断，故唯一能挡住回调的就是
+     * 代次判据本身——把这行判据去掉，本例即由 0 次变正数。
      */
     @Test
     fun `restarted instance does not let the stale loop fire`() {
@@ -152,22 +152,19 @@ class RenderWatchDogTest {
         var hangs = 0
         val watchdog =
             RenderWatchDog(
-                getMarks = {
+                diagnose = {
                     if (probeCount.getAndIncrement() == 0) {
                         // 第一代：卡在不可取消的等待里，模拟「正处于探测与回调之间」。
                         firstProbeEntered.countDown()
                         releaseFirstProbe.await()
-                        // 放行时给一份「已开始且未结束」的标记：起始远早于超时，
-                        // 且 done 仍为初值 0（start > done），回调判据完全成立。
-                        FrameMarks(startNanos = System.nanoTime() - 10_000_000_000L)
+                        // 放行时给一份「已挂起」的诊断：回调判据完全成立。
+                        hungDiagnosis()
                     } else {
-                        val now = System.nanoTime()
-                        FrameMarks(startNanos = now, doneNanos = now)
+                        SessionLivenessDiagnosis(hungLayer = null, busyNanos = 0L)
                     }
                 },
                 isRunning = { true },
                 onHangDetected = { hangs++ },
-                hangTimeoutNanos = fastTimeout,
                 checkIntervalMs = fastInterval,
             )
 

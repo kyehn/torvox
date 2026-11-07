@@ -202,6 +202,25 @@ object NativeBridge {
      */
     @JvmStatic external fun getAltScreenState(sessionId: Long): Boolean
 
+    /**
+     * VT 线程已忙多久（纳秒）；0 = 空闲等待。
+     *
+     * 读的是 Rust 侧原子忙标记，不取会话锁。返回的是**时长**而不是时刻：忙标记
+     * 存 Rust 单调时钟的读数，与 JVM 的 `System.nanoTime()` 基准不同，跨边界相减
+     * 得到的时长没有意义，故差值在 Rust 侧算完再交给 Kotlin。
+     *
+     * 空闲会话恒为 0——按「一段时间没有进展」判定挂起会把空闲 shell 判死。
+     */
+    @JvmStatic external fun getVtBusyNanos(sessionId: Long): Long
+
+    /**
+     * PTY 输出投递已阻塞多久（纳秒）；0 = 未在投递。
+     *
+     * 非零且久不归零即「输出已读出却交不出去」——归因指向下游（VT 线程）未消费，
+     * 而不是读取线程卡死（读取线程空闲时阻塞在 `read()`，与卡死不可区分）。
+     */
+    @JvmStatic external fun getPtySendBusyNanos(sessionId: Long): Long
+
     /** 将窗口焦点变化转发给会话，使子进程收到 DECSET 1004 焦点上报（`\x1b[I` / `\x1b[O`）。 */
     @JvmStatic external fun focusEvent(sessionId: Long, focused: Boolean): Boolean
 

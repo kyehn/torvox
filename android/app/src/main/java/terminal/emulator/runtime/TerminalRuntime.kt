@@ -45,7 +45,15 @@ import terminal.emulator.installer.BootstrapOrchestrator
 import terminal.emulator.installer.SecondStageRunner
 import terminal.emulator.installer.bootstrapDirectories
 import terminal.emulator.monitor.FrameMarks
+import terminal.emulator.monitor.LivenessRecovery
+import terminal.emulator.monitor.LivenessThresholds
 import terminal.emulator.monitor.RenderWatchDog
+import terminal.emulator.monitor.SESSION_CLOSE_THROTTLE_NANOS
+import terminal.emulator.monitor.SessionLivenessDiagnosis
+import terminal.emulator.monitor.SessionLivenessInputs
+import terminal.emulator.monitor.diagnoseSessionLiveness
+import terminal.emulator.monitor.recoveryActionFor
+import terminal.emulator.monitor.shouldCloseSession
 import terminal.emulator.resolveEffectiveFontFamily
 import terminal.emulator.service.TerminalForegroundService
 import terminal.emulator.settings.ColorsProperties
@@ -290,6 +298,9 @@ internal data class SessionEntry(
     // 用户在提示上按 Enter 时由 writeToPty 置位。渲染循环侦测到后重新派发 handleSessionExit，
     // 使 bridge 关闭留在渲染线程上（避免对存活渲染循环的 UAF）。
     @Volatile var processCompletedConfirmed: Boolean = false,
+    // 上次因「会话挂起」被自动关闭的时刻（System.nanoTime）；0 = 从未自动关闭过。
+    // 自动关闭按 60s 节流：反复关闭又新建会让用户看到会话号乱跳。
+    @Volatile var lastAutoCloseNanos: Long = 0L,
 ) {
     // renderSignaled 取代了每帧一个 CountDownLatch：后者有丢唤醒竞态——bridge.render() 后循环发布
     // 新的 latch 并等待，但渲染期间生产者对旧 latch 的 countDown() 会让新 latch 始终未置位，
@@ -1012,7 +1023,7 @@ constructor(
         if (activeSessionReplaced) scheduleActiveSessionTitleRefresh()
     }
 
-    private fun closeDeadSession(entry: SessionEntry) {
+    private fun closeDeadSession(entry: SessionEntry, reason: String) {
         // 锁内置 closing 标志，与 closeSession 对称：handleSessionExit/closeDeadSession 的
         // 接替分支会为新活动会话调用 startRenderThread，缺少该标志时竞争的
         // closeDeadSession(entry) 可能在接替渲染线程启动期间关闭其 bridge，
@@ -1022,7 +1033,7 @@ constructor(
             entry.closing = true
             entry.running = false
         }
-        LogUtil.error("Runtime", "session ${entry.sessionId} exceeded max restart attempts, closing session")
+        LogUtil.error("Runtime", "session ${entry.sessionId} $reason, closing session")
         entry.closeBridgeUnlessRenderThreadAlive("restart limit exceeded")
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.sessionId)) return
@@ -1517,7 +1528,7 @@ constructor(
             // 尝试计数单调递增且 closeDeadSession 会重查 sessions.containsKey，
             // 故并发竞争调用无害（第二次调用立即返回）。
             if (shouldCloseDeadRender(entry.restartAttempts, RENDER_MAX_RESTART_ATTEMPTS)) {
-                closeDeadSession(entry)
+                closeDeadSession(entry, "exceeded max restart attempts")
                 return
             }
             val restartDelayMillis =
@@ -2234,20 +2245,11 @@ constructor(
             ensureVsyncChainStarted()
             entry.renderWatchDog =
                 RenderWatchDog(
-                    getMarks = { entry.frameMarks },
+                    diagnose = { diagnoseEntryLiveness(entry) },
                     isRunning = {
                         entry.running && !entry.renderThreadExited && activeSessionId == entry.sessionId
                     },
-                    onHangDetected = {
-                        LogUtil.error(
-                            "Runtime",
-                            "session ${entry.sessionId} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s) — marking thread for restart",
-                        )
-                        // 把线程标记为死亡。渲染监视器（checkSessions）会侦测到并
-                        // 以指数退避重启线程，避免因 GPU 挂起而杀掉整个进程。
-                        entry.renderThreadExited = true
-                    },
-                    hangTimeoutNanos = RENDER_HANG_TIMEOUT_NANOS,
+                    onHangDetected = { diagnosis -> handleSessionHang(entry, diagnosis) },
                 )
                     .also { it.start() }
         }
@@ -2280,6 +2282,86 @@ constructor(
                 entry.hungRenderThread = null
             }
             return true
+        }
+
+        /**
+         * 采集判定挂起层级所需的输入快照。
+         *
+         * 帧起止一次读出：分两次读可能拿到新 start 配旧 done，伪造出「帧在途」并
+         * 误杀健康的渲染线程。
+         */
+        internal fun diagnoseEntryLiveness(entry: SessionEntry): SessionLivenessDiagnosis {
+            val marks = entry.frameMarks
+            val renderFrameBusyNanos =
+                if (marks.startNanos > marks.doneNanos) System.nanoTime() - marks.startNanos else 0L
+            return diagnoseSessionLiveness(
+                SessionLivenessInputs(
+                    renderFrameBusyNanos = renderFrameBusyNanos,
+                    vtBusyNanos = entry.bridge.vtBusyNanos(),
+                    ptySendBusyNanos = entry.bridge.ptySendBusyNanos(),
+                    renderThreadAlive = entry.renderThreadRef?.isAlive == true,
+                ),
+                LivenessThresholds(renderHangNanos = RENDER_HANG_TIMEOUT_NANOS),
+            )
+        }
+
+        /**
+         * 按挂起层级处置：渲染层重启线程，VT 层与输出投递阻塞关闭会话，生命周期层
+         * 只记录。
+         *
+         * 关闭会话走 [closeDeadSession]：VT 状态在原生侧持有，无法安全热重建，
+         * 且静默重建会丢掉用户的 shell 状态（工作目录、后台任务、已输入内容）。
+         */
+        internal fun handleSessionHang(entry: SessionEntry, diagnosis: SessionLivenessDiagnosis) {
+            val hungLayer = diagnosis.hungLayer ?: return
+            when (recoveryActionFor(hungLayer)) {
+                LivenessRecovery.RESTART_RENDER_THREAD -> {
+                    LogUtil.error(
+                        "Runtime",
+                        "session ${entry.sessionId} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s) — marking thread for restart",
+                    )
+                    // 把线程标记为死亡。渲染监视器（checkSessions）会侦测到并
+                    // 以指数退避重启线程，避免因 GPU 挂起而杀掉整个进程。
+                    entry.renderThreadExited = true
+                }
+
+                LivenessRecovery.CLOSE_SESSION -> {
+                    if (!claimAutoClose(entry)) {
+                        LogUtil.warn(
+                            "Runtime",
+                            "session ${entry.sessionId} hung at $hungLayer — close throttled (${SESSION_CLOSE_THROTTLE_NANOS / 1_000_000L}ms)",
+                        )
+                        return
+                    }
+                    LogUtil.error(
+                        "Runtime",
+                        "session ${entry.sessionId} hung at $hungLayer (busy=${diagnosis.busyNanos / 1_000_000L}ms)",
+                    )
+                    closeDeadSession(entry, "hung at $hungLayer")
+                }
+
+                LivenessRecovery.RECORD_ONLY -> {
+                    LogUtil.warn(
+                        "Runtime",
+                        "session ${entry.sessionId} hung at $hungLayer — recorded only",
+                    )
+                }
+            }
+        }
+
+        /**
+         * 领取自动关闭的许可；超出节流窗口时返回 false。
+         *
+         * 在 [sessionLock] 内领取：两个看门狗回调并发时必须只有一个拿到许可，
+         * 否则同一会话会被重复关闭。
+         */
+        internal fun claimAutoClose(entry: SessionEntry): Boolean {
+            val now = System.nanoTime()
+            synchronized(sessionLock) {
+                if (!shouldCloseSession(entry.lastAutoCloseNanos, now)) return false
+                entry.lastAutoCloseNanos = now
+                return true
+            }
         }
     }
 
