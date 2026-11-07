@@ -256,16 +256,34 @@ struct SessionEntry {
     /// VT 线程每帧刷新，输入路径（触摸拖动、外接滚轮）每个事件都要判一次，
     /// 读原子量才让 UI 线程完全不碰会话锁。
     mouse_tracking_active: Arc<AtomicBool>,
+    /// VT 线程忙标记：存「自忙起时刻」的 Rust 单调时钟读数，0 = 空闲等待。
+    ///
+    /// 看门狗据此判「VT 层挂起」：有工作在途却久不返回。空闲会话读数为 0，
+    /// 不会被误判成挂起。读它不取会话锁（会话锁可能被 PTY 写入按住数秒）。
+    vt_busy_since_nanos: Arc<AtomicU64>,
+    /// PTY 输出投递忙标记：存「自忙起时刻」的读数，0 = 未在投递。
+    ///
+    /// 非零且久不归零即「输出已读出却交不出去」——归因指向下游未消费，
+    /// 而不是读取线程卡死。
+    pty_send_since_nanos: Arc<AtomicU64>,
 }
 
 impl SessionEntry {
     fn new(session: Arc<Mutex<Session>>, render_wake: Arc<RenderWake>) -> Self {
-        let (new_output, alt_screen_active, mouse_tracking_active) = {
+        let (
+            new_output,
+            alt_screen_active,
+            mouse_tracking_active,
+            vt_busy_since_nanos,
+            pty_send_since_nanos,
+        ) = {
             let session = session.lock();
             (
                 session.new_output_flag(),
                 session.alt_screen_active_flag(),
                 session.mouse_tracking_active_flag(),
+                session.vt_busy_since_nanos_flag(),
+                session.pty_send_since_nanos_flag(),
             )
         };
         Self {
@@ -277,6 +295,8 @@ impl SessionEntry {
             new_output,
             alt_screen_active,
             mouse_tracking_active,
+            vt_busy_since_nanos,
+            pty_send_since_nanos,
         }
     }
 }
@@ -834,6 +854,8 @@ mod wake;
 
 use render::{ATLAS_SIZE, DEFAULT_FONT_CELL_SIZE};
 
+#[cfg(test)]
+mod busy_marker_tests;
 #[cfg(test)]
 mod cell_size_packing_tests;
 #[cfg(test)]

@@ -229,3 +229,58 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getAltS
         })
     })
 }
+
+// ── 会话存活忙标记 ────────────────────────────────────────────────
+/// 忙标记 → 已忙时长（纳秒）。0 = 空闲（标记未置位）。
+///
+/// **时钟域必须留在 Rust 侧**：忙标记存的是 Rust 单调时钟的读数（自进程内某个
+/// 基准起算），而 JVM 的 `System.nanoTime()` 基准是另一个原点，跨边界相减得到的
+/// 「时长」没有意义。故此处把差值算完再交给 Kotlin，Kotlin 只拿到一个时长。
+pub(super) fn busy_elapsed_nanos(busy_since_nanos: u64) -> jlong {
+    if busy_since_nanos == 0 {
+        return 0;
+    }
+    // 已置位即「在忙」：时长最小取 1ns，使「忙」与「空闲」在导出值上不重合
+    // （同一纳秒内读出 0 会被当成空闲）。
+    crate::monotonic_nanos()
+        .saturating_sub(busy_since_nanos)
+        .max(1) as jlong
+}
+
+/// VT 线程已忙多久（纳秒）；0 = 空闲等待。
+///
+/// 供 `Bridge.vtBusyNanos` 使用：看门狗据此判「VT 层挂起」（有工作在途却久不
+/// 返回）。空闲会话恒为 0——按「一段时间没有进展」判定会把空闲 shell 判死。
+#[unsafe(no_mangle)]
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getVtBusyNanos(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
+    session_id: jlong,
+) -> jlong {
+    jni_export_guard!(&mut unowned_env, 0, |_env| {
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&(session_id as u64)) else {
+            return Ok(0);
+        };
+        busy_elapsed_nanos(entry.vt_busy_since_nanos.load(Ordering::Acquire))
+    })
+}
+
+/// PTY 输出投递已阻塞多久（纳秒）；0 = 未在投递。
+///
+/// 供 `Bridge.ptySendBusyNanos` 使用：非零且久不归零即「输出已读出却交不出去」
+/// ——归因指向下游（VT 线程）未消费，而不是读取线程卡死。
+#[unsafe(no_mangle)]
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getPtySendBusyNanos(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
+    session_id: jlong,
+) -> jlong {
+    jni_export_guard!(&mut unowned_env, 0, |_env| {
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&(session_id as u64)) else {
+            return Ok(0);
+        };
+        busy_elapsed_nanos(entry.pty_send_since_nanos.load(Ordering::Acquire))
+    })
+}
