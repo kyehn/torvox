@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn file_probe_with_existing_file_is_passed_to_upstream() {
-        let path = std::env::temp_dir().join("torvox-input-filter-probe.txt");
+        let path = std::env::temp_dir().join("input-filter-probe.txt");
         std::fs::write(&path, b"probe").expect("create probe file");
         let encoded = BASE64.encode(path.to_str().expect("temp dir is UTF-8"));
         let sequence = format!("\x1b_Ga=q,i=4,t=t;{encoded}\x1b\\");
