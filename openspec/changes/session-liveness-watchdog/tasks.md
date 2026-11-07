@@ -1,14 +1,13 @@
 # 任务
 
-- [ ] 补充现有 `RenderWatchDog` 的分层代数输入与纯函数判定的 JVM 单测
-- [ ] 设计并评审 `SessionLivenessDiagnosis` 数据结构与 `HungLayer` 枚举
-- [ ] 在 `SessionEntry` 中增加原子代数与最后进展时间字段（Rust 侧）
-- [ ] 在渲染线程推进 `renderGeneration` 与时间
-- [ ] 在 VT 线程推进 `vtGeneration` 与时间
-- [ ] 在 PTY 读取线程推进 `ptyReadGeneration` 与时间
-- [ ] 把 `RenderWatchDog` 的回调改为记录层级并交由会话管理器
-- [ ] 为 VT/PTY 层挂起接入会话重建路径
-- [ ] 增加自动重建节流（60s 内一次）
+- [ ] 在 VT 线程批处理前后置位/清零 `vtBusySinceNanos`
+- [ ] 在 PTY 读取线程投递通道前后置位/清零 `ptySendSinceNanos`
+- [ ] 两个忙标记经原生接口暴露到 Kotlin（原子量，只读不写）
+- [ ] 抽出纯函数层级判定（渲染 / VT / 输出投递 / 生命周期 / 正常）并补 JVM 单测
+- [ ] 抽出纯函数恢复决策（重启渲染线程 / 关闭会话 / 只记录）并补 JVM 单测
+- [ ] 抽出纯函数关闭节流（60s 内一次）并补 JVM 单测
+- [ ] `RenderWatchDog` 的回调改为判定层级并交由会话管理器
+- [ ] 会话管理器按层级执行恢复：渲染重启、VT/输出投递阻塞关闭会话
+- [ ] Rust 侧补忙标记置位/清零顺序的单测
 - [ ] 更新日志与诊断输出
-- [ ] 补充 Rust 原子性与顺序单测
 - [ ] 归档本 change 并同步主规约
