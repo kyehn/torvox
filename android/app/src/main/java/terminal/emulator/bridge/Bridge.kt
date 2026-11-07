@@ -24,8 +24,6 @@ sealed interface Shell {
 /** 构造 [Bridge] 时传入的配置。 */
 data class TerminalConfig(
     val shell: Shell,
-    /** 终端主题标识；调色板真源在原生，桥接层与渲染层都不另存颜色副本。 */
-    val themeName: String,
     val home: String,
     val workingDirectory: String,
     val prefix: String,

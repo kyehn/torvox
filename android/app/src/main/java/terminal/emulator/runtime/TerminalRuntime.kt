@@ -647,6 +647,20 @@ constructor(
 
     private val sessions = ConcurrentHashMap<Long, SessionEntry>()
 
+    /**
+     * 渲染契约下发的串行闸。
+     *
+     * 下发有两条并发来源：配置/设置变化（[applySettings]）与建会话
+     * （[applyRenderSettings]）。两者各自读到的设置快照新旧不一，而下发互不排序——
+     * 旧快照后到即覆盖新快照，终端停在旧主题（实测 logcat：四个并发下发里两个带旧
+     * 快照 `dracula_plus`、两个带新快照 `catppuccin_latte`，落地顺序由线程调度决定，
+     * 收尾是哪一个全看运气）。
+     *
+     * 闸内按**最新**快照重新解析主题名：后到的一次拿到的是不早于前一次的快照，
+     * 故最后一次下发的就是最新主题。
+     */
+    private val renderContractMutex = Mutex()
+
     // ── vsync 帧回调链 ──
     // UI 工作投递到主 Looper（Choreographer.getInstance() 需要 Looper，
     // 而 TerminalRuntime 本身可能由 DI 在任意线程构建）。
@@ -1327,17 +1341,12 @@ constructor(
         val configReads = coroutineScope {
             val shellDeferred = async { settingsRepository.shell.first() }
             val fontDeferred = async { computeFontSizeTenths() }
-            val themeDeferred = async { resolveThemeName() }
             ConfigReads(
                 shellPath = shellDeferred.await(),
                 fontSizeTenths = fontDeferred.await(),
-                themeName = themeDeferred.await(),
             )
         }
-        val resolvedTheme = ThemeRepository.byName(configReads.themeName)
         val shell = resolveShell(configReads.shellPath)
-        // 强调色取主题 ANSI 槽位 5，与原生渲染同一份调色板。
-        accentColor = resolvedTheme.ansi[5].toArgb()
         val prefixDir = File(context.filesDir, "usr").absolutePath
         val homeDir =
             File(context.filesDir, "home")
@@ -1358,13 +1367,12 @@ constructor(
         // 系统 shell、系统 PATH、无 PREFIX——避免引导程序损坏后终端彻底不可用
         // （对应 termux-app TermuxSession.java:95-113 的 isFailsafe 路径）。
         // 只读不消费：消费由建会话成功后的 [consumeFailsafeRequest] 完成——
-        // 在此清空会被 applySettings 的 buildConfig() 调用抢走（它不建会话）。
+        // 建会话失败时应急请求仍在，下一次尝试仍应是应急会话。
         if (failsafeRequested) {
             ensureMkshPromptRc()
             return TerminalConfig(
                 shell = Shell.SystemDefault,
                 fontSizeTenths = configReads.fontSizeTenths,
-                themeName = resolvedTheme.name,
                 home = homeDir,
                 workingDirectory = workingDirectory,
                 prefix = "",
@@ -1385,7 +1393,6 @@ constructor(
         return TerminalConfig(
             shell = effectiveShell,
             fontSizeTenths = configReads.fontSizeTenths,
-            themeName = resolvedTheme.name,
             home = homeDir,
             workingDirectory = workingDirectory,
             prefix = effectivePrefix,
@@ -2465,7 +2472,7 @@ constructor(
         return Shell.Custom("$prefixDir/$prefixShellChecked")
     }
 
-    private data class ConfigReads(val shellPath: String, val fontSizeTenths: Int, val themeName: String)
+    private data class ConfigReads(val shellPath: String, val fontSizeTenths: Int)
 
     /**
      * 渲染循环窗口封尾的帧耗时日志，从渲染线程移到 IO 协程打：
@@ -2831,7 +2838,7 @@ constructor(
             val config = buildConfig()
             LogUtil.debug(
                 "Runtime",
-                "buildConfig: fontSizeTenths=${config.fontSizeTenths} theme=${config.themeName} elapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms",
+                "buildConfig: fontSizeTenths=${config.fontSizeTenths} elapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms",
             )
             val bridgeStartNs = System.nanoTime()
             val bridge = Bridge(config)
@@ -3712,38 +3719,31 @@ constructor(
     }
 
     suspend fun applySettings() {
-        // termux.properties 只在应用启动时读过一次（见 start），这里不重读：
-        // 设置重下发不是文件变化，重读会让同一进程里的配置随外部改写漂移。
-        val config = buildConfig()
-        // 与建会话路径共用同一份字族解析：两处各读一次设置，中途改设置就会让
-        // 「新会话的字族」与「改设置时下发的字族」不同源。
-        val effectiveFontFamily = resolveEffectiveFontFamily()
         // 只换字体/字号/主题/光栅尺度，不 resize 各会话网格：网格的 winsize 只由
         // spawn 时的真实度量与显式 resize 决定，applySettings 不碰它。
         // 光栅尺度 MUST 一并重推：系统「字体大小」变化会让 Activity 重建
         // （AndroidManifest 未声明 fontScale），而运行期是 @Singleton 存活下来，
         // 建会话那条路径不会再跑——此前只有它推 setRasterScale。
-        val termux = termuxProperties.configuration.value
-        val contract =
-            RenderContract(
-                fontSizeTenths = config.fontSizeTenths,
-                fontFamily = effectiveFontFamily,
-                themeName = config.themeName,
-                rasterScale = spToPxScale,
-                cursorStyleNativeValue = termux.properties.terminalCursorStyle.nativeValue,
-                themeOverrides = termux.colors.toPaletteOverride(),
-            )
-        sessions.values.forEach { entry ->
-            try {
-                entry.bridge.applyRenderContract(contract)
-            } catch (exception: Exception) {
-                if (exception is CancellationException) throw exception
-                // 会话可能正在拆除（bridge 已关闭）：失败只属于该会话。若让它抛出，
-                // 一个正在关闭的会话就会拦住其余会话拿到新设置——用户看到的是
-                // 「改主题没反应」，而真正的失败点连日志都没有。
-                LogUtil.error("Runtime", "applySettings failed for session ${entry.sessionId}", exception)
+        renderContractMutex.withLock {
+            // 契约在闸内按最新设置构造：主题名、字号与字族都取闸内的快照，
+            // 闸外读到的快照可能已过期——旧快照后到的下发会覆盖新快照。
+            val contract =
+                buildRenderContract(
+                    fontSizeTenths = computeFontSizeTenths(),
+                    fontFamily = resolveEffectiveFontFamily(),
+                )
+            sessions.values.forEach { entry ->
+                try {
+                    entry.bridge.applyRenderContract(contract)
+                } catch (exception: Exception) {
+                    if (exception is CancellationException) throw exception
+                    // 会话可能正在拆除（bridge 已关闭）：失败只属于该会话。若让它抛出，
+                    // 一个正在关闭的会话就会拦住其余会话拿到新设置——用户看到的是
+                    // 「改主题没反应」，而真正的失败点连日志都没有。
+                    LogUtil.error("Runtime", "applySettings failed for session ${entry.sessionId}", exception)
+                }
+                entry.notifyRender()
             }
-            entry.notifyRender()
         }
         // 光栅尺度变了，逻辑单元格度量随之改变：按新度量刷新并重算网格，否则
         // 渲染仍按旧单元格尺寸画字形。只对活动会话做，各会话的网格不变。
@@ -4470,6 +4470,32 @@ constructor(
     }
 
     /**
+     * 按当前设置构造一条会话的渲染契约。
+     *
+     * MUST 在 [renderContractMutex] 内调用：主题名取自设置快照与系统夜览状态，
+     * 闸外读到的快照可能已过期——旧快照后到的下发会覆盖新快照，终端停在旧主题。
+     *
+     * 字号与字族由调用方给定：建会话路径必须用 spawn 时的那一组（PTY 初始 winsize
+     * 由它们算出），改设置路径则取闸内的最新设置。
+     */
+    private suspend fun buildRenderContract(fontSizeTenths: Int, fontFamily: String): RenderContract {
+        val themeName = resolveThemeName()
+        // 强调色取主题 ANSI 槽位 5，与原生渲染同一份调色板。
+        accentColor = ThemeRepository.byName(themeName).ansi[5].toArgb()
+        // termux.properties 只在应用启动时读过一次（见 start），这里取的是已读入的
+        // 那份：设置重下发不是文件变化，重读会让同一进程里的配置随外部改写漂移。
+        val termux = termuxProperties.configuration.value
+        return RenderContract(
+            fontSizeTenths = fontSizeTenths,
+            fontFamily = fontFamily,
+            themeName = themeName,
+            rasterScale = spToPxScale,
+            cursorStyleNativeValue = termux.properties.terminalCursorStyle.nativeValue,
+            themeOverrides = termux.colors.toPaletteOverride(),
+        )
+    }
+
+    /**
      * spawn 成功之后把整组渲染设置下发到该会话。
      *
      * Bridge 的每项设置在 sessionId == 0（spawnTerminal 之前）都是空操作，故本函数
@@ -4491,22 +4517,17 @@ constructor(
         bridge.setExtraFontPaths(fontDirs)
         // 系统区域设置决定 CJK 回退顺序；缺失则原生管线停留在 locale ""。
         bridge.setSystemLocale(Locale.getDefault().toLanguageTag())
-        val termux = termuxProperties.configuration.value
-        bridge.applyRenderContract(
-            RenderContract(
-                fontSizeTenths = config.fontSizeTenths,
-                fontFamily = fontFamily,
-                themeName = config.themeName,
-                rasterScale = spToPxScale,
-                cursorStyleNativeValue = termux.properties.terminalCursorStyle.nativeValue,
-                themeOverrides = termux.colors.toPaletteOverride(),
-            ),
-        )
+        // 契约下发在串行闸内完成：主题名按闸内的最新设置快照解析，
+        // 否则建会话与设置变化两条并发路径会互相用旧快照覆盖新快照。
+        renderContractMutex.withLock {
+            val contract = buildRenderContract(config.fontSizeTenths, fontFamily)
+            bridge.applyRenderContract(contract)
+            LogUtil.debug(
+                "Runtime",
+                "$caller settings applied: fontFamily=$fontFamily fontSizeTenths=${config.fontSizeTenths} theme=${contract.themeName}",
+            )
+        }
         appliedFontSizeTenths = config.fontSizeTenths
-        LogUtil.debug(
-            "Runtime",
-            "$caller settings applied: fontFamily=$fontFamily fontSizeTenths=${config.fontSizeTenths} theme=${config.themeName}",
-        )
         // 不设 catch：此前「记日志后继续」是 DESIGN.md 习惯节禁止的未声明 Fallback——
         // 它带着半套设置（字体已换而字号/光栅未换）继续渲染，用户只看到字形忽大忽小，
         // 日志里那条 error 又被吞在半路。上抛后由 start() 的 catch 完整回滚
