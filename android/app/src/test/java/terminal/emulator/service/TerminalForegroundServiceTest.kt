@@ -297,6 +297,53 @@ class TerminalForegroundServiceTest {
         )
     }
 
+    /**
+     * 执行锁只为存活会话而持：最后一会话关闭后锁必须释放。
+     *
+     * 锁的代价是功耗——PARTIAL_WAKE_LOCK 阻止 CPU 休眠，Wi-Fi 锁把射频钉在高性能
+     * 档——没有人使用终端时不能继续付。
+     */
+    @Test
+    fun `the execution locks are released when no session remains`() {
+        ShadowPowerManager.clearWakeLocks()
+        val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val shadowWifiManager = shadowOf(wifiManager)
+        val controller = startControllerWith(1)
+        val wakeLock = requireNotNull(ShadowPowerManager.getLatestWakeLock())
+        assertTrue("the lock must start out held", wakeLock.isHeld)
+
+        controller.get().onStartCommand(
+            Intent(context, TerminalForegroundService::class.java).apply {
+                putExtra("session_count", 0)
+            },
+            0,
+            2,
+        )
+        assertFalse("no session means no wake lock", wakeLock.isHeld)
+        assertEquals("no session means no wifi lock", 0, shadowWifiManager.getActiveLockCount())
+    }
+
+    /**
+     * 通知上的「申请唤醒锁」按钮不得在无会话时把锁取回来。
+     *
+     * 用户的申请表达的是「有会话时替我保活」，不是「无会话时也让设备不休眠」。
+     */
+    @Test
+    fun `the wake lock action takes no lock without sessions`() {
+        ShadowPowerManager.clearWakeLocks()
+        val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val shadowWifiManager = shadowOf(wifiManager)
+        val controller = startControllerWith(0)
+        controller.get().onStartCommand(
+            Intent(context, TerminalForegroundService::class.java)
+                .setAction("terminal.emulator.action.WAKE_LOCK"),
+            0,
+            2,
+        )
+        assertNull("no session means no wake lock", ShadowPowerManager.getLatestWakeLock())
+        assertEquals("no session means no wifi lock", 0, shadowWifiManager.getActiveLockCount())
+    }
+
     private fun postedNotification(): Notification {
         val manager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
