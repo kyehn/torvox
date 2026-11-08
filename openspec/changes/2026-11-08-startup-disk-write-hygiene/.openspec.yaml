@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-11-08
+goal: |
+  让启动期的持久化目录创建离开主线程，使冷启动 logcat 不再出现 StrictMode 的
+  DiskWriteViolation，并把该判据写进 logcat 规约。

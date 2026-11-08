@@ -1,7 +1,6 @@
 package terminal.emulator.settings
 
 import android.content.Context
-import android.os.StrictMode
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
@@ -12,25 +11,27 @@ import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// 非数据类：提供 DataStore 装配（含 StrictMode 磁盘读副作用的单例服务），
+// 非数据类：提供 DataStore 装配的单例服务，
 // 对其生成 equals/hashCode 会产生误导。
 @Suppress("UseDataClass")
 @Singleton
 class SettingsDataStoreProvider
 @Inject
 constructor(@ApplicationContext private val context: Context) {
-    internal val prefsDir: File =
-        StrictMode.allowThreadDiskReads().let { prev ->
-            context.getDir("prefs", Context.MODE_PRIVATE).also {
-                StrictMode.setThreadPolicy(prev)
-            }
-        }
-
+    /**
+     * 设置持久化的存储。
+     *
+     * 目录创建推迟到 DataStore 的惰性文件回调里：DataStore 只在首次读写时于自己的
+     * IO 作用域（`Dispatchers.IO`）上调用该回调，主线程构造期因此不再产生磁盘写，
+     * StrictMode 的 DiskWriteViolation 随之消失。构造期先 `getDir` 建目录再把路径
+     * 交给 DataStore，则那次建目录就落在主线程上——StrictMode 允许线程磁盘读
+     * （`allowThreadDiskReads`）也只放宽「读」，放宽不了「写」。
+     */
     val dataStore: DataStore<Preferences> =
         PreferenceDataStoreFactory.create(
             corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
         ) {
-            File(prefsDir, "settings.preferences_pb")
+            File(context.getDir("prefs", Context.MODE_PRIVATE), "settings.preferences_pb")
         }
 
     /**
