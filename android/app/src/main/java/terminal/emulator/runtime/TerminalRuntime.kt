@@ -3852,9 +3852,9 @@ constructor(
     suspend fun applySettings() {
         // 只换字体/字号/主题/光栅尺度，不 resize 各会话网格：网格的 winsize 只由
         // spawn 时的真实度量与显式 resize 决定，applySettings 不碰它。
-        // 光栅尺度 MUST 一并重推：系统「字体大小」变化会让 Activity 重建
-        // （AndroidManifest 未声明 fontScale），而运行期是 @Singleton 存活下来，
-        // 建会话那条路径不会再跑——此前只有它推 setRasterScale。
+        // 光栅尺度 MUST 一并重推：系统「字体大小」与显示密度变化时 Activity 不重建
+        // （AndroidManifest 已声明 fontScale 与 density），而运行期是 @Singleton
+        // 存活下来，建会话那条路径不会再跑——此前只有它推 setRasterScale。
         renderContractMutex.withLock {
             // 契约在闸内按最新设置构造：主题名、字号与字族都取闸内的快照，
             // 闸外读到的快照可能已过期——旧快照后到的下发会覆盖新快照。

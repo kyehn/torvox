@@ -108,8 +108,13 @@ class MainActivity : ComponentActivity() {
             ActivityResultContracts.RequestPermission(),
         ) { _ -> }
 
-    private var previousNightMode: Int? = null
-    private var previousFontScale: Float = 0f
+    /**
+     * 上一份配置快照：夜间模式、字体缩放与显示密度任一变化都要重推渲染契约。
+     *
+     * 存副本而非引用：框架会复用并就地改写同一个 `Configuration` 实例，存引用会让
+     * 「上一份」被改写成当前值，变化永远检测不到。
+     */
+    private var previousConfiguration: Configuration? = null
 
     internal val terminalViewModel: TerminalViewModel by viewModels()
 
@@ -134,9 +139,7 @@ class MainActivity : ComponentActivity() {
         // 改用 core 的 WindowCompat.enableEdgeToEdge(window)。
         WindowCompat
             .enableEdgeToEdge(window)
-        previousNightMode =
-            resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-        previousFontScale = resources.configuration.fontScale
+        previousConfiguration = Configuration(resources.configuration)
         // Color.TRANSPARENT 是 ARGB 整数而非资源 id —— lint 建议的 KTX
         // Int.toDrawable() 会把它当作资源 id (0) 并解析到错误的 drawable。
         @SuppressLint("UseKtx")
@@ -318,20 +321,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        val currentNightMode = newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK
-        // 系统「字体大小」变化必须一并响应：它改变 sp→px 系数，而原生
-        // setRasterScale 只在建会话与本回调里下发一次。系数漂移后 Kotlin 按新系数
-        // 算字号与网格、原生仍按旧值光栅，字形被拉伸、度量与网格整体偏掉。
-        // 故 manifest 声明了 fontScale（否则 Activity 重建，本回调根本不会到达，
-        // 而 TerminalRuntime 作为 @Singleton 仍会活下来）。
-        val currentFontScale = newConfig.fontScale
-        if (currentNightMode != previousNightMode || currentFontScale != previousFontScale) {
+        // 夜间模式、系统「字体大小」与显示密度都改写渲染契约（主题、sp→px 系数、
+        // 文字光栅尺度），任一变化都要重推一次。manifest 已声明这些限定符，
+        // Activity 不重建，而 TerminalRuntime 作为 @Singleton 仍会活下来——
+        // 不在此补推，系数就停在旧值：Kotlin 按新系数算字号与网格、原生按旧值
+        // 光栅，字形被拉伸、度量与网格整体偏掉。
+        val previous = previousConfiguration
+        if (previous != null && shouldApplySettingsOnConfigurationChange(previous, newConfig)) {
             lifecycleScope.launch(TerminalDispatchers.inputOutput) {
                 runtime.applySettings()
             }
         }
-        previousNightMode = currentNightMode
-        previousFontScale = currentFontScale
+        previousConfiguration = Configuration(newConfig)
     }
 
     @SuppressLint("RestrictedApi")
@@ -496,6 +497,21 @@ private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalVi
         }
     }
 }
+
+/**
+ * 配置变化是否要求重推渲染契约。
+ *
+ * 夜间模式改主题；系统「字体大小」与显示密度改写 sp→px 系数，进而改写文字光栅
+ * 尺度与网格度量。三者任一变化都要重推一次渲染契约——manifest 已声明这些限定符，
+ * Activity 不重建，运行期是 @Singleton 存活下来，不重推就停在旧系数上。
+ *
+ * 其余限定符（方向、窗口尺寸、键盘）由各自的路径处理，不在此重推。
+ */
+internal fun shouldApplySettingsOnConfigurationChange(previous: Configuration, current: Configuration): Boolean =
+    (previous.uiMode and Configuration.UI_MODE_NIGHT_MASK) !=
+        (current.uiMode and Configuration.UI_MODE_NIGHT_MASK) ||
+        previous.fontScale != current.fontScale ||
+        previous.densityDpi != current.densityDpi
 
 /**
  * 系统启动屏是否继续遮挡。
