@@ -959,13 +959,18 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   该工具归类为 style-policy 的项 MUST NOT 阻断构建，
   只有 error 级或 `confirmed-defect` 才阻断。
 - **jscpd**：`jscpd --min-lines 8 --min-tokens 60` 对 `native/src` 与
-  `android/app/src/main` 实测退出码 0，2 处克隆 / 26 行重复 / 0.04%，涉 115 个文件。
-  两处残留均已逐处给出「不修」的具体理由：其一为
-  `android/app/src/main/res/drawable/launcher_monochrome.xml` 与 `logo_art.xml`
-  的同形 `pathData`（Android drawable 不支持跨文件引用几何，单色版必须自带路径）；
-  其二为 `native/src/terminal/ghostty_terminal/internal/mod.rs` 内 `process_query`
-  与 `drain_queries` 的同形十参形参表（传状态必需的形参列表，收敛成上下文档反而
-  拖长每一次调用）。验收判据：重复率 MUST NOT 高于该基线；新增克隆 MUST 逐处给出
+  `android/app/src/main` 实测退出码 0，1 处克隆 / 12 行重复 / 0.02%，涉 207 个文件。
+  测量取自已提交的树快照，不取工作区状态（工作区可能同时存在他人进行中的改动）。
+  前一列基线为 2 处克隆 / 26 行重复 / 0.04% / 115 个文件：其第二处
+  `native/src/terminal/ghostty_terminal/internal/mod.rs` 内 `process_query` 与
+  `drain_queries` 的同形十参形参表已随该模块重组消失；基线记录之后新增的代码引入
+  了另外三处克隆（JNI 导出的注册表查找骨架、会话测试夹具、Kitty 放置撤除用例的
+  送图与清屏流程），已分别收敛为 `with_session_entry`、`mock_pty::mock_session` 与
+  `mock_pty::mock_arc_session`、`ed2_clears_direct_kitty_placement`。
+  现存唯一残留为 `android/app/src/main/res/drawable/launcher_monochrome.xml` 与
+  `logo_art.xml` 的同形 `pathData`，不修的具体理由是 Android drawable 不支持跨文件
+  引用几何，单色版必须自带路径。
+  验收判据：重复率 MUST NOT 高于该基线；新增克隆 MUST 逐处给出
   「不修」的具体理由（被测行为不同、脚手架样板、或传状态必需的形参列表），
   MUST NOT 以「先记着」放行。
 - **rapidocr**：`flake.nix` 引导调用 `scripts/download-rapidocr-models.nu` 把模型
