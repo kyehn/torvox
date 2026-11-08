@@ -20,6 +20,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -185,6 +187,48 @@ class SettingsRepositoryTest {
         assertEquals("", repository.shell.first())
         repository.setShell("/data/data/com.termux/files/usr/bin/bash -l")
         assertEquals("/data/data/com.termux/files/usr/bin/bash -l", repository.shell.first())
+    }
+
+    @Test
+    fun `clearing settings empties every key`() = runTest {
+        repository.setFontSize(30f)
+        repository.setShell("/data/data/com.termux/files/usr/bin/bash -l")
+        repository.setFontFamily("Noto Sans Mono")
+
+        repository.clearAllSettings()
+
+        assertEquals(14f, repository.fontSize.first(), 0.01f)
+        assertEquals("", repository.shell.first())
+        assertEquals("", repository.fontFamily.first())
+    }
+
+    @Test
+    fun `clearing settings survives the prefs directory being deleted`() = runTest {
+        repository.setShell("/data/data/com.termux/files/usr/bin/bash -l")
+
+        // 清除应用数据的顺序是「先清内容、再删目录」：DataStore 缓存着已读入的
+        // 状态，只删目录的话内存态仍是旧值，界面与后续写入都会把旧值带回来。
+        repository.clearAllSettings()
+        prefsDir.deleteRecursively()
+        prefsDir.mkdirs()
+
+        assertEquals("目录被删后设置仍须为空", "", repository.shell.first())
+    }
+
+    @Test
+    fun `a write after clearing does not resurrect the cleared values`() = runTest {
+        repository.setShell("/bin/cleared-shell-marker")
+        repository.clearAllSettings()
+        prefsDir.deleteRecursively()
+        prefsDir.mkdirs()
+
+        repository.setShell("/bin/after-clear")
+
+        // 直接读落盘字节：进程内的缓存已清空，文件里才真的没有旧值。
+        // 不再开第二个 DataStore 读同一文件：DataStore 不允许同一文件存在两个活动实例。
+        val persisted = File(prefsDir, "settings.preferences_pb").readBytes().toString(Charsets.UTF_8)
+        assertTrue("清除后写入的值必须落盘", persisted.contains("/bin/after-clear"))
+        assertFalse("清除前的值不得复活", persisted.contains("/bin/cleared-shell-marker"))
     }
 
     @Test

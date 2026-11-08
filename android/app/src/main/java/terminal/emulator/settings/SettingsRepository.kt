@@ -332,6 +332,18 @@ constructor(private val provider: SettingsDataStoreProvider) {
         }
     }
 
+    /**
+     * 清空全部设置项。
+     *
+     * 只删文件不够：DataStore 单例在进程内缓存着已读入的状态，外部删掉
+     * `preferences_pb` 之后它仍按旧值对外供给，下一次写入还会把旧值整份写回——
+     * 「已清除」的提示成了假话。故清除必须先经 DataStore 本身把内容清空，
+     * 让内存态与文件态同时归零。
+     */
+    suspend fun clearAllSettings() {
+        provider.dataStore.edit { it.clear() }
+    }
+
     suspend fun setThemeMode(mode: String) = put(Keys.THEME_MODE, mode)
 
     suspend fun setAppThemeMode(mode: String) = put(Keys.APP_THEME_MODE, mode)

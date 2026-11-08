@@ -1405,6 +1405,9 @@ constructor(
             // 落盘会发生在删除之后并重建 preferences_pb，清除静默不生效。
             settingsRepository.dropPendingBootstrapUrlEdits()
             try {
+                // 先经 DataStore 清空内容：它缓存着已读入的状态，只删文件的话
+                // 内存态仍是旧值，下一次写入还会把旧值整份写回。
+                settingsRepository.clearAllSettings()
                 // 进程级 DataStore 单例仍在运行：删后必须重建，
                 // 否则下一次设置写入失败。
                 val watchedDirs = listOf("prefs")
