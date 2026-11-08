@@ -139,6 +139,38 @@ fn rendered_scrollback_separates_unpublished_from_unknown_session() {
     wlock_session_registry().remove(&session_id);
 }
 
+/// 会话注册表查找的统一入口：未知会话 → `None`，已登记会话 → 读到条目。
+///
+/// 判别力：网格尺寸与两个忙标记的导出都走这条路径。把「会话未知」与「会话
+/// 已知但当前空闲」塌缩成同一个 0 时，看门狗会把「会话已死」读成「空闲」，
+/// 静默失去诊断能力。
+#[test]
+fn session_entry_lookup_separates_unknown_session_from_idle_one() {
+    let _registry_access = REGISTRY_ACCESS.lock();
+    let (session, _handle) = background_session();
+    let session_id = 0x5EED_5EED_u64;
+    wlock_session_registry().insert(
+        session_id,
+        SessionEntry::new(session, Arc::new(RenderWake::default())),
+    );
+
+    let busy_marker = super::state::with_session_entry(session_id, |entry| {
+        entry.vt_busy_since_nanos.load(Ordering::Acquire)
+    });
+    assert_eq!(
+        busy_marker,
+        Some(0),
+        "已登记但空闲的会话须读出 0 而非「缺失」"
+    );
+    assert_eq!(
+        super::state::with_session_entry(session_id + 1, |_| 1u64),
+        None,
+        "未知会话必须与「已知但空闲」区分开"
+    );
+
+    wlock_session_registry().remove(&session_id);
+}
+
 /// 后台会话的读请求同样必须被收割并应答。
 ///
 /// 判别力：只排活跃会话时，后台会话的读请求队列进一条、从不取出——队列无界

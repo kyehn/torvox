@@ -50,6 +50,19 @@ pub(super) fn cell_metrics_packed_from(width: f32, height: f32) -> jlong {
     (((u64::from(height.to_bits())) << 32) | u64::from(width.to_bits())) as jlong
 }
 
+/// 在会话注册表里查找会话并读取其状态；会话未知时返回 `None`。
+///
+/// 注册表读锁在读取期间持有，与逐个导出各自取锁的旧写法等价：读的都是会话
+/// 条目里已发布的共享量（原子镜像标志、忙标记、网格尺寸）。
+pub(super) fn with_session_entry<T>(
+    session_id: u64,
+    read: impl FnOnce(&SessionEntry) -> T,
+) -> Option<T> {
+    let registry = rlock_session_registry();
+    let entry = registry.get(&session_id)?;
+    Some(read(entry))
+}
+
 /// 当前网格尺寸，打包为 `(rows << 32) | cols`；会话未知时为 0。
 /// 供 `Bridge.getGridRowsColsPacked` 使用：Kotlin 桩实现原本永远返回 0，
 /// 导致 resize 被丢弃后 `syncGridDimensions` 永远无法收敛到原生网格。
@@ -60,13 +73,12 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGrid
     session_id: jlong,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, 0, |_env| {
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&(session_id as u64)) else {
-            return Ok(0);
-        };
-        let session = entry.session.lock();
-        let (rows, cols) = session.grid_size();
-        (i64::from(rows) << 32) | i64::from(cols)
+        with_session_entry(session_id as u64, |entry| {
+            let session = entry.session.lock();
+            let (rows, cols) = session.grid_size();
+            (i64::from(rows) << 32) | i64::from(cols)
+        })
+        .unwrap_or(0)
     })
 }
 
@@ -83,11 +95,7 @@ pub(super) fn read_terminal_atomic_flag(
     session_id: u64,
     read: impl Fn(&SessionEntry) -> bool,
 ) -> bool {
-    let registry = rlock_session_registry();
-    let Some(entry) = registry.get(&session_id) else {
-        return false;
-    };
-    read(entry)
+    with_session_entry(session_id, |entry| read(entry)).unwrap_or(false)
 }
 
 /// 读原子镜像标志并转成 JNI 布尔值。
@@ -268,11 +276,10 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getVtBu
     session_id: jlong,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, 0, |_env| {
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&(session_id as u64)) else {
-            return Ok(0);
-        };
-        busy_elapsed_nanos(entry.vt_busy_since_nanos.load(Ordering::Acquire))
+        with_session_entry(session_id as u64, |entry| {
+            busy_elapsed_nanos(entry.vt_busy_since_nanos.load(Ordering::Acquire))
+        })
+        .unwrap_or(0)
     })
 }
 
@@ -287,10 +294,9 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getPtyS
     session_id: jlong,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, 0, |_env| {
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&(session_id as u64)) else {
-            return Ok(0);
-        };
-        busy_elapsed_nanos(entry.pty_send_since_nanos.load(Ordering::Acquire))
+        with_session_entry(session_id as u64, |entry| {
+            busy_elapsed_nanos(entry.pty_send_since_nanos.load(Ordering::Acquire))
+        })
+        .unwrap_or(0)
     })
 }
