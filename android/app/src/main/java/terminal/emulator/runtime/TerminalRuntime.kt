@@ -1702,7 +1702,9 @@ constructor(
                                 // 都可降低帧时间抖动。
                                 Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
                                 var diagCount = 0
-                                var consecutiveErrors = 0
+                                // 渲染循环的失败账本：连续错误数（退避与致命上限）与四类
+                                // 失败诊断的窗口闸门都在这里，理由见 RenderErrorLedger。
+                                val renderErrorLedger = RenderErrorLedger()
                                 var lastScrollOffset = Int.MAX_VALUE
                                 var lastScrollRemainderPx = Float.NaN
                                 var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false)
@@ -1961,20 +1963,23 @@ constructor(
                                             // 退出会冻结原生输出处理且不保证重启
                                             // （旋转/切应用的 Surface 中断会让终端永久卡死）。
                                             // 正常退出仍走上方 entry.running / generation 条件。
-                                            if (consecutiveErrors == 0 ||
-                                                consecutiveErrors % RENDER_MAX_TRANSIENT_ERRORS == 0
-                                            ) {
+                                            // 瞬时渲染错误按窗口汇总：成功一帧即把连续数清零，
+                                            // 「失败—成功—失败」的交替形态下按连续数节流每次都
+                                            // 命中首条分支，于是逐帧记日志。行内带窗口内次数。
+                                            renderErrorLedger.onTransientError()?.let { transientCount ->
+                                                val consecutive = renderErrorLedger.consecutiveErrors
                                                 val message =
-                                                    "session ${entry.sessionId} transient render error code=$count (consecutive=$consecutiveErrors, surviving)"
+                                                    "session ${entry.sessionId} transient render error code=$count " +
+                                                        "(consecutive=$consecutive, " +
+                                                        "transient_errors=$transientCount, surviving)"
                                                 // 首次是正常退化（平台收走了窗口），重复才是异常：
                                                 // 分级见 transientRenderErrorIsWarning。
-                                                if (transientRenderErrorIsWarning(consecutiveErrors)) {
+                                                if (transientRenderErrorIsWarning(consecutive)) {
                                                     LogUtil.warn("Runtime", message)
                                                 } else {
                                                     LogUtil.info("Runtime", message)
                                                 }
                                             }
-                                            consecutiveErrors++
                                             // 帧已正常返回（只是渲染失败），渲染线程没有挂起。
                                             // 必须刷新完成时刻：`RenderWatchDog` 以
                                             // 「开始 > 完成」判定挂起，若此处不更新，
@@ -1985,7 +1990,7 @@ constructor(
                                             entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
                                             // 自适应退避：前若干次短退避，之后长退避
                                             // （档位见 renderErrorBackoffMillis）。
-                                            val sleepMs = renderErrorBackoffMillis(consecutiveErrors)
+                                            val sleepMs = renderErrorBackoffMillis(renderErrorLedger.consecutiveErrors)
                                             // 退避是设计上主动等的等待：单独计量，既不进慢循环
                                             // 判定，也不并进 poll 段——否则平台收走窗口这条正常
                                             // 退化路径会在退避后记出 warn 级慢循环告警。
@@ -1993,13 +1998,19 @@ constructor(
                                             delay(sleepMs)
                                             loopBackoffNanos = System.nanoTime() - backoffStartNanos
                                         } else {
-                                            if (consecutiveErrors > 0) {
-                                                LogUtil.info(
-                                                    "Runtime",
-                                                    "session ${entry.sessionId} recovered after $consecutiveErrors errors",
-                                                )
+                                            // 恢复消息同样可能逐帧发生（失败—成功交替），
+                                            // 故按窗口汇总，行内带窗口内恢复次数。
+                                            if (renderErrorLedger.consecutiveErrors > 0) {
+                                                val consecutive = renderErrorLedger.consecutiveErrors
+                                                renderErrorLedger.onRecovery()?.let { recoveries ->
+                                                    LogUtil.info(
+                                                        "Runtime",
+                                                        "session ${entry.sessionId} recovered " +
+                                                            "(consecutive=$consecutive, recoveries=$recoveries)",
+                                                    )
+                                                }
                                             }
-                                            consecutiveErrors = 0
+                                            renderErrorLedger.onSuccess()
                                         }
                                         // 输出泵与渲染解耦：无论渲染成功与否都必须排空原生输出，
                                         // 否则一次持续渲染失败会阻塞读取线程并冻结全部会话。
@@ -2080,11 +2091,19 @@ constructor(
                                             }
                                             eventDispatcher.handle(poll)
                                         } catch (exception: Exception) {
-                                            LogUtil.error(
-                                                "Runtime",
-                                                "pollAll failed for session ${entry.sessionId}; deferred events dropped",
-                                                exception,
-                                            )
+                                            // 输出泵失败会逐帧发生（桥接层持续抛异常）：按窗口
+                                            // 汇总，行内带窗口内失败次数。窗口内只有这一次时
+                                            // 给完整栈——成堆重复时同一异常的栈并不变，每
+                                            // 500ms 重复一份只会把 logcat 刷满。
+                                            renderErrorLedger.onPollFailure()?.let { pollFailures ->
+                                                LogUtil.error(
+                                                    "Runtime",
+                                                    "pollAll failed for session ${entry.sessionId}; " +
+                                                        "deferred events dropped (poll_failures=$pollFailures, " +
+                                                        "cause=${exception.javaClass.simpleName})",
+                                                    if (pollFailures == 1) exception else null,
+                                                )
+                                            }
                                         }
                                         val loopPollDoneNanos = System.nanoTime()
                                         if (count >= 0) {
@@ -2099,13 +2118,10 @@ constructor(
                                                 // 查询每逢本分支（60 帧窗口 ≈ 1 秒）将渲染帧拉到
                                                 // 60–115ms；压测环境下踩满 500ms。
                                                 scope.launch {
-                                                    val title =
-                                                        try {
-                                                            bridge.getActiveSessionTitle()
-                                                        } catch (exception: Exception) {
-                                                            LogUtil.error("Runtime", "title query failed", exception)
-                                                            ""
-                                                        }
+                                                    // 取标题失败由 NativeQueryPort 归为缺省值（空串），
+                                                    // 不抛异常：此处的 catch 是死代码，且它把取消
+                                                    // 信号也当成失败——应用收尾时留下一条假错误。
+                                                    val title = bridge.getActiveSessionTitle()
                                                     if (title.isNotEmpty() && title != _state.value.title) {
                                                         // CAS 更新：收集器与 IO 会话函数也会写 _state，
                                                         // 此处非原子的读-改-写会覆盖它们的会话列表。
@@ -2215,18 +2231,17 @@ constructor(
                                         Thread.currentThread().interrupt()
                                         break
                                     } catch (exception: Exception) {
-                                        consecutiveErrors++
-                                        if (consecutiveErrors == 1) {
+                                        // 渲染异常按窗口汇总：成功一帧即把连续数清零，交替
+                                        // 形态下旧的「首条即记」分支每次都命中，逐帧记
+                                        // error 加栈。行内带窗口内异常次数。
+                                        renderErrorLedger.onRenderException()?.let { renderErrors ->
                                             LogUtil.error(
                                                 "Runtime",
-                                                "session ${entry.sessionId} first render exception",
-                                                exception,
-                                            )
-                                        } else if (consecutiveErrors % RENDER_ERROR_LOG_FREQUENCY == 0) {
-                                            LogUtil.error(
-                                                "Runtime",
-                                                "session ${entry.sessionId} render exception (x$consecutiveErrors)",
-                                                exception,
+                                                "session ${entry.sessionId} render exception " +
+                                                    "(render_errors=$renderErrors, " +
+                                                    "consecutive=${renderErrorLedger.consecutiveErrors}, " +
+                                                    "cause=${exception.javaClass.simpleName})",
+                                                if (renderErrors == 1) exception else null,
                                             )
                                         }
                                         // 异常帧同样是「渲染线程没挂」的证据：
@@ -2235,10 +2250,11 @@ constructor(
                                         // 线程判为挂死。当前上限恰好（约 5s）小于超时，
                                         // 但那只是两个常量的巧合，任一改动即成误杀。
                                         entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
-                                        if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
+                                        if (renderErrorLedger.consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
                                             LogUtil.error(
                                                 "Runtime",
-                                                "session ${entry.sessionId} too many render exceptions ($consecutiveErrors), stopping render thread",
+                                                "session ${entry.sessionId} too many render exceptions " +
+                                                    "(${renderErrorLedger.consecutiveErrors}), stopping render thread",
                                                 exception,
                                             )
                                             break
@@ -2546,7 +2562,6 @@ constructor(
 
         private const val MIN_SURFACE_HEIGHT_PX = 250
         private const val MAX_SURFACE_HEIGHT_PX = 500
-        private const val RENDER_ERROR_LOG_FREQUENCY = 60
 
         // 前台会话的 shell 退出时送入终端的 [Process completed] 提示（保持可见直到按 Enter）。
 
@@ -2557,10 +2572,6 @@ constructor(
         private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ") - press Enter]"
 
         private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
-
-        // 瞬时错误的日志节流间隔（每 N 次连续错误记一行）。渲染线程不按错误数退出：
-        // 旋转/切应用的 Surface 中断会连续报错，退出即永久卡死（见渲染循环注释）。
-        private const val RENDER_MAX_TRANSIENT_ERRORS = 50
 
         // 慢帧诊断的阈值见文件顶层的 SLOW_FRAME_LOG_THRESHOLD_MS。
 
@@ -5329,9 +5340,9 @@ internal data class SurfaceRecreateDecision(val request: Boolean = false, val ex
  * 规范「渲染 surface 失效后自愈」）。这类事件按 info 记，不占 W 闸门；
  * 连续出现说明新窗口迟迟不来，那才是异常，保留 warn。
  *
- * @param consecutiveErrors 本次之前已连续发生的瞬时错误数（0 = 首次）
+ * @param consecutiveErrors 含本次在内的连续错误数（1 = 首次）
  */
-internal fun transientRenderErrorIsWarning(consecutiveErrors: Int): Boolean = consecutiveErrors > 0
+internal fun transientRenderErrorIsWarning(consecutiveErrors: Int): Boolean = consecutiveErrors > 1
 
 /** 渲染失败后的短退避（毫秒）：连续错误未达长退避阈值时用。 */
 private const val RENDER_ERROR_SLEEP_MS = 50L

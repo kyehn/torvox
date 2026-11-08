@@ -66,6 +66,11 @@
 - **WHEN** 子进程已退出，待写的 VT 应答再也无人接收
 - **THEN** 应答被丢弃并记为 debug，MUST NOT 记为 warn 或 error
 
+#### Scenario: 标题查询失败
+
+- **WHEN** 宿主查询会话标题而原生侧没有标题数据
+- **THEN** 查询按缺省值（空标题）处理，MUST NOT 记为 error
+
 ### Requirement: 高频诊断日志必须限频
 
 应用为定位性能问题而输出的逐帧诊断（慢帧、慢循环、渲染分段）MUST 限频：
@@ -184,6 +189,21 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 - **WHEN** 同一行既有渲染实例数，又有窗口内的事件计数
 - **THEN** 两者 MUST 以各自名称的字段给出（窗口次数为 `slow_frames` 或 `slow_loops`），
       MUST NOT 复用同一个字段名
+
+#### Scenario: 宿主渲染失败的告警
+
+- **WHEN** 宿主渲染循环持续遇到瞬时渲染错误或渲染异常（含失败与成功交替的形态）
+- **THEN** 两类诊断 MUST 各按窗口输出，MUST NOT 逐帧输出；每一行 MUST 带上窗口内累计的次数
+
+#### Scenario: 错误后恢复的告警
+
+- **WHEN** 宿主渲染循环在失败与成功之间反复切换，恢复消息逐帧发生
+- **THEN** 恢复消息 MUST 按窗口输出，MUST NOT 逐帧输出；该行 MUST 带上窗口内累计的恢复次数
+
+#### Scenario: 输出泵失败的告警
+
+- **WHEN** 宿主渲染循环持续遇到输出泵失败（pollAll 抛异常）
+- **THEN** 告警 MUST 按窗口输出，MUST NOT 逐帧输出；该行 MUST 带上窗口内累计失败的次数
 
 ### Requirement: 外部与上游条目必须逐条归因并留档
 
