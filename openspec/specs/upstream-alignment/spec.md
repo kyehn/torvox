@@ -941,21 +941,22 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 实测基线（本轮实跑所得，工具版本可能前进，重跑 MUST 以当日实测覆盖本列）：
 
-- **aislop**：`aislop scan --json` 退出码 0，`summary` 0 errors / 14 warnings /
-  0 fixable；14 条 `diagnostics` 全部是 `complexity/*`（11 条
-  `complexity/file-too-large`、3 条 `complexity/function-too-long`：`pump_sessions`、
-  `render_inner`、`run_inner`），`findingAssessment.byKind` 为 `style-policy` 14 /
-  `confirmed-defect` 0，confidence 分布 high 0 / medium 14 / low 0。
-  **覆盖面限制**：全仓扫描 `coverage.supportedFiles` 45、`unsupportedFiles` 141、
-  `dominantUnsupported` 为 `Kotlin`——该工具扫不到本仓 Android 侧 Kotlin 代码，
+- **aislop**（须以 `npx aislop@latest` 调用，本仓 nix 环境未内置该可执行文件）：
+  `npx aislop@latest scan --json native/src` 退出码 0，`score` 100、label `Healthy`、
+  `coverage.supportedFiles` 105、`unsupportedFiles` 0，`summary` 0 errors /
+  1 warning / 0 fixable；唯一 `diagnostics` 为 `complexity/file-too-large`
+  （`terminal/ghostty_terminal/public_api.rs`，1123 行），
+  `findingAssessment.byKind` 为 `style-policy` 1 / `confirmed-defect` 0。
+  全仓扫描 `npx aislop@latest scan --json` 同为 0 errors / 1 warning，
+  `coverage.supportedFiles` 106、`unsupportedFiles` 164、
+  `dominantUnsupported` 为 `Kotlin`、`scoreable` 为真。
+  **覆盖面限制**：该工具扫不到本仓 Android 侧 Kotlin 代码，
   故本项 MUST NOT 被当作全仓门禁；它只对 Rust 侧有判别力。
   **评分可用性**：该工具仅在 `unsupportedFiles < 10` 或
-  `unsupportedFiles ≤ supportedFiles × 3` 时给出分数；本仓当前 141 > 45 × 3 = 135，
-  全仓扫描的 `score` 为 `null`、label 为 `not scored`，故分数基线 MUST 取
-  Rust 子目录扫描（`aislop scan --json native/src`）：`score` 90、label `Healthy`、
-  `supportedFiles` 44、`unsupportedFiles` 0。
+  `unsupportedFiles ≤ supportedFiles × 3` 时给出分数；本仓当前 164 ≤ 106 × 3，
+  全仓扫描亦可评分，但分数基线仍 MUST 取 Rust 子目录扫描。
   验收判据：接入后 `confirmed-defect` 与 `errors` MUST 维持 0，
-  `file-too-large` / `function-too-long` 的条数 MUST NOT 上升（基线各 11 / 3）；
+  `file-too-large` / `function-too-long` 的条数 MUST NOT 上升（基线 1 / 0）；
   该工具归类为 style-policy 的项 MUST NOT 阻断构建，
   只有 error 级或 `confirmed-defect` 才阻断。
 - **jscpd**：`jscpd --min-lines 8 --min-tokens 60` 对 `native/src` 与

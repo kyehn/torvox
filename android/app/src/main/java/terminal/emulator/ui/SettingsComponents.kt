@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
@@ -205,6 +206,40 @@ private fun RowScope.SettingsSelectorPill(
             if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
         )
     }
+}
+
+/** 设置分区卡片容器：圆角底色 + 内边距，各分区共用同一套留白。 */
+@Composable
+internal fun SettingsCard(cardBackground: Color, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val isSmallScreen = rememberIsSmallScreen()
+    Column(
+        modifier =
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(if (isSmallScreen) 8.dp else 12.dp))
+            .background(cardBackground)
+            .padding(if (isSmallScreen) 12.dp else 16.dp),
+    ) {
+        content()
+    }
+}
+
+/** 分区标题。 */
+@Composable
+internal fun SectionHeader(title: String, textColor: Color) {
+    val isSmallScreen = rememberIsSmallScreen()
+    Text(
+        text = title,
+        style =
+        if (isSmallScreen) {
+            MaterialTheme.typography.titleSmall
+        } else {
+            MaterialTheme.typography.titleMedium
+        },
+        fontWeight = FontWeight.Bold,
+        color = textColor,
+        modifier = Modifier.padding(vertical = 4.dp),
+    )
 }
 
 /** 字体缺 CJK 回退时的警示橙，与 [CjkFallbackMissingWarning] 配套。 */

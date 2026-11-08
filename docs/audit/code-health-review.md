@@ -89,12 +89,43 @@ MUST NOT 通过删除测试满足该约束，故本轮不以削减测试换取�
 | --- | --- | --- | --- |
 | `semgrep`（仓内 54 条规则，1351 个被跟踪文件） | 0 | 通过 | 扫描退出码 0，`Findings: 0` |
 | Android `lintDebug` | 1 | 不是缺陷 | 唯一命中是 `NewerVersionAvailable`：`app/build.gradle.kts` 里 `io.mockk:mockk` 1.14.11 有 1.14.12 可用；构建脚本属受保护文件，且依赖升级不属本次范围 |
+| `aislop scan --json native/src` | 1 | 不是缺陷 | 唯一命中是 `complexity/file-too-large`：`native/src/terminal/ghostty_terminal/public_api.rs` 1123 行。工具自身把该项归为 `style-policy`，即「大文件是复核压力，体积本身不是已确认缺陷」；该文件承载 VT 对外 API 的单一门面，详见下方超大文件一节 |
+| `aislop scan --json`（全仓） | 1 | 不是缺陷 | 与子目录扫描同一条命中；`score` 100、`label` `Healthy`、`confirmed-defect` 0。覆盖面限制仍在：`unsupportedFiles` 164、`dominantUnsupported` 为 `Kotlin`，该工具扫不到本仓界面侧代码，故其分数不得当作全仓质量结论 |
 | Rust 生产代码 `unwrap()` | 0 | 通过 | 全量统计生产路径无 `unwrap()` |
 | Rust 生产代码 `expect(` | 17 | 不是缺陷 | 逐条为不变式断言：`font.rs` 的字体族计数上界、`render/window.rs` 的渲染状态必然已初始化、`logging.rs` 的硬编码字符串无 NUL 与日志器只装一次、`glyph_cache.rs` 的容量常量大于零、`internal/commands.rs` 的缓存必然存在、`theme.rs` 的默认主题必在清单中。均为编译期或初始化期即可判定的事实，不存在运行时不确定输入 |
 | Rust 生产代码 `unsafe` | 112 | 不是缺陷 | 73 处是 JNI 导出的 `#[unsafe(no_mangle)]` ABI 标注；12 处是 `unsafe` 函数签名（JNI 导出与 NDK 内部函数）；7 处是 `unsafe` 块（`font.rs`/`input.rs` 的 JNI 数组读取、`wgpu_backend.rs` 与 `ghostty_terminal/mod.rs` 的 FFI 调用、`pty/child.rs` 的 `termios` 取值）；5 处是 JNI 数组 `from_raw`；5 处是 `libc` 系统调用（PTY 的 `tcgetattr`/`tcsetattr`/`write`/`_exit`/`getrlimit`）；4 处是 NDK `ANativeWindow_*`；其余为日志器一次性安装与被 `catch_unwind` 包裹的 wgpu 设备创建。`native/src/terminal/pty.rs` 的模块注释已写明「PTY 主/从端创建与直接系统调用处允许 unsafe，VT/网格数据路径禁用 unsafe」，实测 VT 与网格数据路径确无 `unsafe` |
 | Kotlin 主源码顶层类型引用 | 0 孤儿 | 通过 | 逐个文件提取顶层 `class`/`object`/`interface` 名并全仓检索，每个名字至少在自身文件内被引用 |
 | 资源文件引用 | 0 孤儿 | 通过 | `layout`、`drawable`、`menu`、`xml` 目录下每个资源名至少被一处引用 |
 | Rust 模块声明 | 0 孤儿 | 通过 | 每个 `mod` 声明都指向存在的文件；每个 `.rs` 文件都被某个 `mod` 声明或 Cargo 目标（`build.rs`、`benches/`、`tests/`）引用 |
+
+## 超大文件：阈值跨语言应用不一致
+
+阈值沿用历史变更 `split-native-oversized-modules` 确立的约 1100 行（`aislop` 的告警
+线为超过 1100 行）。当前分布：
+
+| 语言 | 超阈值文件 | 明细 |
+| --- | --- | --- |
+| Rust 生产源码 | 1 | `terminal/ghostty_terminal/public_api.rs` 1122 行 |
+| Rust 测试源码 | 3 | `terminal/ghostty_terminal/tests/lifecycle.rs` 1189 行、`terminal/ghostty_terminal/tests/render_cache.rs` 1123 行、`render/font/tests/glyphs.rs` 1036 行 |
+| Kotlin 生产源码 | 4 | `runtime/TerminalRuntime.kt` 5562 行、`ui/TerminalSurface.kt` 4438 行、`TerminalViewModel.kt` 2143 行、`ui/SettingsScreen.kt` 1303 行 |
+
+判定：原生侧已按阈值拆分，界面侧仍留有四个超阈值生产文件，其中 `TerminalRuntime.kt`
+的规模是原生侧最大生产文件的五倍。按 `code-health` 规约「超大文件阈值必须跨源码语言
+一致应用」，本项**判定为不一致并登记为未完成**。
+
+逐条保留理由与后续处置方向：
+
+| 文件 | 关注面 | 处置方向 |
+| --- | --- | --- |
+| `terminal/ghostty_terminal/public_api.rs` | VT 对外 API 的单一门面：构造与生命周期、VT 写入与帧取回、快照与查询、键鼠编码 | 按上述四类独立职责切分，切分后门面只留转发 |
+| `runtime/TerminalRuntime.kt` | 会话生命周期、渲染线程调度、看门狗、通知、剪贴板、响铃、主题、字体、输入法、选区、滚动、前台服务 | 按关注面切分为若干独立文件，运行时门面只留编排 |
+| `ui/TerminalSurface.kt` | 触摸与手势映射、绘制、选区、滚动、输入法插入 | 绘制与输入两条线分开 |
+| `TerminalViewModel.kt` | 状态聚合与配置传播 | 配置传播与会话状态分开 |
+| `ui/SettingsScreen.kt` | 设置项渲染与交互 | 按设置分组拆出可组合的小节 |
+| `terminal/ghostty_terminal/tests/lifecycle.rs`、`tests/render_cache.rs`、`render/font/tests/glyphs.rs` | 测试文件，本身不受生产源码规模约束 | 不处置 |
+
+拆分 MUST 依据彼此独立的职责边界，MUST NOT 按行数机械切分，也 MUST NOT 制造仅用一次的
+空壳抽象。
 
 ## 明确不作处置的项
 
