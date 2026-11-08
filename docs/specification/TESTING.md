@@ -27,8 +27,11 @@
 - 测试使用 nix 提供的字体和系统字体。在模拟器测试使用系统提供的字体，如果需要 nix 提供的字体可以复制文件，通过库或者“FONTCONFIG_FILE 环境变量”寻找字体位置。环境是确定性的，不允许根据环境跳过或隐藏问题，环境不一致视为错误。
 - 性能测试必须有断言，实际测试获得基准值，低于基准时测试失败，基准需要和实际测试结果相对接近以发现之后的性能降低。
 - 使用本地环境进行测试，针对性测试，不浪费资源，不启动新的 GitHub Actions 任务
+- 复杂问题尽量先复选确定原因再设计修复和测试，合理使用模拟器测试，不得要求真机测试
 
 ## 覆盖范围
+
+严格按照描述实现下面的测试，不接受替代方案
 
 - 字体设置值与实际渲染尺寸的对照测试。
 - 会话列表序号与终端标题读取。
@@ -47,5 +50,5 @@
 - 安装 fastfetch，运行 `fastfetch --logo none --pipe -s "Title:Separator:OS:Host:Kernel:Uptime:Packages:Shell:Terminal:CPU:Memory:Swap:Disk:Locale"` 命令，预览截图保存到 assets 分支
 - `macrobenchmark` 需要在模拟器上运行并断言，要求在模拟器上流畅运行
 - 对中英文字体检查是否模糊 发虚，对比权威软件，也检查斜体、粗体，以及自动生成的斜体、粗体
-- 使用 `kitten icat test.png` 和 `clear` 测试，检查图片是否被正确显示和清除
+- 安装 termux-packages 的 kitty，使用 `kitten icat test.png` 和 `clear` 测试，检查图片是否被正确显示和清除
 - 已打开时添加多个 Failsafe 新建会话和未打开时添加多个 Failsafe 新建会话
