@@ -37,21 +37,19 @@ class SessionHangVerdictTest {
     }
 
     /** 一个从未启动的看门狗：只作为身份标识参与复核。 */
-    private fun watchdog(): RenderWatchDog =
-        RenderWatchDog(
-            diagnose = { SessionLivenessDiagnosis(hungLayer = null, busyNanos = 0L) },
-            isRunning = { false },
-            onHangDetected = { _, _ -> },
-        )
+    private fun watchdog(): RenderWatchDog = RenderWatchDog(
+        diagnose = { SessionLivenessDiagnosis(hungLayer = null, busyNanos = 0L) },
+        isRunning = { false },
+        onHangDetected = { _, _ -> },
+    )
 
     /** 一个待处置的会话条目。 */
-    private fun entry(): SessionEntry =
-        SessionEntry(
-            sessionId = 1L,
-            bridge = TestBridges.create(),
-            renderThreadRef = null,
-            running = true,
-        )
+    private fun entry(): SessionEntry = SessionEntry(
+        sessionId = 1L,
+        bridge = TestBridges.create(),
+        renderThreadRef = null,
+        running = true,
+    )
 
     /** 某层挂起的诊断。 */
     private fun diagnosis(layer: HungLayer): SessionLivenessDiagnosis =
