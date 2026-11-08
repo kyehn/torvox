@@ -342,6 +342,45 @@ mod tests {
 }
 
 #[cfg(test)]
+mod clipboard_tests {
+    use super::*;
+
+    #[test]
+    fn clipboard_serializes_with_snake_case_tag() {
+        // Kotlin `PollEvent.Clipboard` 的解码契约：`@SerialName("clipboard")` 匹配事件
+        // 标签，`session_id`/`text` 匹配字段名。标签或字段名漂移会让
+        // kotlinx-serialization 抛 UnknownField/MissingField，事件整批丢弃，
+        // 用户刚复制的内容就此消失。
+        let json = serde_json::to_string(&Event::Clipboard {
+            session_id: 9,
+            text: "hello".to_string(),
+        })
+        .expect("clipboard serializes");
+        assert_eq!(
+            json,
+            r#"{"event":"clipboard","session_id":9,"text":"hello"}"#
+        );
+    }
+
+    #[test]
+    fn clipboard_read_serializes_with_snake_case_tag() {
+        // Kotlin `PollEvent.ClipboardRead` 的解码契约：`@SerialName("clipboard_read")`
+        // 匹配事件标签，`session_id`/`request_id`/`selection` 匹配字段名。请求 id 是
+        // 应答的配对依据，漂移会让应答找不到请求，远端把空剪贴板粘出来。
+        let json = serde_json::to_string(&Event::ClipboardRead {
+            session_id: 9,
+            request_id: 3,
+            selection: "c".to_string(),
+        })
+        .expect("clipboard read serializes");
+        assert_eq!(
+            json,
+            r#"{"event":"clipboard_read","session_id":9,"request_id":3,"selection":"c"}"#
+        );
+    }
+}
+
+#[cfg(test)]
 mod bell_tests {
     use super::*;
 
