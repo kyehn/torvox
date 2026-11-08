@@ -25,7 +25,7 @@ class RenderPauseTest : ComposeTerminalLogcatTest() {
     }
 
     @Test
-    fun settings_open_does_not_crash() {
+    fun settings_open_shows_settings_screen() {
         composeTestRule.openSettings()
         // Verify settings screen rendered: look for back button or settings UI
         composeTestRule.onNodeWithTag("SettingsBackButton").assertExists()

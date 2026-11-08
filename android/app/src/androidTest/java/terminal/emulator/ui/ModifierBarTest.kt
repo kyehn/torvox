@@ -17,11 +17,16 @@ import androidx.compose.ui.test.performTouchInput
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.MainActivity
+import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitBridge
+import terminal.emulator.awaitShellPrompt
 import terminal.emulator.probeAssertion
+import terminal.emulator.pumpedTerminalText
 
 class ModifierBarTest : ComposeTerminalLogcatTest() {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
@@ -149,7 +154,7 @@ class ModifierBarTest : ComposeTerminalLogcatTest() {
     }
 
     @Test
-    fun rapid_press_does_not_crash() {
+    fun rapid_esc_press_keeps_session_responsive() {
         repeat(5) {
             composeTestRule.onNodeWithTag("Key_ESC").performTouchInput {
                 down(center)
@@ -157,10 +162,11 @@ class ModifierBarTest : ComposeTerminalLogcatTest() {
             }
         }
         composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
+        assertSessionStillResponds()
     }
 
     @Test
-    fun rapid_press_arrow_keys_does_not_crash() {
+    fun rapid_arrow_press_keeps_session_responsive() {
         repeat(3) {
             composeTestRule.onNodeWithTag("Key_\u2191").performTouchInput {
                 down(Offset(width / 2f, height / 2f))
@@ -172,6 +178,28 @@ class ModifierBarTest : ComposeTerminalLogcatTest() {
             }
         }
         composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
+        assertSessionStillResponds()
+    }
+
+    /**
+     * 连按之后会话必须仍然可用：送一条探针命令并等它落格。
+     *
+     * 只断言「界面还在」证明不了输入链路活着——按键写进 PTY 后若把 shell 的行编辑器
+     * 逼进异常态，界面照样正常显示。探针落格才是「会话仍可交互」的判据。
+     * ESC 是行编辑器的 meta 前缀，连按后 shell 可能停在未完成的前缀上，故先用 ETX
+     * 清掉当前行再送探针。
+     */
+    private fun assertSessionStillResponds() {
+        val bridge = composeTestRule.awaitBridge()
+        awaitShellPrompt(bridge)
+        bridge.writeToPty("\u0003".toByteArray())
+        val marker = "RAPID_${java.util.UUID.randomUUID().toString().take(8)}"
+        bridge.writeToPty("printf '%s\\n' $marker\n".toByteArray())
+        val landed =
+            UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 200) {
+                composeTestRule.pumpedTerminalText()?.contains(marker) == true
+            }
+        assertNotNull("连按后会话必须仍可交互（探针 $marker 未落格）", landed)
     }
 
     /** 经 View 派发合成触摸：performTouchInput 无法表达 ACTION_CANCEL，取消语义必须走原始 MotionEvent。 */

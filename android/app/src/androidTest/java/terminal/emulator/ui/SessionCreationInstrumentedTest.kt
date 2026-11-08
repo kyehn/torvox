@@ -95,7 +95,7 @@ class SessionCreationInstrumentedTest : ComposeTerminalLogcatTest() {
     }
 
     @Test
-    fun add_second_session_does_not_crash() {
+    fun add_two_sessions_consecutively() {
         addSessionViaDrawer(sessionsBefore + 1)
         addSessionViaDrawer(sessionsBefore + 2)
         assertTrue(

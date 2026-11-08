@@ -4,6 +4,8 @@ package terminal.emulator.ui
 import android.graphics.Bitmap
 import android.os.SystemClock
 import android.util.Log
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -23,6 +25,8 @@ import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.MainActivity
+import terminal.emulator.R
+import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitShellPrompt
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.cleanUpTerminalState
@@ -86,13 +90,8 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
                 }
             bridge.writeToPty("echo '$content'\n".toByteArray())
         }
-        // 落格门控替代裸睡：慢模拟器上 200 行回显滞后，内容未齐即搜即错。自带 pump（同 prompt 门控注释）。
-        val landed =
-            terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 60_000, intervalMs = 200) {
-                runCatchingCancellable { terminal.emulator.bridge.NativeBridge.pollEvent() }
-                runCatchingCancellable { bridge.getTerminalText() }.getOrNull()?.contains(marker) == true
-            }
-        assertNotNull("标记必须落格: $marker", landed)
+        // 落格门控替代裸睡：慢模拟器上 200 行回显滞后，内容未齐即搜即错。
+        awaitTerminalContains(bridge, marker)
     }
 
     private fun awaitBridge(): Bridge {
@@ -106,12 +105,69 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
         return composeTestRule.getBridge() ?: throw AssertionError("bridge null")
     }
 
-    private fun waitForOutput() {
-        Thread.sleep(1500) // Wait for PTY output to process
+    /** 等标记落格到终端文本：命令回显与命令输出都算命中。 */
+    private fun awaitTerminalContains(bridge: Bridge, marker: String, timeoutMs: Long = 60_000) {
+        val landed =
+            UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 200) {
+                runCatchingCancellable { terminal.emulator.bridge.NativeBridge.pollEvent() }
+                runCatchingCancellable { bridge.getTerminalText() }.getOrNull()?.contains(marker) == true
+            }
+        assertNotNull("标记必须落格: $marker", landed)
     }
 
-    private fun waitForSearchStable() {
-        Thread.sleep(500)
+    /** 应用上下文：计数文案取自资源，不硬编码界面文字。 */
+    private val appContext
+        get() = InstrumentationRegistry.getInstrumentation().targetContext
+
+    /** 搜索计数文本；计数节点尚未发射时返回 null。 */
+    private fun searchResultCountText(): String? = runCatching {
+        composeTestRule.onNodeWithTag("SearchResultCount").fetchSemanticsNode()
+            .config.getOrNull(SemanticsProperties.Text)
+            ?.joinToString("") { it.text }
+    }.getOrNull()
+
+    /**
+     * 计数文案的正则：由资源串推导，占位符（`%1$d` 一类）换成数字匹配。
+     *
+     * 硬编码文案会在改字时静默失配——断言要么永假要么永真，看不出是文案变了
+     * 还是搜索坏了。从资源串推导则文案与断言同源。
+     */
+    private fun countPattern(resourceId: Int): Regex {
+        // 用固定数字填一遍资源串，再把数字段换成「若干位数字」：文案与断言同源，
+        // 且测试里不必重复写 `%1$d` 一类占位符语法。
+        // 逐段引用而非整串引用：`Regex.escape` 会把整串包进 \Q…\E，数字段
+        // 也会随之变成字面量，正则就再也匹配不到真实计数。
+        val sample = appContext.getString(resourceId, 1, 2)
+        val pattern = sample.split(Regex("\\d+")).joinToString("\\d+") { Regex.escape(it) }
+        return Regex(pattern)
+    }
+
+    /** 等命中计数落定：计数文本必须给出命中个数（`共 N 个`）。 */
+    private fun awaitSearchCount(timeoutMs: Long = 20_000) {
+        val settled =
+            UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 100) {
+                countPattern(R.string.search_results_total).containsMatchIn(searchResultCountText().orEmpty())
+            }
+        assertNotNull("搜索命中计数未落定（当前文本：${searchResultCountText()}）", settled)
+    }
+
+    /** 等选中计数落定：导航后计数文本必须给出当前序号（`第 k 个，共 N 个`）。 */
+    private fun awaitSelectedCount(timeoutMs: Long = 20_000) {
+        val settled =
+            UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 100) {
+                countPattern(R.string.search_result_of).containsMatchIn(searchResultCountText().orEmpty())
+            }
+        assertNotNull("搜索选中计数未落定（当前文本：${searchResultCountText()}）", settled)
+    }
+
+    /** 等计数翻成「无结果」：该文案只在查不到时出现。 */
+    private fun awaitNoResultsCount(timeoutMs: Long = 20_000) {
+        val noResultsText = appContext.getString(R.string.search_no_results)
+        val settled =
+            UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 100) {
+                searchResultCountText() == noResultsText
+            }
+        assertNotNull("搜索计数未翻成「无结果」（当前文本：${searchResultCountText()}）", settled)
     }
 
     private fun openSearchAndType(text: String) {
@@ -120,7 +176,6 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("SearchTextField").performTextReplacement(text)
         composeTestRule.waitForIdle()
-        waitForSearchStable()
     }
 
     private fun saveScreenshot(name: String) {
@@ -211,9 +266,8 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
         // Open search and type the marker
         openSearchAndType(uniqueMarker)
 
-        // Verify result count is shown
-        composeTestRule.onNodeWithTag("SearchResultCount").assertExists("Search result count must be visible")
-        waitForSearchStable()
+        // 命中数必须真的算出来（固定睡眠只保证「节点存在」，不保证「查到了」）。
+        awaitSearchCount()
 
         // Take screenshot for host-side OCR verification
         saveScreenshot("02_search_highlights")
@@ -244,18 +298,18 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
         generateMultiPageContent(bridge, uniqueMarker)
 
         openSearchAndType(uniqueMarker)
-        waitForSearchStable()
+        awaitSearchCount()
 
         // Click Next multiple times to verify navigation
         composeTestRule.onNodeWithTag("SearchNext").performClick()
-        waitForSearchStable()
+        awaitSelectedCount()
         composeTestRule.onNodeWithTag("SearchNext").performClick()
-        waitForSearchStable()
+        awaitSelectedCount()
         saveScreenshot("03_after_next_twice")
 
         // Click Previous to go back
         composeTestRule.onNodeWithTag("SearchPrevious").performClick()
-        waitForSearchStable()
+        awaitSelectedCount()
         saveScreenshot("04_after_previous")
 
         // Verify terminal text still contains the marker (search didn't break terminal)
@@ -277,9 +331,8 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
         // 小写查询命中大写内容：搜索由上游 search::Search 承担，仅 ASCII 字母折叠大小写，
         // 因此不提供（也不需要）区分大小写开关。
         openSearchAndType(uniqueMarker.lowercase())
-        waitForSearchStable()
-
-        composeTestRule.onNodeWithTag("SearchResultCount").assertExists("小写查询必须命中大写内容")
+        // 小写查询必须真的命中大写内容：计数落定即证明命中数 > 0。
+        awaitSearchCount()
 
         saveScreenshot("05_case_insensitive_search")
     }
@@ -293,7 +346,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
         generateMultiPageContent(bridge, uniqueMarker)
 
         openSearchAndType(uniqueMarker)
-        waitForSearchStable()
+        awaitSearchCount()
 
         // Close search
         composeTestRule.onNodeWithTag("SearchClose").performClick()
@@ -323,13 +376,16 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
         for (i in 1..30) {
             bridge.writeToPty("echo '${multiLineMarker}_$i'\n".toByteArray())
         }
-        waitForOutput()
+        // 落格门控替代裸睡：回显滞后时搜到的行数会偏少。
+        awaitTerminalContains(bridge, multiLineMarker)
 
         openSearchAndType(multiLineMarker)
-        waitForSearchStable()
+        awaitSearchCount()
 
-        // Result count should show multiple matches
-        composeTestRule.onNodeWithTag("SearchResultCount").assertExists("Result count must show matches")
+        // 30 行内容必须全部命中（每行在回显与输出各出现一次）。
+        val countText = searchResultCountText().orEmpty()
+        val matchedLines = Regex("\\d+").findAll(countText).map { it.value.toInt() }.maxOrNull() ?: 0
+        assertTrue("30 行内容必须全部命中（计数文本：$countText）", matchedLines >= 30)
         saveScreenshot("07_multi_line_search")
     }
 
@@ -358,18 +414,26 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
     @Test
     fun noResultsIndicator() {
         composeTestRule.waitForSession()
+        val bridge = awaitBridge()
+
+        // 先让界面上有命中：计数文案此时是「共 N 个」。
+        val marker = "NOMATCH_${java.util.UUID.randomUUID().toString().take(6).uppercase()}"
+        bridge.writeToPty("echo '$marker'\n".toByteArray())
+        awaitTerminalContains(bridge, marker)
 
         composeTestRule.openDrawer()
         composeTestRule.onNodeWithTag("SearchButton").performClick()
         composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("SearchTextField").performTextReplacement(marker)
+        composeTestRule.waitForIdle()
+        awaitSearchCount()
 
-        // Type something that won't match
+        // 换成查不到的串：计数必须从命中态翻回「无结果」。
+        // 只断言「无结果」文案存在是不够的：搜索还没跑完时它就已经是这句了。
         composeTestRule.onNodeWithTag("SearchTextField").performTextReplacement("XYZZYX_NONEXISTENT_12345")
         composeTestRule.waitForIdle()
-        waitForSearchStable()
+        awaitNoResultsCount()
 
-        // Should show "No results" or similar
-        composeTestRule.onNodeWithTag("SearchResultCount").assertExists("No results indicator must be shown")
         saveScreenshot("08_no_results")
     }
 
@@ -381,7 +445,6 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
         val bridge = awaitBridge()
 
         openSearchAndType(uniqueMarker)
-        waitForSearchStable()
 
         // Focus the search field (triggers IME)
         composeTestRule.onNodeWithTag("SearchTextField").performClick()
@@ -418,13 +481,11 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
         generateMultiPageContent(bridge, uniqueMarker)
 
         openSearchAndType(uniqueMarker)
-        waitForSearchStable()
+        // 命中后才截屏：没有命中的画面证明不了高亮配色。
+        awaitSearchCount()
 
         // Save a screenshot for pixel analysis
         saveScreenshot("10_highlight_colors")
-
-        // Verify search results exist
-        composeTestRule.onNodeWithTag("SearchResultCount").assertExists("Results must be visible for color test")
 
         // Visually verify highlights in screenshot
         val screenshotFile =

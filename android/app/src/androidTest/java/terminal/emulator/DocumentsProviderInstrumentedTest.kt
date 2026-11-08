@@ -58,7 +58,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     }
 
     @Test
-    fun subset_projection_does_not_crash() {
+    fun subset_projection_returns_root_id() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val cursor =
             context.contentResolver.query(

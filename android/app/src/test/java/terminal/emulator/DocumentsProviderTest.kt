@@ -1431,7 +1431,7 @@ class DocumentsProviderTest {
     }
 
     @Test
-    fun queryDocument_subset_projection_does_not_crash() {
+    fun queryDocument_subset_projection_returns_document_id() {
         val provider = ensureProvider()
         java.io.File(rootDir(), "subset.txt").apply { writeText("x") }
         val cursor =
