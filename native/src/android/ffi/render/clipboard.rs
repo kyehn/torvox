@@ -62,7 +62,7 @@ pub(super) fn handle_clipboard_reads(
             if let Some(session) = session_handle(session_id) {
                 let mut session = session.lock();
                 if let Err(error) = session.answer_clipboard_read(&selection, "") {
-                    log_clipboard_write_back_failure(&error);
+                    log_clipboard_write_back_failure(&error, &CLIPBOARD_WRITE_BACK_FAILURE_LOG);
                 }
             }
             continue;
@@ -84,7 +84,7 @@ pub(super) fn handle_clipboard_reads(
                 let Some(text) = answer else { return };
                 let mut session = session.lock();
                 if let Err(error) = session.answer_clipboard_read(&selection, &text) {
-                    log_clipboard_write_back_failure(&error);
+                    log_clipboard_write_back_failure(&error, &CLIPBOARD_WRITE_BACK_FAILURE_LOG);
                 }
             });
         } else {
@@ -122,13 +122,29 @@ fn clipboard_write_back_session_gone(error: &SessionError) -> bool {
     }
 }
 
-/// 剪贴板应答回写失败的分级：会话已结束是正常退化路径，记 debug；其余失败记 warn。
-fn log_clipboard_write_back_failure(error: &SessionError) {
+/// 剪贴板应答回写失败告警的限频闸门（窗口内累计失败次数）。
+///
+/// 洪泛削减时每帧最多写 16 次应答，逐次记 warn 会把 logcat 刷成洪水；逐帧诊断
+/// 按窗口汇总是 `logcat-hygiene` 的要求。失败本身仍以 warn 记——升级信号不被
+/// 限频压住，窗口内的失败次数也照常累计。
+static CLIPBOARD_WRITE_BACK_FAILURE_LOG: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::new();
+
+/// 剪贴板应答回写失败的分级：会话已结束是正常退化路径，记 debug；其余失败按
+/// 窗口汇总后记 warn。
+fn log_clipboard_write_back_failure(
+    error: &SessionError,
+    failure_log: &crate::slow_log::CountedLogThrottle,
+) {
     if clipboard_write_back_session_gone(error) {
         log::debug!("osc52: 会话已结束，丢弃剪贴板应答");
         return;
     }
-    log::warn!("osc52: read answer write-back failed: {error}");
+    if let Some(failures_in_window) = failure_log.record() {
+        log::warn!(
+            "osc52: read answer write-back failed {failures_in_window} times in the last window: {error}"
+        );
+    }
 }
 
 pub(super) fn clipboard_result_inner<'local>(
@@ -163,7 +179,43 @@ pub(super) fn clipboard_result_inner<'local>(
 
 #[cfg(test)]
 mod tests {
-    use super::{SessionError, clipboard_write_back_session_gone};
+    use super::{
+        SessionError, clipboard_write_back_session_gone, log_clipboard_write_back_failure,
+    };
+
+    /// 洪泛削减时每帧最多写 16 次应答，逐次记 warn 会把 logcat 刷成洪水。
+    /// 失败按窗口汇总：首条立即交出窗口计数，窗口内的失败攒着下次一并交出。
+    #[test]
+    fn write_back_failures_are_aggregated_per_window() {
+        let failure_log = crate::slow_log::CountedLogThrottle::new();
+        let no_space = std::io::Error::from_raw_os_error(nix::errno::Errno::ENOSPC as i32);
+        let error = SessionError::Io(no_space);
+
+        log_clipboard_write_back_failure(&error, &failure_log);
+        assert_eq!(
+            failure_log.pending_count(),
+            0,
+            "首条失败须立即交出窗口计数，不得被限频吞掉"
+        );
+
+        log_clipboard_write_back_failure(&error, &failure_log);
+        log_clipboard_write_back_failure(&error, &failure_log);
+        assert_eq!(
+            failure_log.pending_count(),
+            2,
+            "窗口内的失败须攒着下次一并交出，不得丢弃"
+        );
+    }
+
+    /// 会话已结束是正常退化路径，不计入失败窗口：否则每次会话收尾都会留下一条
+    /// 无意义的失败计数。
+    #[test]
+    fn a_gone_session_is_not_counted_as_a_write_back_failure() {
+        let failure_log = crate::slow_log::CountedLogThrottle::new();
+        log_clipboard_write_back_failure(&SessionError::Closed, &failure_log);
+        log_clipboard_write_back_failure(&SessionError::Closed, &failure_log);
+        assert_eq!(failure_log.pending_count(), 0, "会话已结束不得计入失败窗口");
+    }
 
     #[test]
     fn exited_session_write_back_is_not_a_failure() {
