@@ -47,3 +47,5 @@
 - 安装 fastfetch，运行 `fastfetch --logo none --pipe -s "Title:Separator:OS:Host:Kernel:Uptime:Packages:Shell:Terminal:CPU:Memory:Swap:Disk:Locale"` 命令，预览截图保存到 assets 分支
 - `macrobenchmark` 需要在模拟器上运行并断言，要求在模拟器上流畅运行
 - 对中英文字体检查是否模糊 发虚，对比权威软件，也检查斜体、粗体，以及自动生成的斜体、粗体
+- 使用 `kitten icat test.png` 和 `clear` 测试，检查图片是否被正确显示和清除
+- 已打开时添加多个 Failsafe 新建会话和未打开时添加多个 Failsafe 新建会话
