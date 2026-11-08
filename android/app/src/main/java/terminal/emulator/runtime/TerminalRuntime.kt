@@ -210,6 +210,17 @@ internal fun shouldUseIdleLatch(idleNanos: Long, hasScrollMotion: Boolean, idleT
     idleNanos > idleThresholdNanos && !hasScrollMotion
 
 /**
+ * 启动尺寸是否可用。
+ *
+ * 只拒绝非正尺寸：分屏、自由窗口与折叠半屏都是合法的小窗口。此前按整块显示尺寸
+ * 推导像素下界（宽度按等宽字形宽高比折算、高度按行高折半），小窗口一律被判成
+ * 「等正确的 surfaceChanged」——会话建不出来，界面停在空白。
+ *
+ * 网格退化的情形由网格计算自身兜住：行列至少一行一列（见 `computeGridDimensions`）。
+ */
+internal fun isStartSizeUsable(width: Int, height: Int): Boolean = width > 0 && height > 0
+
+/**
  * 活跃期闭锁超时：vsync 链健康时它只作安全网，不得成为第二路帧节拍。
  *
  * 两路节拍（Choreographer 每显示帧 + 17ms 闭锁）周期只差 0.3ms，相位漂移会让
@@ -2542,27 +2553,6 @@ constructor(
         /** 网格与像素尺寸上界：PTY winsize 字段为 u16，原生对超限值抛 IllegalArgumentException。 */
         private const val U16_MAX = 0xFFFF
 
-        /**
-         * 「至少放得下若干行/列」的 Surface 像素下界。
-         *
-         * 命名刻意不含 FONT_SIZE：这些常量度的是**表面像素**，与
-         * `SettingsRepository.FONT_SIZE_*`（字号）无关，而后者正是「设置条范围与
-         * 实际可设置范围不一致」那次要求全仓搜索字号的依据——同名不同义会让搜索
-         * 落到与字号无关的数值上。
-         *
-         * 列方向的等宽字形宽高比取 [SettingsRepository.MONOSPACE_CHAR_ASPECT]（单一
-         * 来源，与自适应默认字号用的是同一个比例）；行方向的行高比 0.5em 是另一个量，
-         * 不与它共用。
-         */
-        private const val MIN_SURFACE_WIDTH_PX = 300
-        private const val MAX_SURFACE_WIDTH_PX = 600
-
-        /** 行高比：等宽字体行距约 0.5em，故最小 Surface 高度按它折算。 */
-        private const val SURFACE_HEIGHT_ROW_ASPECT = 0.5f
-
-        private const val MIN_SURFACE_HEIGHT_PX = 250
-        private const val MAX_SURFACE_HEIGHT_PX = 500
-
         // 前台会话的 shell 退出时送入终端的 [Process completed] 提示（保持可见直到按 Enter）。
 
         /** 退出码未知时写入提示的文本：如实说明，不用 0 冒充。 */
@@ -2877,29 +2867,13 @@ constructor(
         // 测试缝线仅调试构建可读：仪器化测试与应用同进程，
         // `System.setProperty` 可达；release 进程无人设置，读了也恒为 null，
         // 直接声明为调试专用，避免「生产代码读 test.* 属性」。
+        // 它只越过「非正尺寸」这一条守卫：小窗口本身是合法的，不再需要绕过。
         val bypassMinSurface = BuildConfig.DEBUG && System.getProperty("test.minSurface") != null
 
-        if (!bypassMinSurface && (width <= 0 || height <= 0)) {
+        if (!bypassMinSurface && !isStartSizeUsable(width, height)) {
             LogUtil.error(
                 "Runtime",
                 "start() called with non-positive dimensions, waiting for surfaceChanged",
-            )
-            endStarting()
-            return
-        }
-
-        val minWidth =
-            (displayW * SettingsRepository.MONOSPACE_CHAR_ASPECT)
-                .toInt()
-                .coerceIn(MIN_SURFACE_WIDTH_PX, MAX_SURFACE_WIDTH_PX)
-        val minHeight =
-            (displayH * SURFACE_HEIGHT_ROW_ASPECT)
-                .toInt()
-                .coerceIn(MIN_SURFACE_HEIGHT_PX, MAX_SURFACE_HEIGHT_PX)
-        if (!bypassMinSurface && (width < minWidth || height < minHeight)) {
-            LogUtil.warn(
-                "Runtime",
-                "start() called with small surface ${width}x$height (display=${displayW}x$displayH min=${minWidth}x$minHeight), waiting for correct surfaceChanged",
             )
             endStarting()
             return
