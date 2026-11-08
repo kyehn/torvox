@@ -91,6 +91,30 @@ class RenderLatchCadenceTest {
     }
 
     /**
+     * 闭锁常量按显示周期倍数描述：它们是安全网，不是帧预算。
+     *
+     * 60Hz 下一个周期约 16.7ms：兜底节拍约一个周期，健康安全网约两个周期。
+     * 120Hz 下一个周期约 8.3ms：同一个 17ms 兜底便覆盖约两个周期——仍是安全网，
+     * 不会反过来变成与显示帧同周期的第二路节拍。
+     */
+    @Test
+    fun latchTimeoutsAreExpressedAsDisplayPeriodMultiples() {
+        val periodAtSixtyHertz = 16_667_000L
+        assertTrue(
+            "兜底节拍必须至少覆盖一个 60Hz 显示周期",
+            RENDER_LATCH_TIMEOUT_NANOS >= periodAtSixtyHertz,
+        )
+        assertTrue(
+            "健康安全网必须至少覆盖两个 60Hz 显示周期",
+            RENDER_LATCH_VSYNC_SAFETY_TIMEOUT_NANOS >= 2 * periodAtSixtyHertz,
+        )
+        assertTrue(
+            "120Hz 下一个兜底节拍必须仍大于一个显示周期",
+            RENDER_LATCH_TIMEOUT_NANOS > 8_333_000L,
+        )
+    }
+
+    /**
      * 渲染线程从 vsync 回调取速度：回调刷新 [SessionEntry.lastVsyncNanos]，
      * 循环据此判定链是否健康（陈旧即退回兜底）。
      */

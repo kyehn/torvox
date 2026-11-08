@@ -138,15 +138,18 @@ const val RECENT_SCROLL_WINDOW_NANOS: Long = 100_000_000L
 const val SCROLL_MOTION_WINDOW_NANOS: Long = 250_000_000L
 
 /**
- * 活跃期闭锁超时：单个 vsync 周期（60Hz 显示 ~16.7ms）。
+ * 活跃期闭锁超时：约一个显示周期（60Hz 显示 ~16.7ms，120Hz 显示 ~8.3ms）。
  *
  * 仅在 vsync 链不健康时使用。waitOutput 是纯 park（PTY 到达无法提前唤醒），
- * 17ms 兜底保证主线程阻塞、vsync 信号丢失时输入回显仍在下一节拍上屏。
+ * 这个兜底节拍保证主线程阻塞、vsync 信号丢失时输入回显仍在下一节拍上屏。
+ *
+ * 它是**安全网**而不是帧预算：按显示周期倍数描述，故在高刷屏上它自然覆盖
+ * 多个周期，不会反过来变成与显示帧同周期的第二路节拍。
  */
 const val RENDER_LATCH_TIMEOUT_NANOS: Long = 17_000_000L
 
 /**
- * vsync 链健康时的活跃闭锁超时：2 个 vsync 周期。
+ * vsync 链健康时的活跃闭锁超时：约两个显示周期（60Hz 显示 ~33.3ms）。
  *
  * 必须明显大于一个显示周期，否则闭锁与 vsync 两路节拍会在同一周期内各推一帧
  * （见 [activeLatchTimeoutNanos]）。
@@ -155,10 +158,52 @@ const val RENDER_LATCH_VSYNC_SAFETY_TIMEOUT_NANOS: Long = 34_000_000L
 
 /**
  * vsync 新鲜度阈值：超过它即认为 Choreographer 链已停摆，活跃闭锁退回
- * [RENDER_LATCH_TIMEOUT_NANOS]。取约 6 个 60Hz 周期，容忍主线程的一次卡顿，
+ * [RENDER_LATCH_TIMEOUT_NANOS]。取约六个 60Hz 周期（100ms），容忍主线程的一次卡顿，
  * 又能在链真正断掉时于 100ms 内恢复兜底节拍。
  */
 const val RENDER_VSYNC_STALE_NANOS: Long = 100_000_000L
+
+/**
+ * 显示周期采样窗口：一秒内没有更小的帧间隔即重新起算（刷新率可能已变）。
+ */
+internal const val DISPLAY_PERIOD_WINDOW_NANOS: Long = 1_000_000_000L
+
+/** 可采信的显示周期区间：1ms（1000Hz）到 50ms（20Hz）。 */
+internal const val MIN_DISPLAY_PERIOD_NANOS: Long = 1_000_000L
+internal const val MAX_DISPLAY_PERIOD_NANOS: Long = 50_000_000L
+
+/**
+ * 显示周期估计：周期长度与该估计的采样时刻。
+ *
+ * 周期长度 0 = 尚未测得（帧回调只到过一次，算不出间隔）。
+ */
+internal data class DisplayPeriodEstimate(val periodNanos: Long, val sampledAtNanos: Long)
+
+/**
+ * 用相邻两帧回调的间隔更新显示周期估计。纯函数，便于表驱动测试。
+ *
+ * 帧间隔是显示周期的整数倍（丢帧只会让间隔变大），故取窗口内观测到的最小值；
+ * 窗口（[DISPLAY_PERIOD_WINDOW_NANOS]）内没有更小的样本即重新起算——刷新率
+ * 切换后旧的小间隔会随之退出窗口。
+ *
+ * 尚未测得时（周期长度为 0）首个样本即周期：此时「更短」永远为假，不特判就
+ * 永远测不出周期，刷新率也就无从观察。
+ *
+ * 落在合理区间之外的间隔一律不采信：主线程长时间被占用时相邻两帧可能相隔
+ * 数百毫秒，那是丢帧而不是显示周期。
+ */
+internal fun updateDisplayPeriodEstimate(
+    estimate: DisplayPeriodEstimate,
+    intervalNanos: Long,
+    nowNanos: Long,
+): DisplayPeriodEstimate {
+    if (intervalNanos !in MIN_DISPLAY_PERIOD_NANOS..MAX_DISPLAY_PERIOD_NANOS) return estimate
+    val unmeasured = estimate.periodNanos <= 0L
+    val windowExpired = nowNanos - estimate.sampledAtNanos > DISPLAY_PERIOD_WINDOW_NANOS
+    val shorter = intervalNanos < estimate.periodNanos
+    if (!unmeasured && !windowExpired && !shorter) return estimate
+    return DisplayPeriodEstimate(periodNanos = intervalNanos, sampledAtNanos = nowNanos)
+}
 
 /** 空闲闭锁：没有任何信号时每 500ms 醒来尝试一帧（约 2 FPS）。 */
 const val RENDER_LATCH_IDLE_TIMEOUT_NANOS: Long = 500_000_000L
@@ -732,6 +777,17 @@ constructor(
     private val vsyncChainRunning = AtomicBoolean(false)
 
     /**
+     * 实测的显示周期：由相邻两帧回调的时间戳差得出。
+     *
+     * 刷新率会被系统按省电与热节流调整，写死 16.7ms 会把显示降频误读成渲染故障，
+     * 故周期由实测得出。渲染线程读它做诊断，故用 volatile 发布。
+     */
+    @Volatile private var displayPeriodEstimate = DisplayPeriodEstimate(periodNanos = 0L, sampledAtNanos = 0L)
+
+    /** 上一帧的 vsync 时间戳（只在主线程的帧回调里写）。 */
+    private var lastFrameTimeNanos: Long = 0L
+
+    /**
      * 唯一的自调度 Choreographer 帧回调：每个显示帧即一次 vsync 信号。
      * 它只置起 [SessionEntry.vsyncRequested] 并经 [SessionEntry.pokeVsync] 唤醒渲染线程
      * ——所有渲染均由渲染线程拥有（主线程绝不触碰 surface Mutex）。
@@ -745,6 +801,7 @@ constructor(
         object : Choreographer.FrameCallback {
             override fun doFrame(frameTimeNanos: Long) {
                 val nowNanos = System.nanoTime()
+                updateDisplayPeriod(frameTimeNanos)
                 // 无锁读取：sessions 是 ConcurrentHashMap，activeSessionId 是 @Volatile。
                 val entry = sessions[activeSessionId]
                 // 空闲会话保持驻留：唤醒不得刷新空闲时钟（pokeVsync），且时钟超过阈值即停止，
@@ -756,7 +813,9 @@ constructor(
                             entry.hasScrollMotion()
                         )
                 ) {
-                    entry.lastVsyncNanos = nowNanos
+                    // 用帧回调给出的 vsync 时刻（而非回调派发时刻）判新鲜度：主线程
+                    // 被占用时派发时刻会滞后，那正是链已停摆的证据。
+                    entry.lastVsyncNanos = frameTimeNanos
                     entry.vsyncRequested = true
                     entry.pokeVsync()
                 }
@@ -779,6 +838,34 @@ constructor(
                 Choreographer.getInstance().postFrameCallback(this)
             }
         }
+
+    /**
+     * 由帧回调时间戳测得显示周期。
+     *
+     * 帧回调只在主线程执行，故这里无需同步；读方（渲染线程）读的是发布后的快照。
+     */
+    private fun updateDisplayPeriod(frameTimeNanos: Long) {
+        val previousFrameTimeNanos = lastFrameTimeNanos
+        lastFrameTimeNanos = frameTimeNanos
+        if (previousFrameTimeNanos == 0L) return
+        displayPeriodEstimate =
+            updateDisplayPeriodEstimate(
+                estimate = displayPeriodEstimate,
+                intervalNanos = frameTimeNanos - previousFrameTimeNanos,
+                nowNanos = System.nanoTime(),
+            )
+    }
+
+    /**
+     * 报实测值而不是写死 16.7ms：刷新率会被系统按省电与热节流调整，写死的数字
+     * 会把显示降频误读成渲染故障。
+     */
+    private fun displayPeriodMillisText(): String {
+        val periodNanos = displayPeriodEstimate.periodNanos
+        if (periodNanos <= 0L) return "未测得"
+        val tenthsOfMilli = (periodNanos + 50_000L) / 100_000L
+        return "${tenthsOfMilli / 10}.${tenthsOfMilli % 10}ms"
+    }
 
     /** 在主 Looper 上拉起 vsync 帧回调链。幂等：CAS 保护保证每进程至多一条链。 */
     private fun ensureVsyncChainRunning() {
@@ -2299,7 +2386,7 @@ constructor(
                                                     "avg=${loopAvgMs}ms p95=${loopP95Ms}ms " +
                                                     "max=${loopMaxMs}ms pre_max=${preMaxMs}ms " +
                                                     "pre_p95=${preP95Ms}ms " +
-                                                    "≈${framesPerSecond}fps",
+                                                    "≈${framesPerSecond}fps vsync=${displayPeriodMillisText()}",
                                             )
                                         }
                                     } catch (exception: InterruptedException) {
