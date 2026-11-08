@@ -102,8 +102,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     Context.INPUT_METHOD_SERVICE,
                 ) as InputMethodManager
             inputMethodManager.hideSoftInputFromWindow(windowToken, 0)
-        } catch (_: Exception) {
-            // 视图已拆除——忽略。
+        } catch (exception: Exception) {
+            // 视图已拆除时窗口令牌可能已失效——属正常退化，记 debug 便于事后核对
+            // 「键盘是否真的隐藏了」（这一步失败正是键盘残留显示在已销毁窗口之上的
+            // 成因，完全静默会让这条线索无从追查）。
+            LogUtil.debug(TAG, "detach 时隐藏输入法失败", exception)
         }
         // 清除 fling 滚动结束标记与渲染恢复回调：两者都是捕获本视图的 postDelayed
         // runnable；detach 之后它们会在已销毁的窗口上触发（且重复 fling 会叠加多份）。
