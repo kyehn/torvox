@@ -1,4 +1,5 @@
 //! 输出收割：PTY 输出处理、VT 副作用与剪贴板应答。
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 
@@ -24,7 +25,23 @@ pub(super) const MAX_PTY_WRITES_PER_FRAME: usize = 16;
 /// stdin，病态程序又持续查询）队列净增长，故显式封顶丢最旧——应答是请求-响应
 /// 语义，不被消费的应答不会被回头读，无限保留只是白占内存。取值给足突发余量：
 /// 一整帧的输出块（10 × 8KiB）能产生的 DSR 应答不足其四分之一。
-const MAX_PENDING_PTY_WRITES: usize = 256;
+pub(super) const MAX_PENDING_PTY_WRITES: usize = 256;
+
+/// 丢弃超量的 VT 应答：队列超出上限时丢最旧，并把丢弃条数记入限频闸门。
+///
+/// 返回窗口内累计丢弃条数：闸门放行时为 `Some`，窗口内为 `None`——此时计数
+/// 仍攒在闸门里，下次放行时一并交出，不因限频而丢失。
+pub(super) fn drop_excess_pty_responses(
+    queue: &mut VecDeque<Vec<u8>>,
+    drop_log: &crate::slow_log::CountedLogThrottle,
+) -> Option<u32> {
+    let overflow = queue.len().saturating_sub(MAX_PENDING_PTY_WRITES);
+    if overflow == 0 {
+        return None;
+    }
+    queue.drain(..overflow);
+    drop_log.record_events(u32::try_from(overflow).unwrap_or(u32::MAX))
+}
 
 impl Session {
     /// 每会话帧处理的最大 VT 输出块数，用于 PTY 输出洪水时限制渲染线程延迟。
@@ -121,15 +138,16 @@ impl Session {
         // 新到的应答排在既有队列之后：先前的应答先出去，顺序与引擎产生顺序一致。
         self.pty_write_back_queue
             .extend(self.terminal.drain_pty_write_responses());
-        let overflow = self
-            .pty_write_back_queue
-            .len()
-            .saturating_sub(MAX_PENDING_PTY_WRITES);
-        if overflow > 0 {
-            self.pty_write_back_queue.drain(..overflow);
+        let overflow_reported = drop_excess_pty_responses(
+            &mut self.pty_write_back_queue,
+            &self.pty_write_back_drop_log,
+        );
+        // 队列溢出在子进程不读 stdin 时逐帧都命中：逐条输出会把 logcat 刷成
+        // error 级洪水，把真正的异常淹没。按窗口汇总，与剪贴板队列溢出同一闸门
+        // 语义——一个窗口一行，行里带上窗口内累计丢弃的条数。
+        if let Some(dropped_in_window) = overflow_reported {
             log::error!(
-                "session: dropped {overflow} of {} VT responses, child is not reading stdin",
-                self.pty_write_back_queue.len() + overflow
+                "session: dropped {dropped_in_window} VT responses, child is not reading stdin"
             );
         }
         // 整段持会话锁的时间以**墙钟**为界而非以条数计：每条各自等满

@@ -1,4 +1,6 @@
-use super::super::output::MAX_PTY_WRITES_PER_FRAME;
+use super::super::output::{
+    MAX_PENDING_PTY_WRITES, MAX_PTY_WRITES_PER_FRAME, drop_excess_pty_responses,
+};
 use super::super::*;
 use super::hold_pty_write_lock;
 
@@ -203,6 +205,45 @@ fn vt_write_back_is_capped_per_frame_and_carries_over() {
         written_responses(),
         query_count,
         "全部 {query_count} 条应答须恰好各写一次"
+    );
+}
+
+/// 回归钉：VT 应答队列溢出的告警必须按窗口汇总，不得逐帧刷屏。
+///
+/// 子进程不读 stdin 且持续查询设备状态时，队列溢出逐帧命中。旧实现每帧记一行
+/// error 级日志，几秒内就能把 logcat 刷成洪水，把真正的异常淹没——`logcat-hygiene`
+/// 要求逐帧诊断以窗口汇总，且窗口内的丢弃条数不得因限频而丢失。
+#[test]
+fn vt_response_overflow_is_reported_once_per_window_with_the_count() {
+    let drop_log = crate::slow_log::CountedLogThrottle::new();
+    let mut queue: std::collections::VecDeque<Vec<u8>> = std::collections::VecDeque::new();
+    for _ in 0..(MAX_PENDING_PTY_WRITES + 5) {
+        queue.push_back(vec![0u8]);
+    }
+    assert_eq!(
+        drop_excess_pty_responses(&mut queue, &drop_log),
+        Some(5),
+        "首条必须可见，且带上本窗口丢弃的条数"
+    );
+    assert_eq!(
+        queue.len(),
+        MAX_PENDING_PTY_WRITES,
+        "队列须裁到上限，超出的应答按丢最旧处理"
+    );
+
+    // 队列此刻正好在上限上：再塞三条即溢出三条。
+    for _ in 0..3 {
+        queue.push_back(vec![0u8]);
+    }
+    assert_eq!(
+        drop_excess_pty_responses(&mut queue, &drop_log),
+        None,
+        "窗口内的再次溢出不得再输出一行"
+    );
+    assert_eq!(
+        drop_log.pending_count(),
+        3,
+        "窗口内丢弃的条数须攒着下次一并交出，不得丢弃"
     );
 }
 

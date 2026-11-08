@@ -180,6 +180,13 @@ pub struct Session {
     /// [`Session::drain_pty_write_back`]）。
     pty_write_back_queue: VecDeque<Vec<u8>>,
 
+    /// VT 应答队列溢出告警的限频闸门（窗口内累计丢弃条数）。
+    ///
+    /// 溢出由子进程是否消费 stdin 决定，逐帧都可能命中；逐帧输出会把 logcat
+    /// 刷成 error 级洪水。与剪贴板队列溢出共用同一实现与同一闸门语义
+    /// （见 `logcat-hygiene`）。
+    pty_write_back_drop_log: crate::slow_log::CountedLogThrottle,
+
     // ── 线程生命周期 ─────────────────────────────────────────────────
     reader_handle: Option<std::thread::JoinHandle<()>>,
     wait_handle: Option<std::thread::JoinHandle<()>>,

@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-11-08
+goal: |
+  让 VT 应答队列溢出的告警按窗口汇总输出：逐帧命中不再刷出 error 级洪水，
+  窗口内累计丢弃的条数照常交出。
