@@ -13,7 +13,12 @@
 //! 本层按同一协议自己回答探测（错误应答与上游逐字节一致），并丢弃 DECSACE：
 //! 终端行为不变（客户端同样回退到 direct 介质），日志不再被上游的协议探测噪声淹没。
 //!
-//! 两处都只在「本块内完整出现」时处理：序列跨块拆分时原样透传，交给上游的
+//! 本层还标出「清屏」序列（ED2/ED3）的位置：清屏要撤下 Kitty 图像放置，
+//! 而撤下必须发生在清屏之前——清屏若走「旧行先滚进回滚再清屏」的路径，
+//! 可见放置会随旧行滚进回滚区，此后清屏不再撤下它们。撤下命令由调用方
+//! 依据终端里的放置状态生成（见 `kitty::clear_delete_commands`）。
+//!
+//! 三处都只在「本块内完整出现」时处理：序列跨块拆分时原样透传，交给上游的
 //! 增量解析器续接——宁可漏掉一次过滤，也不冒破坏字节流的风险。
 use std::borrow::Cow;
 
@@ -45,6 +50,26 @@ pub(crate) struct FilteredInput<'a> {
     pub(crate) payload: Cow<'a, [u8]>,
     /// 需要写回 PTY 的应答（Kitty 错误应答）。
     pub(crate) responses: Vec<Vec<u8>>,
+    /// 本块里的清屏序列及其在 `payload` 中的位置。
+    pub(crate) clears: Vec<Clear>,
+}
+
+/// 清屏序列的种类。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClearKind {
+    /// ED2：清活动区（kitty 扩展的 `22` 同属此类）。
+    Display,
+    /// ED3：清回滚区。
+    Scrollback,
+}
+
+/// 清屏序列在透传载荷中的位置。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Clear {
+    /// 序列起始下标（`payload` 内的字节偏移）。
+    pub(crate) offset: usize,
+    /// 清屏种类。
+    pub(crate) kind: ClearKind,
 }
 
 /// 过滤一帧 VT 输入字节。
@@ -57,10 +82,12 @@ pub(crate) fn filter_input(data: &[u8], capabilities: MediaCapabilities) -> Filt
         return FilteredInput {
             payload: Cow::Borrowed(data),
             responses: Vec::new(),
+            clears: Vec::new(),
         };
     }
     let mut payload: Vec<u8> = Vec::with_capacity(data.len());
     let mut responses: Vec<Vec<u8>> = Vec::new();
+    let mut clears: Vec<Clear> = Vec::new();
     let mut index = 0usize;
     while index < data.len() {
         let byte = data[index];
@@ -75,8 +102,20 @@ pub(crate) fn filter_input(data: &[u8], capabilities: MediaCapabilities) -> Filt
                 index += 1;
             }
             Some(b'[') => match parse_csi(data, index) {
-                Some((end, is_decsace)) => {
-                    if !is_decsace {
+                Some((end, kind)) => {
+                    match kind {
+                        CsiKind::Pass => {}
+                        CsiKind::Decsace => {}
+                        CsiKind::EraseDisplay => clears.push(Clear {
+                            offset: payload.len(),
+                            kind: ClearKind::Display,
+                        }),
+                        CsiKind::EraseScrollback => clears.push(Clear {
+                            offset: payload.len(),
+                            kind: ClearKind::Scrollback,
+                        }),
+                    }
+                    if kind != CsiKind::Decsace {
                         payload.extend_from_slice(&data[index..end]);
                     }
                     index = end;
@@ -134,31 +173,105 @@ pub(crate) fn filter_input(data: &[u8], capabilities: MediaCapabilities) -> Filt
     FilteredInput {
         payload: Cow::Owned(payload),
         responses,
+        clears,
     }
+}
+
+/// CSI 序列的种类。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CsiKind {
+    /// 普通序列：原样透传。
+    Pass,
+    /// DECSACE（`CSI * x`）：上游未实现，丢弃。
+    Decsace,
+    /// ED2：清活动区。
+    EraseDisplay,
+    /// ED3：清回滚区。
+    EraseScrollback,
 }
 
 /// 解析一帧内的 CSI 序列：`ESC [` + 参数字节 + 中间字节 + 终字节。
 ///
-/// 返回（序列结束位置，是否为 DECSACE）；序列不完整或不合法时返回 `None`，
+/// 返回（序列结束位置，序列种类）；序列不完整或不合法时返回 `None`，
 /// 由调用方原样透传。
-fn parse_csi(data: &[u8], start: usize) -> Option<(usize, bool)> {
+///
+/// 字节划分与上游一致：数字与分号是参数，私有前缀（`?`）与 `0x20..=0x2F`
+/// 是中间字节；中间字节之后再出现数字、子参数（`:`）的序列上游整条忽略。
+fn parse_csi(data: &[u8], start: usize) -> Option<(usize, CsiKind)> {
     let mut index = start + 2;
-    while index < data.len() && matches!(data[index], 0x30..=0x3f) {
+    // 参数：分号隔开的若干个数字，值只关心「只有一个参数」的情形。
+    let mut separators = 0usize;
+    let mut has_param_bytes = false;
+    let mut param_value = 0u32;
+    // 中间字节：私有前缀与 `0x20..=0x2F`。
+    let mut intermediate_count = 0usize;
+    let mut only_star = true;
+    let mut has_question = false;
+    // 上游在中间字节之后只收中间字节，出现数字即整条忽略。
+    let mut after_intermediate = false;
+    while index < data.len() {
+        let byte = data[index];
+        match byte {
+            0x30..=0x39 => {
+                if after_intermediate {
+                    return None;
+                }
+                if !has_param_bytes && separators == 0 {
+                    param_value = 0;
+                }
+                param_value = param_value * 10 + u32::from(byte - b'0');
+                has_param_bytes = true;
+            }
+            0x3b => {
+                if after_intermediate {
+                    return None;
+                }
+                separators += 1;
+                param_value = 0;
+            }
+            0x3a => return None,
+            0x3c..=0x3f => {
+                // 私有前缀：上游按中间字节收，且不打断参数。
+                intermediate_count += 1;
+                only_star = false;
+                if byte == b'?' {
+                    has_question = true;
+                }
+            }
+            0x20..=0x2f => {
+                intermediate_count += 1;
+                if byte != b'*' {
+                    only_star = false;
+                }
+                after_intermediate = true;
+            }
+            _ => break,
+        }
         index += 1;
     }
-    let intermediates_start = index;
-    while index < data.len() && matches!(data[index], 0x20..=0x2f) {
-        index += 1;
-    }
-    let intermediates = &data[intermediates_start..index];
     let final_byte = data.get(index).copied()?;
     if !matches!(final_byte, 0x40..=0x7e) {
         return None;
     }
     // DECSACE：`CSI <参数> * x`，中间字节只有 `*`（kitty 的 `CSI 2*x` 与
     // `CSI *x` 都落在这里）。
-    let is_decsace = final_byte == b'x' && intermediates == b"*";
-    Some((index + 1, is_decsace))
+    if final_byte == b'x' && intermediate_count == 1 && only_star {
+        return Some((index + 1, CsiKind::Decsace));
+    }
+    // 清屏：终字节 `J`，参数是擦除模式，中间字节只能是私有前缀 `?`
+    // （`CSI ? 2 J` 是受保护的清屏，上游同样清活动区与图像放置）。
+    let private_only = intermediate_count == 0 || (intermediate_count == 1 && has_question);
+    if final_byte == b'J' && private_only && separators == 0 {
+        let param_count = usize::from(has_param_bytes);
+        if param_count == 1 {
+            match param_value {
+                2 | 22 => return Some((index + 1, CsiKind::EraseDisplay)),
+                3 => return Some((index + 1, CsiKind::EraseScrollback)),
+                _ => {}
+            }
+        }
+    }
+    Some((index + 1, CsiKind::Pass))
 }
 
 /// 找到字符串序列（OSC / DCS / APC / PM / SOS）的结束位置。
@@ -355,6 +468,84 @@ mod tests {
             },
         );
         (filtered.payload.into_owned(), filtered.responses)
+    }
+
+    /// 过滤一帧并取清屏序列：返回（载荷，清屏列表）。
+    fn filter_clears(data: &[u8]) -> (Vec<u8>, Vec<Clear>) {
+        let filtered = filter_input(
+            data,
+            MediaCapabilities {
+                shared_memory: false,
+            },
+        );
+        (filtered.payload.into_owned(), filtered.clears)
+    }
+
+    #[test]
+    fn erase_display_is_reported_with_its_offset() {
+        let (payload, clears) = filter_clears(b"text\x1b[H\x1b[2Jmore");
+        assert_eq!(payload, b"text\x1b[H\x1b[2Jmore", "清屏序列原样透传");
+        assert_eq!(
+            clears,
+            [Clear {
+                offset: 7,
+                kind: ClearKind::Display,
+            }],
+            "ED2 必须被标出，且位置指向序列起点"
+        );
+    }
+
+    #[test]
+    fn erase_scrollback_is_reported() {
+        let (_, clears) = filter_clears(b"\x1b[3J");
+        assert_eq!(
+            clears,
+            [Clear {
+                offset: 0,
+                kind: ClearKind::Scrollback,
+            }],
+            "ED3 必须被标出"
+        );
+    }
+
+    #[test]
+    fn kitty_scroll_complete_erase_counts_as_erase_display() {
+        let (_, clears) = filter_clears(b"\x1b[22J");
+        assert_eq!(
+            clears,
+            [Clear {
+                offset: 0,
+                kind: ClearKind::Display,
+            }],
+            "kitty 扩展的 22 与 ED2 同样清活动区"
+        );
+    }
+
+    #[test]
+    fn protected_erase_display_is_reported() {
+        let (_, clears) = filter_clears(b"\x1b[?2J");
+        assert_eq!(
+            clears,
+            [Clear {
+                offset: 0,
+                kind: ClearKind::Display,
+            }],
+            "受保护的清屏同样清活动区与图像放置"
+        );
+    }
+
+    #[test]
+    fn partial_erase_modes_are_not_reported() {
+        // ED0（清到行尾）与 ED1（清到行首）不动整屏，上游也不撤下图像放置。
+        let (_, clears) = filter_clears(b"\x1b[0J\x1b[1J");
+        assert!(clears.is_empty(), "局部清屏不得触发撤下");
+    }
+
+    #[test]
+    fn erase_with_space_before_final_is_not_reported() {
+        // `CSI 2 SP J` 的中间字节不是私有前缀，上游整条忽略。
+        let (_, clears) = filter_clears(b"\x1b[2 J");
+        assert!(clears.is_empty(), "上游忽略的清屏不得触发撤下");
     }
 
     #[test]

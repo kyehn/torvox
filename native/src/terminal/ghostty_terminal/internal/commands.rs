@@ -1,7 +1,7 @@
 use super::{
     Arc, BatchState, Command, CommandOutcome, CommandState, CursorStyle, DEFAULT_CELL_HEIGHT,
     DEFAULT_CELL_WIDTH, GridSnapshot, Ordering, RenderExtractors, RunConfig, Terminal,
-    ViewportTarget, input_filter, mark_grid_dirty, snapshot_needs_rebuild, try_send,
+    ViewportTarget, input_filter, kitty, mark_grid_dirty, snapshot_needs_rebuild, try_send,
 };
 
 // ── 命令派发 ───────────────────────────────────────────────────
@@ -92,9 +92,12 @@ impl super::GhosttyTerminal {
     ) {
         // 预处理本层代答的协议部分（DECSACE 与 Kitty 能力探测）：上游对这些序列
         // 一律记警告，属于日志噪声；代答的应答按协议写回 PTY，客户端据此回退。
-        let filtered =
-            input_filter::filter_input(data, input_filter::MediaCapabilities::platform());
-        for response in filtered.responses {
+        let input_filter::FilteredInput {
+            payload,
+            responses,
+            clears,
+        } = input_filter::filter_input(data, input_filter::MediaCapabilities::platform());
+        for response in responses {
             match config.response_buffer.lock() {
                 Ok(mut guard) => guard.push(response),
                 Err(error) => {
@@ -102,7 +105,9 @@ impl super::GhosttyTerminal {
                 }
             }
         }
-        terminal.vt_write(&filtered.payload);
+        // 清屏前先撤下图像放置：撤下必须发生在清屏之前，否则清屏会把旧行连同
+        // 放置一起滚进回滚区，那时的放置已不在屏幕上，清屏撤不下它们。
+        terminal.vt_write(&kitty::with_clear_deletes(terminal, payload, &clears));
         // 输出可能发生在同一批的滚动之后：此时待平移量描述的是旧网格，
         // 继续套用会跳过脏行判定、复用过期内容。
         extractors.clear_scroll_shift();

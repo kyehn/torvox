@@ -136,18 +136,10 @@ fn kitten_icat_clear_removes_placement_above_the_prompt() {
     let mut terminal = terminal();
     terminal.set_cell_pixel_size(CELL_WIDTH, CELL_HEIGHT);
     // 提示符行（OSC 133 标记）：ED2 在此行走 scrollClear 路径。
-    terminal.pty_write(b"$ \x1b]133;A\x1b\\\x1b]133;B\x1b\\");
-    terminal.pty_write(b"\n");
+    terminal.pty_write(PROMPT_LINE);
     // 图像在提示符行的下一行：高度取一个单元格高，正好占一行。
-    terminal.pty_write(b"\x1b_Ga=T,f=100,s=100,v=16,i=31,q=2;");
-    terminal.pty_write(
-        base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD_NO_PAD,
-            solid_png(CANVAS_WIDTH, CELL_HEIGHT),
-        )
-        .as_bytes(),
-    );
-    terminal.pty_write(b"\x1b\\\n");
+    place_png(&mut terminal, 31);
+    terminal.pty_write(b"\n");
     terminal.flush();
     assert_eq!(
         terminal.take_kitty_placements().len(),
@@ -201,6 +193,137 @@ fn kitty_capability_probes_are_answered_with_their_image_ids() {
             (3, "EINVAL: invalid data"),
         ],
         "三条查询的应答必须按上游错误语义逐条给出"
+    );
+}
+
+/// 直接放置一幅图像（不经客户端模拟器）：撤除路径的用例只需一个可见放置。
+///
+/// 走 `a=T` 直传通道，图像高度取一个单元格高，正好占一行。
+fn place_png(terminal_under_test: &mut GhosttyTerminal, image_id: u32) {
+    terminal_under_test.pty_write(
+        format!("\x1b_Ga=T,f=100,s={CANVAS_WIDTH},v={CELL_HEIGHT},i={image_id},q=2;").as_bytes(),
+    );
+    terminal_under_test.pty_write(
+        base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD_NO_PAD,
+            solid_png(CANVAS_WIDTH, CELL_HEIGHT),
+        )
+        .as_bytes(),
+    );
+    terminal_under_test.pty_write(b"\x1b\\");
+}
+
+/// 提示符行（带 OSC 133 标记）：清屏在此行走上游的「先滚进回滚再清屏」路径。
+const PROMPT_LINE: &[u8] = b"$ \x1b]133;A\x1b\\\x1b]133;B\x1b\\\n";
+
+/// `clear`（`ESC[H ESC[2J ESC[3J`）必须撤下夹在两行提示符之间的图像。
+///
+/// 回归背景：用户报障「`kitten icat test.png` 后输入 clear，文本被清除但图像
+/// 依旧显示且变大盖住屏幕，再敲一次 clear 才清掉」。真实布局里图像夹在两条
+/// 提示符之间：
+/// ```text
+/// $ kitten icat test.png
+/// [图像]
+/// $ clear
+/// ```
+/// 清屏在这行走「旧行先滚进回滚再清屏」的路径：图像随旧行滚进回滚区，清屏
+/// 撤不下它（它已不在屏幕上），随后的清回滚又把它的锚点搬到屏幕左上角，
+/// 图像便复活在左上角并盖住屏幕。撤下必须发生在清屏之前。
+#[test]
+fn clear_removes_the_placement_between_two_prompts() {
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(CELL_WIDTH, CELL_HEIGHT);
+    terminal.pty_write(PROMPT_LINE);
+    place_png(&mut terminal, 31);
+    terminal.pty_write(b"\n");
+    terminal.pty_write(PROMPT_LINE);
+    terminal.flush();
+    assert_eq!(
+        terminal.take_kitty_placements().len(),
+        1,
+        "清除前必须确有可见放置，否则本用例不覆盖撤除路径"
+    );
+
+    terminal.pty_write(b"\x1b[H\x1b[2J\x1b[3J");
+    terminal.flush();
+    assert!(
+        terminal.take_kitty_placements().is_empty(),
+        "clear 之后图像必须消失，不得复活在屏幕左上角"
+    );
+}
+
+/// 图像已经滚进回滚区时，`clear` 同样不得让它复活。
+///
+/// 清回滚区会把回滚区里的放置锚点搬到被删页的左上角，图像于是回到屏幕左上角。
+/// 锚在回滚区的图像必须随回滚区一起消失。
+#[test]
+fn clear_removes_the_placement_scrolled_into_the_scrollback() {
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(CELL_WIDTH, CELL_HEIGHT);
+    place_png(&mut terminal, 31);
+    terminal.pty_write(b"\n");
+    // 输出足够多的行，图像随旧行滚进回滚区。
+    for line_number in 0..40 {
+        terminal.pty_write(format!("line {line_number}\n").as_bytes());
+    }
+    terminal.flush();
+    assert!(
+        terminal.take_kitty_placements().is_empty(),
+        "图像滚进回滚区后不在屏幕上，本用例不覆盖回滚区撤除路径"
+    );
+
+    terminal.pty_write(b"\x1b[H\x1b[2J\x1b[3J");
+    terminal.flush();
+    assert!(
+        terminal.take_kitty_placements().is_empty(),
+        "回滚区被清后图像不得复活到屏幕左上角"
+    );
+}
+
+/// 单独清回滚区（ED3）同样要撤下回滚区里的放置。
+///
+/// 清回滚区只动回滚区，屏幕上的放置不受影响；锚在回滚区的放置则随回滚区
+/// 一起消失，不得回到屏幕左上角。
+#[test]
+fn erase_scrollback_removes_the_placement_scrolled_into_the_scrollback() {
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(CELL_WIDTH, CELL_HEIGHT);
+    place_png(&mut terminal, 31);
+    terminal.pty_write(b"\n");
+    for line_number in 0..40 {
+        terminal.pty_write(format!("line {line_number}\n").as_bytes());
+    }
+    terminal.flush();
+
+    terminal.pty_write(b"\x1b[3J");
+    terminal.flush();
+    assert!(
+        terminal.take_kitty_placements().is_empty(),
+        "清回滚区后图像不得复活到屏幕左上角"
+    );
+}
+
+/// 清回滚区不得撤下屏幕上的放置。
+///
+/// 清回滚区只清回滚区：屏幕上的图像仍在屏幕上，不得被一并撤下。
+#[test]
+fn erase_scrollback_keeps_the_visible_placement() {
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(CELL_WIDTH, CELL_HEIGHT);
+    place_png(&mut terminal, 31);
+    terminal.flush();
+    assert_eq!(
+        terminal.take_kitty_placements().len(),
+        1,
+        "清除前必须确有可见放置，否则本用例不覆盖撤除路径"
+    );
+
+    terminal.pty_write(b"\x1b[3J");
+    terminal.flush();
+    assert_eq!(
+        terminal.take_kitty_placements().len(),
+        1,
+        "清回滚区只清回滚区，屏幕上的图像必须留下"
     );
 }
 

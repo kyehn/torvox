@@ -1,10 +1,125 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
+use super::input_filter::{Clear, ClearKind};
 use super::{Arc, KittyPlacementFrame, Terminal, grid_cols, grid_rows};
 
+use libghostty_vt::kitty::graphics::PlacementIterator;
 use libghostty_vt::render::{ImageIterator, ImageProtocol, RenderState};
 
 // ── Kitty 图像与放置采集 ─────────────────────────────────────
+
+/// 撤下全部可见放置的删除命令（`a=d,d=A`）。
+///
+/// `d=A` 撤下屏幕上的全部放置并释放其图像数据；`q=2` 让命令完全静默——
+/// 删除成功本就不回包，失败也不回，终端不会因此多出日志或应答。
+const DELETE_VISIBLE_PLACEMENTS: &[u8] = b"\x1b_Ga=d,d=A,q=2\x1b\\";
+
+/// 按图像 id 撤下放置的删除命令（`a=d,d=I`）。
+///
+/// `d=I` 撤下该图像的全部放置并释放其图像数据。只能按图像 id 撤：上游按
+/// 放置 id 删除时只认协议显式给出的放置 id，终端自行分配的放置 id 删不掉。
+fn delete_image_command(image_id: u32) -> Vec<u8> {
+    format!("\x1b_Ga=d,d=I,i={image_id},q=2\x1b\\").into_bytes()
+}
+
+/// 清屏前置的 kitty 删除命令。
+///
+/// 清屏要撤下图像放置，而撤下必须发生在清屏之前：
+///
+/// - ED2（清活动区）：撤下全部可见放置。提示符行上的清屏走「旧行先滚进回滚
+///   再清屏」的路径，可见放置会随旧行滚进回滚区，此后清屏不再撤下它们；
+///   紧接着的 ED3 又会把回滚区的锚点搬到屏幕左上角，图像便复活在左上角并
+///   盖住屏幕（用户报障：`kitten icat` 后输入 `clear`，图像不清除反而变大）。
+///   提前撤下可见放置，图像便不进回滚区，也无从复活。
+/// - ED3（清回滚区）：撤下锚在回滚区的放置。上游清回滚区时把放置的锚点搬到
+///   被删页的左上角而不标记其失效，锚在回滚区的放置于是回到屏幕左上角。
+pub(crate) fn clear_delete_commands(terminal: &Terminal<'_, '_>, kind: ClearKind) -> Vec<u8> {
+    match kind {
+        ClearKind::Display => DELETE_VISIBLE_PLACEMENTS.to_vec(),
+        ClearKind::Scrollback => scrollback_delete_commands(terminal),
+    }
+}
+
+/// 清屏前置 kitty 删除命令后的透传载荷。
+///
+/// 删除命令插在清屏序列之前：撤下必须发生在清屏之前，否则清屏会先把旧行
+/// （连同图像放置）滚进回滚区，那时的放置已不在屏幕上，清屏便撤不下它们。
+pub(crate) fn with_clear_deletes<'a>(
+    terminal: &Terminal<'_, '_>,
+    payload: Cow<'a, [u8]>,
+    clears: &[Clear],
+) -> Cow<'a, [u8]> {
+    if clears.is_empty() {
+        return payload;
+    }
+    let mut out = Vec::with_capacity(payload.len() + 64);
+    let mut cursor = 0usize;
+    for clear in clears {
+        let commands = clear_delete_commands(terminal, clear.kind);
+        if commands.is_empty() {
+            continue;
+        }
+        out.extend_from_slice(&payload[cursor..clear.offset]);
+        out.extend_from_slice(&commands);
+        cursor = clear.offset;
+    }
+    out.extend_from_slice(&payload[cursor..]);
+    Cow::Owned(out)
+}
+
+/// 撤下锚在回滚区的放置：按图像 id 逐个删除。
+///
+/// 视口不在活动区时（用户正在回看历史）无法区分「活动区」与「回滚区」，
+/// 此时一律撤下：宁可少留图像，也不让清屏后的图像复活到屏幕左上角。
+fn scrollback_delete_commands(terminal: &Terminal<'_, '_>) -> Vec<u8> {
+    let mut iterator = match PlacementIterator::new() {
+        Ok(iterator) => iterator,
+        Err(error) => {
+            log::warn!("kitty: placement iterator unavailable: {error}");
+            return Vec::new();
+        }
+    };
+    let Ok(graphics) = terminal.kitty_graphics() else {
+        return Vec::new();
+    };
+    let Ok(mut placements) = iterator.update(&graphics) else {
+        return Vec::new();
+    };
+    let viewport_active = terminal.viewport_active().unwrap_or(true);
+    // 图像 id → 是否保留。有活动区放置的图像留下；含虚拟放置（Unicode 占位符）
+    // 的图像也留下：虚拟放置跟着占位符单元走，占位符随回滚区一起被清掉，
+    // 放置自然消失，按图像 id 撤下反而会带走同一图像在屏幕上的那一份。
+    let mut images: HashMap<u32, bool> = HashMap::new();
+    while placements.next().is_some() {
+        let Ok(image_id) = placements.image_id() else {
+            continue;
+        };
+        let Some(image) = graphics.image(image_id) else {
+            continue;
+        };
+        let keep = images.entry(image_id).or_insert(false);
+        if placements.is_virtual().unwrap_or(false) {
+            *keep = true;
+            continue;
+        }
+        let active =
+            viewport_active && matches!(placements.viewport_pos(&image, terminal), Ok(Some(_)));
+        if active {
+            *keep = true;
+        }
+    }
+    let mut removable: Vec<u32> = images
+        .into_iter()
+        .filter_map(|(image_id, keep)| (!keep).then_some(image_id))
+        .collect();
+    removable.sort_unstable();
+    let mut commands = Vec::new();
+    for image_id in removable {
+        commands.extend(delete_image_command(image_id));
+    }
+    commands
+}
 
 /// Kitty 放置采集缓存：跨查询复用图像解码结果。
 ///
