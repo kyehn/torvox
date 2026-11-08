@@ -780,9 +780,6 @@ static REQUEST_REGISTRY: LazyLock<Mutex<HashMap<(u64, u64), ClipboardAnswerTx>>>
 /// tmux/ssh 会粘出空白且像是用户清空了剪贴板。
 const CLIPBOARD_ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// 剪贴板应答的轮询节奏：在上述 2s 应答截止时间内，应答方以此频率检查一次性槽位。
-const CLIPBOARD_POLL_INTERVAL_MS: u64 = 25;
-
 /// 宿主在渲染却没应答时的诊断闸门（窗口内累计次数）。
 static CLIPBOARD_ANSWER_MISSING_LOG: crate::slow_log::CountedLogThrottle =
     crate::slow_log::CountedLogThrottle::new();
@@ -838,21 +835,17 @@ fn report_clipboard_answer_missing(reason: &str) {
 }
 
 fn wait_for_clipboard_answer(rx: std::sync::mpsc::Receiver<Option<String>>) -> Option<String> {
-    let deadline = std::time::Instant::now() + CLIPBOARD_ANSWER_TIMEOUT;
-    loop {
-        match rx.try_recv() {
-            Ok(answer) => return answer,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                report_clipboard_answer_missing("channel disconnected");
-                return None;
-            }
-            Err(std::sync::mpsc::TryRecvError::Empty) => {
-                if std::time::Instant::now() >= deadline {
-                    report_clipboard_answer_missing("timed out");
-                    return None;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS));
-            }
+    // `recv_timeout` 直接等到应答或截止：手写轮询既多一个节流常量，又把应答延迟
+    // 摊平到一个轮询周期上。
+    match rx.recv_timeout(CLIPBOARD_ANSWER_TIMEOUT) {
+        Ok(answer) => answer,
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            report_clipboard_answer_missing("channel disconnected");
+            None
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            report_clipboard_answer_missing("timed out");
+            None
         }
     }
 }
