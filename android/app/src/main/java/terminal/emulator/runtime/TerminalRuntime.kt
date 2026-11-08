@@ -180,6 +180,15 @@ internal const val MAX_DISPLAY_PERIOD_NANOS: Long = 50_000_000L
 internal data class DisplayPeriodEstimate(val periodNanos: Long, val sampledAtNanos: Long)
 
 /**
+ * 帧间隔是否落在可采信的显示周期区间内。
+ *
+ * 区间外的一律不采信：主线程长时间被占用时相邻两帧可能相隔数百毫秒，
+ * 那是丢帧而不是显示周期。
+ */
+internal fun isCredibleDisplayInterval(intervalNanos: Long): Boolean =
+    intervalNanos in MIN_DISPLAY_PERIOD_NANOS..MAX_DISPLAY_PERIOD_NANOS
+
+/**
  * 用相邻两帧回调的间隔更新显示周期估计。纯函数，便于表驱动测试。
  *
  * 帧间隔是显示周期的整数倍（丢帧只会让间隔变大），故取窗口内观测到的最小值；
@@ -197,7 +206,7 @@ internal fun updateDisplayPeriodEstimate(
     intervalNanos: Long,
     nowNanos: Long,
 ): DisplayPeriodEstimate {
-    if (intervalNanos !in MIN_DISPLAY_PERIOD_NANOS..MAX_DISPLAY_PERIOD_NANOS) return estimate
+    if (!isCredibleDisplayInterval(intervalNanos)) return estimate
     val unmeasured = estimate.periodNanos <= 0L
     val windowExpired = nowNanos - estimate.sampledAtNanos > DISPLAY_PERIOD_WINDOW_NANOS
     val shorter = intervalNanos < estimate.periodNanos
@@ -788,6 +797,18 @@ constructor(
     private var lastFrameTimeNanos: Long = 0L
 
     /**
+     * vsync 间隔的定窗统计：显示节拍的窗口统计必须来自实际帧回调时间戳。
+     *
+     * 复用 [FrameTimingStats]（渲染线程那份统计的另一个实例）：它只做定长环形写入与
+     * 分位数计算，与写者无关。此处写者是主线程的帧回调，读者是渲染线程——但渲染
+     * 线程读的不是这个对象，而是发布出去的报告快照。
+     */
+    private val vsyncIntervalStats = FrameTimingStats()
+
+    /** 主线程发布的 vsync 间隔窗口报告（渲染线程读它做诊断）。 */
+    @Volatile private var vsyncIntervalReport: FrameTimingReport? = null
+
+    /**
      * 唯一的自调度 Choreographer 帧回调：每个显示帧即一次 vsync 信号。
      * 它只置起 [SessionEntry.vsyncRequested] 并经 [SessionEntry.pokeVsync] 唤醒渲染线程
      * ——所有渲染均由渲染线程拥有（主线程绝不触碰 surface Mutex）。
@@ -848,22 +869,35 @@ constructor(
         val previousFrameTimeNanos = lastFrameTimeNanos
         lastFrameTimeNanos = frameTimeNanos
         if (previousFrameTimeNanos == 0L) return
+        val intervalNanos = frameTimeNanos - previousFrameTimeNanos
         displayPeriodEstimate =
             updateDisplayPeriodEstimate(
                 estimate = displayPeriodEstimate,
-                intervalNanos = frameTimeNanos - previousFrameTimeNanos,
+                intervalNanos = intervalNanos,
                 nowNanos = System.nanoTime(),
             )
+        if (!isCredibleDisplayInterval(intervalNanos)) return
+        vsyncIntervalStats.record(intervalNanos)
+        vsyncIntervalStats.takeReport()?.let { report -> vsyncIntervalReport = report }
     }
 
     /**
+     * 显示节拍诊断：实测周期与窗口统计（平均/p95/最大）。
+     *
      * 报实测值而不是写死 16.7ms：刷新率会被系统按省电与热节流调整，写死的数字
      * 会把显示降频误读成渲染故障。
      */
-    private fun displayPeriodMillisText(): String {
+    private fun displayPeriodText(): String {
         val periodNanos = displayPeriodEstimate.periodNanos
-        if (periodNanos <= 0L) return "未测得"
-        val tenthsOfMilli = (periodNanos + 50_000L) / 100_000L
+        val periodText = if (periodNanos <= 0L) "未测得" else millisText(periodNanos)
+        val report = vsyncIntervalReport ?: return periodText
+        return "$periodText avg=${millisText(report.averageNanos)} " +
+            "p95=${millisText(report.p95Nanos)} max=${millisText(report.maxNanos)}"
+    }
+
+    /** 纳秒→毫秒文本（一位小数）：帧时长分布的诊断口径统一用它。 */
+    private fun millisText(nanos: Long): String {
+        val tenthsOfMilli = (nanos + 50_000L) / 100_000L
         return "${tenthsOfMilli / 10}.${tenthsOfMilli % 10}ms"
     }
 
@@ -2386,7 +2420,7 @@ constructor(
                                                     "avg=${loopAvgMs}ms p95=${loopP95Ms}ms " +
                                                     "max=${loopMaxMs}ms pre_max=${preMaxMs}ms " +
                                                     "pre_p95=${preP95Ms}ms " +
-                                                    "≈${framesPerSecond}fps vsync=${displayPeriodMillisText()}",
+                                                    "≈${framesPerSecond}fps vsync=${displayPeriodText()}",
                                             )
                                         }
                                     } catch (exception: InterruptedException) {

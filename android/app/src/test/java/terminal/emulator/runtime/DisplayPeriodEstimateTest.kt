@@ -1,6 +1,8 @@
 package terminal.emulator.runtime
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -104,5 +106,18 @@ class DisplayPeriodEstimateTest {
             sixtyHertzPeriodNanos,
             afterLongGap.periodNanos,
         )
+    }
+
+    /**
+     * 可采信区间的边界：两端取到，区间外一帧丢样都不采信。
+     *
+     * 该判定同时管着显示周期估计与 vsync 间隔窗口——两处若各判一次就会漂移。
+     */
+    @Test
+    fun `only intervals inside the credible range are sampled`() {
+        assertTrue("the lower bound is credible", isCredibleDisplayInterval(MIN_DISPLAY_PERIOD_NANOS))
+        assertTrue("the upper bound is credible", isCredibleDisplayInterval(MAX_DISPLAY_PERIOD_NANOS))
+        assertFalse("below the range is not credible", isCredibleDisplayInterval(MIN_DISPLAY_PERIOD_NANOS - 1L))
+        assertFalse("above the range is not credible", isCredibleDisplayInterval(MAX_DISPLAY_PERIOD_NANOS + 1L))
     }
 }
