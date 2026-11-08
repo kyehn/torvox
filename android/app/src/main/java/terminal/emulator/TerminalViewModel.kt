@@ -1390,8 +1390,8 @@ constructor(
     }
 
     /**
-     * 清空设置内容，删除与用户数据（files 目录下的 home/usr）无关的设置、崩溃循环
-     * 状态与缓存数据，并重建 DataStore 的 prefs 目录，使下一次设置写入不会失败。
+     * 清空设置内容，删除与用户数据（files 目录下的 home/usr）无关的设置与缓存数据，
+     * 并重建 DataStore 的 prefs 目录，使下一次设置写入不会失败。
      *
      * 全部在 IO 调度器上完成，成功提示由本方法自己切回主线程弹出（与 `setFontFamily`
      * 同款）：把回调交给界面层就得在契约里写明「非主线程」，而调用方一旦在回调里
@@ -1425,9 +1425,9 @@ constructor(
                 val survivors =
                     undeletedWatchedDirs + undeletedCacheEntries +
                         if (settingsReset) emptyList() else listOf("settings")
-                // 重建必须无条件执行：删除是逐目录独立的，`prefs` 删成功而 `boot_state`
-                // 残留时若就此返回，进程级 DataStore 单例将因父目录消失而写不进去，
-                // 此后所有设置写入全失败——比不清除更糟。
+                // 重建必须无条件执行：删除与重建必须成对——目录一旦消失，进程级
+                // DataStore 单例将因父目录缺失而写不进去，此后所有设置写入全失败，
+                // 比不清除更糟。
                 watchedDirs.forEach { context.getDir(it, Context.MODE_PRIVATE) }
                 if (survivors.isNotEmpty()) {
                     LogUtil.error("TerminalViewModel", "clear app data incomplete, undeleted or unreadable: $survivors")
