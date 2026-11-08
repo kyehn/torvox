@@ -113,6 +113,15 @@ impl CountedLogThrottle {
         }
     }
 
+    /// 指定窗口长度（毫秒）：同一类诊断需要比默认窗口更长的静默期时用它，
+    /// 而非另写一份闸门。
+    pub(crate) const fn with_interval(interval_ms: u64) -> Self {
+        Self {
+            throttle: SlowLogThrottle::with_interval(interval_ms),
+            count: AtomicU32::new(0),
+        }
+    }
+
     /// 记一次事件；闸门放行时返回窗口内累计的事件数，否则返回 `None`。
     pub(crate) fn record(&self) -> Option<u32> {
         self.record_at(now_ms())

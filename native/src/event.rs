@@ -4,7 +4,7 @@
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 
-use crate::slow_log::SlowLogThrottle;
+use crate::slow_log::CountedLogThrottle;
 
 /// 缓冲区满时丢弃最旧事件的上限；避免事件突发超过 UI 消费速度时内存无界增长。
 const MAX_QUEUED_EVENTS: usize = 1024;
@@ -74,7 +74,10 @@ pub enum Event {
 pub struct EventQueue {
     inner: Mutex<VecDeque<Event>>,
     /// 溢出告警的限频闸门（与渲染侧慢帧诊断、终端侧告警共用同一实现）。
-    overflow_warn: SlowLogThrottle,
+    ///
+    /// 带计数：窗口内丢弃了多少条事件 MUST 随那一行交出——限频吞掉的是条数，
+    /// 不是次数。
+    overflow_warn: CountedLogThrottle,
 }
 
 impl Default for EventQueue {
@@ -88,7 +91,7 @@ impl EventQueue {
     pub const fn new() -> Self {
         Self {
             inner: Mutex::new(VecDeque::new()),
-            overflow_warn: SlowLogThrottle::with_interval(OVERFLOW_WARN_INTERVAL_MS),
+            overflow_warn: CountedLogThrottle::with_interval(OVERFLOW_WARN_INTERVAL_MS),
         }
     }
 
@@ -116,10 +119,11 @@ impl EventQueue {
                 // （远端可无界地循环 OSC 52 读请求），一次洪泛就能把队列占满，
                 // 之后连 `Exit` 都会无声无息地丢：而 `exit_reported` 已置位且
                 // 不会重发，会话就此永久泄漏。
-                if self.overflow_warn.should_log() {
+                if let Some(dropped_in_window) = self.overflow_warn.record_events(1) {
                     log::warn!(
                         "EventQueue: dropping new event, queue holds only protected \
-                         events (full at {MAX_QUEUED_EVENTS})"
+                         events (full at {MAX_QUEUED_EVENTS}); dropped {dropped_in_window} \
+                         events in window"
                     );
                 }
                 return;
@@ -131,6 +135,9 @@ impl EventQueue {
     /// 队列溢出告警每秒至多一次。带事件种类与会话 ID：溢出日志若不指明丢的是哪种
     /// 事件、从哪个会话来的，看到「队列满」也无从判断影响（退出事件绝不淘汰，故
     /// 丢的只可能是剪贴板，而剪贴板丢失会静默丢失用户刚复制的内容）。
+    ///
+    /// 行内再带窗口内累计丢弃的事件数：两类丢弃（淘汰最旧的一条、丢弃新来的事件）
+    /// 共用一把闸门，计的是同一件事——窗口内一共丢了多少条事件。
     fn warn_overflow_once(&self, dropped: &Event) {
         let (kind, session_id) = match dropped {
             Event::Clipboard { session_id, .. } => ("clipboard", *session_id),
@@ -139,9 +146,11 @@ impl EventQueue {
             Event::DesktopNotification { session_id, .. } => ("desktop_notification", *session_id),
             Event::Exit { session_id, .. } => ("exit", *session_id),
         };
-        if self.overflow_warn.should_log() {
+        if let Some(dropped_in_window) = self.overflow_warn.record_events(1) {
             log::warn!(
-                "EventQueue: dropping {kind} event of session {session_id} (queue full at {MAX_QUEUED_EVENTS})"
+                "EventQueue: dropping {kind} event of session {session_id} \
+                 (queue full at {MAX_QUEUED_EVENTS}); dropped {dropped_in_window} \
+                 events in window"
             );
         }
     }
@@ -321,6 +330,21 @@ mod tests {
                     }),
             "混合队列中 ClipboardRead 必须存活"
         );
+    }
+
+    #[test]
+    fn overflow_drops_are_counted_for_the_next_window() {
+        let queue = EventQueue::new();
+        for session_sequence in 0..MAX_QUEUED_EVENTS {
+            queue.push(clip(session_sequence as u64));
+        }
+        // 队列已满：此后每次推入都淘汰最旧的一条，即每次都丢一条事件。
+        queue.push(clip(9000));
+        queue.push(clip(9001));
+        queue.push(clip(9002));
+        // 首条丢弃即放行，窗口计数 1 已随那一行交出；其后两次攒在窗口里，
+        // 待下次放行时一并交出——限频吞掉的是条数，不是次数。
+        assert_eq!(queue.overflow_warn.pending_count(), 2);
     }
 
     #[test]

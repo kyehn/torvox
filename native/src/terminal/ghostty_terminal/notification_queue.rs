@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use parking_lot::Mutex;
 
 use super::types::NOTIFICATION_QUEUE_CAPACITY;
-use crate::slow_log::SlowLogThrottle;
+use crate::slow_log::CountedLogThrottle;
 
 /// 通知队列满时的告警间隔（毫秒）。通知可被程序洪泛，逐条告警会淹没 logcat。
 const OVERFLOW_WARN_INTERVAL_MS: u64 = 1_000;
@@ -18,14 +18,16 @@ const OVERFLOW_WARN_INTERVAL_MS: u64 = 1_000;
 pub(crate) struct NotificationQueue {
     entries: Mutex<VecDeque<(String, String)>>,
     /// 溢出告警限频：洪泛时逐条告警会把 logcat 刷满，真正的错误反而看不见。
-    overflow_warn: SlowLogThrottle,
+    ///
+    /// 带计数：窗口内丢弃了多少条通知 MUST 随那一行交出。
+    overflow_warn: CountedLogThrottle,
 }
 
 impl NotificationQueue {
     pub(crate) fn new() -> Self {
         Self {
             entries: Mutex::new(VecDeque::new()),
-            overflow_warn: SlowLogThrottle::with_interval(OVERFLOW_WARN_INTERVAL_MS),
+            overflow_warn: CountedLogThrottle::with_interval(OVERFLOW_WARN_INTERVAL_MS),
         }
     }
 
@@ -34,10 +36,11 @@ impl NotificationQueue {
         let mut entries = self.entries.lock();
         if entries.len() >= NOTIFICATION_QUEUE_CAPACITY {
             entries.pop_front();
-            if self.overflow_warn.should_log() {
+            if let Some(dropped_in_window) = self.overflow_warn.record_events(1) {
                 log::warn!(
                     "desktop notification queue full: dropped the oldest notification \
-                     (capacity {NOTIFICATION_QUEUE_CAPACITY})"
+                     (capacity {NOTIFICATION_QUEUE_CAPACITY}); dropped {dropped_in_window} \
+                     notifications in window"
                 );
             }
         }
@@ -63,6 +66,19 @@ mod tests {
         }
         queue.push((String::new(), "newest".to_string()));
         assert_eq!(queue.pop(), Some((String::new(), "1".to_string())));
+    }
+
+    /// 洪泛时的丢弃必须被计数：限频吞掉的是条数，不是次数。
+    #[test]
+    fn overflow_drops_are_counted_for_the_next_window() {
+        let queue = NotificationQueue::new();
+        for index in 0..NOTIFICATION_QUEUE_CAPACITY {
+            queue.push((String::new(), index.to_string()));
+        }
+        queue.push((String::new(), "first".to_string()));
+        queue.push((String::new(), "second".to_string()));
+        // 首条丢弃即放行，窗口计数 1 已随那一行交出；其后一次攒在窗口里。
+        assert_eq!(queue.overflow_warn.pending_count(), 1);
     }
 
     /// 先进先出：收割方按发生顺序取走通知。
