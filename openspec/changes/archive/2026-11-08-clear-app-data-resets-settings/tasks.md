@@ -8,4 +8,4 @@
 - [x] 补单测：目录被删后设置仍为空
 - [x] 补单测：清除后写入不会带回清除前的值
 - [x] `:app:testDebugUnitTest`、`detekt` 与 `spotlessCheck` 通过
-- [ ] 归档本 change 并同步主规约
+- [x] 归档本 change 并同步主规约
