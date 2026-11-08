@@ -896,8 +896,8 @@ pub(crate) fn unanswered_clipboard_reads(session_id: u64) -> usize {
 
 /// 读请求洪泛削减告警的限频（毫秒）：超限每帧都发生，逐条记会淹没 logcat。
 const FLOOD_SHED_WARN_INTERVAL_MS: u64 = 5_000;
-static FLOOD_SHED_WARN_THROTTLE: crate::slow_log::SlowLogThrottle =
-    crate::slow_log::SlowLogThrottle::with_interval(FLOOD_SHED_WARN_INTERVAL_MS);
+static FLOOD_SHED_WARN_THROTTLE: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::with_interval(FLOOD_SHED_WARN_INTERVAL_MS);
 
 /// 帧内分段慢帧诊断的限频闸门（两次输出间隔不小于 500ms，行内带窗口内慢帧数）。
 static SLOW_RENDER_INNER_THROTTLE: crate::slow_log::CountedLogThrottle =
@@ -906,14 +906,23 @@ static SLOW_RENDER_INNER_THROTTLE: crate::slow_log::CountedLogThrottle =
 static SLOW_RENDER_SAMPLE_THROTTLE: crate::slow_log::CountedLogThrottle =
     crate::slow_log::CountedLogThrottle::new();
 
-fn flood_shed_warn_throttled(session_id: u64, unanswered: usize) {
-    if !FLOOD_SHED_WARN_THROTTLE.should_log() {
-        return;
-    }
+/// 读请求洪泛削减的告警：行内带上窗口内累计削减的条数。
+///
+/// 带计数是排障要的形状：削减是逐请求发生的（每帧至多若干条），窗口内削减了多少
+/// 条才是关键，`unanswered` 只是当刻的积压量。返回窗口内累计的条数，让用例能
+/// 钉住「计数随那一行交出」。
+fn flood_shed_warn_throttled(
+    session_id: u64,
+    unanswered: usize,
+    flood_shed_log: &crate::slow_log::CountedLogThrottle,
+) -> Option<u32> {
+    let shed_reads = flood_shed_log.record()?;
     log::warn!(
         "osc52: clipboard read flood from session {session_id}, \
-         answering empty past {unanswered} unanswered"
+         answering empty past {unanswered} unanswered \
+         (shed_reads={shed_reads} in window)"
     );
+    Some(shed_reads)
 }
 mod font;
 mod input;

@@ -9,17 +9,23 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// 超长选择器告警的限频间隔（毫秒）。与渲染侧的洪泛告警同档。
 const OVERSIZED_SELECTION_WARN_INTERVAL_MS: u64 = 5_000;
-static OVERSIZED_SELECTION_WARN_THROTTLE: crate::slow_log::SlowLogThrottle =
-    crate::slow_log::SlowLogThrottle::with_interval(OVERSIZED_SELECTION_WARN_INTERVAL_MS);
+static OVERSIZED_SELECTION_WARN_THROTTLE: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::with_interval(OVERSIZED_SELECTION_WARN_INTERVAL_MS);
 
-/// 限频版告警：同一条诊断每 5s 最多记一次。
-fn warn_oversized_selection_throttled() {
-    if !OVERSIZED_SELECTION_WARN_THROTTLE.should_log() {
-        return;
-    }
+/// 限频版告警：同一条诊断每 5s 最多记一次，行内带上窗口内累计的次数。
+///
+/// 返回窗口内累计的条数：限频吞掉的是条数不是次数，计数须随那一行一并交出，
+/// 返回值让用例能钉住「窗口内累计数不丢」。
+fn warn_oversized_selection_throttled(
+    oversized_selection_log: &crate::slow_log::CountedLogThrottle,
+) -> Option<u32> {
+    let oversized_selections = oversized_selection_log.record()?;
     log::warn!(
-        "osc52: selection name exceeds {MAX_SCAN_BYTES} bytes, read request passed through unanswered"
+        "osc52: selection name exceeds {MAX_SCAN_BYTES} bytes, \
+         read request passed through unanswered \
+         (oversized_selections={oversized_selections} in window)"
     );
+    Some(oversized_selections)
 }
 
 #[derive(Debug, Default)]
@@ -201,7 +207,7 @@ impl ReadScan {
                     // 必须出声——否则远端只看到「粘贴没反应」，无从定位；但要限频：
                     // 病态远端每几十字节就能触发一次，逐条记会淹没 logcat 并持续吃 CPU
                     // （与渲染侧那条逐帧告警洪水同一类问题）。
-                    warn_oversized_selection_throttled();
+                    warn_oversized_selection_throttled(&OVERSIZED_SELECTION_WARN_THROTTLE);
                     self.pass_through(byte, &mut snapshot.filtered);
                 } else {
                     self.buf.push(byte);
@@ -282,6 +288,27 @@ impl ReadScan {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    /// 超长选择器的告警必须按窗口输出，且把窗口内累计的条数一并交出。
+    #[test]
+    fn oversized_selection_warning_reports_the_window_count() {
+        let oversized_selection_log = crate::slow_log::CountedLogThrottle::new();
+        assert_eq!(
+            warn_oversized_selection_throttled(&oversized_selection_log),
+            Some(1),
+            "首条必须可见，且带上窗口内累计的条数"
+        );
+        assert_eq!(
+            warn_oversized_selection_throttled(&oversized_selection_log),
+            None,
+            "窗口内的后续告警不得逐条输出"
+        );
+        assert_eq!(
+            oversized_selection_log.pending_count(),
+            1,
+            "窗口内被压住的那条告警不得丢失计数"
+        );
+    }
 
     #[test]
     fn pty_write_raises_new_output_flag() {

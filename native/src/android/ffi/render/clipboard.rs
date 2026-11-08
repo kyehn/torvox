@@ -1,9 +1,9 @@
 use super::super::query::session_handle;
 use super::super::{
-    Env, EnvUnowned, Event, JClass, JString, MAX_FLOOD_SHED_ANSWERS_PER_FRAME,
-    MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION, REQUEST_REGISTRY, ThrowRuntimeExAndFailure,
-    cancel_request, flood_shed_warn_throttled, jlong, register_request, unanswered_clipboard_reads,
-    wait_for_clipboard_answer,
+    Env, EnvUnowned, Event, FLOOD_SHED_WARN_THROTTLE, JClass, JString,
+    MAX_FLOOD_SHED_ANSWERS_PER_FRAME, MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION, REQUEST_REGISTRY,
+    ThrowRuntimeExAndFailure, cancel_request, flood_shed_warn_throttled, jlong, register_request,
+    unanswered_clipboard_reads, wait_for_clipboard_answer,
 };
 
 use crate::terminal::session::SessionError;
@@ -48,7 +48,7 @@ pub(super) fn handle_clipboard_reads(
                 continue;
             }
             flood_shed_answers += 1;
-            flood_shed_warn_throttled(session_id, unanswered);
+            flood_shed_warn_throttled(session_id, unanswered, &FLOOD_SHED_WARN_THROTTLE);
             // 读锁而非写锁：本分支只查表，而随后的 `answer_clipboard_read` 要经
             // `PtyMaster::write_with_timeout_counted` 等 `pty_write_order` 互斥量——
             // 该锁可能被用户输入写入按住、持有时长**无上界**。持注册表**写**锁等它，
