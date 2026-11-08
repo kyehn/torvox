@@ -244,6 +244,8 @@ fn row_text_from_cells(cells: &[CellData], row: u32) -> String {
 
 mod batch_latency;
 mod grid_text;
+mod kitty_graphics;
+mod kitty_simulator;
 mod lifecycle;
 mod mouse_osc;
 mod osc_notification;
