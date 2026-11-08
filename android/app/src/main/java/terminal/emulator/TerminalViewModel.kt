@@ -1390,8 +1390,8 @@ constructor(
     }
 
     /**
-     * 删除与用户数据（files 目录下的 home/usr）无关的设置、崩溃循环状态与缓存数据，
-     * 并重建 DataStore 的 prefs 目录，使下一次设置写入不会失败。
+     * 清空设置内容，删除与用户数据（files 目录下的 home/usr）无关的设置、崩溃循环
+     * 状态与缓存数据，并重建 DataStore 的 prefs 目录，使下一次设置写入不会失败。
      *
      * 全部在 IO 调度器上完成，成功提示由本方法自己切回主线程弹出（与 `setFontFamily`
      * 同款）：把回调交给界面层就得在契约里写明「非主线程」，而调用方一旦在回调里
@@ -1407,7 +1407,11 @@ constructor(
             try {
                 // 先经 DataStore 清空内容：它缓存着已读入的状态，只删文件的话
                 // 内存态仍是旧值，下一次写入还会把旧值整份写回。
-                settingsRepository.clearAllSettings()
+                // 清空失败按未清除记账：照旧提示「已清除」就是把假话当事实。
+                val settingsReset =
+                    runCatchingCancellable { settingsRepository.clearAllSettings() }
+                        .onFailure { LogUtil.error("TerminalViewModel", "clear app data failed to reset settings", it) }
+                        .isSuccess
                 // 进程级 DataStore 单例仍在运行：删后必须重建，
                 // 否则下一次设置写入失败。
                 val watchedDirs = listOf("prefs")
@@ -1418,7 +1422,9 @@ constructor(
                 val undeletedCacheEntries =
                     cacheEntries?.filterNot { deletedOrAbsent(it) }?.map { it.name }
                         ?: listOf("${context.cacheDir.name}(不可枚举)")
-                val survivors = undeletedWatchedDirs + undeletedCacheEntries
+                val survivors =
+                    undeletedWatchedDirs + undeletedCacheEntries +
+                        if (settingsReset) emptyList() else listOf("settings")
                 // 重建必须无条件执行：删除是逐目录独立的，`prefs` 删成功而 `boot_state`
                 // 残留时若就此返回，进程级 DataStore 单例将因父目录消失而写不进去，
                 // 此后所有设置写入全失败——比不清除更糟。
