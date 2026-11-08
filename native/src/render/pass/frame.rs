@@ -7,15 +7,15 @@ use crate::render::GpuError;
 use crate::render::Renderer;
 use crate::render::context::MIN_VERTEX_BUFFER_SIZE;
 use crate::render::pipeline::QUAD_VERTEX_COUNT;
-use crate::slow_log::SlowLogThrottle;
+use crate::slow_log::CountedLogThrottle;
 
 /// 渲染分段慢帧诊断的限频闸门。
 ///
 /// 静态而非渲染态字段：渲染态是**全局单例**（`RENDER_STATE`），挂在它上面与静态
 /// 等价，却要多改构造路径。此处每类诊断一个闸门，互不吞掉。
-static SLOW_RENDER_PHASE_THROTTLE: SlowLogThrottle = SlowLogThrottle::new();
+static SLOW_RENDER_PHASE_THROTTLE: CountedLogThrottle = CountedLogThrottle::new();
 /// 单元构建慢帧诊断的限频闸门（与渲染分段各自限频）。
-static SLOW_CELL_BUILD_THROTTLE: SlowLogThrottle = SlowLogThrottle::new();
+static SLOW_CELL_BUILD_THROTTLE: CountedLogThrottle = CountedLogThrottle::new();
 /// 单颜色附件：整帧写入 `load` 指定的内容后保留。
 pub(super) fn store_attachment(
     view: &wgpu::TextureView,
@@ -434,11 +434,12 @@ impl Renderer {
         // （实测软件 Vulkan 上 500ms 窗口内可出数百条），规范要求两次输出间隔
         // 不小于 500ms。本类诊断独占一个闸门，不与单元构建诊断共用计数器。
         let total = present_done.duration_since(frame_start);
-        if total >= std::time::Duration::from_millis(30) && SLOW_RENDER_PHASE_THROTTLE.should_log()
+        if total >= std::time::Duration::from_millis(30)
+            && let Some(slow_frames) = SLOW_RENDER_PHASE_THROTTLE.record()
         {
             let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
             log::warn!(
-                "SLOW_RENDER_PHASE acquire={:.3}ms encode={:.3}ms submit={:.3}ms present={:.3}ms total={:.3}ms partial={partial} instances={} upload_bytes={uploaded_bytes}",
+                "SLOW_RENDER_PHASE acquire={:.3}ms encode={:.3}ms submit={:.3}ms present={:.3}ms total={:.3}ms partial={partial} instances={} upload_bytes={uploaded_bytes} slow_frames={slow_frames}",
                 ms(begin_done.duration_since(frame_start)),
                 ms(encode_done.duration_since(begin_done)),
                 ms(submit_done.duration_since(encode_done)),
@@ -592,10 +593,12 @@ impl Renderer {
         let gpu_done = std::time::Instant::now();
         self.cpu_instances = cpu_instances;
         let total = gpu_done.duration_since(build_start);
-        if total >= std::time::Duration::from_millis(30) && SLOW_CELL_BUILD_THROTTLE.should_log() {
+        if total >= std::time::Duration::from_millis(30)
+            && let Some(slow_frames) = SLOW_CELL_BUILD_THROTTLE.record()
+        {
             let ms = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
             log::warn!(
-                "SLOW_CELL_BUILD build={:.3}ms gpu={:.3}ms total={:.3}ms instances={} partial={partial} rows={rows}",
+                "SLOW_CELL_BUILD build={:.3}ms gpu={:.3}ms total={:.3}ms instances={} partial={partial} rows={rows} slow_frames={slow_frames}",
                 ms(build_done.duration_since(build_start)),
                 ms(gpu_done.duration_since(gpu_start)),
                 ms(total),

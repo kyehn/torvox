@@ -339,11 +339,14 @@ pub(super) fn render_inner(session_id: u64) -> jint {
     let total = render_done.duration_since(render_start);
     // 限频：持续慢时逐帧都会命中，逐帧记会把 logcat 刷成慢帧洪水
     //（实测软件 Vulkan 上一轮采集里此类条目占应用侧 W 级绝大多数）。
-    // 规范要求两次输出间隔不小于 500ms；本类诊断独占一个闸门。
-    if total >= std::time::Duration::from_millis(30) && SLOW_RENDER_INNER_THROTTLE.should_log() {
+    // 规范要求两次输出间隔不小于 500ms，且行内带上窗口内的慢帧数；本类诊断独占
+    // 一个闸门。
+    if total >= std::time::Duration::from_millis(30)
+        && let Some(slow_frames) = SLOW_RENDER_INNER_THROTTLE.record()
+    {
         let milliseconds = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
         log::warn!(
-            "SLOW_RENDER_INNER phase1={:.3}ms receive={:.3}ms lock={:.3}ms render={:.3}ms total={:.3}ms count={count}",
+            "SLOW_RENDER_INNER phase1={:.3}ms receive={:.3}ms lock={:.3}ms render={:.3}ms total={:.3}ms count={count} slow_frames={slow_frames}",
             milliseconds(phase1_done.duration_since(render_start)),
             milliseconds(phase2_done.duration_since(phase1_done)),
             milliseconds(lock_done.duration_since(phase2_done)),

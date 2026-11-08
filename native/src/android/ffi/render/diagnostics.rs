@@ -141,10 +141,10 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderW
         let sample_ms = inner_done.elapsed().as_secs_f64() * 1000.0;
         if inner_ms < 30.0
             && inner_ms + sample_ms >= 30.0
-            && SLOW_RENDER_SAMPLE_THROTTLE.should_log()
+            && let Some(slow_frames) = SLOW_RENDER_SAMPLE_THROTTLE.record()
         {
             log::warn!(
-                "SLOW_RENDER_SAMPLE inner={inner_ms:.3}ms sample={sample_ms:.3}ms count={count}"
+                "SLOW_RENDER_SAMPLE inner={inner_ms:.3}ms sample={sample_ms:.3}ms count={count} slow_frames={slow_frames}"
             );
         }
         pack_render_sample(

@@ -899,12 +899,12 @@ const FLOOD_SHED_WARN_INTERVAL_MS: u64 = 5_000;
 static FLOOD_SHED_WARN_THROTTLE: crate::slow_log::SlowLogThrottle =
     crate::slow_log::SlowLogThrottle::with_interval(FLOOD_SHED_WARN_INTERVAL_MS);
 
-/// 帧内分段慢帧诊断的限频闸门（两次输出间隔不小于 500ms）。
-static SLOW_RENDER_INNER_THROTTLE: crate::slow_log::SlowLogThrottle =
-    crate::slow_log::SlowLogThrottle::new();
-/// 采样段慢帧诊断的限频闸门（与帧内分段各自限频，互不吞掉）。
-static SLOW_RENDER_SAMPLE_THROTTLE: crate::slow_log::SlowLogThrottle =
-    crate::slow_log::SlowLogThrottle::new();
+/// 帧内分段慢帧诊断的限频闸门（两次输出间隔不小于 500ms，行内带窗口内慢帧数）。
+static SLOW_RENDER_INNER_THROTTLE: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::new();
+/// 采样段慢帧诊断的限频闸门（与帧内分段各自限频，互不吞掉；行内带窗口内慢帧数）。
+static SLOW_RENDER_SAMPLE_THROTTLE: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::new();
 
 fn flood_shed_warn_throttled(session_id: u64, unanswered: usize) {
     if !FLOOD_SHED_WARN_THROTTLE.should_log() {

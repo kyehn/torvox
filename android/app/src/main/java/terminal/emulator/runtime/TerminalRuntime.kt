@@ -1707,11 +1707,11 @@ constructor(
                                 var lastScrollRemainderPx = Float.NaN
                                 var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false)
                                 // 慢循环帧的阶段分解日志节流：连续慢帧（如 500ms 空闲闭锁）
-                                // 不刷屏，最密 2 行/秒。
-                                var lastSlowLoopLogNanos = 0L
+                                // 不刷屏，最密 2 行/秒；行内带窗口内慢循环次数。
+                                val slowLoopThrottle = CountedLogThrottle()
                                 // 慢帧告警同样节流：滚动时每帧都超 30ms，逐帧写 logcat
                                 // 会让诊断本身成为负担；帧时长统计窗口仍保留完整分布。
-                                var lastSlowFrameLogNanos = 0L
+                                val slowFrameThrottle = CountedLogThrottle()
                                 // 本会话是否已收到 PTY 输出：首个输出即 shell 真的开始说话，
                                 // 它也是外部驱动（宏基准）判定「可以往终端敲键」的信号——
                                 // shell 就绪前写入会被 tty 初始化冲掉。
@@ -1900,12 +1900,10 @@ constructor(
                                         frameTiming.record(renderDoneNanos - entry.frameMarks.startNanos)
                                         val frameMs = (renderDoneNanos - entry.frameMarks.startNanos) / 1_000_000.0
                                         if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
-                                            val nowNanos = System.nanoTime()
-                                            if (nowNanos - lastSlowFrameLogNanos > 500_000_000L) {
-                                                lastSlowFrameLogNanos = nowNanos
+                                            slowFrameThrottle.record()?.let { slowFrames ->
                                                 LogUtil.warn(
                                                     "Runtime",
-                                                    "SLOW_FRAME session=${entry.sessionId} render=$frameMs count=$count newOutput=$newOutput scrollOffset=$currentScrollOffset scrollRemainderPx=${entry.scrollRemainderPx}",
+                                                    "SLOW_FRAME session=${entry.sessionId} render=$frameMs count=$count slow_frames=$slowFrames newOutput=$newOutput scrollOffset=$currentScrollOffset scrollRemainderPx=${entry.scrollRemainderPx}",
                                                 )
                                             }
                                         }
@@ -2157,32 +2155,36 @@ constructor(
                                                 totalNanos = loopDurationNanos,
                                                 gateNanos = loopGateDoneNanos - loopFrameStart,
                                                 backoffNanos = loopBackoffNanos,
-                                            ) > SLOW_FRAME_LOG_THRESHOLD_MS * 1_000_000L &&
-                                            System.nanoTime() - lastSlowLoopLogNanos > 500_000_000L
+                                            ) > SLOW_FRAME_LOG_THRESHOLD_MS * 1_000_000L
                                         ) {
-                                            lastSlowLoopLogNanos = System.nanoTime()
-                                            val tailNanos =
-                                                loopDurationNanos - (loopPollDoneNanos - loopFrameStart)
-                                            val gateMs = (loopGateDoneNanos - loopFrameStart) / NANOS_PER_MILLI
-                                            val preMs = (loopPrerenderDoneNanos - loopGateDoneNanos) / NANOS_PER_MILLI
-                                            val renderMs = (renderDoneNanos - loopPrerenderDoneNanos) / NANOS_PER_MILLI
-                                            val backoffMs = loopBackoffNanos / NANOS_PER_MILLI
-                                            val pollMs =
-                                                (loopPollDoneNanos - renderDoneNanos - loopBackoffNanos) /
-                                                    NANOS_PER_MILLI
-                                            val totalMs = loopDurationNanos / NANOS_PER_MILLI
-                                            LogUtil.warn(
-                                                "Runtime",
-                                                "SLOW_LOOP " +
-                                                    "session=${entry.sessionId} " +
-                                                    "total=${totalMs}ms " +
-                                                    "gate=${gateMs}ms " +
-                                                    "pre=${preMs}ms " +
-                                                    "render=${renderMs}ms " +
-                                                    "backoff=${backoffMs}ms " +
-                                                    "poll=${pollMs}ms " +
-                                                    "tail=${tailNanos / NANOS_PER_MILLI}ms",
-                                            )
+                                            slowLoopThrottle.record()?.let { slowLoops ->
+                                                val tailNanos =
+                                                    loopDurationNanos - (loopPollDoneNanos - loopFrameStart)
+                                                val gateMs =
+                                                    (loopGateDoneNanos - loopFrameStart) / NANOS_PER_MILLI
+                                                val preMs =
+                                                    (loopPrerenderDoneNanos - loopGateDoneNanos) / NANOS_PER_MILLI
+                                                val renderMs =
+                                                    (renderDoneNanos - loopPrerenderDoneNanos) / NANOS_PER_MILLI
+                                                val backoffMs = loopBackoffNanos / NANOS_PER_MILLI
+                                                val pollMs =
+                                                    (loopPollDoneNanos - renderDoneNanos - loopBackoffNanos) /
+                                                        NANOS_PER_MILLI
+                                                val totalMs = loopDurationNanos / NANOS_PER_MILLI
+                                                LogUtil.warn(
+                                                    "Runtime",
+                                                    "SLOW_LOOP " +
+                                                        "session=${entry.sessionId} " +
+                                                        "total=${totalMs}ms " +
+                                                        "gate=${gateMs}ms " +
+                                                        "pre=${preMs}ms " +
+                                                        "render=${renderMs}ms " +
+                                                        "backoff=${backoffMs}ms " +
+                                                        "poll=${pollMs}ms " +
+                                                        "tail=${tailNanos / NANOS_PER_MILLI}ms " +
+                                                        "slow_loops=$slowLoops",
+                                                )
+                                            }
                                         }
                                         val preReport = loopPreTiming.takeReport()
                                         loopTiming.takeReport()?.let { loopReport ->
