@@ -1682,34 +1682,33 @@ constructor(
                         )
                     }
                 } ?: throw java.io.IOException("Failed to open bootstrap file")
-            } catch (copyError: Exception) {
-                // 部分写入的归档不是合法 zip；留着只会占满 cacheDir。
-                cacheFile.delete()
-                throw copyError
-            }
-            val result = installer.install(cacheFile)
-            if (result.isSuccess) {
-                val secondResult = secondStage.run()
-                if (!secondResult.success) {
-                    val failureDiagnostics = secondResult.errors.take(3).joinToString("\n") { "- $it" }
+                val result = installer.install(cacheFile)
+                if (result.isSuccess) {
+                    val secondResult = secondStage.run()
+                    if (!secondResult.success) {
+                        val failureDiagnostics = secondResult.errors.take(3).joinToString("\n") { "- $it" }
+                        _bootstrapResult.value =
+                            context.getString(
+                                R.string.bootstrap_error,
+                                failureDiagnostics.ifEmpty { "Postinst failed" },
+                            )
+                    } else {
+                        _bootstrapProgress.value = BootstrapProgress.Complete
+                        val headline = context.getString(R.string.bootstrap_installed_from_file)
+                        _bootstrapResult.value = headline
+                    }
+                } else {
                     _bootstrapResult.value =
                         context.getString(
                             R.string.bootstrap_error,
-                            failureDiagnostics.ifEmpty { "Postinst failed" },
+                            result.exceptionOrNull()?.javaClass?.simpleName,
                         )
-                } else {
-                    _bootstrapProgress.value = BootstrapProgress.Complete
-                    val headline = context.getString(R.string.bootstrap_installed_from_file)
-                    _bootstrapResult.value = headline
                 }
-            } else {
-                _bootstrapResult.value =
-                    context.getString(
-                        R.string.bootstrap_error,
-                        result.exceptionOrNull()?.javaClass?.simpleName,
-                    )
+            } finally {
+                // 中转包无论成败都必须删：留在 cacheDir 的是数百 MB 的引导归档，
+                // 复制中途失败留下的半截内容同样占着空间。
+                cacheFile.delete()
             }
-            cacheFile.delete()
         }
     }
 
