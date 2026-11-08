@@ -111,9 +111,7 @@ fn partial_write_back_requeues_only_the_unwritten_tail() {
     // 基准：主端畅通时同样两条查询写出的字节总数。它是后面那条关系式的**外部**
     // 真值——若拿队列自身的长度当期望，「整条退回」与「全部丢掉」两种错法都会
     // 恰好对上（本轮第一版正是如此，两次变异都全绿）。
-    let (plain_pty, plain_handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut plain = Session::with_pty_for_test(Box::new(plain_pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut plain, plain_handle) = crate::terminal::mock_pty::mock_session();
     plain.inject_output_for_test(queries.as_bytes());
     plain.process_output();
     plain.terminal_mut().flush();
@@ -162,9 +160,7 @@ fn partial_write_back_requeues_only_the_unwritten_tail() {
 
 #[test]
 fn vt_write_back_is_capped_per_frame_and_carries_over() {
-    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, handle) = crate::terminal::mock_pty::mock_session();
     let query_count = MAX_PTY_WRITES_PER_FRAME * 3;
     let queries = "\x1b[6n".repeat(query_count);
     session.inject_output_for_test(queries.as_bytes());
@@ -316,11 +312,7 @@ fn write_back_yields_the_frame_when_a_user_write_holds_the_master_lock() {
 
     const READ_BUDGET: Duration = Duration::from_millis(500);
 
-    let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let session = Arc::new(Mutex::new(
-        Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-            .expect("with_pty must succeed"),
-    ));
+    let (session, _handle) = crate::terminal::mock_pty::mock_arc_session();
 
     // 用户输入持写入锁停住（等价于 `feedPty` 卡在主端排空上），直到本用例放行。
     let hold = hold_pty_write_lock(&session, READ_BUDGET);
@@ -423,9 +415,7 @@ fn write_back_budget_covers_lock_wait_and_write_as_one_whole() {
 /// 通道确定性地复现「命令通道满」，断言未送达的块原样滞留、顺序不乱、字节不丢。
 #[test]
 fn full_command_channel_backpressures_output_instead_of_dropping() {
-    let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, _handle) = crate::terminal::mock_pty::mock_session();
     // 容量 1 且无人接收：第一块占满槽位，第二块必然入队失败。
     let (command_tx, command_rx) = flume::bounded(1);
     session.terminal.cmd_tx = command_tx;
@@ -513,9 +503,7 @@ fn pty_send_busy_marker_tracks_backpressure() {
 /// 而「子进程已退出」本属正常退化。
 #[test]
 fn an_exited_session_drops_pending_vt_responses() {
-    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, handle) = crate::terminal::mock_pty::mock_session();
     session
         .pty_write_back_queue
         .push_back(b"\x1b[1;1R".to_vec());

@@ -8,9 +8,7 @@ use std::time::Duration;
 /// OSC 52 读取应答以 `ESC ] 52 ; <selection> ; <base64> BEL` 写回 PTY。
 #[test]
 fn answer_clipboard_read_writes_esc52_reply() {
-    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, handle) = crate::terminal::mock_pty::mock_session();
     session
         .answer_clipboard_read("c", "Hello, 世界")
         .expect("answer must succeed");
@@ -24,9 +22,7 @@ fn answer_clipboard_read_writes_esc52_reply() {
 /// 剪贴板应答为空时仍产生合法（空载荷）的 OSC 52 回复，即兼容 xterm 的“空剪贴板”响应。
 #[test]
 fn answer_clipboard_read_empty_text() {
-    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, handle) = crate::terminal::mock_pty::mock_session();
     session
         .answer_clipboard_read("c", "")
         .expect("answer must succeed");
@@ -36,9 +32,7 @@ fn answer_clipboard_read_empty_text() {
 /// 会话退出后写应答必须干净失败。
 #[test]
 fn answer_clipboard_read_after_exit_fails() {
-    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, handle) = crate::terminal::mock_pty::mock_session();
     session.exited_flag().store(true, Ordering::Release);
     let result = session.answer_clipboard_read("c", "text");
     assert!(result.is_err(), "exited session must reject writes");
@@ -63,11 +57,7 @@ fn clipboard_answer_yields_when_a_user_write_holds_the_master_lock() {
 
     const READ_BUDGET: Duration = Duration::from_millis(500);
 
-    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let session = Arc::new(Mutex::new(
-        Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-            .expect("with_pty must succeed"),
-    ));
+    let (session, handle) = crate::terminal::mock_pty::mock_arc_session();
 
     // 用户输入持写入锁停住（等价于 `feedPty` 卡在主端排空上），直到本用例放行。
     let hold = hold_pty_write_lock(&session, READ_BUDGET);

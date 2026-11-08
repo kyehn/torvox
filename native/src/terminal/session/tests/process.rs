@@ -65,9 +65,7 @@ fn take_reported_exit_is_silent_before_exit() {
 fn unknown_exit_code_is_reported_rather_than_suppressed() {
     // `waitpid` 失败时代码槽为 Unknown。必须照常上报（`ReportedExit::Unknown`），
     // 否则退出事件永不到达、会话表泄漏——比报出错误的码更糟。
-    let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (session, _handle) = crate::terminal::mock_pty::mock_session();
     *session.exit_code.lock() = ExitCodeSlot::Unknown;
     session.exited.store(true, Ordering::Release);
     assert_eq!(session.take_reported_exit(), Some(ReportedExit::Unknown));
@@ -75,9 +73,7 @@ fn unknown_exit_code_is_reported_rather_than_suppressed() {
 
 #[test]
 fn mark_exit_reported_is_idempotent_under_concurrency() {
-    let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (session, _handle) = crate::terminal::mock_pty::mock_session();
     // 上报竞态中只能有一个调用者胜出；其余（并发的 pollEvent 线程）都须看到 false，
     // 使 Exit 事件永不重复。`Arc<Mutex<..>>` 镜像生产 SESSION_REGISTRY 的形状
     // （`Box<dyn Pty>` 非 Sync，故会话须经互斥锁共享）。
@@ -106,9 +102,7 @@ fn mark_exit_reported_is_idempotent_under_concurrency() {
 /// 报 `SessionError::Closed`，标志不置位则已关闭的会话仍可接收输入。
 #[test]
 fn request_exit_marks_the_session_exited() {
-    let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, _handle) = crate::terminal::mock_pty::mock_session();
     assert!(!session.is_exited(), "新建会话不得已是退出态");
     session.request_exit();
     assert!(session.is_exited(), "request_exit 后必须置位退出标志");

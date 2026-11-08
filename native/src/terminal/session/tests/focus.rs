@@ -14,9 +14,7 @@ use super::super::*;
 /// 那一半——查询窗口必须宽于该 tick——由下一条用例钉住。
 #[test]
 fn focus_event_stays_silent_until_the_child_enables_mode_1004() {
-    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, handle) = crate::terminal::mock_pty::mock_session();
 
     assert_eq!(session.focus_event_bytes(true), None);
     assert_eq!(session.focus_event_bytes(false), None);

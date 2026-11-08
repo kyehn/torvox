@@ -40,9 +40,7 @@ fn session_after_exit_returns_error() {
 
 #[test]
 fn session_new_creates_pty() {
-    let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (session, _handle) = crate::terminal::mock_pty::mock_session();
     assert_eq!(
         session.terminal().rows(),
         24,
@@ -61,9 +59,7 @@ fn session_new_creates_pty() {
 
 #[test]
 fn session_write_input() {
-    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, handle) = crate::terminal::mock_pty::mock_session();
     session.write(b"hello world").expect("write must succeed");
     let written = handle.written();
     assert_eq!(
@@ -74,17 +70,13 @@ fn session_write_input() {
 
 #[test]
 fn session_title_default_is_empty() {
-    let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (session, _handle) = crate::terminal::mock_pty::mock_session();
     assert_eq!(session.terminal().title(), "");
 }
 
 #[test]
 fn session_mode_get_default_false() {
-    let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (session, _handle) = crate::terminal::mock_pty::mock_session();
     // 模式 2004（bracketed paste）默认应关闭。
     assert!(!session.terminal().mode_get_with_timeout(
         libghostty_vt::terminal::Mode::BRACKETED_PASTE,
@@ -94,9 +86,7 @@ fn session_mode_get_default_false() {
 
 #[test]
 fn session_write_after_exit_returns_error() {
-    let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, _handle) = crate::terminal::mock_pty::mock_session();
     // 置会话的退出标志，使 `write()` 在调用 PTY 前先检查它。
     session.exited_flag().store(true, Ordering::Release);
     let result = session.write(b"test");

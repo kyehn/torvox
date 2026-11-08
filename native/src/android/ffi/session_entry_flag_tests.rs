@@ -5,17 +5,13 @@ use jni::sys::JNI_FALSE;
 use parking_lot::Mutex;
 
 use super::{RenderWake, SessionEntry};
-use crate::terminal::mock_pty::MockPty;
 use crate::terminal::session::Session;
 
 /// 渲染采样读的是注册表里的共享原子量，不是会话锁后的字段：一旦有人改成
 /// 另建一个标志，这条指针相等断言会先红，避免慢帧修复被静默回退。
 #[test]
 fn entry_shares_session_flags_for_lock_free_sampling() {
-    let (pty, _handle) = MockPty::new(24, 80);
-    let session =
-        Session::with_pty_for_test(Box::new(pty) as Box<dyn crate::terminal::pty::Pty>, 24, 80)
-            .expect("session");
+    let (session, _handle) = crate::terminal::mock_pty::mock_session();
     let new_output = session.new_output_flag();
     let alt_screen = session.alt_screen_active_flag();
     let mouse_tracking = session.mouse_tracking_active_flag();
@@ -48,11 +44,7 @@ fn input_path_state_queries_do_not_take_the_session_lock() {
 
     const SESSION_ID: u64 = 0xF11E_5EED_BEEF;
 
-    let (pty, _handle) = MockPty::new(24, 80);
-    let session =
-        Session::with_pty_for_test(Box::new(pty) as Box<dyn crate::terminal::pty::Pty>, 24, 80)
-            .expect("session");
-    let session = Arc::new(Mutex::new(session));
+    let (session, _handle) = crate::terminal::mock_pty::mock_arc_session();
     let entry = SessionEntry::new(Arc::clone(&session), Arc::new(RenderWake::default()));
 
     // 登记进注册表：读取路径必须能真的找到这条会话才谈得上「读它的标志」。

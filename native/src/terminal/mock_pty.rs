@@ -3,7 +3,10 @@ use std::io;
 use std::os::unix::io::OwnedFd;
 use std::sync::{Arc, Condvar, Mutex};
 
+use parking_lot::Mutex as ParkingMutex;
+
 use crate::terminal::pty::{Pty, PtyError};
+use crate::terminal::session::Session;
 
 struct MockPtyInner {
     input_buffer: VecDeque<Vec<u8>>,
@@ -215,4 +218,25 @@ impl Pty for MockPty {
     fn set_nonblocking(&self) -> Result<(), PtyError> {
         Ok(())
     }
+}
+
+/// 24x80 的会话夹具：返回会话与写回观察柄。
+///
+/// 「造 PTY + 装箱成 `Box<dyn Pty>` + 建会话」这三步在用例里重复了几十遍，
+/// 收在一处后各用例只剩自己关心的部分。网格固定 24x80：仓内会话用例都按这个
+/// 尺寸起会话，需要别的尺寸的用例走 [`Session::with_pty_for_test`] 自行构造。
+pub fn mock_session() -> (Session, MockPtyHandle) {
+    let (pty, handle) = MockPty::new(24, 80);
+    let session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        .expect("with_pty must succeed");
+    (session, handle)
+}
+
+/// 24x80 的会话夹具，外层套 `Arc<Mutex<…>>`。
+///
+/// 注册表条目按「共享同一份会话」持有，夹具就按这个形状给出：用例把返回的
+/// `Arc` 同时交给会话与 `SessionEntry::new`，指针相等才成立。
+pub fn mock_arc_session() -> (Arc<ParkingMutex<Session>>, MockPtyHandle) {
+    let (session, handle) = mock_session();
+    (Arc::new(ParkingMutex::new(session)), handle)
 }

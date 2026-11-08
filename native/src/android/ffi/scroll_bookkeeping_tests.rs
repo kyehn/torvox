@@ -1,8 +1,6 @@
 use super::state::scroll_target;
 use super::{RenderWake, SessionEntry, rlock_session_registry, wlock_session_registry};
 use crate::terminal::ghostty_terminal::ViewportTarget;
-use crate::terminal::pty::Pty;
-use crate::terminal::session::Session;
 use std::sync::Arc;
 
 /// 滚动记账归会话，重置须把它一并归零。
@@ -12,11 +10,7 @@ use std::sync::Arc;
 /// 内（原子量）后两条路径只取读锁，语义不变。
 #[test]
 fn scroll_bookkeeping_lives_on_the_session_and_reset_clears_it() {
-    let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let session = Arc::new(parking_lot::Mutex::new(
-        Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-            .expect("with_pty must succeed"),
-    ));
+    let (session, _handle) = crate::terminal::mock_pty::mock_arc_session();
     let session_id = 98_090_101u64;
     wlock_session_registry().insert(
         session_id,
@@ -50,11 +44,8 @@ fn scroll_bookkeeping_lives_on_the_session_and_reset_clears_it() {
 #[test]
 fn scroll_bookkeeping_is_per_session() {
     let new_session = || {
-        let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        Arc::new(parking_lot::Mutex::new(
-            Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-                .expect("with_pty must succeed"),
-        ))
+        let (session, _handle) = crate::terminal::mock_pty::mock_arc_session();
+        session
     };
     let first = new_session();
     let second = new_session();

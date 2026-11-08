@@ -5,8 +5,6 @@ use parking_lot::Mutex;
 
 use super::state::busy_elapsed_nanos;
 use super::{RenderWake, SessionEntry};
-use crate::terminal::mock_pty::MockPty;
-use crate::terminal::pty::Pty;
 use crate::terminal::session::Session;
 
 /// 忙标记未置位时读出的时长恒为 0。
@@ -40,9 +38,7 @@ fn busy_marker_reads_out_elapsed_duration() {
 /// VT 线程真正写的那份，挂起判定会静默失效（恒读到 0＝永远「空闲」）。
 #[test]
 fn entry_shares_session_busy_markers() {
-    let (pty, _handle) = MockPty::new(24, 80);
-    let session =
-        Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80).expect("session");
+    let (session, _handle) = crate::terminal::mock_pty::mock_session();
     let vt_busy = session.vt_busy_since_nanos_flag();
     let pty_send = session.pty_send_since_nanos_flag();
     let entry = SessionEntry::new(
@@ -63,10 +59,7 @@ fn busy_marker_reads_do_not_take_the_session_lock() {
 
     const SESSION_ID: u64 = 0xB051_0000_0001;
 
-    let (pty, _handle) = MockPty::new(24, 80);
-    let session =
-        Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80).expect("session");
-    let session = Arc::new(Mutex::new(session));
+    let (session, _handle) = crate::terminal::mock_pty::mock_arc_session();
     let entry = SessionEntry::new(Arc::clone(&session), Arc::new(RenderWake::default()));
     super::wlock_session_registry().insert(SESSION_ID, entry);
 

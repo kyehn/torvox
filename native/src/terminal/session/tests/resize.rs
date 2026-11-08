@@ -13,9 +13,7 @@ fn session_resize() {
 /// 且不消耗一次 resize 计数（PTY 未被改动）。
 #[test]
 fn session_resize_rejects_zero_dimensions() {
-    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, handle) = crate::terminal::mock_pty::mock_session();
     let before = handle.resize_count();
     for (rows, cols) in [(0, 80), (24, 0), (0, 0)] {
         assert!(
@@ -52,9 +50,7 @@ fn session_spawn_rejects_dimensions_outside_the_u16_grid() {
 
 #[test]
 fn session_resize_same_size_is_applied_noop() {
-    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, handle) = crate::terminal::mock_pty::mock_session();
     let before = handle.resize_count();
     // 干净状态：同尺寸 resize 短路并报告 Applied。
     let outcome = session.resize(24, 80).expect("resize failed");
@@ -96,9 +92,7 @@ fn session_resize_dirty_cleared_on_success() {
 
 #[test]
 fn session_resize_sends_signal() {
-    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-        .expect("with_pty must succeed");
+    let (mut session, handle) = crate::terminal::mock_pty::mock_session();
     session.resize(40, 120).expect("resize must succeed");
     assert_eq!(
         session.terminal().rows(),

@@ -7,7 +7,6 @@ use super::{
     RENDERED_SCROLLBACK_NONE, RenderWake, SessionEntry, pack_rendered_cursor,
     rendered_cursor_packed, rendered_scrollback, wlock_session_registry,
 };
-use crate::terminal::pty::Pty;
 use crate::terminal::session::Session;
 
 /// 会话注册表与活跃会话 id 是进程级全局量：两个用例各自登记会话再驱动
@@ -19,19 +18,6 @@ static REGISTRY_ACCESS: Mutex<()> = Mutex::new(());
 const READ_REQUEST: &[u8] = b"\x1b]52;c;?\x07";
 /// 洪泛削减的空串应答。
 const EMPTY_ANSWER: &[u8] = b"\x1b]52;c;\x07";
-
-/// 后台会话夹具：`MockPty` 包一个会话，返回写回观察柄。
-fn background_session() -> (
-    Arc<parking_lot::Mutex<Session>>,
-    crate::terminal::mock_pty::MockPtyHandle,
-) {
-    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    let session = Arc::new(parking_lot::Mutex::new(
-        Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
-            .expect("with_pty must succeed"),
-    ));
-    (session, handle)
-}
 
 /// 把会话登记为**非活跃**会话并驱动一帧，随后还原活跃 id 并摘除登记。
 ///
@@ -59,7 +45,7 @@ fn pump_once_as_background(session: &Arc<parking_lot::Mutex<Session>>, session_i
 #[test]
 fn rendered_cursor_reads_published_cell_and_separates_unknown_session() {
     let _access = REGISTRY_ACCESS.lock();
-    let (session, _handle) = background_session();
+    let (session, _handle) = crate::terminal::mock_pty::mock_arc_session();
     let session_id = 0x5EED_C0DE_u64;
     wlock_session_registry().insert(
         session_id,
@@ -114,7 +100,7 @@ fn rendered_cursor_reads_published_cell_and_separates_unknown_session() {
 #[test]
 fn rendered_scrollback_separates_unpublished_from_unknown_session() {
     let _access = REGISTRY_ACCESS.lock();
-    let (session, _handle) = background_session();
+    let (session, _handle) = crate::terminal::mock_pty::mock_arc_session();
     let session_id = 0x5EED_5C40_u64;
     wlock_session_registry().insert(
         session_id,
@@ -147,7 +133,7 @@ fn rendered_scrollback_separates_unpublished_from_unknown_session() {
 #[test]
 fn session_entry_lookup_separates_unknown_session_from_idle_one() {
     let _registry_access = REGISTRY_ACCESS.lock();
-    let (session, _handle) = background_session();
+    let (session, _handle) = crate::terminal::mock_pty::mock_arc_session();
     let session_id = 0x5EED_5EED_u64;
     wlock_session_registry().insert(
         session_id,
@@ -179,7 +165,7 @@ fn session_entry_lookup_separates_unknown_session_from_idle_one() {
 #[test]
 fn background_session_read_requests_are_answered() {
     let _registry_access = REGISTRY_ACCESS.lock();
-    let (session, handle) = background_session();
+    let (session, handle) = crate::terminal::mock_pty::mock_arc_session();
     // 单块输出里塞够请求数：超上限的那些走洪泛削减，就地作答空串——
     // 那条应答就是「请求确实被处理了」的外部可见证据。
     let mut flood = Vec::new();
@@ -208,7 +194,7 @@ fn background_session_read_requests_are_answered() {
 #[test]
 fn flood_shed_answers_are_capped_per_frame() {
     let _registry_access = REGISTRY_ACCESS.lock();
-    let (session, handle) = background_session();
+    let (session, handle) = crate::terminal::mock_pty::mock_arc_session();
     // 两块输出，每块塞满请求：远超每帧回写上限，也远超单会话未作答上限。
     // 一块输出按 8KB 计（PTY 读取缓冲），塞满请求即约 900 条一块。
     let mut flood = Vec::new();
