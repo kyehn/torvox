@@ -120,7 +120,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
         get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     /** 搜索计数文本；计数节点尚未发射时返回 null。 */
-    private fun searchResultCountText(): String? = runCatching {
+    private fun searchResultCountText(): String? = runCatchingCancellable {
         composeTestRule.onNodeWithTag("SearchResultCount").fetchSemanticsNode()
             .config.getOrNull(SemanticsProperties.Text)
             ?.joinToString("") { it.text }
