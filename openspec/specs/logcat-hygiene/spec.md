@@ -56,6 +56,11 @@
 - **THEN** 应答回写失败记为 debug，MUST NOT 记为 warn；该判定 MUST 与输入路径
       对同一情形的判定同口径
 
+#### Scenario: 宿主暂停渲染时的剪贴板应答超时
+
+- **WHEN** 宿主暂停渲染（切后台、打开设置页、Surface 销毁），远端请求读取剪贴板
+- **THEN** 应答超时记为 debug，MUST NOT 记为 warn 或 error
+
 ### Requirement: 高频诊断日志必须限频
 
 应用为定位性能问题而输出的逐帧诊断（慢帧、慢循环、渲染分段）MUST 限频：
@@ -399,3 +404,40 @@ Kitty 图像协议的「文件」与「临时文件」介质 MUST 由上游按**
 
 - **WHEN** 会话已结束导致应答回写失败
 - **THEN** 该次失败记为 debug，MUST NOT 计入限频窗口的失败次数
+
+### Requirement: 剪贴板应答缺失的诊断必须按窗口汇总并分级
+
+宿主未在期限内应答剪贴板读请求时 MUST 记诊断，且 MUST 按窗口汇总输出：每个窗口
+至多一行，该行 MUST 带上窗口内累计的次数，窗口内的计数 MUST 延后交出而非丢弃。
+
+分级 MUST 依据宿主是否仍在渲染：仍在渲染却没应答时 MUST 记为 warn（宿主漏了
+这条读请求，是真实异常）；宿主已暂停渲染时 MUST 记为 debug（正常退化，见「应用
+自身的正常路径不得产生警告与错误」）。
+
+两种情形 MUST 各用一把闸门，计数不得混在一起：否则恢复渲染后的那次输出会把
+正常退化的次数说成异常。
+
+实现：`native/src/android/ffi.rs` 的 `CLIPBOARD_ANSWER_MISSING_LOG` 与
+`CLIPBOARD_ANSWER_MISSING_WHILE_PAUSED_LOG`（`native/src/slow_log.rs` 的
+`CountedLogThrottle`）为两把闸门；`render_paused_flag` 是渲染暂停标志的原子镜像
+（渲染状态锁被整帧 GPU 工作持有，旁路线程不能去抢它）。
+
+#### Scenario: 应答缺失不再逐次刷屏
+
+- **WHEN** 多条剪贴板读请求接连超时，宿主都没在期限内应答
+- **THEN** 诊断 MUST 按 500ms 窗口至多输出一行，MUST NOT 每超时一次输出一行
+
+#### Scenario: 限频不得吞掉次数
+
+- **WHEN** 一个限频窗口内发生了多次应答缺失
+- **THEN** 放行时输出的那一行 MUST 带上该窗口内累计的次数
+
+#### Scenario: 宿主仍在渲染时的应答缺失
+
+- **WHEN** 宿主仍在渲染，剪贴板读请求却没在期限内得到应答
+- **THEN** 该诊断 MUST 记为 warn
+
+#### Scenario: 宿主暂停渲染时的应答缺失
+
+- **WHEN** 宿主已暂停渲染，剪贴板读请求必然无人应答
+- **THEN** 该诊断 MUST 记为 debug，MUST NOT 记为 warn 或 error

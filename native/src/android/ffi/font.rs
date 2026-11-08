@@ -6,7 +6,8 @@ use super::{
     Ordering, SEARCH_HIGHLIGHT_CURRENT_ALPHA, SEARCH_HIGHLIGHT_OTHER_ALPHA, SearchHighlight,
     ThrowRuntimeExAndFailure, jboolean, jbyteArray, jfloat, jfloatArray, jint, jintArray, jlong,
     jni_str, jobjectArray, jsize, jstring, render_state_mut, rendered_viewport_row,
-    rlock_session_registry, theme, throw_session_missing, with_render_state,
+    rlock_session_registry, set_render_paused_flag, theme, throw_session_missing,
+    with_render_state,
 };
 
 // ── 字体与主题 ──────────────────────────────────────────────────
@@ -559,6 +560,9 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRend
     paused: jboolean,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
+        // 原子镜像先落：旁路线程（剪贴板应答线程）据此判定「宿主是否还在渲染」，
+        // 它不能去抢被整帧 GPU 工作持有的渲染状态锁。
+        set_render_paused_flag(paused);
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.renderer.set_render_paused(paused);

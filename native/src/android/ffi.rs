@@ -353,6 +353,23 @@ static RENDER_STATE: std::sync::Mutex<Option<RenderState>> = std::sync::Mutex::n
 #[cfg(target_os = "android")]
 static ATTACHED_SESSION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// 渲染暂停标志的原子镜像。
+///
+/// 渲染状态锁被整帧 GPU 工作持有，旁路线程不能去抢它；而「宿主此刻是否还在渲染」
+/// 正是剪贴板应答缺失的分级依据：暂停期间（切后台、设置页、Surface 销毁）宿主
+/// 不派发应答，超时是必然的正常退化。镜像由 `setRenderPaused` 导出同步写入。
+static RENDER_PAUSED_FLAG: AtomicBool = AtomicBool::new(false);
+
+/// 记录宿主的渲染暂停状态（供旁路线程无锁读取）。
+pub(crate) fn set_render_paused_flag(paused: bool) {
+    RENDER_PAUSED_FLAG.store(paused, Ordering::Release);
+}
+
+/// 宿主此刻是否暂停了渲染。
+pub(crate) fn render_paused_flag() -> bool {
+    RENDER_PAUSED_FLAG.load(Ordering::Acquire)
+}
+
 /// Kitty 放置缓存键：任一项变化都意味着放置几何可能已变，须重查放置。
 ///
 /// 抽成结构体而非散落字段，是为了让失效规则可单测钉住。
@@ -766,18 +783,72 @@ const CLIPBOARD_ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_
 /// 剪贴板应答的轮询节奏：在上述 2s 应答截止时间内，应答方以此频率检查一次性槽位。
 const CLIPBOARD_POLL_INTERVAL_MS: u64 = 25;
 
+/// 宿主在渲染却没应答时的诊断闸门（窗口内累计次数）。
+static CLIPBOARD_ANSWER_MISSING_LOG: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::new();
+
+/// 宿主已暂停渲染时的同一诊断闸门：正常退化路径，与上一把分开计数，
+/// 否则恢复渲染后的那次输出会把正常退化的次数说成异常。
+static CLIPBOARD_ANSWER_MISSING_WHILE_PAUSED_LOG: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::new();
+
+/// 剪贴板应答缺失该记什么级别。
+///
+/// 宿主暂停渲染（切后台、设置页、Surface 销毁）时不派发应答，超时是必然的正常
+/// 退化：记 debug。仍在渲染却没应答，说明宿主漏了这条读请求：记 warn。
+fn clipboard_answer_missing_level(rendering_paused: bool) -> log::Level {
+    if rendering_paused {
+        log::Level::Debug
+    } else {
+        log::Level::Warn
+    }
+}
+
+/// 记一条应答缺失诊断：按窗口汇总，行内带上窗口内累计的次数。
+///
+/// 逐次记会刷屏：宿主暂停渲染时每条读请求都在 2s 后超时，一个窗口内可达数十次。
+/// 窗口内的次数不得因限频而丢失——排障时要看出「多久一次、一次多少」。
+///
+/// 闸门由调用方传入：两种情形各用一把，测试才能在不受其它用例影响的前提下断言
+/// 窗口计数。
+fn log_clipboard_answer_missing(
+    reason: &str,
+    rendering_paused: bool,
+    missing_log: &crate::slow_log::CountedLogThrottle,
+) {
+    let level = clipboard_answer_missing_level(rendering_paused);
+    if let Some(count) = missing_log.record() {
+        let rendering_state = if rendering_paused { "paused" } else { "active" };
+        log::log!(
+            level,
+            "osc52: clipboard answer {reason} while rendering is {rendering_state}, {count} time(s) in the last window"
+        );
+    }
+}
+
+/// 记一条应答缺失诊断：按宿主是否仍在渲染选闸门与级别。
+fn report_clipboard_answer_missing(reason: &str) {
+    let rendering_paused = render_paused_flag();
+    let missing_log = if rendering_paused {
+        &CLIPBOARD_ANSWER_MISSING_WHILE_PAUSED_LOG
+    } else {
+        &CLIPBOARD_ANSWER_MISSING_LOG
+    };
+    log_clipboard_answer_missing(reason, rendering_paused, missing_log);
+}
+
 fn wait_for_clipboard_answer(rx: std::sync::mpsc::Receiver<Option<String>>) -> Option<String> {
     let deadline = std::time::Instant::now() + CLIPBOARD_ANSWER_TIMEOUT;
     loop {
         match rx.try_recv() {
             Ok(answer) => return answer,
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                log::error!("osc52: clipboard answer channel disconnected");
+                report_clipboard_answer_missing("channel disconnected");
                 return None;
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {
                 if std::time::Instant::now() >= deadline {
-                    log::error!("osc52: clipboard answer timed out");
+                    report_clipboard_answer_missing("timed out");
                     return None;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS));
@@ -858,6 +929,8 @@ use render::{ATLAS_SIZE, DEFAULT_FONT_CELL_SIZE};
 mod busy_marker_tests;
 #[cfg(test)]
 mod cell_size_packing_tests;
+#[cfg(test)]
+mod clipboard_answer_tests;
 #[cfg(test)]
 mod clipboard_read_flood_tests;
 #[cfg(test)]
