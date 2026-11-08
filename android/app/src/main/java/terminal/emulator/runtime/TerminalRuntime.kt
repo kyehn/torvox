@@ -221,6 +221,18 @@ internal fun shouldUseIdleLatch(idleNanos: Long, hasScrollMotion: Boolean, idleT
 internal fun isStartSizeUsable(width: Int, height: Int): Boolean = width > 0 && height > 0
 
 /**
+ * vsync 帧回调链是否应当停掉。
+ *
+ * 无会话：没有可渲染的东西；应用不可见：渲染已暂停，链没有消费者；全部会话连续
+ * 空闲超过阈值且无待消费动画：渲染线程落在 500ms 空闲闭锁上，链不再提供额外信息。
+ *
+ * 三者任一成立即停链——链常驻的代价是主线程按显示帧率被唤醒（120Hz 屏即每秒
+ * 120 次），而空闲期它什么也不产出。
+ */
+internal fun shouldStopVsyncChain(hasSessions: Boolean, appForeground: Boolean, hasActiveSession: Boolean): Boolean =
+    !hasSessions || !appForeground || !hasActiveSession
+
+/**
  * 活跃期闭锁超时：vsync 链健康时它只作安全网，不得成为第二路帧节拍。
  *
  * 两路节拍（Choreographer 每显示帧 + 17ms 闭锁）周期只差 0.3ms，相位漂移会让
@@ -312,6 +324,9 @@ internal data class SessionEntry(
     // 上次因「会话挂起」被自动关闭的时刻（System.nanoTime）；0 = 从未自动关闭过。
     // 自动关闭按 60s 节流：反复关闭又新建会让用户看到会话号乱跳。
     @Volatile var lastAutoCloseNanos: Long = 0L,
+    // 宿主侧信号到达时的钩子：帧回调链在空闲时会停掉，靠它把链重新拉起。
+    // 单测构造的条目不需要链，默认空实现。
+    val onSessionActive: () -> Unit = {},
 ) {
     // renderSignaled 取代了每帧一个 CountDownLatch：后者有丢唤醒竞态——bridge.render() 后循环发布
     // 新的 latch 并等待，但渲染期间生产者对旧 latch 的 countDown() 会让新 latch 始终未置位，
@@ -352,6 +367,7 @@ internal data class SessionEntry(
 
     fun notifyRender() {
         lastSignalNanos = System.nanoTime()
+        onSessionActive()
         renderSignaled.set(true)
         // 唤醒原生条件变量而非 unpark：渲染线程在原生侧等待（PTY 输出与宿主信号共用
         // 同一把通知），unpark 对它没有任何作用。
@@ -504,6 +520,11 @@ constructor(
     /** 上报应用前后台状态（由 Activity 生命周期回调驱动）。 */
     fun setAppForeground(foreground: Boolean) {
         appForeground = foreground
+        if (foreground) {
+            ensureVsyncChainRunning()
+        } else {
+            stopVsyncChain()
+        }
     }
 
     private val eventDispatcher = EventDispatcher()
@@ -707,54 +728,94 @@ constructor(
     // 而 TerminalRuntime 本身可能由 DI 在任意线程构建）。
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    /** 幂等保护：每进程仅一条自调度回调链（CAS 保护；注册失败时重置以允许重试）。 */
-    private val vsyncChainStarted = AtomicBoolean(false)
+    /** 幂等保护：每进程至多一条自调度回调链（CAS 保护；注册失败时重置以允许重试）。 */
+    private val vsyncChainRunning = AtomicBoolean(false)
 
     /**
      * 唯一的自调度 Choreographer 帧回调：每个显示帧即一次 vsync 信号。
-     * 它只置起 [SessionEntry.vsyncRequested] 并经 [SessionEntry.notifyRender] 唤醒渲染线程
+     * 它只置起 [SessionEntry.vsyncRequested] 并经 [SessionEntry.pokeVsync] 唤醒渲染线程
      * ——所有渲染均由渲染线程拥有（主线程绝不触碰 surface Mutex）。
      *
-     * 无论本帧是否推出画面，链都会在帧末无条件重新投递自身：RenderState 的延迟字段
-     * （search_highlights / selection / pending_flash_phase）依赖逐帧消费，链断会使其静默冻结。
+     * 链在无事可做时停掉：无会话、应用不可见、或全部会话连续空闲超过阈值且无待
+     * 消费动画。停链后渲染线程落在 500ms 空闲闭锁上（那本就是空闲期的既定节拍），
+     * 主线程不再按显示帧被唤醒。渲染态的延迟字段不靠本链逐帧消费：搜索高亮与选区
+     * 各自经信号通道下发，下一帧即生效。
      */
     private val vsyncFrameCallback =
         object : Choreographer.FrameCallback {
             override fun doFrame(frameTimeNanos: Long) {
+                val nowNanos = System.nanoTime()
                 // 无锁读取：sessions 是 ConcurrentHashMap，activeSessionId 是 @Volatile。
                 val entry = sessions[activeSessionId]
                 // 空闲会话保持驻留：唤醒不得刷新空闲时钟（pokeVsync），且时钟超过阈值即停止，
                 // 于是 500ms 空闲闭锁生效，空闲终端不再以显示帧率空耗 CPU/GPU。
-                // 链本身保持存活（开销很小）。
                 if (
                     entry != null &&
                     (
-                        System.nanoTime() - entry.lastSignalNanos <= RENDER_IDLE_THRESHOLD_NANOS ||
+                        nowNanos - entry.lastSignalNanos <= RENDER_IDLE_THRESHOLD_NANOS ||
                             entry.hasScrollMotion()
                         )
                 ) {
-                    entry.lastVsyncNanos = System.nanoTime()
+                    entry.lastVsyncNanos = nowNanos
                     entry.vsyncRequested = true
                     entry.pokeVsync()
                 }
-                // 自调度：无论本帧是否产出绘制，都以显示刷新率保持链存活。
+                if (
+                    shouldStopVsyncChain(
+                        hasSessions = sessions.isNotEmpty(),
+                        appForeground = appForeground,
+                        hasActiveSession = anySessionActive(nowNanos),
+                    )
+                ) {
+                    stopVsyncChain()
+                    // 判定与停链之间可能刚好来了宿主侧信号：复核一次，活跃就重新拉起。
+                    // 否则那一次信号会被吞掉，渲染只剩 17ms 闭锁这一路节拍，丢掉 vsync 对齐。
+                    if (anySessionActive(System.nanoTime())) {
+                        ensureVsyncChainRunning()
+                    }
+                    return
+                }
+                // 自调度：下一帧继续。
                 Choreographer.getInstance().postFrameCallback(this)
             }
         }
 
-    /** 在主 Looper 上启动 vsync 帧回调链。幂等：CAS 保护保证每进程仅一条链。 */
-    private fun ensureVsyncChainStarted() {
-        if (!vsyncChainStarted.compareAndSet(false, true)) return
+    /** 在主 Looper 上拉起 vsync 帧回调链。幂等：CAS 保护保证每进程至多一条链。 */
+    private fun ensureVsyncChainRunning() {
+        if (!vsyncChainRunning.compareAndSet(false, true)) return
         mainHandler.post {
             try {
                 Choreographer.getInstance().postFrameCallback(vsyncFrameCallback)
                 LogUtil.debug("Runtime", "vsync frame callback chain started")
             } catch (exception: Exception) {
                 // 允许后续会话启动时重试注册。
-                vsyncChainStarted.set(false)
+                vsyncChainRunning.set(false)
                 LogUtil.error("Runtime", "vsync frame callback registration failed", exception)
             }
         }
+    }
+
+    /**
+     * 停掉 vsync 帧回调链。
+     *
+     * 先同步放开运行标志（注册方才能重新拉起），再在主线程上摘掉待执行的帧回调：
+     * Choreographer 的回调只能在创建它的线程上摘。摘除与重新拉起都经主线程排队，
+     * 先后顺序因此保持——重新拉起不会被随后的摘除误伤。
+     */
+    private fun stopVsyncChain() {
+        vsyncChainRunning.set(false)
+        mainHandler.post {
+            Choreographer.getInstance().removeFrameCallback(vsyncFrameCallback)
+        }
+    }
+
+    /**
+     * 是否还有会话处于活跃状态：宿主侧信号新鲜，或手指滚动仍在进行。
+     *
+     * 空闲时钟由宿主侧信号与渲染线程收到的新输出刷新，故「时钟陈旧」即会话无事可做。
+     */
+    private fun anySessionActive(nowNanos: Long): Boolean = sessions.values.any { entry ->
+        nowNanos - entry.lastSignalNanos <= RENDER_IDLE_THRESHOLD_NANOS || entry.hasScrollMotion()
     }
 
     @Volatile var accentColor: Int = 0xFF2196F3.toInt()
@@ -1188,6 +1249,7 @@ constructor(
         // 交换链很快排满，acquire 反而等两个 vsync。这里只刷新空闲时钟，
         // 由 Choreographer 帧回调在下一个 vsync 统一唤醒并合并多次滚动。
         entry.lastSignalNanos = System.nanoTime()
+        ensureVsyncChainRunning()
     }
 
     /**
@@ -1202,6 +1264,7 @@ constructor(
         entry.lastScrollNanos = System.nanoTime()
         // 同 setScrollOffset：亚行运动不直接唤醒，交给 vsync 回调合并。
         entry.lastSignalNanos = System.nanoTime()
+        ensureVsyncChainRunning()
     }
 
     /**
@@ -1926,6 +1989,9 @@ constructor(
                                             // 500ms 空闲闭锁因而永不生效。持续输出流
                                             // （tail -f、ping、gradle）总是携带 newOutput，故保持活跃。
                                             entry.lastSignalNanos = System.nanoTime()
+                                            // 输出让会话重新活跃：帧回调链可能已因空闲停下，
+                                            // 拉起它才能继续按 vsync 对齐出帧。
+                                            ensureVsyncChainRunning()
                                             if (!hasReceivedOutput) {
                                                 hasReceivedOutput = true
                                                 LogUtil.info(
@@ -2294,7 +2360,7 @@ constructor(
             renderThread.start()
             // 以显示 vsync 驱动新渲染循环的唤醒门控
             // （每进程一条自调度的 Choreographer 链）。
-            ensureVsyncChainStarted()
+            ensureVsyncChainRunning()
             entry.renderWatchDog =
                 RenderWatchDog(
                     diagnose = { diagnoseEntryLiveness(entry) },
@@ -3046,6 +3112,7 @@ constructor(
                             bridge = bridge,
                             renderThreadRef = null,
                             running = true,
+                            onSessionActive = { ensureVsyncChainRunning() },
                         )
                     sessions[finalSessionId] = entry
                     setActiveSessionId(finalSessionId)
@@ -3303,6 +3370,7 @@ constructor(
                             bridge = bridge,
                             renderThreadRef = null,
                             running = false,
+                            onSessionActive = { ensureVsyncChainRunning() },
                         )
                     sessions[nextId] = entry
                     abandonedByStart = false
