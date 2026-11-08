@@ -341,3 +341,22 @@ Kitty 图像协议的「文件」与「临时文件」介质 MUST 由上游按**
 
 - **WHEN** 客户端把图像按共享内存介质传来
 - **THEN** 上游按平台限制拒绝该介质，应用 MUST NOT 把该拒绝记为应用侧未启用介质
+
+### Requirement: 启动期不得在主线程产生磁盘写告警
+
+应用 MUST NOT 在主线程上创建或改写持久化文件：目录创建 MUST 与首次读写一并
+推迟到承担该读写的 IO 线程，MUST NOT 以放宽 StrictMode 线程策略代替推迟写入
+（允许线程磁盘读只放宽「读」，不覆盖「写」）。
+
+冷启动 logcat MUST NOT 出现 StrictMode 的 DiskWriteViolation：该告警由平台
+打出却指向应用代码，与真实缺陷无法区分，会掩盖真正的应用侧告警。
+
+#### Scenario: 设置存储在主线程构造
+
+- **WHEN** 应用在主线程上构造设置存储单例
+- **THEN** MUST NOT 创建持久化目录；目录 MUST 在首次读写时由 IO 线程创建
+
+#### Scenario: 冷启动日志无磁盘写告警
+
+- **WHEN** 应用冷启动并完成首次设置读写
+- **THEN** 应用进程的 logcat MUST NOT 出现 StrictMode 的 DiskWriteViolation

@@ -8,4 +8,4 @@
 - [x] 补单测：设置读写经惰性创建的存储照常往返
 - [x] `:app:testDebugUnitTest` 与 `detekt`/`spotlessCheck` 通过
 - [x] 实机冷启动复核：StrictMode 的 DiskWriteViolation 计数为零
-- [ ] 归档本 change 并同步主规约
+- [x] 归档本 change 并同步主规约
