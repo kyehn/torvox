@@ -655,10 +655,15 @@ fn selection_highlight_covers_blank_row_inside_range() {
 /// 与放置一起送入，撤下时图像条目一并删除，存储生成戳随之变化；虚拟放置只撤放置，
 /// 图像仍留在存储里，存储生成戳不变（见 `ed2_removes_virtual_kitty_placement_on_first_clear`）。
 /// 渲染缓存因此 MUST 以放置生成戳为撤除信号。
-#[test]
-fn ed2_removes_kitty_placements_on_first_clear() {
+/// 直接放置通道的「送图 → ED2 清屏」流程，返回 ED2 前后的光标帧信息。
+///
+/// 两条直接放置用例共用这一段：送图后必须恰好产生一个放置，ED2 后放置集合必须
+/// 为空。差异只在「ED2 之后还额外断言什么」，故共有的部分收在这里；`prelude`
+/// 让调用方在送图之前先写入自己的前置（如提示符标记）。
+fn ed2_clears_direct_kitty_placement(prelude: &[u8]) -> (CursorInfo, CursorInfo) {
     let mut terminal = terminal();
     terminal.set_cell_pixel_size(8, 16);
+    terminal.pty_write(prelude);
     terminal.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=7;/wAA\x1b\\");
     terminal.flush();
     let (_, before) = terminal.receive_cell_data().expect("cell data after image");
@@ -671,13 +676,19 @@ fn ed2_removes_kitty_placements_on_first_clear() {
     terminal.pty_write(b"\x1b[2J");
     terminal.flush();
     let (_, after) = terminal.receive_cell_data().expect("cell data after ED2");
-    assert_ne!(
-        before.kitty_placement_generation, after.kitty_placement_generation,
-        "ED2 必须推进放置生成戳：渲染线程靠它知道缓存里的放置已失效"
-    );
     assert!(
         terminal.take_kitty_placements().is_empty(),
         "首次 ED2 后放置集合必须为空（图像不得残留到第二次 clear）"
+    );
+    (before, after)
+}
+
+#[test]
+fn ed2_removes_kitty_placements_on_first_clear() {
+    let (before, after) = ed2_clears_direct_kitty_placement(b"");
+    assert_ne!(
+        before.kitty_placement_generation, after.kitty_placement_generation,
+        "ED2 必须推进放置生成戳：渲染线程靠它知道缓存里的放置已失效"
     );
 }
 
@@ -737,22 +748,8 @@ fn ed2_removes_virtual_kitty_placement_on_first_clear() {
 /// 两下才清」）。此处锁住 VT 侧不变式：回滚长度增长且放置为空。
 #[test]
 fn ed2_at_prompt_scrolls_and_removes_kitty_placements() {
-    let mut terminal = terminal();
-    terminal.set_cell_pixel_size(8, 16);
     // OSC 133 A/B 标记提示符行：ED2 在此行走 scrollClear 路径。
-    terminal.pty_write(b"\x1b]133;A\x1b\\$ \x1b]133;B\x1b\\");
-    terminal.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=7;/wAA\x1b\\");
-    terminal.flush();
-    let (_, before) = terminal.receive_cell_data().expect("cell data after image");
-    assert_eq!(
-        1,
-        terminal.take_kitty_placements().len(),
-        "直接放置通道送入的图像必须产生一个放置，否则本用例不覆盖撤除路径"
-    );
-
-    terminal.pty_write(b"\x1b[2J");
-    terminal.flush();
-    let (_, after) = terminal.receive_cell_data().expect("cell data after ED2");
+    let (before, after) = ed2_clears_direct_kitty_placement(b"\x1b]133;A\x1b\\$ \x1b]133;B\x1b\\");
     assert!(
         after.scrollback_length > before.scrollback_length,
         "提示符行上的 ED2 必须走 scrollClear：旧行滚进回滚，回滚长度增长"
@@ -760,9 +757,5 @@ fn ed2_at_prompt_scrolls_and_removes_kitty_placements() {
     assert_ne!(
         before.kitty_placement_generation, after.kitty_placement_generation,
         "ED2 必须推进放置生成戳"
-    );
-    assert!(
-        terminal.take_kitty_placements().is_empty(),
-        "首次 ED2 后放置集合必须为空"
     );
 }
