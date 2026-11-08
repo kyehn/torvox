@@ -112,6 +112,18 @@ class DesktopNotificationPlayer internal constructor(
                 LogUtil.warn(TAG, "notification manager unavailable; notification dropped")
                 return
             }
+            // 通知被用户关掉时 notify() 是**静默丢弃**，不抛异常：不先问一句，
+            // 通知就凭空消失，日志里也看不出「没到」的原因。
+            if (!manager.areNotificationsEnabled()) {
+                val droppedCount = notificationsDisabledLog.record()
+                if (droppedCount != null) {
+                    LogUtil.warn(
+                        TAG,
+                        "notifications disabled by user; $droppedCount desktop notification(s) dropped",
+                    )
+                }
+                return
+            }
             createChannel(context, manager)
             // 点击通知后切到目标会话：请求码取桌面通知 id，同一会话的多次通知复用同一条
             // PendingIntent（FLAG_UPDATE_CURRENT 会更新携带的 extra）。
@@ -142,11 +154,13 @@ class DesktopNotificationPlayer internal constructor(
             try {
                 manager.notify(notificationId, built)
             } catch (exception: Exception) {
-                // POST_NOTIFICATIONS 未授权时 notify 抛 SecurityException：通知进不来
-                // 不该带崩运行期。
+                // 通知进不来不该带崩运行期（渠道被删、通知对象失效等）。
                 LogUtil.warn(TAG, "notification post failed: ${exception.javaClass.simpleName}", exception)
             }
         }
+
+        /** 通知被关闭时的诊断闸门：程序持续发通知时逐条记会刷屏。 */
+        private val notificationsDisabledLog = CountedLogThrottle()
 
         /** 建渠道：渠道一经创建其重要性不可改，故每次投递前确保它存在。 */
         fun createChannel(context: Context, manager: NotificationManager) {

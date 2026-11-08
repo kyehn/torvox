@@ -146,8 +146,8 @@ class MainActivity : ComponentActivity() {
         // 而首个会话由 `TerminalRuntime.startSession` 创建时经
         // `startForegroundServiceIfNeeded` 启动。冷启动时先起服务要付一次 AMS 往返
         // + 通知渠道创建，且裸 start() 的计数为 0，会被紧接着的会话更新覆盖。
-        // Android 13+ 需要 POST_NOTIFICATIONS 运行时权限，缺失时每次 notify() 都抛
-        // SecurityException 且会话通知不再出现。启动时申请一次；拒绝不影响终端功能。
+        // Android 13+ 需要 POST_NOTIFICATIONS 运行时权限，未授权时通知被**静默丢弃**
+        // （不抛异常），常驻通知与桌面通知都不会出现。启动时申请一次；拒绝不影响终端功能。
         if (
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
