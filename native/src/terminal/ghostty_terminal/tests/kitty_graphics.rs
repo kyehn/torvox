@@ -119,6 +119,50 @@ fn kitten_icat_clear_removes_the_placement_on_first_clear() {
     );
 }
 
+/// 图像锚在提示符行**之上**时，第一次 `clear` 也必须撤下放置。
+///
+/// 回归背景：用户报障「`kitten icat test.png` 后输入 clear，图像不清除且变大盖住
+/// 屏幕，再敲一次 clear 才清掉」。真实布局里图像占一行、提示符在**下一行**：
+/// ```text
+/// $ kitten icat test.png
+/// [图像]
+/// $ clear
+/// ```
+/// 提示符行上的 ED2 走上游的 `scrollClear` 路径（旧行先滚进回滚再清屏），
+/// 图像的锚点随所在行一起离开活动区。若撤除只按「锚点仍在活动区」判定，
+/// 图像就会被漏掉，直到下一次清除才消失。
+#[test]
+fn kitten_icat_clear_removes_placement_above_the_prompt() {
+    let mut terminal = terminal();
+    terminal.set_cell_pixel_size(CELL_WIDTH, CELL_HEIGHT);
+    // 提示符行（OSC 133 标记）：ED2 在此行走 scrollClear 路径。
+    terminal.pty_write(b"$ \x1b]133;A\x1b\\\x1b]133;B\x1b\\");
+    terminal.pty_write(b"\n");
+    // 图像在提示符行的下一行：高度取一个单元格高，正好占一行。
+    terminal.pty_write(b"\x1b_Ga=T,f=100,s=100,v=16,i=31,q=2;");
+    terminal.pty_write(
+        base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD_NO_PAD,
+            solid_png(CANVAS_WIDTH, CELL_HEIGHT),
+        )
+        .as_bytes(),
+    );
+    terminal.pty_write(b"\x1b\\\n");
+    terminal.flush();
+    assert_eq!(
+        terminal.take_kitty_placements().len(),
+        1,
+        "清除前必须确有可见放置，否则本用例不覆盖撤除路径"
+    );
+
+    terminal.pty_write(b"\x1b[H\x1b[2J");
+    terminal.flush();
+    assert!(
+        terminal.take_kitty_placements().is_empty(),
+        "第一次 clear 必须撤下 kitty 图像（锚点在提示符行之上时同样如此）"
+    );
+}
+
 /// 能力探测的三条查询都要有应答，且应答回显各自的图像 id。
 ///
 /// 客户端（`kitten icat`）按上游 `DetectSupport` 依次问 direct / tempfile /
