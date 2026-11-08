@@ -362,10 +362,28 @@ internal data class SessionEntry(
      *
      * 原生条件变量等待不可被 `Thread.interrupt()` 打断，故拆卸路径必须先通知，
      * 再中断（中断仍负责其余可中断阻塞），否则 join 会白等满超时。
+     *
+     * 目标线程 MUST 由调用方显式给出：拆卸路径会先把 [renderThreadRef] 置空
+     * （新线程随即接管这个引用），按引用取线程在那一刻拿到的恒是空——中断信号
+     * 从未送达，join 只能白等满超时。
      */
-    fun wakeRenderThread() {
+    fun wakeRenderThread(renderThread: Thread) {
         bridge.wakeRender()
-        renderThreadRef?.interrupt()
+        renderThread.interrupt()
+    }
+
+    /**
+     * 标记渲染线程已退出——但只在它仍是本会话注册的渲染线程时。
+     *
+     * 旧线程退出时若无条件置位，会覆盖新线程的存活状态：换线程的路径先把
+     * [renderThreadRef] 换成新线程（或置空）再 join 旧线程，旧线程随后的退出写入
+     * 把新线程误标为已死，监视器随即把健康的渲染线程杀掉重启——GPU 挂起后的恢复
+     * 路径恰好就走这条路。
+     */
+    fun markRenderThreadExited() {
+        if (renderThreadRef === Thread.currentThread()) {
+            renderThreadExited = true
+        }
     }
 
     @Volatile var scrollOffset: Int = 0
@@ -1559,7 +1577,7 @@ constructor(
             // 使延迟重启（restartRenderThreadAfterDelay）仍能执行；
             // 也使并发的 pauseRendering()（将 running 置假）能正确取消待执行的重启。
             entry.renderThreadRef?.let { renderThread ->
-                entry.wakeRenderThread()
+                entry.wakeRenderThread(renderThread)
                 renderThread.join(THREAD_JOIN_TIMEOUT_MS)
                 if (renderThread.isAlive) {
                     LogUtil.warn("Runtime", "Render thread did not exit within timeout, continuing anyway")
@@ -1648,7 +1666,7 @@ constructor(
                         "session ${entry.sessionId} startRenderThread called from its own render thread — skipping join",
                     )
                 } else {
-                    entry.wakeRenderThread()
+                    entry.wakeRenderThread(thread)
                     thread.join(THREAD_JOIN_TIMEOUT_MS)
                     if (thread.isAlive) {
                         LogUtil.warn(
@@ -2226,7 +2244,7 @@ constructor(
                                         delay(RENDER_ERROR_SLEEP_MS)
                                     }
                                 }
-                                entry.renderThreadExited = true
+                                entry.markRenderThreadExited()
                                 LogUtil.debug("Runtime", "render thread stopped for session ${entry.sessionId}")
                             }
                         } catch (expected: InterruptedException) {
@@ -2234,7 +2252,7 @@ constructor(
                             // 但循环尚未进入 try 区）：join 是协作式关闭，
                             // 中断即退出信号而非崩溃，instrumentation 不应报红。
                             Thread.currentThread().interrupt()
-                            entry.renderThreadExited = true
+                            entry.markRenderThreadExited()
                             LogUtil.debug("Runtime", "render thread interrupted for session ${entry.sessionId}")
                         }
                     },
@@ -2266,7 +2284,7 @@ constructor(
             entry.renderThreadRef = null
             entry.renderSignaled.set(false)
             thread?.let { thread ->
-                entry.wakeRenderThread()
+                entry.wakeRenderThread(thread)
                 thread.join(THREAD_JOIN_TIMEOUT_MS)
                 if (thread.isAlive) {
                     LogUtil.error(
