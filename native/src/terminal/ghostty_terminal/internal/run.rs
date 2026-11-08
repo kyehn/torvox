@@ -278,6 +278,11 @@ impl super::GhosttyTerminal {
         terminal: &mut Terminal<'_, '_>,
         clipboard_tx: flume::Sender<(String, String)>,
     ) {
+        // 两类诊断各持一把带计数的闸门：它们是不同的事（负载被截断、写入被丢弃），
+        // 共用一把会让先到的诊断吞掉后到的次数。两者都在可被程序洪泛的路径上，
+        // 逐条告警会把 logcat 刷满，而窗口内发生了多少次正是排障要的形状。
+        let truncation_log = crate::slow_log::CountedLogThrottle::new();
+        let drop_log = crate::slow_log::CountedLogThrottle::new();
         let result = terminal.on_clipboard_write(move |_terminal, write| {
             // 选择器字母沿用 xterm 约定（Kotlin 侧原样透传）：c=剪贴板、p=主选区、s=次选区。
             let selection = match write.location() {
@@ -302,18 +307,15 @@ impl super::GhosttyTerminal {
             // Kotlin 侧剪贴板：一份几十 MB 的负载会一路复制到 UI 线程并撑爆内存。
             // 上限取「远超任何真实剪贴板内容、又不至于拖垮进程」的量级，并在
             // 截断时显式记录——静默截断只会让用户拿到半个剪贴板却不知为何。
-            let original_len = payload.len();
             let (payload, truncated) = truncate_clipboard_payload(payload);
             let text = String::from_utf8_lossy(payload).into_owned();
             if truncated {
-                log::warn!(
-                    "OSC 52 clipboard payload truncated from {original_len} to {MAX_CLIPBOARD_PAYLOAD_BYTES} bytes"
-                );
+                warn_payload_truncated(&truncation_log);
             }
             // 通道满（`bounded(16)`）且消费侧（渲染暂停时停调）跟不上时丢弃——
             // 阻塞 VT 线程更糟。丢则记日志并回 `Busy`，不静默。
             if clipboard_tx.try_send((selection, text)).is_err() {
-                log::warn!("OSC 52 clipboard dropped: channel full");
+                warn_clipboard_dropped(&drop_log);
                 write.reply(
                     Err(libghostty_vt::terminal::ClipboardWriteError::Busy),
                     false,
@@ -516,6 +518,33 @@ impl super::GhosttyTerminal {
     pub(crate) fn byte_to_float(value: u8) -> f32 {
         f32::from(value) / 255.0
     }
+}
+
+/// 记一次 OSC 52 负载截断；闸门放行时输出窗口内累计的截断次数，返回该次数。
+///
+/// 返回 `None` 表示本次被限频压住：次数仍攒在闸门里，下次放行时一并交出——
+/// 限频吞掉的是条数，不是次数。
+pub(super) fn warn_payload_truncated(
+    truncation_log: &crate::slow_log::CountedLogThrottle,
+) -> Option<u32> {
+    let count = truncation_log.record()?;
+    log::warn!(
+        "OSC 52 clipboard payload truncated to {MAX_CLIPBOARD_PAYLOAD_BYTES} bytes; \
+         truncated {count} payloads in window"
+    );
+    Some(count)
+}
+
+/// 记一次 OSC 52 写入被丢弃（消费侧跟不上）；闸门放行时输出窗口内累计的丢弃次数，
+/// 返回该次数。
+///
+/// 返回 `None` 表示本次被限频压住：次数仍攒在闸门里，下次放行时一并交出。
+pub(super) fn warn_clipboard_dropped(
+    drop_log: &crate::slow_log::CountedLogThrottle,
+) -> Option<u32> {
+    let count = drop_log.record()?;
+    log::warn!("OSC 52 clipboard dropped: channel full; dropped {count} writes in window");
+    Some(count)
 }
 
 /// 把 OSC 52 的写回负载截到 [`MAX_CLIPBOARD_PAYLOAD_BYTES`]，返回截断后的切片与

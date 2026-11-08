@@ -247,3 +247,45 @@ pub(crate) fn clipboard_payload_truncates_on_a_char_boundary() {
         "截断结果不得含替换符"
     );
 }
+
+/// 回归钉：OSC 52 的两类告警必须按窗口汇总，并带上窗口内累计的次数。
+///
+/// 两者都在可被程序洪泛的路径上：负载截断随每次超限的 OSC 52 写入发生，写入丢弃
+/// 随每次通道满发生。旧实现逐条记一行，程序洪泛时会把 logcat 刷满；而只限频不
+/// 计数则让「刷了多少」不可见。
+#[test]
+pub(crate) fn osc52_diagnostics_are_aggregated_per_window() {
+    let truncation_log = crate::slow_log::CountedLogThrottle::new();
+    assert_eq!(
+        super::run::warn_payload_truncated(&truncation_log),
+        Some(1),
+        "首条必须可见，且带上窗口内累计的截断次数"
+    );
+    assert_eq!(
+        super::run::warn_payload_truncated(&truncation_log),
+        None,
+        "窗口内的再次截断不得再输出一行"
+    );
+    assert_eq!(
+        truncation_log.pending_count(),
+        1,
+        "窗口内截断的次数须攒着下次一并交出，不得丢弃"
+    );
+
+    let drop_log = crate::slow_log::CountedLogThrottle::new();
+    assert_eq!(
+        super::run::warn_clipboard_dropped(&drop_log),
+        Some(1),
+        "首条必须可见，且带上窗口内累计的丢弃次数"
+    );
+    assert_eq!(
+        super::run::warn_clipboard_dropped(&drop_log),
+        None,
+        "窗口内的再次丢弃不得再输出一行"
+    );
+    assert_eq!(
+        drop_log.pending_count(),
+        1,
+        "窗口内丢弃的次数须攒着下次一并交出，不得丢弃"
+    );
+}
