@@ -134,7 +134,24 @@ impl Session {
     /// 子进程此刻不读 stdin，继续按同一条件逐条重试只会把本帧的持锁时间乘以条数。
     /// 队列封顶丢最旧——应答是请求-响应语义，子进程不消费就永远不会回头读，
     /// 无限保留只是白占内存；丢弃时记错误，不静默。
+    ///
+    /// 子进程已退出时不再回写：应答永远无人接收，留着既占内存，又逼出逐帧的
+    /// error 告警（详见函数体里的退出分支）。
     pub(super) fn drain_pty_write_back(&mut self) {
+        // 子进程已退出：待写的应答永远无人接收（应答是请求-响应语义，读端已消失）。
+        // 继续逐帧重试只会每帧记一条 error，把 logcat 刷成洪水；而「子进程已退出」
+        // 是正常退化，本就该记 debug。丢弃队列是唯一出路：留着它们既无人收，又
+        // 让队列一直占着内存。
+        if self.is_exited() {
+            // VT 引擎侧的应答缓冲也要抽干：上游回调逐条 push，不抽则它无界增长。
+            let dropped =
+                self.pty_write_back_queue.len() + self.terminal.drain_pty_write_responses().len();
+            self.pty_write_back_queue.clear();
+            if dropped > 0 {
+                log::debug!("session: 子进程已退出，丢弃 {dropped} 条待写回的 VT 应答");
+            }
+            return;
+        }
         // 新到的应答排在既有队列之后：先前的应答先出去，顺序与引擎产生顺序一致。
         self.pty_write_back_queue
             .extend(self.terminal.drain_pty_write_responses());
@@ -172,12 +189,15 @@ impl Session {
                 return;
             };
             if let Err(error) = result {
-                log::error!(
-                    "session: PTY write-back failed ({} bytes, {} written): {}",
-                    response.len(),
-                    written,
-                    error
-                );
+                // 失败的应答退回队首，下帧重试：子进程不读 stdin 时逐帧都会命中。
+                // 逐帧记一行会把 logcat 刷成 error 级洪水，故按窗口汇总，行内带上
+                // 窗口内累计的失败次数。
+                if let Some(failed_writes) = self.pty_write_back_fail_log.record_events(1) {
+                    log::error!(
+                        "session: PTY write-back failed: {error} \
+                         (failed_writes={failed_writes} in window)"
+                    );
+                }
                 // 只退回**未写出**的部分：整条退回会让下一帧把已发出的前缀再发一遍，
                 // 子应用于是收到两条 DECRPM/DSR 应答；而全部丢掉又让子应用永远等不到
                 // 一个完整回答。

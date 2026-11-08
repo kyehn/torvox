@@ -287,6 +287,7 @@ impl Session {
             pending_pty_output: None,
             pty_write_back_queue: VecDeque::new(),
             pty_write_back_drop_log: crate::slow_log::CountedLogThrottle::new(),
+            pty_write_back_fail_log: crate::slow_log::CountedLogThrottle::new(),
             reader_handle: None,
             wait_handle: None,
             exit_code: Arc::new(Mutex::new(ExitCodeSlot::Pending)),

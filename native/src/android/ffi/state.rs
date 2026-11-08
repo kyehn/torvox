@@ -6,6 +6,13 @@ use super::{
 
 use crate::terminal::ghostty_terminal::ViewportTarget;
 
+/// 滚动指令投递失败告警的限频闸门（带计数：行内给出窗口内失败的次数）。
+///
+/// 滚动期间宿主每帧都调用 `setScrollOffset`：命令通道满时逐帧记一行会把 logcat
+/// 刷成洪水，而窗口内失败了几次才是排障要的形状。
+static SCROLL_SEND_FAILED_THROTTLE: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::new();
+
 // ── 网格尺寸查询 ────────────────────────────────────────────────
 /// 当前单元格宽高（字号单位，取自渲染器的字体管线；物理像素再乘 `raster_scale`），
 /// 打包为一个 `jlong`：低 32 位是宽度的 `f32` 位、高 32 位是高度。无渲染状态时为 0。
@@ -158,9 +165,12 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScro
                 // 命令通道已满或 VT 线程已消失：**不**推进 `last_scroll_offset`，
                 // 使下次以相同目标调用时能重试该增量而非静默丢弃。此前先推进全局
                 // 偏移，发送失败后视口会永久停留在陈旧状态。
-                log::warn!(
-                    "setScrollOffset: scroll_viewport send failed (target={target}); will retry"
-                );
+                if let Some(failed_scrolls) = SCROLL_SEND_FAILED_THROTTLE.record() {
+                    log::warn!(
+                        "setScrollOffset: scroll_viewport send failed (target={target}); \
+                         will retry (failed_scrolls={failed_scrolls})"
+                    );
+                }
             }
             (sent, session.terminal().latest_scroll_request_id())
         };

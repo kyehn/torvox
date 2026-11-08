@@ -505,3 +505,61 @@ fn pty_send_busy_marker_tracks_backpressure() {
         "投递完成后忙标记必须清零，否则空闲会话会被判成挂起"
     );
 }
+
+/// 回归钉：子进程已退出时，待写的 VT 应答必须被丢弃，而不是逐帧重试。
+///
+/// 应答是请求-响应语义，读端（子进程）已消失后它们永远无人接收。旧实现不判
+/// 退出态，失败的应答退回队首、下帧再写，每帧记一条 error——logcat 被刷成洪水，
+/// 而「子进程已退出」本属正常退化。
+#[test]
+fn an_exited_session_drops_pending_vt_responses() {
+    let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        .expect("with_pty must succeed");
+    session
+        .pty_write_back_queue
+        .push_back(b"\x1b[1;1R".to_vec());
+    session.exited_flag().store(true, Ordering::Release);
+
+    session.drain_pty_write_back();
+
+    assert!(
+        session.pty_write_back_queue.is_empty(),
+        "子进程已退出后不得再留着无人接收的应答"
+    );
+    assert!(handle.written().is_empty(), "子进程已退出后不得再往 PTY 写");
+}
+
+/// 回归钉：VT 应答写回失败必须按窗口汇总，不得逐帧刷 error。
+///
+/// 子进程不读 stdin 时主端缓冲会满，写入每帧都等满期限后失败；失败的应答退回
+/// 队首，下帧重试——逐帧记一行 error 会把 logcat 刷成洪水，把真正的异常淹没。
+#[test]
+fn write_back_failures_are_aggregated_per_window() {
+    let (mut pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+    // 写出两个字节后主端即不再接收：写入等满期限后失败。
+    pty.write_partial_then_block(2);
+    let mut session = Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+        .expect("with_pty must succeed");
+    session
+        .pty_write_back_queue
+        .push_back(b"\x1b[1;1R".to_vec());
+
+    session.drain_pty_write_back();
+    assert_eq!(
+        session.pty_write_back_fail_log.pending_count(),
+        0,
+        "首次失败即放行，窗口计数 1 已随那一行交出"
+    );
+    assert!(
+        !session.pty_write_back_queue.is_empty(),
+        "失败的应答必须留在队首续写，不得丢弃"
+    );
+
+    session.drain_pty_write_back();
+    assert_eq!(
+        session.pty_write_back_fail_log.pending_count(),
+        1,
+        "窗口内的再次失败不得再输出一行，但次数须攒着下次交出"
+    );
+}

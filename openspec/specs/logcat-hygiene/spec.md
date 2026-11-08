@@ -61,6 +61,11 @@
 - **WHEN** 宿主暂停渲染（切后台、打开设置页、Surface 销毁），远端请求读取剪贴板
 - **THEN** 应答超时记为 debug，MUST NOT 记为 warn 或 error
 
+#### Scenario: 子进程已退出后的 VT 应答写回
+
+- **WHEN** 子进程已退出，待写的 VT 应答再也无人接收
+- **THEN** 应答被丢弃并记为 debug，MUST NOT 记为 warn 或 error
+
 ### Requirement: 高频诊断日志必须限频
 
 应用为定位性能问题而输出的逐帧诊断（慢帧、慢循环、渲染分段）MUST 限频：
@@ -103,6 +108,21 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 
 - **WHEN** 程序持续发送超限的 OSC 52 负载，或持续把写回通道塞满
 - **THEN** 两类诊断 MUST 各按窗口输出，MUST NOT 逐条输出；每一行 MUST 带上窗口内累计的次数
+
+#### Scenario: 滚动指令投递失败的告警
+
+- **WHEN** 滚动期间命令通道持续满，滚动指令逐帧投递失败
+- **THEN** 告警 MUST 按窗口输出，MUST NOT 逐帧输出；该行 MUST 带上窗口内累计失败的次数
+
+#### Scenario: 渲染遇到未知会话的告警
+
+- **WHEN** 宿主在会话被销毁后仍逐帧渲染它
+- **THEN** 告警 MUST 按窗口输出，MUST NOT 逐帧输出；该行 MUST 带上窗口内累计命中的帧数
+
+#### Scenario: VT 应答写回失败的告警
+
+- **WHEN** 子进程不读 stdin，VT 应答逐帧写回失败
+- **THEN** 告警 MUST 按窗口输出，MUST NOT 逐帧输出；该行 MUST 带上窗口内累计失败的次数
 
 #### Scenario: VT 应答队列溢出的告警
 

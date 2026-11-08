@@ -10,6 +10,13 @@ use super::overlay::{
 };
 use super::session_ops::ATLAS_SIZE;
 
+/// 未知会话告警的限频闸门（带计数：行内给出窗口内命中的帧数）。
+///
+/// 该告警在渲染循环里逐帧判定：会话被销毁后宿主若仍在渲染它，每一帧都会命中。
+/// 逐帧记一行会把 logcat 刷成洪水，而窗口内命中了几帧才是排障要的形状。
+static UNKNOWN_SESSION_THROTTLE: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::new();
+
 // ── 帧准备与呈现 ────────────────────────────────────────────────────
 /// 为活跃会话渲染一帧。返回：1 = 有输出且已呈现帧；0 = 会话无待处理单元数据（空闲）；
 /// -1 = 出错（surface 缺失、GPU 失败、会话未知）。
@@ -253,7 +260,12 @@ pub(super) fn collect_frame_data(session_id: u64) -> Result<FrameData, jint> {
     }
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&session_id) else {
-        log::warn!("render: unknown session {session_id}");
+        if let Some(unknown_session_frames) = UNKNOWN_SESSION_THROTTLE.record() {
+            log::warn!(
+                "render: unknown session {session_id} \
+                 (unknown_session_frames={unknown_session_frames})"
+            );
+        }
         return Err(-1);
     };
     let session = entry.session.lock();

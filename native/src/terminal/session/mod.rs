@@ -187,6 +187,13 @@ pub struct Session {
     /// （见 `logcat-hygiene`）。
     pty_write_back_drop_log: crate::slow_log::CountedLogThrottle,
 
+    /// VT 应答写回失败告警的限频闸门（窗口内累计失败次数）。
+    ///
+    /// 写回失败在子进程不读 stdin 时逐帧都会命中（失败的应答退回队首，下帧重试），
+    /// 逐帧记一行会把 logcat 刷成 error 级洪水。与队列溢出告警是不同的事，故各用
+    /// 一把闸门（见 `logcat-hygiene`）。
+    pty_write_back_fail_log: crate::slow_log::CountedLogThrottle,
+
     // ── 线程生命周期 ─────────────────────────────────────────────────
     reader_handle: Option<std::thread::JoinHandle<()>>,
     wait_handle: Option<std::thread::JoinHandle<()>>,
