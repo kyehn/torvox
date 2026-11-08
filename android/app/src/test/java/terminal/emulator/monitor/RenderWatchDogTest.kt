@@ -1,10 +1,12 @@
 package terminal.emulator.monitor
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.system.measureTimeMillis
 
 /**
@@ -36,7 +38,7 @@ class RenderWatchDogTest {
             RenderWatchDog(
                 diagnose = { hungDiagnosis(HungLayer.VT) },
                 isRunning = { true },
-                onHangDetected = { diagnosis ->
+                onHangDetected = { _, diagnosis ->
                     hangs++
                     reported = diagnosis.hungLayer
                 },
@@ -61,7 +63,7 @@ class RenderWatchDogTest {
             RenderWatchDog(
                 diagnose = { SessionLivenessDiagnosis(hungLayer = null, busyNanos = 0L) },
                 isRunning = { true },
-                onHangDetected = { hangs++ },
+                onHangDetected = { _, _ -> hangs++ },
                 checkIntervalMs = fastInterval,
             )
         watchdog.start()
@@ -77,7 +79,7 @@ class RenderWatchDogTest {
             RenderWatchDog(
                 diagnose = { hungDiagnosis() },
                 isRunning = { true },
-                onHangDetected = { hangs++ },
+                onHangDetected = { _, _ -> hangs++ },
                 checkIntervalMs = fastInterval,
             )
         watchdog.start()
@@ -106,7 +108,7 @@ class RenderWatchDogTest {
                     SessionLivenessDiagnosis(hungLayer = null, busyNanos = 0L)
                 },
                 isRunning = { true },
-                onHangDetected = {},
+                onHangDetected = { _, _ -> },
                 checkIntervalMs = fastInterval,
             )
         watchdog.start()
@@ -125,7 +127,7 @@ class RenderWatchDogTest {
             RenderWatchDog(
                 diagnose = { hungDiagnosis() },
                 isRunning = { false },
-                onHangDetected = { hangs++ },
+                onHangDetected = { _, _ -> hangs++ },
                 checkIntervalMs = fastInterval,
             )
         watchdog.start()
@@ -164,7 +166,7 @@ class RenderWatchDogTest {
                     }
                 },
                 isRunning = { true },
-                onHangDetected = { hangs++ },
+                onHangDetected = { _, _ -> hangs++ },
                 checkIntervalMs = fastInterval,
             )
 
@@ -178,5 +180,82 @@ class RenderWatchDogTest {
         watchdog.stop()
 
         assertEquals("stale generation must not fire after restart", 0, hangs)
+    }
+
+    /**
+     * 挂起回调必须带上触发它的看门狗实例：处置方据此复核「本实例仍是会话当前的看门狗」。
+     *
+     * 判别力：回调若不带实例（或带别的实例），处置方无从分辨新旧看门狗，
+     * 陈旧实例的迟到判定会作用到已经换上新渲染线程的会话上。
+     */
+    @Test
+    fun `hang callback carries the watchdog instance that produced it`() {
+        var reported: RenderWatchDog? = null
+        val watchdog =
+            RenderWatchDog(
+                diagnose = { hungDiagnosis() },
+                isRunning = { true },
+                onHangDetected = { source, _ -> reported = source },
+                checkIntervalMs = fastInterval,
+            )
+        watchdog.start()
+        val deadline = System.currentTimeMillis() + 5_000
+        while (reported == null && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10)
+        }
+        watchdog.stop()
+        assertSame("the callback must carry the triggering watchdog", watchdog, reported)
+    }
+
+    /**
+     * 回归钉：挂起回调不得持有闸门锁。
+     *
+     * 处置回调要取会话锁（领取关闭许可、关闭会话），而 `stop` 是在持有会话锁的路径上
+     * 被调用的——它要取闸门锁。持闸门锁回调即成 AB-BA 死锁：看门狗线程持闸门锁等
+     * 会话锁，会话线程持会话锁等闸门锁，整个会话子系统冻住。
+     *
+     * 判别力：把闸门锁重新裹回回调（旧实现），本例的两个线程互相等待，
+     * 回调永不返回——本例即由「完成」变「超时」。
+     */
+    @Test
+    fun `hang callback must not hold the gate lock while taking the session lock`() {
+        val sessionLock = Any()
+        val stopperHoldingSessionLock = CountDownLatch(1)
+        val callbackEntered = CountDownLatch(1)
+        val callbackCompleted = CountDownLatch(1)
+        val callbackAcquiredSessionLock = AtomicBoolean(false)
+        val watchdog =
+            RenderWatchDog(
+                diagnose = { hungDiagnosis() },
+                isRunning = { true },
+                onHangDetected = { _, _ ->
+                    callbackEntered.countDown()
+                    synchronized(sessionLock) { callbackAcquiredSessionLock.set(true) }
+                    callbackCompleted.countDown()
+                },
+                checkIntervalMs = fastInterval,
+            )
+        // 模拟持会话锁调用 stop 的会话线程：stop 要取闸门锁。
+        val stopper =
+            Thread {
+                synchronized(sessionLock) {
+                    stopperHoldingSessionLock.countDown()
+                    callbackEntered.await(2, TimeUnit.SECONDS)
+                    watchdog.stop()
+                }
+            }
+        stopper.isDaemon = true
+        stopper.start()
+        assertTrue(
+            "the stopper must hold the session lock before the watchdog fires",
+            stopperHoldingSessionLock.await(2, TimeUnit.SECONDS),
+        )
+        watchdog.start()
+
+        val completed = callbackCompleted.await(5, TimeUnit.SECONDS)
+        assertTrue("the hang callback must complete — no AB-BA deadlock", completed)
+        watchdog.stop()
+        stopper.join(2_000L)
+        assertTrue("the callback must have taken the session lock", callbackAcquiredSessionLock.get())
     }
 }

@@ -16,11 +16,15 @@ data class FrameMarks(val startNanos: Long = 0L, val doneNanos: Long = 0L)
  *
  * 判定本身在 [diagnoseSessionLiveness]（纯函数），看门狗只负责「周期触发判定」与
  * 「代次闸门」——陈旧看门狗在重启后触发回调会把*新*渲染线程标记为死亡。
+ *
+ * @param onHangDetected 挂起判定成立时的回调。第一个参数是触发本次回调的看门狗
+ *   实例：处置方据此复核「本实例仍是会话的当前看门狗」，陈旧看门狗的迟到判定
+ *   不得作用于已经换上新渲染线程的会话。
  */
 class RenderWatchDog(
     private val diagnose: () -> SessionLivenessDiagnosis,
     private val isRunning: () -> Boolean,
-    private val onHangDetected: (SessionLivenessDiagnosis) -> Unit,
+    private val onHangDetected: (RenderWatchDog, SessionLivenessDiagnosis) -> Unit,
     private val checkIntervalMs: Long = CHECK_INTERVAL_MS,
 ) {
     companion object {
@@ -86,7 +90,18 @@ class RenderWatchDog(
                 TAG,
                 "session hang detected: layer=$hungLayer busy=${diagnosis.busyNanos / 1_000_000L}ms",
             )
-            synchronized(fireLock) { if (generation == ownGeneration) onHangDetected(diagnosis) }
+            // 闸门只判定「本代是否仍然有效」；回调在闸门之外调用。
+            //
+            // 回调要取会话锁（领取关闭许可、关闭会话），而 stop() 是在持有会话锁的
+            // 路径上被调用（pauseRendering、handleSessionExit、startRenderThread），
+            // 它要取本闸门锁。持闸门锁回调即成 AB-BA 死锁：看门狗线程持闸门锁等
+            // 会话锁，会话线程持会话锁等闸门锁——整个会话子系统冻住。
+            //
+            // 「回调是否仍对应当前会话」由处置方按看门狗身份复核
+            // （见 TerminalRuntime.handleSessionHang）。
+            val stillCurrent = synchronized(fireLock) { generation == ownGeneration }
+            if (!stillCurrent) continue
+            onHangDetected(this, diagnosis)
         }
     }
 }

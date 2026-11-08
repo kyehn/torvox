@@ -987,8 +987,7 @@ constructor(
             if (!sessions.containsKey(entry.sessionId)) return
             // 看门狗线程是每会话一个；在此停止（正常退出路径），
             // 否则每个退出会话都会泄漏一个轮询线程。
-            entry.renderWatchDog?.stop()
-            entry.renderWatchDog = null
+            renderSupervisor.detachWatchDog(entry)
             // 仅当已 join 的线程仍是记录的挂起线程时才清标志（期间无其他路径替换它）。
             if (hungExited && entry.hungRenderThread === hungThreadToJoin) {
                 entry.renderThreadPossiblyAlive = false
@@ -1034,7 +1033,15 @@ constructor(
             entry.running = false
         }
         LogUtil.error("Runtime", "session ${entry.sessionId} $reason, closing session")
-        entry.closeBridgeUnlessRenderThreadAlive("restart limit exceeded")
+        // 关闭 bridge 前必须先让渲染线程停下：挂起关闭路径（VT/输出投递层）的
+        // 渲染线程仍卡在原生代码里，它随时可能回到那段代码继续触碰本会话的
+        // bridge/surface——此时 bridge.close() 即 use-after-free。
+        //
+        // stopRenderThread 的 join 超时会置位 renderThreadPossiblyAlive，
+        // 由 closeBridgeUnlessRenderThreadAlive 的同一条守卫跳过关闭并记错误日志；
+        // 原生会话待进程消亡时回收（宁可泄漏也不在其下销毁）。
+        renderSupervisor.stopRenderThread(entry)
+        entry.closeBridgeUnlessRenderThreadAlive(reason)
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.sessionId)) return
             sessions.remove(entry.sessionId)
@@ -1546,8 +1553,7 @@ constructor(
         }
 
         internal fun stopDeadRenderThreadResources(entry: SessionEntry) {
-            entry.renderWatchDog?.stop()
-            entry.renderWatchDog = null
+            detachWatchDog(entry)
             // 注意：此处绝不要把 entry.running 置假。running 是会话意图标志
             // （pause/stop 置假，start/resume 置真）。死线程重启路径依赖 running 保持为真，
             // 使延迟重启（restartRenderThreadAfterDelay）仍能执行；
@@ -1627,8 +1633,7 @@ constructor(
                 LogUtil.debug("Runtime", "session ${entry.sessionId} closing — refusing to start render thread")
                 return
             }
-            entry.renderWatchDog?.stop()
-            entry.renderWatchDog = null
+            detachWatchDog(entry)
             entry.renderThreadExited = false
             entry.running = false
             entry.renderSignaled.set(false)
@@ -2249,14 +2254,13 @@ constructor(
                     isRunning = {
                         entry.running && !entry.renderThreadExited && activeSessionId == entry.sessionId
                     },
-                    onHangDetected = { diagnosis -> handleSessionHang(entry, diagnosis) },
+                    onHangDetected = { watchdog, diagnosis -> handleSessionHang(entry, watchdog, diagnosis) },
                 )
                     .also { it.start() }
         }
 
         internal fun stopRenderThread(entry: SessionEntry): Boolean {
-            entry.renderWatchDog?.stop()
-            entry.renderWatchDog = null
+            detachWatchDog(entry)
             entry.running = false
             val thread = entry.renderThreadRef
             entry.renderThreadRef = null
@@ -2306,32 +2310,76 @@ constructor(
         }
 
         /**
+         * 摘除并停止该会话的存活看门狗。
+         *
+         * 在 [sessionLock] 内完成：处置回调（[handleSessionHang]）以「本实例仍是
+         * 当前看门狗」为生效前提，摘除与该复核必须互斥，否则陈旧看门狗会在新
+         * 看门狗就位后仍被判为当前，把已经恢复的会话关掉。
+         *
+         * 锁序固定为 sessionLock → 看门狗闸门锁：看门狗线程永不持闸门锁取
+         * sessionLock（见 [RenderWatchDog]），故两把锁不会互等。
+         */
+        internal fun detachWatchDog(entry: SessionEntry) {
+            synchronized(sessionLock) {
+                val watchdog = entry.renderWatchDog
+                entry.renderWatchDog = null
+                watchdog?.stop()
+            }
+        }
+
+        /**
          * 按挂起层级处置：渲染层重启线程，VT 层与输出投递阻塞关闭会话，生命周期层
          * 只记录。
          *
          * 关闭会话走 [closeDeadSession]：VT 状态在原生侧持有，无法安全热重建，
          * 且静默重建会丢掉用户的 shell 状态（工作目录、后台任务、已输入内容）。
+         *
+         * 身份复核：只有仍是本会话当前看门狗的判定才处置。渲染线程重启会换上一个
+         * 新看门狗，陈旧看门狗的迟到判定不得作用于新线程——否则把健康的渲染线程
+         * 标记为死亡，或关闭一个已经恢复的会话。复核与状态变更在同一次
+         * [sessionLock] 获取内完成，故两者不会交错。
          */
-        internal fun handleSessionHang(entry: SessionEntry, diagnosis: SessionLivenessDiagnosis) {
+        internal fun handleSessionHang(
+            entry: SessionEntry,
+            watchdog: RenderWatchDog,
+            diagnosis: SessionLivenessDiagnosis,
+        ) {
             val hungLayer = diagnosis.hungLayer ?: return
             when (recoveryActionFor(hungLayer)) {
                 LivenessRecovery.RESTART_RENDER_THREAD -> {
+                    synchronized(sessionLock) {
+                        if (entry.renderWatchDog !== watchdog) {
+                            LogUtil.debug("Runtime", "session ${entry.sessionId} stale watchdog ignored")
+                            return
+                        }
+                        // 把线程标记为死亡。渲染监视器（checkSessions）会侦测到并
+                        // 以指数退避重启线程，避免因 GPU 挂起而杀掉整个进程。
+                        entry.renderThreadExited = true
+                    }
                     LogUtil.error(
                         "Runtime",
                         "session ${entry.sessionId} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s) — marking thread for restart",
                     )
-                    // 把线程标记为死亡。渲染监视器（checkSessions）会侦测到并
-                    // 以指数退避重启线程，避免因 GPU 挂起而杀掉整个进程。
-                    entry.renderThreadExited = true
                 }
 
                 LivenessRecovery.CLOSE_SESSION -> {
-                    if (!claimAutoClose(entry)) {
-                        LogUtil.warn(
-                            "Runtime",
-                            "session ${entry.sessionId} hung at $hungLayer — close throttled (${SESSION_CLOSE_THROTTLE_NANOS / 1_000_000L}ms)",
-                        )
-                        return
+                    val now = System.nanoTime()
+                    synchronized(sessionLock) {
+                        if (entry.renderWatchDog !== watchdog) {
+                            LogUtil.debug("Runtime", "session ${entry.sessionId} stale watchdog ignored")
+                            return
+                        }
+                        // 自动关闭按 60s 节流：反复关闭又新建会让用户看到会话号乱跳。
+                        // 在 sessionLock 内领取：两个看门狗回调并发时必须只有一个拿到
+                        // 许可，否则同一会话会被重复关闭。
+                        if (!shouldCloseSession(entry.lastAutoCloseNanos, now)) {
+                            LogUtil.warn(
+                                "Runtime",
+                                "session ${entry.sessionId} hung at $hungLayer — close throttled (${SESSION_CLOSE_THROTTLE_NANOS / 1_000_000L}ms)",
+                            )
+                            return
+                        }
+                        entry.lastAutoCloseNanos = now
                     }
                     LogUtil.error(
                         "Runtime",
@@ -2346,21 +2394,6 @@ constructor(
                         "session ${entry.sessionId} hung at $hungLayer — recorded only",
                     )
                 }
-            }
-        }
-
-        /**
-         * 领取自动关闭的许可；超出节流窗口时返回 false。
-         *
-         * 在 [sessionLock] 内领取：两个看门狗回调并发时必须只有一个拿到许可，
-         * 否则同一会话会被重复关闭。
-         */
-        internal fun claimAutoClose(entry: SessionEntry): Boolean {
-            val now = System.nanoTime()
-            synchronized(sessionLock) {
-                if (!shouldCloseSession(entry.lastAutoCloseNanos, now)) return false
-                entry.lastAutoCloseNanos = now
-                return true
             }
         }
     }
