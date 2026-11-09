@@ -150,6 +150,11 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
     private fun awaitInk(phase: String): Long {
         val seen =
             UxTestUtils.pollUntilTrue(timeoutMs = INK_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
+                // 必须推进测试时钟：宿主换 SurfaceView 由组合重组驱动（`key(surfaceKey)`），
+                // 而重组由 Compose 测试的帧时钟推进。只截图不推进时钟时，换视图的信号
+                // 一直排在队列里——原生侧拿不到新窗口，出帧一直失败，画面始终无墨迹
+                // （实测注入失效后 30s 无墨迹，用例判红；推进时钟后同一路径自愈）。
+                composeTestRule.waitForIdle()
                 (terminalInk() ?: 0L) >= MIN_INK_DELTA
             }
         assertNotNull("$phase 终端画面必须已有墨迹（截图或渲染均无内容）", seen)
