@@ -4,7 +4,7 @@
 
 模拟器 logcat 里，系统等宽字族的选取日志在一次启动内出现五次：
 
-```
+```text
 D/native::render::font::font_db: FONT_SELECT: fonts.xml monospace id=ID(InnerId(1v1)) stem='DroidSansMono'
 ```
 

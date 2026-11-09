@@ -4,7 +4,7 @@
 
 真机 logcat 里，同一字族的下发被逐次记录：
 
-```
+```text
 D/native::render::font::pipeline::families: 字体族 'Maple Mono Normal NF CN' 已解析为字面 InnerId(4v1)
 D/native::android::ffi::font: setFontFamily: Maple Mono Normal NF CN found=true changed=false
 ```
