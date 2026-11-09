@@ -597,12 +597,16 @@ impl Renderer {
             && let Some(slow_frames) = SLOW_CELL_BUILD_THROTTLE.record()
         {
             let ms = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
+            // `cells` 是网格里的单元记录数，`instances` 是真正发射的四边形数：
+            // 与清除色同色的空白格不发射，两者差得远。混用会把「空白格被跳过」
+            // 误读成「网格全被绘制」。
             log::warn!(
-                "SLOW_CELL_BUILD build={:.3}ms gpu={:.3}ms total={:.3}ms instances={} partial={partial} rows={rows} slow_frames={slow_frames}",
+                "SLOW_CELL_BUILD build={:.3}ms gpu={:.3}ms total={:.3}ms cells={} instances={} partial={partial} rows={rows} slow_frames={slow_frames}",
                 ms(build_done.duration_since(build_start)),
                 ms(gpu_done.duration_since(gpu_start)),
                 ms(total),
                 cell_data.len(),
+                self.cpu_instances.len(),
             );
         }
         result
