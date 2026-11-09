@@ -148,7 +148,12 @@ impl FontPipeline {
                 log::warn!("字体族 '{family_name}' 不在渲染字体库中，保持当前字面");
                 return false;
             };
-            log::debug!("字体族 '{family_name}' 已解析为字面 {id:?}");
+            // 解析结果只在字面真的换了时记：同一字族的重复下发是常态
+            // （设置应用、字体应用与会话状态发射三条路径都会下发），逐次记
+            // 「已解析为字面」只会刷屏，且每次都不带新信息。
+            if previous != Some(id) {
+                log::debug!("字体族 '{family_name}' 已解析为字面 {id:?}");
+            }
             self.font_id = Some(id);
         }
         if self.font_id != previous {

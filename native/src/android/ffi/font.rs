@@ -615,14 +615,13 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFont
         let found = render_state
             .font_pipeline
             .set_font_family(&family_str, family_files);
-        let changed = render_state.font_pipeline.font_id != previous;
-        if changed {
+        if render_state.font_pipeline.font_id != previous {
             // 字体源变化：实例缓存的图集 UV 与行高全部过期，同尺寸下仍判兼容，必须整库丢弃并重绘。
             render_state.renderer.cell_cache = None;
             render_state.dirty.store(true, Ordering::Relaxed);
-            log::info!("setFontFamily: {family_str} found={found} changed={changed}");
-        } else {
-            log::debug!("setFontFamily: {family_str} found={found} changed={changed}");
+            // 只在字面真的换了时出声：同一字族的重复下发是常态，逐次记录
+            // 「未变化」只会刷屏。字族找不到的情形由管线自己告警。
+            log::info!("setFontFamily: {family_str} 字面已切换");
         }
         if found { JNI_TRUE } else { JNI_FALSE }
     })
