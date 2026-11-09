@@ -143,7 +143,7 @@ dependencies {
   debugImplementation("com.squareup.leakcanary:leakcanary-android:3.0-alpha-9")
 
   testImplementation("junit:junit:4.13.2")
-  testImplementation("io.mockk:mockk:1.14.11")
+  testImplementation("io.mockk:mockk:1.14.12")
   testImplementation("app.cash.turbine:turbine:1.2.1")
   testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 

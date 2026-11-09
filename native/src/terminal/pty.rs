@@ -1,4 +1,7 @@
-//! PTY 主/从端创建：fork 与直接系统调用处允许 unsafe，VT/网格数据路径禁用 unsafe。
+//! PTY 主/从端创建：fork 与直接系统调用处允许 unsafe。
+//! VT/网格数据路径只在上游 API 自身要求 unsafe 时才有一处：`fmt::Formatter`
+//! 装指定选区的 `set_selection`（其前提是两端点为同一终端活动屏的有效快照），
+//! 该处就地写明 SAFETY 依据，其余取数与编码路径仍无 unsafe。
 use std::io;
 use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::path::Path;

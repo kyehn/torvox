@@ -88,12 +88,12 @@ MUST NOT 通过删除测试满足该约束，故本轮不以削减测试换取�
 | 扫描 | 命中 | 判定 | 可复核依据 |
 | --- | --- | --- | --- |
 | `semgrep`（仓内 54 条规则，1351 个被跟踪文件） | 0 | 通过 | 扫描退出码 0，`Findings: 0` |
-| Android `lintDebug` | 1 | 不是缺陷 | 唯一命中是 `NewerVersionAvailable`：`app/build.gradle.kts` 里 `io.mockk:mockk` 1.14.11 有 1.14.12 可用；构建脚本属受保护文件，且依赖升级不属本次范围 |
+| Android `lintDebug` | 0 | 通过 | `lint-results-debug.txt` 为「No issues found.」；此前的唯一命中是 `NewerVersionAvailable`（`io.mockk:mockk` 1.14.11 有 1.14.12 可用），已随依赖刷新升到 1.14.12 |
 | `aislop scan --json native/src` | 1 | 不是缺陷 | 唯一命中是 `complexity/file-too-large`：`native/src/terminal/ghostty_terminal/public_api.rs` 1123 行。工具自身把该项归为 `style-policy`，即「大文件是复核压力，体积本身不是已确认缺陷」；该文件承载 VT 对外 API 的单一门面，详见下方超大文件一节 |
 | `aislop scan --json`（全仓） | 1 | 不是缺陷 | 与子目录扫描同一条命中；`score` 100、`label` `Healthy`、`confirmed-defect` 0。覆盖面限制仍在：`unsupportedFiles` 164、`dominantUnsupported` 为 `Kotlin`，该工具扫不到本仓界面侧代码，故其分数不得当作全仓质量结论 |
 | Rust 生产代码 `unwrap()` | 0 | 通过 | 全量统计生产路径无 `unwrap()` |
 | Rust 生产代码 `expect(` | 17 | 不是缺陷 | 逐条为不变式断言：`font.rs` 的字体族计数上界、`render/window.rs` 的渲染状态必然已初始化、`logging.rs` 的硬编码字符串无 NUL 与日志器只装一次、`glyph_cache.rs` 的容量常量大于零、`internal/commands.rs` 的缓存必然存在、`theme.rs` 的默认主题必在清单中。均为编译期或初始化期即可判定的事实，不存在运行时不确定输入 |
-| Rust 生产代码 `unsafe` | 112 | 不是缺陷 | 73 处是 JNI 导出的 `#[unsafe(no_mangle)]` ABI 标注；12 处是 `unsafe` 函数签名（JNI 导出与 NDK 内部函数）；7 处是 `unsafe` 块（`font.rs`/`input.rs` 的 JNI 数组读取、`wgpu_backend.rs` 与 `ghostty_terminal/mod.rs` 的 FFI 调用、`pty/child.rs` 的 `termios` 取值）；5 处是 JNI 数组 `from_raw`；5 处是 `libc` 系统调用（PTY 的 `tcgetattr`/`tcsetattr`/`write`/`_exit`/`getrlimit`）；4 处是 NDK `ANativeWindow_*`；其余为日志器一次性安装与被 `catch_unwind` 包裹的 wgpu 设备创建。`native/src/terminal/pty.rs` 的模块注释已写明「PTY 主/从端创建与直接系统调用处允许 unsafe，VT/网格数据路径禁用 unsafe」，实测 VT 与网格数据路径确无 `unsafe` |
+| Rust 生产代码 `unsafe` | 114 | 不是缺陷 | 口径：`native/src/**/*.rs`，剔除 `#[cfg(test)]` 模块与 `tests.rs` 文件后统计 `unsafe` 一词的全部出现。74 处是 JNI 导出的 `#[unsafe(no_mangle)]` ABI 标注；3 处是 `unsafe fn` 签名（JNI 导出与 NDK 内部函数）；28 处是 `unsafe` 块，分布在 10 个文件：`font.rs`/`input.rs`/`session_ops.rs`/`window.rs` 的 JNI 数组读取与 `ANativeWindow_*` 调用、`logging.rs` 的日志器一次性安装、`renderer.rs`/`wgpu_backend.rs` 的 wgpu 设备创建（被 `catch_unwind` 包裹）、`ghostty_terminal/mod.rs` 的 PNG 解码器安装、`pty/child.rs` 的 `termios` 与 `libc` 系统调用（PTY 的 `tcgetattr`/`tcsetattr`/`write`/`_exit`/`getrlimit`）、`ghostty_terminal/internal/selection.rs` 的 `fmt::Formatter::set_selection`（上游把「装指定选区」标为 unsafe，其前提是两端点须为该格式化器所属终端同一活动屏的有效快照，本仓两端点取自 `absolute_point` + `grid_ref` 且其间无终端写操作，就地写明 SAFETY 依据）；其余 9 处是注释与文档提及 |
 | Kotlin 主源码顶层类型引用 | 0 孤儿 | 通过 | 逐个文件提取顶层 `class`/`object`/`interface` 名并全仓检索，每个名字至少在自身文件内被引用 |
 | 资源文件引用 | 0 孤儿 | 通过 | `layout`、`drawable`、`menu`、`xml` 目录下每个资源名至少被一处引用 |
 | Rust 模块声明 | 0 孤儿 | 通过 | 每个 `mod` 声明都指向存在的文件；每个 `.rs` 文件都被某个 `mod` 声明或 Cargo 目标（`build.rs`、`benches/`、`tests/`）引用 |
