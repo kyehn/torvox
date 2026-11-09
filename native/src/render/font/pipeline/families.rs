@@ -49,6 +49,10 @@ impl FontPipeline {
     /// 仅当库内没有任何可用面才崩溃退出——该情形是字体文件装入失败，不是
     /// `fonts.xml` 的问题，故原因文案不得归因 `fonts.xml`。
     pub(super) fn find_monospace_font(&mut self) {
+        #[cfg(test)]
+        {
+            self.system_monospace_resolutions += 1;
+        }
         #[cfg(target_os = "android")]
         {
             // 取族内首个作匹配目标：库已装入整族，首个缺失时由下面的降级梯次接管。
@@ -59,7 +63,10 @@ impl FontPipeline {
                     String::as_str,
                 );
             match font_db::select_primary_face(self.font_system.db(), target_filename) {
-                Some(face_id) => self.font_id = Some(face_id),
+                Some(face_id) => {
+                    self.font_id = Some(face_id);
+                    self.font_is_system_monospace = true;
+                }
                 None => {
                     font_db::fatal("fonts.xml 声明的字体文件无一能装入字体库（缺失、损坏或不可读）")
                 }
@@ -103,6 +110,7 @@ impl FontPipeline {
                 let name = face.families.first().map_or("", |(name, _)| name);
                 log::debug!("FONT_SELECT: host monospace id={:?} name='{name}'", face.id);
                 self.font_id = Some(face.id);
+                self.font_is_system_monospace = true;
             }
         }
     }
@@ -120,7 +128,12 @@ impl FontPipeline {
     pub fn set_font_family(&mut self, family_name: &str, family_files: &[String]) -> bool {
         let previous = self.font_id;
         if family_name.is_empty() {
-            self.find_monospace_font();
+            // 已经是系统等宽面时是空操作：重复下发系统等宽字族是常态
+            // （设置应用、字体应用与会话状态发射三条路径都会下发），重扫库得到的
+            // 还是同一个面，重扫只会让同一条选择日志反复出现在 logcat 里。
+            if !self.font_is_system_monospace {
+                self.find_monospace_font();
+            }
         } else {
             // 用户选文件装入的族用它记住的面：同一路径的字体文件被替换后旧面
             // 仍在库里，扫库取首个会选回旧面。
@@ -155,6 +168,7 @@ impl FontPipeline {
                 log::debug!("字体族 '{family_name}' 已解析为字面 {id:?}");
             }
             self.font_id = Some(id);
+            self.font_is_system_monospace = false;
         }
         if self.font_id != previous {
             self.clear_identity_caches();

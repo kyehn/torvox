@@ -989,6 +989,19 @@ fn set_font_family_empty_resets_to_default() {
 }
 
 #[test]
+fn set_font_family_empty_repeated_does_not_resolve_again() {
+    let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
+    let resolutions = pipeline.system_monospace_resolutions;
+    assert!(resolutions >= 1, "建管线时须解析一次系统等宽面");
+    assert!(pipeline.set_font_family("", &[]), "选系统等宽面应成功");
+    assert!(pipeline.set_font_family("", &[]), "选系统等宽面应成功");
+    assert_eq!(
+        pipeline.system_monospace_resolutions, resolutions,
+        "重复下发系统等宽字族不得再解析：再解析会让同一条选择日志反复出现在 logcat 里"
+    );
+}
+
+#[test]
 fn set_font_family_persists_through_size_change() {
     let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
     let fonts = pipeline.list_monospace_fonts();

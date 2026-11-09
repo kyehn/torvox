@@ -103,6 +103,12 @@ pub struct FontPipeline {
     pub(crate) atlas_width: u32,
     pub(crate) atlas_height: u32,
     pub(crate) font_id: Option<fontdb::ID>,
+    /// 当前主字体是否就是系统等宽面。
+    ///
+    /// 重复下发系统等宽字族（设置应用、字体应用与会话状态发射三条路径）是常态：
+    /// 库内唯一来源的声明族重扫一次得到的是同一个面，故已是系统等宽面时
+    /// 再选系统等宽面是空操作——不重扫库，也不重复记录「选中了哪个面」。
+    pub(crate) font_is_system_monospace: bool,
     pub(crate) cjk_fallback_ids: Vec<fontdb::ID>,
     /// CJK 回退层按设计缺席的原因；`None` 表示「不是按设计缺席」——
     /// 要么已装上回退族，要么确实找不到（那是真问题，由状态 `None` 上报）。
@@ -131,6 +137,10 @@ pub struct FontPipeline {
     /// 否则只能断言缓存里有某个键——那只证明「记了」，证不了「没重扫」。
     #[cfg(test)]
     pub(crate) scan_count: u64,
+    /// 系统等宽面解析次数（仅测试用）：解析要扫库并记录选中了哪个面，
+    /// 重复下发同一字族时不得再解析——否则 logcat 里同一条选择日志反复出现。
+    #[cfg(test)]
+    pub(crate) system_monospace_resolutions: u64,
 }
 
 /// 字形位图在单元格内的竖向定位：返回 `(bearing_y, raw_bearing_y)`。
@@ -301,6 +311,7 @@ impl FontPipeline {
             atlas_width: atlas_width as u32,
             atlas_height: atlas_height as u32,
             font_id: None,
+            font_is_system_monospace: false,
             cjk_fallback_ids: Vec::new(),
             cjk_fallback_skip_reason: None,
             font_size,
@@ -315,6 +326,8 @@ impl FontPipeline {
             user_font_faces: std::collections::HashMap::new(),
             #[cfg(test)]
             scan_count: 0,
+            #[cfg(test)]
+            system_monospace_resolutions: 0,
         };
 
         if pipeline.font_id.is_none() {
