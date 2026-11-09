@@ -92,13 +92,6 @@ pub(crate) fn filter_input<'a>(
             clears: Vec::new(),
         };
     }
-    if data.windows(2).any(|window| window == [0x1b, b'_']) {
-        log::info!(
-            "TMPDEBUG apc_chunk len={} bytes={:?}",
-            data.len(),
-            &data[..data.len().min(400)]
-        );
-    }
     let mut payload: Vec<u8> = Vec::with_capacity(data.len());
     let mut responses: Vec<Vec<u8>> = Vec::new();
     let mut clears: Vec<Clear> = Vec::new();
@@ -333,7 +326,6 @@ enum KittyProbe {
 /// 不是普通文件、或按声明长度读不满时按上游同款的错误消息代答（判据见
 /// [`file_medium_verdict`]）。
 fn kitty_probe(content: &[u8], capabilities: MediaCapabilities<'_>) -> KittyProbe {
-    log::info!("TMPDEBUG kitty_probe content={}", String::from_utf8_lossy(content));
     let (control_bytes, payload_bytes) = match content.iter().position(|&byte| byte == b';') {
         Some(separator) => (&content[..separator], &content[separator + 1..]),
         None => (content, &content[content.len()..]),
@@ -393,13 +385,6 @@ fn file_medium_verdict(
     control: &ControlData,
     capabilities: &MediaCapabilities<'_>,
 ) -> FileVerdict {
-    log::info!(
-        "TMPDEBUG file_medium_verdict medium={} path={} data_size={} offset={}",
-        control.medium as char,
-        path,
-        control.data_size,
-        control.offset
-    );
     // 打不开：上游在判临时文件之前就回 `InvalidData`。
     let Ok(metadata) = std::fs::metadata(path) else {
         return FileVerdict::Reject;
@@ -407,10 +392,6 @@ fn file_medium_verdict(
     // 临时文件介质：上游的两条判据过了才读文件。本层只做确认式判断——确认满足时
     // 上游必然也满足（判据口径与上游一致，见 `is_serviceable_temp_file`）；判断
     // 不了时交回上游，让上游给出它自己的那条错误。
-    log::info!(
-        "TMPDEBUG serviceable={}",
-        is_serviceable_temp_file(path, capabilities)
-    );
     if control.medium == b't' && !is_serviceable_temp_file(path, capabilities) {
         return FileVerdict::Pass;
     }
