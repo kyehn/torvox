@@ -3855,6 +3855,10 @@ constructor(
                 // 尺寸一致跳过 resize：冗余 SIGWINCH 会清 mksh 提示符；
                 // 查不到原生网格则无条件对齐（fail-open）。
                 alignGridOnSwitch(target.bridge, _state.value.rows, _state.value.cols)
+                // 目标会话的 PTY 像素字段必须与当前 Surface 对齐：后台会话在 Surface
+                // 尺寸变化时不被 applyGridResize 触及，切换过来时仍是旧值。网格对齐
+                // 之后再推——resize 会把 VT 的单元格像素几何复位成默认值，先推会被抹掉。
+                pushSurfacePixelSize(target.bridge, width, height)
                 LogUtil.debug("Runtime", "switched to session $sessionId")
                 // DECSET 1004 焦点上报是按窗口的，新活动会话在后台期间
                 // 从未收到 focus-in。重新发送最后已知的窗口焦点状态，
@@ -4460,6 +4464,27 @@ constructor(
     }
 
     /**
+     * 把 Surface 网格区的像素尺寸推给指定会话的 PTY。
+     *
+     * 高度口径与网格计算一致（扣修饰键栏与输入法遮挡）：ws_ypixel 描述的是网格覆盖的
+     * 那块区域，把覆盖层算进去会让按像素定位的程序算错纵向偏移。
+     *
+     * 调用时机 MUST 在网格对齐之后：网格 resize 会把 VT 的单元格像素几何复位成默认值，
+     * 像素尺寸若先于 resize 下发，随后的 resize 就把它抹掉。
+     */
+    private fun pushSurfacePixelSize(bridge: Bridge, surfaceWidth: Int, surfaceHeight: Int) {
+        if (surfaceWidth <= 0 || surfaceHeight <= 0) return
+        bridge.setPixelSize(
+            surfaceWidth.coerceIn(0, U16_MAX),
+            computeGridAvailableHeight(
+                surfaceHeight = surfaceHeight,
+                modifierBarHeightPx = modifierBarHeightPx,
+                imeReserve = imeGridReserve(),
+            ).coerceIn(0, U16_MAX),
+        )
+    }
+
+    /**
      * 按当前 Surface 尺寸与原生字体单元格度量重算 rows/cols，并把权威网格同步到会话状态。
      *
      * 不做此步，重启后重新绑定 Surface 会保留引导期的 24x80 网格，
@@ -4760,6 +4785,14 @@ constructor(
         val result = bridge.spawnTerminal(rows, cols, bridge.shellPath())
         val elapsedMs = (System.nanoTime() - startNs) / 1_000_000
         LogUtil.debug("Runtime", "$caller spawnTerminal rows=$rows cols=$cols result=$result elapsed=${elapsedMs}ms")
+        // PTY 的像素字段必须随会话一起就位：spawn 只带行列，ws_xpixel/ws_ypixel 留 0 时，
+        // 感知像素的程序（kitten icat 经 TIOCGWINSZ 读屏幕像素尺寸）会直接报
+        // 「终端不支持以像素报告屏幕尺寸」并退出。视图侧的 applyGridResize 只在 Surface
+        // 尺寸变化时才下发像素几何，新建会话等不到那次事件（真机取证：首会话报 314x520，
+        // 新建的会话报 0x0）。
+        if (result > 0L) {
+            pushSurfacePixelSize(bridge, surfaceWidth, surfaceHeight)
+        }
         return SpawnResult(sessionId = result, rows = rows, cols = cols)
     }
 

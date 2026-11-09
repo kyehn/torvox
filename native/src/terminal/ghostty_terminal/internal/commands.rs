@@ -96,7 +96,10 @@ impl super::GhosttyTerminal {
             payload,
             responses,
             clears,
-        } = input_filter::filter_input(data, input_filter::MediaCapabilities::platform());
+        } = input_filter::filter_input(
+            data,
+            input_filter::MediaCapabilities::platform(config.kitty_temp_dir.as_deref()),
+        );
         for response in responses {
             match config.response_buffer.lock() {
                 Ok(mut guard) => guard.push(response),

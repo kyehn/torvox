@@ -3,9 +3,10 @@
 //! 背景（真机 logcat 证据）：
 //! - `kitten icat` 启动时按协议探测可用传输介质（direct / 临时文件 / 共享内存），
 //!   探测用的查询命令会到达终端。本环境满足不了其中两项：Android 没有 POSIX
-//!   共享内存（上游在 `readSharedMemory` 里直接拒绝）；客户端的临时文件写在
-//!   子进程沙箱的私有 `/dev/shm` 里，终端进程看不见（`error.FileNotFound`）。
-//!   上游把这类「客户端探测失败」记成
+//!   共享内存（上游在 `readSharedMemory` 里直接拒绝）；临时文件介质那条探测把
+//!   **路径长度**当成了数据长度声明（`S`），而文件里只有 3 字节，上游按声明
+//!   长度读必然读不满（`error.EndOfStream`）。上游把这类「客户端探测失败」记成
+//!   `W/kitty_gfx failed to read image file` 与
 //!   `W/kitty_gfx erroneous kitty graphics response`。
 //! - kitty 收尾时发 `CSI * x`（DECSACE 复位），上游未实现 DECCARA/DECSACE，
 //!   记成 `W/stream unimplemented CSI action`。
@@ -27,19 +28,22 @@ use base64::engine::general_purpose::STANDARD_NO_PAD_INDIFFERENT as BASE64;
 
 /// 介质能力：决定本层能否代答某介质的能力探测。
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct MediaCapabilities {
+pub(crate) struct MediaCapabilities<'a> {
     /// 平台是否支持 POSIX 共享内存（Kitty `t=s` 介质）。
     pub(crate) shared_memory: bool,
+    /// 终端侧配置的 kitty 临时文件目录（与子进程 `TMPDIR` 同源）。
+    pub(crate) temp_dir: Option<&'a std::path::Path>,
 }
 
-impl MediaCapabilities {
+impl<'a> MediaCapabilities<'a> {
     /// 本平台的能力。
     ///
     /// Android 与 Windows 无 POSIX 共享内存（上游在 `readSharedMemory` 里对这两者
     /// 直接拒绝），其余 Unix 平台按 POSIX 语义可用。
-    pub(crate) fn platform() -> Self {
+    pub(crate) fn platform(temp_dir: Option<&'a std::path::Path>) -> Self {
         Self {
             shared_memory: !cfg!(any(target_os = "android", target_os = "windows")),
+            temp_dir,
         }
     }
 }
@@ -77,13 +81,23 @@ pub(crate) struct Clear {
 /// 逐字节扫描：`ESC [` 的 CSI 序列在中间字节为 `*` 且终字节为 `x`（DECSACE）时丢弃；
 /// `ESC _ G` 的 Kitty APC 若是本层代答的能力探测则丢弃并回代错误应答；其余
 /// 字符串序列（OSC / DCS / APC / PM / SOS）整段透传，内部不做任何扫描。
-pub(crate) fn filter_input(data: &[u8], capabilities: MediaCapabilities) -> FilteredInput<'_> {
+pub(crate) fn filter_input<'a>(
+    data: &'a [u8],
+    capabilities: MediaCapabilities<'_>,
+) -> FilteredInput<'a> {
     if !data.contains(&0x1b) {
         return FilteredInput {
             payload: Cow::Borrowed(data),
             responses: Vec::new(),
             clears: Vec::new(),
         };
+    }
+    if data.windows(2).any(|window| window == [0x1b, b'_']) {
+        log::info!(
+            "TMPDEBUG apc_chunk len={} bytes={:?}",
+            data.len(),
+            &data[..data.len().min(400)]
+        );
     }
     let mut payload: Vec<u8> = Vec::with_capacity(data.len());
     let mut responses: Vec<Vec<u8>> = Vec::new();
@@ -314,10 +328,12 @@ enum KittyProbe {
 
 /// 判定一帧 Kitty APC 是否由本层代答。
 ///
-/// 只代答「本环境无法服务」的介质：直接介质（`t=d`）与能打开的文件介质交回上游
-/// 处理；共享内存介质在本平台不可用时按上游的错误消息代答；文件介质打不开时按
-/// 上游打开失败的错误消息代答（打开的判据与上游一致，都按进程工作目录解析）。
-fn kitty_probe(content: &[u8], capabilities: MediaCapabilities) -> KittyProbe {
+/// 只代答「本环境无法服务」的介质：直接介质（`t=d`）与能服务的文件介质交回上游
+/// 处理；共享内存介质在本平台不可用时按上游的错误消息代答；文件介质打不开、
+/// 不是普通文件、或按声明长度读不满时按上游同款的错误消息代答（判据见
+/// [`file_medium_verdict`]）。
+fn kitty_probe(content: &[u8], capabilities: MediaCapabilities<'_>) -> KittyProbe {
+    log::info!("TMPDEBUG kitty_probe content={}", String::from_utf8_lossy(content));
     let (control_bytes, payload_bytes) = match content.iter().position(|&byte| byte == b';') {
         Some(separator) => (&content[..separator], &content[separator + 1..]),
         None => (content, &content[content.len()..]),
@@ -338,11 +354,125 @@ fn kitty_probe(content: &[u8], capabilities: MediaCapabilities) -> KittyProbe {
             }
         }
         b'f' | b't' => match decode_path(payload_bytes) {
-            Some(path) if std::fs::File::open(&path).is_ok() => KittyProbe::Pass,
-            _ => KittyProbe::Answer(control.error_response("EINVAL: invalid data")),
+            Some(path) => match file_medium_verdict(&path, &control, &capabilities) {
+                FileVerdict::Pass => KittyProbe::Pass,
+                FileVerdict::Reject => {
+                    KittyProbe::Answer(control.error_response("EINVAL: invalid data"))
+                }
+            },
+            None => KittyProbe::Answer(control.error_response("EINVAL: invalid data")),
         },
         _ => KittyProbe::Pass,
     }
+}
+
+/// 文件介质本层的判定结果。
+enum FileVerdict {
+    /// 本层不代答，交回上游处理。
+    Pass,
+    /// 本层代答，回上游同款的 `EINVAL: invalid data`。
+    Reject,
+}
+
+/// 文件介质能否由本环境服务。
+///
+/// 上游的判据（`readFile`）依次是：文件必须能打开；路径不得是 `/proc`、`/sys`、
+/// `/dev`（`/dev/shm` 除外）；临时文件介质还要求路径在临时目录内且名字含
+/// `tty-graphics-protocol`；文件必须是普通文件；最后按 `S` 从文件里读**恰好**
+/// 这么多字节，读不满即 `InvalidData`（`EINVAL: invalid data`）。
+///
+/// 本层只在**能确定上游会给出同一条错误**时才代答。临时文件介质的两条额外判据
+/// 在上游是更具体的错误（「not in temp dir」/「not named correctly」），故本层先
+/// 确认路径满足那两条；确认不了就交回上游，由上游给出它自己的那条错误。
+///
+/// 代答的直接动因是日志卫生：客户端的能力探测故意写一个 3 字节的临时文件，却把
+/// **路径长度**当成了数据长度声明（上游按声明长度读，必然读不满），上游为此先记
+/// 一条 `failed to read image file` 警告再回错误应答——那是协议探测噪声，不是缺陷。
+fn file_medium_verdict(
+    path: &str,
+    control: &ControlData,
+    capabilities: &MediaCapabilities<'_>,
+) -> FileVerdict {
+    log::info!(
+        "TMPDEBUG file_medium_verdict medium={} path={} data_size={} offset={}",
+        control.medium as char,
+        path,
+        control.data_size,
+        control.offset
+    );
+    // 打不开：上游在判临时文件之前就回 `InvalidData`。
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return FileVerdict::Reject;
+    };
+    // 临时文件介质：上游的两条判据过了才读文件。本层只做确认式判断——确认满足时
+    // 上游必然也满足（判据口径与上游一致，见 `is_serviceable_temp_file`）；判断
+    // 不了时交回上游，让上游给出它自己的那条错误。
+    log::info!(
+        "TMPDEBUG serviceable={}",
+        is_serviceable_temp_file(path, capabilities)
+    );
+    if control.medium == b't' && !is_serviceable_temp_file(path, capabilities) {
+        return FileVerdict::Pass;
+    }
+    // 不是普通文件：上游回 `InvalidData`。
+    if !metadata.is_file() {
+        return FileVerdict::Reject;
+    }
+    // `S` 缺省时上游把整个文件读完，此时文件多长都能服务。
+    if control.data_size > 0 {
+        // `O`（偏移）是上游读文件的起点，故需要的长度是偏移加数据长度。
+        let required = u64::from(control.data_size) + u64::from(control.offset);
+        if metadata.len() < required {
+            return FileVerdict::Reject;
+        }
+    }
+    FileVerdict::Pass
+}
+
+/// 路径是否满足上游对临时文件的两条判据（在临时目录下 + 名字含标记）。
+///
+/// 上游的「在临时目录下」口径是 `isPathInTempDir`：`/tmp`、`/dev/shm`、配置的
+/// 临时目录、以及配置目录的规范化形式，任一命中即可（配置目录可能是符号链接：
+/// Android 上 `/data/data` 指向 `/data/user/0`）。本层照抄该口径——命中时上游
+/// 必然也命中，两边对同一条探测给出同一条错误应答；判断不了时交回上游，由上游
+/// 给出它那条更具体的错误。
+fn is_serviceable_temp_file(path: &str, capabilities: &MediaCapabilities<'_>) -> bool {
+    if !path.contains("tty-graphics-protocol") {
+        return false;
+    }
+    if is_path_in_dir("/tmp", path) || is_path_in_dir("/dev/shm", path) {
+        return true;
+    }
+    let Some(temp_dir) = capabilities.temp_dir.and_then(|dir| dir.to_str()) else {
+        return false;
+    };
+    is_path_in_dir(temp_dir, path) || canonical_dir_contains(temp_dir, path)
+}
+
+/// 配置目录规范化后是否仍覆盖该路径（配置目录本身可能是符号链接）。
+fn canonical_dir_contains(dir: &str, path: &str) -> bool {
+    let (Ok(canonical_dir), Ok(canonical_path)) =
+        (std::fs::canonicalize(dir), std::fs::canonicalize(path))
+    else {
+        return false;
+    };
+    match (canonical_dir.to_str(), canonical_path.to_str()) {
+        (Some(canonical_dir), Some(canonical_path)) => {
+            is_path_in_dir(canonical_dir, canonical_path)
+        }
+        _ => false,
+    }
+}
+
+/// 路径是否位于目录之下（口径与上游 `isPathInDir` 一致）。
+fn is_path_in_dir(dir: &str, path: &str) -> bool {
+    if dir.is_empty() || !path.starts_with(dir) {
+        return false;
+    }
+    if path.len() == dir.len() || dir.ends_with('/') {
+        return true;
+    }
+    path.as_bytes().get(dir.len()) == Some(&b'/')
 }
 
 /// 解出文件介质载荷里的路径：载荷是 base64 编码的路径字节。
@@ -368,6 +498,10 @@ struct ControlData {
     placement_id: u32,
     /// `q`：静默（0 不静默 / 1 静默成功应答 / 2 连失败应答也不回）。
     quiet: u32,
+    /// `S`：数据长度（字节）。文件介质下上游按它从文件里读恰好这么多字节。
+    data_size: u32,
+    /// `O`：文件内的起始偏移（字节）。
+    offset: u32,
 }
 
 impl ControlData {
@@ -379,6 +513,8 @@ impl ControlData {
             image_number: 0,
             placement_id: 0,
             quiet: 0,
+            data_size: 0,
+            offset: 0,
         };
         for item in bytes.split(|&byte| byte == b',') {
             let Some(separator) = item.iter().position(|&byte| byte == b'=') else {
@@ -396,6 +532,8 @@ impl ControlData {
                 b'I' => control.image_number = parse_number(value),
                 b'p' => control.placement_id = parse_number(value),
                 b'q' => control.quiet = parse_number(value),
+                b'S' => control.data_size = parse_number(value),
+                b'O' => control.offset = parse_number(value),
                 _ => {}
             }
         }
@@ -465,6 +603,7 @@ mod tests {
             data,
             MediaCapabilities {
                 shared_memory: false,
+                temp_dir: None,
             },
         );
         (filtered.payload.into_owned(), filtered.responses)
@@ -476,6 +615,7 @@ mod tests {
             data,
             MediaCapabilities {
                 shared_memory: false,
+                temp_dir: None,
             },
         );
         (filtered.payload.into_owned(), filtered.clears)
@@ -623,6 +763,7 @@ mod tests {
             b"\x1b_Ga=q,i=3,t=s;AAAA\x1b\\",
             MediaCapabilities {
                 shared_memory: true,
+                temp_dir: None,
             },
         );
         assert_eq!(filtered.payload.as_ref(), b"\x1b_Ga=q,i=3,t=s;AAAA\x1b\\");
@@ -651,6 +792,139 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(payload, sequence.as_bytes());
         assert!(responses.is_empty());
+    }
+
+    /// 客户端的能力探测把路径长度当成了数据长度：文件只有 3 字节，上游按声明
+    /// 长度读必然读不满，先记一条警告再回错误应答。本层按上游的错误语义代答，
+    /// 终端行为不变而日志不再有探测噪声。
+    #[test]
+    fn file_probe_shorter_than_declared_length_is_answered_by_this_layer() {
+        let path = std::env::temp_dir().join("input-filter-short-probe.bin");
+        std::fs::write(&path, [1u8, 2, 3]).expect("create probe file");
+        let encoded = BASE64.encode(path.to_str().expect("temp dir is UTF-8"));
+        let sequence = format!("\x1b_Ga=q,i=5,t=f,S=64;{encoded}\x1b\\");
+        let (payload, responses) = filter(sequence.as_bytes());
+        let _ = std::fs::remove_file(&path);
+        assert!(payload.is_empty(), "本层代答的探测命令不得到达上游");
+        assert_eq!(
+            responses,
+            [b"\x1b_Gi=5;EINVAL: invalid data\x1b\\".to_vec()],
+            "读不满时上游回的就是这条错误应答"
+        );
+    }
+
+    /// 声明长度与文件等长时必须交回上游：真实传输正是这条路，拦下它图像就传不过来。
+    #[test]
+    fn file_probe_matching_the_declared_length_is_passed_to_upstream() {
+        let path = std::env::temp_dir().join("input-filter-exact-probe.bin");
+        std::fs::write(&path, [1u8, 2, 3, 4, 5]).expect("create probe file");
+        let encoded = BASE64.encode(path.to_str().expect("temp dir is UTF-8"));
+        let sequence = format!("\x1b_Ga=q,i=6,t=f,S=5;{encoded}\x1b\\");
+        let (payload, responses) = filter(sequence.as_bytes());
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(payload, sequence.as_bytes());
+        assert!(responses.is_empty());
+    }
+
+    /// 偏移也要算进所需长度：上游先跳到偏移再读声明长度，文件不够长就读不满。
+    #[test]
+    fn file_probe_with_offset_needs_the_offset_room() {
+        let path = std::env::temp_dir().join("input-filter-offset-probe.bin");
+        std::fs::write(&path, [1u8, 2, 3, 4, 5, 6]).expect("create probe file");
+        let encoded = BASE64.encode(path.to_str().expect("temp dir is UTF-8"));
+        let sequence = format!("\x1b_Ga=q,i=7,t=f,O=3,S=3;{encoded}\x1b\\");
+        let (payload, responses) = filter(sequence.as_bytes());
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(payload, sequence.as_bytes(), "偏移加长度正好等于文件长度");
+        assert!(responses.is_empty());
+    }
+
+    /// 偏移加长度超出文件长度时读不满，与没有偏移时同一条错误。
+    #[test]
+    fn file_probe_with_offset_past_the_end_is_answered_by_this_layer() {
+        let path = std::env::temp_dir().join("input-filter-offset-short-probe.bin");
+        std::fs::write(&path, [1u8, 2, 3, 4, 5]).expect("create probe file");
+        let encoded = BASE64.encode(path.to_str().expect("temp dir is UTF-8"));
+        let sequence = format!("\x1b_Ga=q,i=8,t=f,O=3,S=3;{encoded}\x1b\\");
+        let (payload, responses) = filter(sequence.as_bytes());
+        let _ = std::fs::remove_file(&path);
+        assert!(payload.is_empty());
+        assert_eq!(
+            responses,
+            [b"\x1b_Gi=8;EINVAL: invalid data\x1b\\".to_vec()]
+        );
+    }
+
+    /// 临时文件介质：路径在配置的临时目录里、名字带标记时，本层才敢代答——
+    /// 上游对临时文件另有两判据，不满足时它给的是更具体的错误。
+    #[test]
+    fn temp_file_probe_inside_the_configured_temp_dir_is_answered_by_this_layer() {
+        let path = outside_system_temp_dir("kitty-tty-graphics-protocol-inside");
+        std::fs::write(&path, [1u8, 2, 3]).expect("create probe file");
+        let encoded = BASE64.encode(path.to_str().expect("probe path is UTF-8"));
+        let sequence = format!("\x1b_Ga=q,i=9,t=t,S=64;{encoded}\x1b\\");
+        let filtered = filter_input(
+            sequence.as_bytes(),
+            MediaCapabilities {
+                shared_memory: false,
+                temp_dir: Some(path.parent().expect("probe file has a parent")),
+            },
+        );
+        let _ = std::fs::remove_file(&path);
+        assert!(filtered.payload.is_empty());
+        assert_eq!(
+            filtered.responses,
+            [b"\x1b_Gi=9;EINVAL: invalid data\x1b\\".to_vec()]
+        );
+    }
+
+    /// 临时文件介质：路径不在任何临时目录里时交回上游，由上游按自己的判据
+    /// 给出「not in temp dir」那一条——本层不代答它给不出的错误。
+    #[test]
+    fn temp_file_probe_outside_every_temp_dir_is_left_to_upstream() {
+        let path = outside_system_temp_dir("kitty-tty-graphics-protocol-outside");
+        std::fs::write(&path, [1u8, 2, 3]).expect("create probe file");
+        let encoded = BASE64.encode(path.to_str().expect("probe path is UTF-8"));
+        let sequence = format!("\x1b_Ga=q,i=10,t=t,S=64;{encoded}\x1b\\");
+        let other_directory = path
+            .parent()
+            .expect("probe file has a parent")
+            .join("another-dir");
+        let filtered = filter_input(
+            sequence.as_bytes(),
+            MediaCapabilities {
+                shared_memory: false,
+                temp_dir: Some(&other_directory),
+            },
+        );
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(filtered.payload, sequence.as_bytes());
+        assert!(filtered.responses.is_empty());
+    }
+
+    /// 数据长度是 `S`，`s` 是像素宽：把 `s` 当长度会拦下真实传输（宽度常常大于
+    /// 文件字节数），也会放过上轮的探测噪声（宽度恒为 1，永远「读得满」）。
+    #[test]
+    fn file_probe_pixel_width_is_not_treated_as_the_data_size() {
+        let path = std::env::temp_dir().join("input-filter-width-probe.bin");
+        std::fs::write(&path, [1u8, 2, 3, 4, 5]).expect("create probe file");
+        let encoded = BASE64.encode(path.to_str().expect("temp dir is UTF-8"));
+        let sequence = format!("\x1b_Ga=q,i=11,t=f,s=100;{encoded}\x1b\\");
+        let (payload, responses) = filter(sequence.as_bytes());
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            payload,
+            sequence.as_bytes(),
+            "没有 `S` 时上游把整个文件读完，本层不得拦下"
+        );
+        assert!(responses.is_empty());
+    }
+
+    /// 不在 `/tmp`（也不在 `/dev/shm`）下的探测文件路径：上游的临时目录判据把
+    /// 这两个目录无条件算作临时目录，测试要覆盖「配置目录之外的临时文件」，
+    /// 就得把文件放在这两处之外。Cargo 的构建输出目录既存在又不在它们之下。
+    fn outside_system_temp_dir(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("OUT_DIR")).join(name)
     }
 
     #[test]
@@ -723,6 +997,7 @@ mod tests {
             input,
             MediaCapabilities {
                 shared_memory: false,
+                temp_dir: None,
             },
         );
         assert!(matches!(filtered.payload, Cow::Borrowed(_)));

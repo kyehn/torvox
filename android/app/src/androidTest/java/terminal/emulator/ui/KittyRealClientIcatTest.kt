@@ -62,6 +62,9 @@ class KittyRealClientIcatTest : ComposeTerminalLogcatTest() {
         /** `kitten icat` 的标准错误输出文件名（prefix 家目录内）。 */
         const val ICAT_ERROR_NAME = "kitty-icat.err"
 
+        /** `kitten icat --print-window-size` 的输出文件名（prefix 家目录内）。 */
+        const val WINDOW_SIZE_NAME = "kitty-window-size.txt"
+
         /** `kitten icat` 的退出码文件名（prefix 家目录内）。 */
         const val ICAT_RESULT_NAME = "kitty-icat.result"
 
@@ -96,6 +99,7 @@ class KittyRealClientIcatTest : ComposeTerminalLogcatTest() {
     fun real_kitty_icat_shows_image_and_clear_removes_it() {
         val bridge = openPrefixSession()
         ensureKittyInstalled(bridge)
+        assertTerminalReportsPixelSize(bridge)
 
         val imageFile = writeTestImage()
         val icatExitCode =
@@ -182,16 +186,50 @@ class KittyRealClientIcatTest : ComposeTerminalLogcatTest() {
         val installExitCode =
             runCommand(
                 bridge,
-                "printf '%s\\n' '$X11_REPOSITORY' > $x11SourcePath && " +
+                // sources.list.d 目录在引导包里不一定存在，先建再写。
+                "mkdir -p ${File(x11SourcePath).parent} && " +
+                    "printf '%s\\n' '$X11_REPOSITORY' > $x11SourcePath && " +
                     "apt update > ${homeDirectory.absolutePath}/$INSTALL_LOG_NAME 2>&1 && " +
                     "apt install -y kitty >> ${homeDirectory.absolutePath}/$INSTALL_LOG_NAME 2>&1",
                 INSTALL_RESULT_NAME,
                 INSTALL_TIMEOUT_MS,
             )
         assertEquals(
-            "kitty 安装失败，日志尾部：\n${readHomeFile(INSTALL_LOG_NAME).takeLast(3000)}",
+            "kitty 安装失败，日志尾部：\n${readHomeFile(INSTALL_LOG_NAME).takeLast(3000)}\n" +
+                "终端文本：\n${bridge.getTerminalText().orEmpty().takeLast(800)}",
             0,
             installExitCode,
+        )
+    }
+
+    /**
+     * 终端必须以像素报告屏幕尺寸，否则感知像素的程序直接罢工。
+     *
+     * `kitten icat` 经 TIOCGWINSZ 读 PTY winsize 的像素字段：字段为 0 时它报
+     * 「终端不支持以像素报告屏幕尺寸」并退出，一张图也画不出来。新建的会话曾把
+     * 像素字段留在 0（spawn 只带行列，视图侧只在 Surface 尺寸变化时才补），
+     * 故此处单独钉住这条契约。
+     */
+    private fun assertTerminalReportsPixelSize(bridge: Bridge) {
+        val exitCode =
+            runCommand(
+                bridge,
+                "kitten icat --print-window-size > ${homeDirectory.absolutePath}/$WINDOW_SIZE_NAME",
+                "kitty-window-size.result",
+                OUTPUT_TIMEOUT_MS,
+            )
+        assertEquals("读取窗口像素尺寸失败", 0, exitCode)
+        val reported = readHomeFile(WINDOW_SIZE_NAME).trim()
+        val pixelSize = reported.split('x').mapNotNull { it.toIntOrNull() }
+        assertEquals(
+            "kitten icat 报告的窗口像素尺寸格式异常：\"$reported\"",
+            2,
+            pixelSize.size,
+        )
+        assertTrue(
+            "终端没有以像素报告屏幕尺寸（读到 \"$reported\"）：" +
+                "PTY winsize 的像素字段为 0，感知像素的程序无法工作",
+            pixelSize.all { it > 0 },
         )
     }
 
@@ -202,12 +240,7 @@ class KittyRealClientIcatTest : ComposeTerminalLogcatTest() {
      * 按屏幕等标记会在命令还没跑完时就「命中」。命令自身的重定向由调用方写全，
      * 这里只追加退出码落盘这一步。
      */
-    private fun runCommand(
-        bridge: Bridge,
-        command: String,
-        resultName: String,
-        timeoutMs: Long,
-    ): Int {
+    private fun runCommand(bridge: Bridge, command: String, resultName: String, timeoutMs: Long): Int {
         val resultFile = File(homeDirectory, resultName)
         resultFile.delete()
         assertTrue(
