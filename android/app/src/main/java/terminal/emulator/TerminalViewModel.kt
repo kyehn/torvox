@@ -1,7 +1,6 @@
 package terminal.emulator
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
 import android.view.InputDevice
@@ -14,18 +13,14 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.FontInfo
@@ -34,19 +29,9 @@ import terminal.emulator.input.DeadKeyState
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.toggled
-import terminal.emulator.installer.BootstrapDownloader
-import terminal.emulator.installer.BootstrapInstaller
-import terminal.emulator.installer.BootstrapOrchestrator
 import terminal.emulator.installer.BootstrapProgress
-import terminal.emulator.installer.BootstrapProgressCallback
-import terminal.emulator.installer.SecondStageRunner
-import terminal.emulator.installer.bootstrapDirectories
-import terminal.emulator.installer.copyBootstrapArchive
-import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
-import terminal.emulator.runtime.pasteByteChunks
-import terminal.emulator.runtime.truncatePasteText
 import terminal.emulator.settings.MacroParser
 import terminal.emulator.settings.MacroStep
 import terminal.emulator.settings.SettingsRepository
@@ -57,8 +42,6 @@ import terminal.emulator.util.formatWorkingDirectory
 import terminal.emulator.util.runCatchingCancellable
 import java.io.File
 import javax.inject.Inject
-
-private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
 
 /**
  * 输入驱动的滚动复位决策，纯函数以便表驱动测试：
@@ -106,8 +89,6 @@ constructor(
         terminalScreenActive = active
     }
 
-    private val clipboardAccess = ClipboardAccess(context, tag = "TerminalViewModel")
-
     /**
      * 宏键的文本来源：虚拟键盘的字符表。
      *
@@ -116,7 +97,19 @@ constructor(
      */
     private val macroCharacterMap by lazy { KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD) }
 
-    private val selectionManager = SelectionManager()
+    private val _state = MutableStateFlow(TerminalState())
+    val state: StateFlow<TerminalState> = _state.asStateFlow()
+
+    private val selectionManager =
+        SelectionManager(
+            terminalState = _state,
+            runtime = runtime,
+            context = context,
+            scope = viewModelScope,
+        )
+
+    /** 视图侧每次刷新回滚长度后回写（实现在 SelectionManager）。 */
+    internal fun updateScrollbackLength(length: Int) = selectionManager.updateScrollbackLength(length)
 
     // SCROLL 按钮锁最后同步到的会话 id：只在活动会话换人时才需要重新同步（见
     // runtime.state 收集器）。同会话内的普通状态更新不必重复推。
@@ -129,21 +122,44 @@ constructor(
 
     // 视图侧回写的回滚长度缓存：选区行是绝对行（0 = 回滚顶部），
     // 钳位上界必须是绝对空间最后一行（回滚长度 + 视口行数 - 1），不得用视口行数。
-    @Volatile private var cachedScrollbackLength = 0
+    private val fontManager =
+        FontManager(
+            runtime = runtime,
+            settingsRepository = settingsRepository,
+            context = context,
+            scope = viewModelScope,
+        )
 
-    /**
-     * 视图侧每次刷新回滚长度后回写，使选区钳位与视图用同一口径。
-     *
-     * 刻意不另起一个 `StateFlow` 镜像：组合侧没有订阅者（重组期间自己发起同步 JNI
-     * 查询是最长可阻塞两次查询超时（约 1s）的调用），镜像只会在每次手势查询时多发一次通知。
-     */
-    internal fun updateScrollbackLength(length: Int) {
-        cachedScrollbackLength = length
-    }
+    private val themeManager =
+        ThemeManager(
+            settingsRepository = settingsRepository,
+            runtime = runtime,
+            scope = viewModelScope,
+        )
 
-    /** 绝对空间的最后一行：两处选区钳位的唯一来源，避免各自计算再次漂移。 */
-    private fun absoluteMaxRow(rows: Int): Int = (cachedScrollbackLength + rows - 1).coerceAtLeast(0)
-    private val fontManager = FontManager()
+    // ── 引导转发（实现在 BootstrapManager） ──
+
+    private val bootstrapManager =
+        BootstrapManager(
+            settingsRepository = settingsRepository,
+            context = context,
+            scope = viewModelScope,
+        )
+
+    /** 引导安装是否在进行中。 */
+    val bootstrapRunning: StateFlow<Boolean> = bootstrapManager.bootstrapRunning
+
+    /** 最近一次引导安装的结果文案。 */
+    val bootstrapResult: StateFlow<String?> = bootstrapManager.bootstrapResult
+
+    /** 最近一次引导安装的进度。 */
+    val bootstrapProgress: StateFlow<BootstrapProgress?> = bootstrapManager.bootstrapProgress
+
+    fun setBootstrapUrl(url: String) = bootstrapManager.setBootstrapUrl(url)
+
+    fun runBootstrap() = bootstrapManager.runBootstrap()
+
+    fun installOffline(uri: Uri) = bootstrapManager.installOffline(uri)
 
     // ── 字体转发（实现在 FontManager） ──
 
@@ -179,20 +195,7 @@ constructor(
      * 而不被「仅粘贴不可变」守卫吞掉。
      * 该守卫仍保护长按的微小移动窗口——转换仅在刻意锁定手柄时发生。
      */
-    fun beginHandleDragOnPasteOnly() {
-        _state.update { state ->
-            val current = state.selection
-            if (!current.active || !current.pasteOnly) {
-                state
-            } else {
-                // dragging=true 与升级同批次：Compose 侧 showSelectionHandles
-                // 在 dragging 下跳过重建——否则升级引发的重组会重建 overlay
-                // 弹窗，杀死正进行的手势流（柄刚抓住就松手，拖拽永不生长）。
-                // endSelection（松手）负责清回 false，生命周期闭环。
-                state.copy(selection = current.copy(pasteOnly = false, dragging = true))
-            }
-        }
-    }
+    fun beginHandleDragOnPasteOnly() = selectionManager.beginHandleDragOnPasteOnly()
 
     fun copySelectionToClipboard() = selectionManager.copySelectionToClipboard()
 
@@ -210,26 +213,6 @@ constructor(
     fun selectAll() = selectionManager.selectAll()
 
     fun pasteFromClipboard() = selectionManager.pasteFromClipboard()
-
-    /** 网格 resize 后把选区锚点钳位到绝对网格，使原生 setSelection 绝不收到越界单元格。 */
-    private fun clampSelectionToGrid(selection: SelectionState, rows: Int, cols: Int): SelectionState {
-        val start = selection.start ?: return selection
-        val end = selection.end ?: return selection
-        val maxRow = absoluteMaxRow(rows)
-        val maxCol = (cols - 1).coerceAtLeast(0)
-        return selection.copy(
-            start =
-            start.copy(
-                row = start.row.coerceIn(0, maxRow),
-                col = start.col.coerceIn(0, maxCol),
-            ),
-            end =
-            end.copy(
-                row = end.row.coerceIn(0, maxRow),
-                col = end.col.coerceIn(0, maxCol),
-            ),
-        )
-    }
 
     /**
      * 共用的输入驱动滚动处理：任何用户输入都清除 SCROLL 锁；
@@ -310,600 +293,16 @@ constructor(
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // SECTION 3b: 选区管理
-    // ══════════════════════════════════════════════════════════════════════
-
-    /**
-     * 拥有选区状态转换：开始/更新/结束、剪贴板复制/分享、全选，
-     * 以及提取启发式（URL 拼接、TUI 边框检测）。内部类：
-     * 经外层 ViewModel 访问 _state、runtime 与 clipboardPaster。
-     */
-    inner class SelectionManager {
-        fun startSelection(row: Int, col: Int, pasteOnly: Boolean = false) {
-            val anchor = SelectionAnchor(row, col)
-            // 新一次长按必须丢弃上一轮快速拖动留下的实时边界，否则首个 MOVE
-            // 会以旧选区为基准算出错误端点。
-            lastDragBounds = null
-            // CAS：选区在主线程上被触碰，但 _state 也被 IO 协程写入；
-            // 普通读-改-写可能丢失其中之一的更新。mode 在 lambda 内读取。
-            _state.update { state ->
-                state.copy(
-                    selection =
-                    SelectionState(
-                        active = true,
-                        dragging = true,
-                        start = anchor,
-                        end = anchor,
-                        pasteOnly = pasteOnly,
-                        menuDismissed = false,
-                    ),
-                )
-            }
+    /** 粘贴字节出口（实现在 SelectionManager）。 */
+    var pasteSink: (Long, ByteArray) -> Unit
+        get() = selectionManager.pasteSink
+        set(value) {
+            selectionManager.pasteSink = value
         }
-
-        fun updateSelection(row: Int, col: Int) = dragSelection(row = row, col = col)
-
-        /**
-         * 快速拖动路径：不触碰 Compose 状态地计算选区边界。
-         * 返回归一化后的拖动结果（含翻转后的归属柄）供直接重定位手柄；
-         * 拖动未激活或仅粘贴时返回 null。
-         *
-         * 调用方必须依返回的 `draggingStart` 更新被拖柄归属，否则越过锚点后的
-         * 连续回拖会按旧柄解释（对标 termlib applyHandleDrag 五元组语义）。
-         * 调用方直接依返回的边界重定位手柄，避开 Compose _state
-         * → 重组 → 回读的往返，而这正是每次 MOVE 的主要帧瓶颈。
-         */
-        fun dragMove(
-            draggingStart: Boolean,
-            row: Int,
-            col: Int,
-            cachedMaxRow: Int,
-            cachedMaxCol: Int,
-        ): HandleDragResult? {
-            val current = _state.value.selection
-            if (!current.active || current.pasteOnly) return null
-            val flipped =
-                resolveDragBounds(
-                    current = current,
-                    pending = lastDragBounds,
-                    draggingStart = draggingStart,
-                    row = row,
-                    col = col,
-                    maxRow = cachedMaxRow,
-                    maxCol = cachedMaxCol,
-                )
-            lastDragBounds = flipped
-            syncDragBoundsToNativeThrottled(flipped)
-            return flipped
-        }
-
-        /**
-         * 以节流频率把进行中的拖动边界推送到原生渲染器，使单元格反色高亮实时跟随手柄
-         * （termux updatePosition 对等），而无需在每个 MOVE 帧都付出一次 JNI 穿越与重渲染。
-         * 最终的精确边界由松手时 endSelection 经 runtime.setSelection 提交。
-         *
-         * 下发的是选区自身的两个端点（行主序有序，见 [resolveDragBounds] 的钳位），
-         * 不是行列各自取极值的包围盒角点：原生按线性语义解释端点，角点会让高亮区域
-         * 在首行左侧与末行右侧同时外扩，而手柄仍停在端点上。
-         */
-        internal fun syncDragBoundsToNativeThrottled(bounds: HandleDragResult) {
-            val nowMs = SystemClock.uptimeMillis()
-            if (nowMs - lastDragNativeSyncUptimeMs < DRAG_NATIVE_SYNC_INTERVAL_MS) return
-            lastDragNativeSyncUptimeMs = nowMs
-            // 走拖动途中的专用入口：普通提交会把 dragging 清成 false，
-            // 那正是「保护只存活一个推送间隔」的由来（见 TerminalRuntime 的同名方法）。
-            runtime.pushSelectionBoundsDuringDrag(
-                bounds.startRow,
-                bounds.startCol,
-                bounds.endRow,
-                bounds.endCol,
-            )
-        }
-
-        @Volatile private var lastDragNativeSyncUptimeMs = 0L
-
-        /**
-         * 在 endSelection 之前把最后一次 dragMove 的边界提交到 Compose 状态。
-         * 必须由 finishHandleDrag 调用，使 endSelection 读到正确的边界。
-         */
-        fun commitDragBounds() {
-            val bounds = lastDragBounds ?: return
-            _state.update { state ->
-                val currentSelection = state.selection
-                if (!currentSelection.active) return@update state
-                state.copy(
-                    selection =
-                    currentSelection.copy(
-                        start = SelectionAnchor(bounds.startRow, bounds.startCol),
-                        end = SelectionAnchor(bounds.endRow, bounds.endCol),
-                    ),
-                )
-            }
-            lastDragBounds = null
-        }
-
-        private var lastDragBounds: HandleDragResult? = null
-
-        /** 慢速路径：直接写 Compose 状态地拖动末端边界（遗留触摸路径与仪器化用例使用）。 */
-        private fun dragSelection(row: Int, col: Int) {
-            // 拖动路径钳位所用的绝对网格边界（见下）；只读一次——
-            // 并发的 resize 最多使该边界陈旧一帧。
-            val runtimeState = runtime.state.value
-            val maxRow = absoluteMaxRow(runtimeState.rows)
-            val maxCol = (runtimeState.cols - 1).coerceAtLeast(0)
-            // CAS，活跃性检查置于 lambda 内部：选区读取与写入相对并发的
-            // _state 更新是原子的。仅粘贴的选区（空单元格/空白处长按）不可变
-            // ——长按期间手指的微小移动绝不能使该单格漂移。
-            _state.update { state ->
-                val current = state.selection
-                if (!current.active || current.pasteOnly) {
-                    state
-                } else {
-                    // 与快速路径共用同一份「当前边界」：拖动途中的边界可能尚未提交到
-                    // _state（快速路径刻意不写），直接拿已提交的旧端点当基准会把
-                    // **没被拖动**的一侧算到错误位置——快速路径与边缘滚动交替时，
-                    // 现象就是「另一边界异常增加」。
-                    val flipped =
-                        resolveLongPressDragBounds(
-                            current = current,
-                            pending = lastDragBounds,
-                            row = row,
-                            col = col,
-                            maxRow = maxRow,
-                            maxCol = maxCol,
-                        )
-                    // 两条路径都写同一份实时边界，下一帧无论走哪条都以它为基准。
-                    lastDragBounds = flipped
-                    state.copy(
-                        selection =
-                        current.copy(
-                            dragging = true,
-                            start = SelectionAnchor(flipped.startRow, flipped.startCol),
-                            end = SelectionAnchor(flipped.endRow, flipped.endCol),
-                            // 拖动期间隐藏浮动菜单；它在 ACTION_UP 时
-                            // 于新位置重新出现（endSelection 恢复 menuDismissed=false）。
-                            menuDismissed = true,
-                        ),
-                    )
-                }
-            }
-            // 在运行期标记拖动进行中，使渲染线程在手柄移动期间
-            // 抑制新输出引起的滚动复位（termux skipScrolling 对等）。
-            // 由 endSelection/clearSelection 经 runtime.setSelection 清除。
-            if (_state.value.selection.dragging) {
-                runtime.setSelectionDragging(true)
-            }
-        }
-
-        fun endSelection() {
-            val current = _state.value.selection
-            if (!current.active || current.start == null || current.end == null) return
-            val text = extractSelectedText(current)
-            // 仅当自读取以来选区未变才写入：并发的选区更新绝不能被陈旧文本覆盖。
-            // CAS 循环：compareAndSet 在状态仍属于我们时重试，
-            // 一旦有并发写入落地即中止——下方的原生边界同步只对真正提交的快照运行
-            // （没有可能跨重试泄漏的副作用标志）。
-            // 注意：extractSelectedText 自身也是跨快照读取 bridge 与 cols
-            // ——若 IO 协程在提取中途切换会话，这些同样可能陈旧；
-            // 结果受子串守卫限制，且除非本次 CAS 提交否则绝不写入。
-            val updated = current.copy(dragging = false, selectedText = text, menuDismissed = false)
-            while (true) {
-                val state = _state.value
-                if (state.selection != current) return
-                if (_state.compareAndSet(state, state.copy(selection = updated))) break
-            }
-            publishNormalizedSelectionBounds(current.start, current.end)
-        }
-
-        /**
-         * 选区文本的**唯一**解析入口：菜单可用性判定与菜单动作共用它。
-         *
-         * 缓存为空时按需重取——原生 `selection_text` 在部分回滚/重排状态下返回空，
-         * 此时动作仍必须拿到真实文本。共用同一解析是「复制按钮毫无反应」的根治点：
-         * 只要某一侧独立判定，就会出现「项显示、动作却取到空串 → 静默返回」的分叉
-         * （实测：长按落在有内容的格子、抽取范围却整段落在行尾空白列上，
-         * 修剪后为空串，点复制后剪贴板不变、菜单照样关闭）。
-         */
-        fun resolvedSelectionText(): String {
-            val selection = _state.value.selection
-            if (!selection.active) return ""
-            // 重新提取而不信任缓存的 selectedText：若缓存文本为空
-            // （某些回滚状态下原生 selection_text 为 null），
-            // 按需提取保证菜单动作总是复制当前选区。
-            return selection.selectedText.ifEmpty { extractSelectedText(selection) }
-        }
-
-        /** 选区边界的日志形式：空解析告警必须自带定位信息，否则等于没记。 */
-        private fun selectionBoundsForLog(): String {
-            val selection = _state.value.selection
-            val start = selection.start
-            val end = selection.end
-            if (start == null || end == null) return "(无界)"
-            return "(start=${start.row},${start.col} end=${end.row},${end.col} pasteOnly=${selection.pasteOnly})"
-        }
-
-        fun copySelectionToClipboard() {
-            val rawText = resolvedSelectionText()
-            if (rawText.isEmpty()) {
-                // 不再静默：空解析是用户可见的「点了没反应」，必须留痕可查。
-                LogUtil.warn("TerminalViewModel", "复制跳过: 选区文本为空 ${selectionBoundsForLog()}")
-                return
-            }
-            val clipped = rawText.take(CLIPBOARD_TEXT_MAX_LENGTH)
-            clipboardAccess.setClipboardText(clipped, label = "terminal selection")
-            // 动作完成后关闭浮动菜单；保留高亮。
-            _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-        }
-
-        fun clearSelection() {
-            // 同批作废未提交的拖动边界：输入法显隐、surface 销毁等路径会在拖动途中
-            // 清选区，`finishHandleDrag` 不再到达。此后新建的选区若再提交一次拖动，
-            // `commitDragBounds` 会把**上一段**的旧边界写进来，抽取与复制随即取到
-            // 不相干的内容。
-            lastDragBounds = null
-            _state.update { it.copy(selection = SelectionState()) }
-            syncSelectionToNative()
-            // 强制立即重绘：否则原生侧的脏标志要等下一个 vsync 节拍，
-            // 使陈旧的选区高亮在屏幕上残留长达一帧周期。
-            runtime.forceRender()
-        }
-
-        private fun syncSelectionToNative() {
-            val selection = _state.value.selection
-            if (selection.active && selection.start != null && selection.end != null) {
-                publishNormalizedSelectionBounds(selection.start, selection.end)
-            } else {
-                runtime.setSelection(0, 0, 0, 0, false)
-            }
-        }
-
-        /**
-         * 选区边界同步到原生：下发行主序有序的端点对（见 [selectionEndpoints]），
-         * 调用方保证非空。
-         */
-        private fun publishNormalizedSelectionBounds(start: SelectionAnchor, end: SelectionAnchor) {
-            val bounds = selectionEndpoints(start, end)
-            runtime.setSelection(
-                bounds.startRow,
-                bounds.startCol,
-                bounds.endRow,
-                bounds.endCol,
-                true,
-            )
-        }
-
-        fun shareSelection() {
-            val rawText = resolvedSelectionText()
-            if (rawText.isEmpty()) {
-                LogUtil.warn("TerminalViewModel", "分享跳过: 选区文本为空 ${selectionBoundsForLog()}")
-                return
-            }
-            val shareIntent =
-                Intent.createChooser(
-                    Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, rawText)
-                    },
-                    null,
-                )
-            shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(shareIntent)
-            // 动作完成后关闭浮动菜单。
-            _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-        }
-
-        fun selectAll() {
-            // 上游 select_all：整个内容（回滚 + 视口）一次派生，native 侧已
-            // 安装为终端选区，Kotlin 只消费回传的有序界限（不含尾部空行）。
-            val bounds = runtime.bridge()?.selectAll()
-            if (bounds == null || bounds.size != SELECTION_BOUNDS_LENGTH) {
-                // 无内容/查询失败：按“无数据”处理，不伪造选择。显式记录：
-                // 静默返回让调用方无法区分空缓冲与查询超时。
-                LogUtil.warn("TerminalViewModel", "selectAll: no bounds (bridge/request failed), skipping")
-                return
-            }
-            val selectionState =
-                SelectionState(
-                    active = true,
-                    dragging = false,
-                    start = SelectionAnchor(row = bounds[0], col = bounds[1]),
-                    end = SelectionAnchor(row = bounds[2], col = bounds[3]),
-                )
-            val text = extractSelectedText(selectionState)
-            _state.update { it.copy(selection = selectionState.copy(selectedText = text)) }
-            syncSelectionToNative()
-        }
-
-        private fun extractSelectedText(selection: SelectionState): String {
-            val start = selection.start ?: return ""
-            val end = selection.end ?: return ""
-            val bridge = runtime.bridge()
-            if (bridge == null) {
-                LogUtil.error("TerminalViewModel", "extractSelectedText: 无活动会话，选区文本未提取")
-                return ""
-            }
-            // 选区行以绝对网格坐标存储（0 = 回滚顶部），与 Ghostty 格式化器的网格行一致。
-            //
-            // 换行感知的提取（termux TerminalBuffer.getSelectedText 语义）：
-            // 软换行行拼接时不插入
-            // 软换行处不插入 '\n'（解包）并去除尾部空白，
-            // 且格式化器在内部把网格列映射到字符下标，使 CJK 宽字符绝不被切开
-            // （等效于 TerminalRow.findStartOfColumn）。
-            // 旧的逐行 scrollbackLine + '\n' 拼接无法侦测换行，且可能切开代理对。
-            val bounds = selectionEndpoints(start, end)
-            // 空选区返回 ""，查询失败返回 null——后者必须出声：合并成 "" 会让
-            // 复制按钮无声失败，用户只看到「选中了却看不出选中」（无高亮变化）。
-            val text =
-                bridge.selectionText(
-                    bounds.startRow,
-                    bounds.startCol,
-                    bounds.endRow,
-                    bounds.endCol,
-                )
-            if (text == null) {
-                LogUtil.error("TerminalViewModel", "extractSelectedText: 原生选区查询失败，选区文本未提取")
-                return ""
-            }
-            return text
-        }
-
-        /**
-         * 把剪贴板内容直接粘贴到 PTY（无确认对话框）。
-         *
-         * **必须**离开主线程：`encodePaste` 是同步 JNI，100 万字符剪贴板要整块转
-         * UTF-8 并经上游 `paste::encode` 重新编码，仓库自述上界 500ms
-         * （`QUERY_TIMEOUT_MS`），而它是菜单与侧键按钮的点击回调。
-         *
-         * 粘贴走 `pasteSink`（Surface 侧注入 `InputBatchBuffer.write`）：100 万字符
-         * 剪贴板产生 250 块，主线程逐块同步写 PTY 会阻塞在会话锁 + PTY 写入上（N1-26）。
-         * ViewModel 自身无批缓冲，sink 由调用方（Surface 侧）注入；它内部加锁，
-         * 故从 IO 线程调用无碍。
-         *
-         * 返回值曾是「粘贴字符数」，三个调用点一个都没用，故去掉。
-         */
-        fun pasteFromClipboard() {
-            viewModelScope.launch(TerminalDispatchers.inputOutput) {
-                // 空剪贴板与读取失败都不许无声：失败已由 ClipboardAccess 记日志，
-                // 这里补的是「点粘贴却什么都不发生」的空剪贴板。
-                val text =
-                    clipboardAccess.clipboardText().getOrNull()
-                        ?: run {
-                            LogUtil.warn("TerminalViewModel", "粘贴跳过: 剪贴板无文本")
-                            return@launch
-                        }
-                executePaste(text)
-            }
-        }
-
-        /** 把 [text] 编码后真正写入 PTY。
-         *
-         * 主线程禁直接写：100 万字符剪贴板产生 250 块 JNI 同步写，
-         * 阻塞在会话锁 + PTY 写入上。调用方须经 `InputBatchBuffer` 入队。
-         *
-         * 编码经上游 `paste::encode`（原生 `encodePaste`）：bracketed 包裹与否
-         * 取自终端模式 2004 的活体状态，控制字节由上游中化，本处不解释内容。
-         * 编码失败（会话已消失等）记警告后跳过：后续写入同样落空。
-         */
-        fun executePaste(text: String) {
-            // 目标会话在粘贴开始时定一次：分块入队是异步刷写，期间切会话
-            // 会让粘贴尾部写进新会话。
-            val sessionId = runtime.inputTargetSessionId
-            val truncated = truncatePasteText(text)
-            if (truncated.isEmpty()) {
-                LogUtil.debug("TerminalViewModel", "粘贴跳过：空白或截断后无内容")
-                _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-                return
-            }
-            val encoded =
-                try {
-                    NativeBridge.encodePaste(sessionId, truncated.toByteArray(Charsets.UTF_8))
-                } catch (exception: Exception) {
-                    LogUtil.warn("TerminalViewModel", "粘贴编码失败", exception)
-                    null
-                }
-            if (encoded == null || encoded.isEmpty()) {
-                LogUtil.warn("TerminalViewModel", "粘贴跳过：编码无输出")
-                _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-                return
-            }
-            // `pasteSink` 由 Surface 注入批缓冲（内部 `synchronized`），任意线程可调。
-            for (chunk in pasteByteChunks(encoded)) {
-                pasteSink(sessionId, chunk)
-            }
-            _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-        }
-    }
-
-    /** 粘贴字节出口：默认同步写，Surface 侧注入批缓冲后走异步合并写。会话 id 随块传入，不在刷写时解析。 */
-    var pasteSink: (Long, ByteArray) -> Unit = { sessionId, data -> runtime.writeToPty(sessionId, data) }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // 二之二、字体管理
-    // ══════════════════════════════════════════════════════════════════════
-
-    /**
-     * 拥有字体加载、字号/家族设置与字体文件安装。内部类：
-     * 经外层 ViewModel 访问字体 StateFlow、runtime、settingsRepository 与 context。
-     * 「应用已存字体」与「列举字体列表」是两条路径：前者随会话启动，
-     * 后者只在字体列表 UI 实际显示时（`refreshFontList` 由设置页 `LaunchedEffect` 触发）。
-     */
-    inner class FontManager {
-        /**
-         * DESIGN 字体选择节：native 应用返回 false 即设置数据错误，
-         * 输出日志并清除该设置使会话回落默认。null 表示无会话可验证，不处理。
-         */
-        private suspend fun clearUnknownFontFamily(requestedFamily: String, applied: Boolean?) {
-            if (applied != false) return
-            LogUtil.error("Font", "Unknown font family, clearing setting: $requestedFamily")
-            settingsRepository.clearFontFamily()
-        }
-
-        /**
-         * 在途加载的协程句柄。字体列表 UI 可在短时间内多次进入，
-         * 若无此门闩每次进入都会再启一个枚举并发跑
-         * setExtraFontPaths/listFontFamilies/_fontInfo 写入。
-         */
-        private var fontLoadJob: Job? = null
-
-        /**
-         * 会话启动路径：把已存字族应用到本会话的 bridge（bridge 按会话持有，
-         * 每个新会话都要应用一次）。只做应用，不列举——列表是 UI 的事。
-         */
-        fun applyStoredFontSettings() {
-            viewModelScope.launch(TerminalDispatchers.inputOutput) {
-                val bridge = runtime.bridge()
-                if (bridge == null) {
-                    // 会话已登记但 bridge 尚未就绪（spawn 前的瞬间）：跳过本轮，
-                    // 后续状态更新会再次触发本函数。
-                    return@launch
-                }
-                // 先注册用户投放目录再应用，使其字体在 bridge 上可见
-                // （重复注册为空操作）；主/次路径都纳入。
-                val fontDirs = terminal.emulator.termuxFontDirs(context).filter {
-                    it.isDirectory
-                }.map { it.absolutePath }
-                if (fontDirs.isNotEmpty()) bridge.setExtraFontPaths(fontDirs)
-                val storedFamily = settingsRepository.fontFamily.first()
-                clearUnknownFontFamily(
-                    storedFamily,
-                    bridge.setFontFamily(
-                        terminal.emulator.resolveEffectiveFontFamily(storedFamily),
-                    ),
-                )
-            }
-        }
-
-        /**
-         * 字体列表 UI 路径：枚举并发布可用列表、默认字体名与字体信息。
-         * 只在字体列表实际显示时调用（设置页打开字体选择对话框那一刻），
-         * 不由会话状态发射触发。
-         *
-         * 进程内只跑一轮（DESIGN：字体列表被缓存直到应用关闭）：`fonts.xml` 与用户
-         * 投放目录在进程存活期间不会变，重跑只会反复走一遍 JNI 列举与目录注册。
-         */
-        fun refreshFontList() {
-            // 并发闩只管「别并发起多轮」；缓存闩只在**真的枚举完成**后置位——
-            // 提前置位会让「会话尚未就绪」这一次早退把整进程都锁成空列表，
-            // 之后再点开选择框也不再重试。
-            if (fontListLoaded || fontLoadJob?.isActive == true) return
-            fontLoadJob = viewModelScope.launch(TerminalDispatchers.inputOutput) {
-                try {
-                    val bridge = runtime.bridge()
-                    if (bridge == null) {
-                        // 会话已登记但 bridge 尚未就绪（spawn 前的瞬间）：跳过本轮。
-                        // _availableFonts 仍为空，直接交给 availableFontFamilies
-                        // 会因空列表抛致命异常，把「还没准备好」变成「进程崩溃」。
-                        return@launch
-                    }
-                    // 先注册用户投放目录再列举，使其字体家族即使在早于
-                    // Runtime.start() 完成时也被纳入（重复注册为空操作）；主/次路径都纳入。
-                    val fontDirs = terminal.emulator.termuxFontDirs(context).filter {
-                        it.isDirectory
-                    }.map { it.absolutePath }
-                    if (fontDirs.isNotEmpty()) bridge.setExtraFontPaths(fontDirs)
-                    val allFonts =
-                        terminal.emulator.settings.availableFontFamilies(
-                            bridge.listFontFamilies().orEmpty(),
-                        )
-                    _availableFonts.value = allFonts
-                    fontListLoaded = true
-                    // 空即「原生未上报」，不得改用列表首项冒充：DESIGN 要求主字体为空时
-                    // 取 fonts.xml 的 monospace 家族，列表首项是字体库枚举顺序，与之无关。
-                    // 显示侧本就对空值有回落（FontFamilySelectors 取列表首项仅作标签）。
-                    publishFontState(bridge)
-                } catch (fatal: IllegalStateException) {
-                    if (fatal is CancellationException) throw fatal
-                    // 系统 fonts.xml 缺失或不可解析：按 DESIGN 记录日志并崩溃退出，
-                    // 不得静默回退为空列表。
-                    LogUtil.error("TerminalViewModel", "Fatal: system fonts.xml unreadable", fatal)
-                    throw fatal
-                } catch (exception: Exception) {
-                    if (exception is CancellationException) throw exception
-                    LogUtil.error("TerminalViewModel", "Failed to load font list", exception)
-                    throw exception
-                }
-            }
-        }
-
-        // 串行化完整的字体应用链（DataStore 写入 + bridge 字体重载 + 网格重排）。
-        // 没有它，快速拖动滑块会启动并发 IO 协程，
-        // 使原生 setFontSizeInPlace 调用乱序交错
-        // （实测一次拖动中值从 96 跳到 280）并在序列中途重排网格
-        // ——即布局错乱的反馈来源。
-        private val fontApplyMutex = Mutex()
-
-        /**
-         * 轻量的拖动预览：把字号应用到原生管线并刷新单元格度量，
-         * 但不写设置、不重排网格。开销足够低，可每个拖动步都运行；
-         * 松手手势经 [setFontSize] 提交。
-         */
-        fun setFontSizeInPlacePreview(size: Float) {
-            runtime.setFontSizePreview(size)
-        }
-
-        fun setFontSize(size: Float) {
-            viewModelScope.launch(TerminalDispatchers.inputOutput) {
-                fontApplyMutex.withLock {
-                    settingsRepository.setFontSize(size)
-                    runtime.applyFontSettings()
-                    val bridge = runtime.bridge()
-                    publishFontState(bridge)
-                }
-            }
-        }
-
-        fun setFontFamily(family: String) {
-            viewModelScope.launch(TerminalDispatchers.inputOutput) {
-                try {
-                    LogUtil.debug("Font", "Setting font family: $family")
-                    settingsRepository.setFontFamily(family)
-                    val applied = runtime.applyFontSettings()
-                    val bridge = runtime.bridge()
-                    clearUnknownFontFamily(family, applied)
-                    publishFontState(bridge)
-                    LogUtil.debug("Font", "Font applied: ${_defaultFontName.value}")
-                    withContext(TerminalDispatchers.main) {
-                        val message =
-                            if (applied == false) {
-                                context.getString(R.string.font_apply_failed, family)
-                            } else {
-                                context.getString(R.string.font_applied, _defaultFontName.value)
-                            }
-                        Toast.makeText(
-                            context,
-                            message,
-                            Toast.LENGTH_SHORT,
-                        )
-                            .show()
-                    }
-                } catch (exception: Exception) {
-                    if (exception is CancellationException) throw exception
-                    LogUtil.error("Font", "setFontFamily failed for $family", exception)
-                    withContext(TerminalDispatchers.main) {
-                        Toast.makeText(
-                            context,
-                            context.getString(R.string.font_apply_failed, exception.message ?: ""),
-                            Toast.LENGTH_SHORT,
-                        )
-                            .show()
-                    }
-                }
-            }
-        }
-    }
 
     companion object {
-        // 手柄拖动期间两次原生推送之间的最小间隔：一帧（60Hz），即高亮最多落后
-        // 手指一帧。更长（原先 50ms≈3 帧）在快速拖动时可被看出「不跟手」，
-        // 更短不会更快——notifyRender 会立刻让渲染线程做一次整屏重绘，
-        // 这个间隔正是拖动期间的渲染节奏上限。
-        private const val DRAG_NATIVE_SYNC_INTERVAL_MS = 16L
         private const val TIMEOUT_MILLIS = 5_000L
     }
-
-    private val _state = MutableStateFlow(TerminalState())
-    val state: StateFlow<TerminalState> = _state.asStateFlow()
 
     /**
      * 当前可用的 Surface。
@@ -1064,24 +463,14 @@ constructor(
             ),
         )
 
-    private val _availableFonts = MutableStateFlow<List<String>>(emptyList())
-    val availableFonts: StateFlow<List<String>> = _availableFonts.asStateFlow()
+    /** 系统可用字体族（枚举由 FontManager 负责）。 */
+    val availableFonts: StateFlow<List<String>> = fontManager.availableFonts
 
-    private val _defaultFontName = MutableStateFlow("")
-    val defaultFontName: StateFlow<String> = _defaultFontName.asStateFlow()
+    /** 原生当前默认字体族名（由 FontManager 发布）。 */
+    val defaultFontName: StateFlow<String> = fontManager.defaultFontName
 
-    private val _fontInfo = MutableStateFlow<FontInfo?>(null)
-    val fontInfo: StateFlow<FontInfo?> = _fontInfo.asStateFlow()
-
-    /**
-     * 从原生发布字体族名与字体信息，两个字段总是同批写入。
-     *
-     * null 即「原生尚未上报」：设置页据此只显示族名与字号，不伪造单元格尺寸。
-     */
-    private fun publishFontState(bridge: Bridge?) {
-        _defaultFontName.value = bridge?.getDefaultFontName().orEmpty()
-        _fontInfo.value = bridge?.getFontInfo()
-    }
+    /** 原生字体信息；null 表示原生尚未上报（由 FontManager 发布）。 */
+    val fontInfo: StateFlow<FontInfo?> = fontManager.fontInfo
 
     init {
         // 首次启动：固定一个按设备自适应的默认字号，使网格在用户触碰字号滑块前即可读。
@@ -1101,7 +490,11 @@ constructor(
                     _state.update { current ->
                         current.copy(
                             selection =
-                            clampSelectionToGrid(current.selection, runtimeState.rows, runtimeState.cols),
+                            selectionManager.clampSelectionToGrid(
+                                current.selection,
+                                runtimeState.rows,
+                                runtimeState.cols,
+                            ),
                         )
                     }
                 }
@@ -1144,7 +537,7 @@ constructor(
                         fontManager.applyStoredFontSettings()
                         // 字体查询是同步 JNI，不得在 Main.immediate 收集器上执行。
                         viewModelScope.launch(TerminalDispatchers.inputOutput) {
-                            publishFontState(runtime.bridge())
+                            fontManager.publishFontState(runtime.bridge())
                         }
                     }
                 } else {
@@ -1295,227 +688,17 @@ constructor(
         createSession()
     }
 
-    fun setBootstrapUrl(url: String) {
-        bootstrapUrlEdited = true
-        settingsRepository.recordBootstrapUrlEdit(url)
-    }
+    // ── 主题转发（实现在 ThemeManager） ──
 
-    private val _bootstrapRunning = MutableStateFlow(false)
-    val bootstrapRunning: StateFlow<Boolean> = _bootstrapRunning.asStateFlow()
+    fun setThemeName(name: String) = themeManager.setThemeName(name)
 
-    private val _bootstrapResult = MutableStateFlow<String?>(null)
-    val bootstrapResult: StateFlow<String?> = _bootstrapResult.asStateFlow()
+    fun setDayThemeName(name: String) = themeManager.setDayThemeName(name)
 
-    private val _bootstrapProgress =
-        MutableStateFlow<BootstrapProgress?>(null)
-    val bootstrapProgress: StateFlow<BootstrapProgress?> =
-        _bootstrapProgress.asStateFlow()
+    fun setNightThemeName(name: String) = themeManager.setNightThemeName(name)
 
-    /** 把引导结果映射为本地化文案；失败负载是机器可读键（见 [BootstrapOrchestrator]）。 */
-    private fun bootstrapOutcomeText(result: Result<String>): String = result.fold(
-        onSuccess = { diagnostics ->
-            val headline = context.getString(R.string.bootstrap_installed_success)
-            if (diagnostics.isEmpty()) {
-                headline
-            } else {
-                context.getString(R.string.bootstrap_postinst_errors) + "\n" + diagnostics
-            }
-        },
-        onFailure = { exception ->
-            when (exception.message) {
-                BootstrapOrchestrator.ERROR_PRIMARY_USER_REQUIRED ->
-                    context.getString(R.string.bootstrap_primary_user_required)
+    fun setThemeMode(mode: String) = themeManager.setThemeMode(mode)
 
-                BootstrapOrchestrator.ERROR_ALREADY_IN_PROGRESS ->
-                    context.getString(R.string.bootstrap_already_in_progress)
-
-                BootstrapOrchestrator.ERROR_NO_URL ->
-                    context.getString(R.string.bootstrap_no_url)
-
-                // 编排器已把每条失败收敛成只含异常类名的文案（原始消息可能嵌入引导 URL，
-                // 故不外泄），这里再取一次类名会把那层收敛整个抹掉：真机上 `file://`
-                // 被 SELinux 拒绝时用户只看到「安装失败：Exception」，无从判断该换
-                // 预设、换 https 还是改从文件安装。裸异常才退回类名。
-                else -> context.getString(
-                    R.string.bootstrap_error,
-                    exception.message ?: exception.javaClass.simpleName,
-                )
-            }
-        },
-    )
-
-    /** 在线与离线安装路径共用的安装器与二阶段执行器配对；目录取自三处入口共用的 [bootstrapDirectories]。 */
-    private fun bootstrapComponents(
-        onProgress: BootstrapProgressCallback,
-    ): Pair<
-        BootstrapInstaller,
-        SecondStageRunner,
-        > {
-        val directories = bootstrapDirectories(context)
-        return BootstrapInstaller(
-            prefixDir = directories.prefix,
-            homeDir = directories.home,
-            stagingDir = directories.staging,
-            onProgress = onProgress,
-        ) to SecondStageRunner(
-            prefixDir = directories.prefix,
-            homeDir = directories.home,
-            onProgress = onProgress,
-        )
-    }
-
-    /**
-     * 引导安装共用的守卫与协程骨架：经 [bootstrapRunning] 上的 CAS 串行化并发运行、
-     * 重置进度状态，并把失败映射为同一条错误消息。
-     * 调用方提供安装主体，它会收到共享的进度回调。
-     */
-    private fun startBootstrapJob(block: suspend (BootstrapProgressCallback) -> Unit) {
-        // CAS 使快速连点安装按钮无法启动两个并发安装。
-        if (!_bootstrapRunning.compareAndSet(false, true)) return
-        viewModelScope.launch(TerminalDispatchers.inputOutput) {
-            _bootstrapResult.value = null
-            _bootstrapProgress.value = null
-            try {
-                val onProgress =
-                    BootstrapProgressCallback { progress ->
-                        _bootstrapProgress.value = progress
-                    }
-                block(onProgress)
-            } catch (exception: Exception) {
-                if (exception is CancellationException) throw exception
-                LogUtil.error("TerminalViewModel", "Bootstrap failed", exception)
-                _bootstrapResult.value =
-                    context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
-            } finally {
-                _bootstrapRunning.value = false
-            }
-        }
-    }
-
-    fun runBootstrap() {
-        startBootstrapJob { onProgress ->
-            val downloader =
-                BootstrapDownloader(
-                    context,
-                    onProgress = onProgress,
-                )
-            val (installer, secondStage) = bootstrapComponents(onProgress)
-            val orchestrator =
-                BootstrapOrchestrator(
-                    downloader,
-                    installer,
-                    secondStage,
-                    onProgress = onProgress,
-                )
-            // 直接读取防抖后的值：DataStore 写入有防抖
-            // （terminal.emulator.settings.SettingsRepository.DEBOUNCE_MILLIS），
-            // 故用户在输入后立刻点安装时 first() 仍可能返回旧 URL。此前此处硬写
-            // 「500ms」而实际是 300ms，改动后就会漂移，故改为引用常量。
-            // 已编辑的输入框（即使被清空）优先于已存储的 URL。
-            val edited = settingsRepository.latestBootstrapUrlEdit()
-            val url =
-                if (bootstrapUrlEdited && edited != null) {
-                    edited
-                } else {
-                    settingsRepository.bootstrapUrl.first()
-                }
-            val result = orchestrator.ensureBootstrap(url)
-            _bootstrapResult.value = bootstrapOutcomeText(result)
-        }
-    }
-
-    /**
-     * 从 SAF URI 离线安装引导。用户经 `ActivityResultContracts.OpenDocument` 选择 .zip 文件；
-     * 其内容被复制到缓存文件，再送入与在线路径相同的安装器管线
-     * （installer.install → secondStage.run）。无需网络；已下载的引导 URL 被忽略。
-     */
-    fun installOffline(uri: Uri) {
-        startBootstrapJob { onProgress ->
-            val (installer, secondStage) = bootstrapComponents(onProgress)
-            // 把 SAF URI 内容复制到临时缓存文件——安装器需要一个 File
-            // （它会对 zip 做哈希与流式读取）。缓存目录总是可写，
-            // 且会在系统压力下被清理。
-            _bootstrapProgress.value = BootstrapProgress.Downloading(0, 0)
-            val cacheFile = File(context.cacheDir, "offline-bootstrap.zip")
-            try {
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    cacheFile.outputStream().use { output ->
-                        copyBootstrapArchive(
-                            input = input,
-                            output = output,
-                            onCopied = { copied ->
-                                _bootstrapProgress.value =
-                                    BootstrapProgress.Downloading(copied, 0)
-                            },
-                        )
-                    }
-                } ?: throw java.io.IOException("Failed to open bootstrap file")
-                val result = installer.install(cacheFile)
-                if (result.isSuccess) {
-                    val secondResult = secondStage.run()
-                    if (!secondResult.success) {
-                        val failureDiagnostics = secondResult.errors.take(3).joinToString("\n") { "- $it" }
-                        _bootstrapResult.value =
-                            context.getString(
-                                R.string.bootstrap_error,
-                                failureDiagnostics.ifEmpty { "Postinst failed" },
-                            )
-                    } else {
-                        _bootstrapProgress.value = BootstrapProgress.Complete
-                        val headline = context.getString(R.string.bootstrap_installed_from_file)
-                        _bootstrapResult.value = headline
-                    }
-                } else {
-                    _bootstrapResult.value =
-                        context.getString(
-                            R.string.bootstrap_error,
-                            result.exceptionOrNull()?.javaClass?.simpleName,
-                        )
-                }
-            } finally {
-                // 中转包无论成败都必须删：留在 cacheDir 的是数百 MB 的引导归档，
-                // 复制中途失败留下的半截内容同样占着空间。
-                cacheFile.delete()
-            }
-        }
-    }
-
-    fun setThemeName(name: String) = applyThemeSettings { settingsRepository.setThemeName(name) }
-
-    fun setDayThemeName(name: String) = applyThemeSettings {
-        settingsRepository.setDayThemeName(name)
-    }
-
-    fun setNightThemeName(name: String) = applyThemeSettings {
-        settingsRepository.setNightThemeName(name)
-    }
-
-    fun setThemeMode(mode: String) = applyThemeSettings { settingsRepository.setThemeMode(mode) }
-
-    fun setAppThemeMode(mode: String) = applyThemeSettings {
-        settingsRepository.setAppThemeMode(mode)
-    }
-
-    /**
-     * 持久化一项主题设置，然后把整个主题重新应用到 bridge。由五个主题设置器共用。
-     *
-     * 存储里失效的主题标识由运行期一处清完（`clearUnknownThemeNames`，三个键一并
-     * 查），此处 MUST NOT 再兜一层异常重试：那一层捕获不到真正会抛的那个异常类型，
-     * 反而会在原生字节布局出问题时把用户的主题重写掉——把契约破裂藏成「设置已修复」。
-     */
-    private fun applyThemeSettings(persist: suspend () -> Unit) {
-        viewModelScope.launch(TerminalDispatchers.inputOutput) {
-            persist()
-            runtime.applySettings()
-        }
-    }
-
-    /** 字体列表是否已枚举过（进程内一次，见 [refreshFontList]）。 */
-    @Volatile private var fontListLoaded = false
-
-    // 在 UI 线程写入、在 IO 协程读取；volatile 使可见性显式化，
-    // 而不依赖隐式的 happens-before 关系。
-    @Volatile private var bootstrapUrlEdited = false
+    fun setAppThemeMode(mode: String) = themeManager.setAppThemeMode(mode)
 
     /** 死键（组合符）状态：组合键本身不产生输出，等下一次击键合成。 */
     private val deadKeys = terminal.emulator.input.DeadKeyState()
