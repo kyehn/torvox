@@ -1,6 +1,7 @@
 package terminal.emulator
 
 import terminal.emulator.ui.SelectionBounds
+import terminal.emulator.ui.clampSelection
 import terminal.emulator.ui.normalizeSelectionAnchors
 
 /** 上游选择派生查询回传的界限数组长度：[startRow, startCol, endRow, endCol]。 */

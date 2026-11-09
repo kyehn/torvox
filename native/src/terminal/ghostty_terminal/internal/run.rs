@@ -367,7 +367,8 @@ impl super::GhosttyTerminal {
         // 非零值即启用回滚（回滚关闭时 scrollback_rows 查询返回 0）。
         // 字节预算必须同步解除：上游默认字节上限先于行数触发，回滚
         // （DEFAULT_SCROLLBACK_LINES 行）会被拦腰截断到几百行。行数是唯一约束。
-        if let Err(error) = terminal.set_scrollback_max_bytes(None) {
+        // 上游语义：None 恢复默认的 10 000 字节预算，无上限须显式传 `Some(usize::MAX)`。
+        if let Err(error) = terminal.set_scrollback_max_bytes(Some(usize::MAX)) {
             log::error!("ghostty_terminal: set_scrollback_max_bytes failed: {error}");
         }
         if let Err(error) =

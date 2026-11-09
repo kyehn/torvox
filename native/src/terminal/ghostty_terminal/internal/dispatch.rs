@@ -221,7 +221,7 @@ impl super::GhosttyTerminal {
             }
             Query::TakeKittyGraphicsImage { id, tx } => {
                 let kitty_graphics_data = (|| -> Option<KittyGraphicsImageData> {
-                    let graphics = terminal.kitty_graphics().ok()?;
+                    let graphics = terminal.kitty_graphics().ok().flatten()?;
                     let image = graphics.image(id)?;
                     let (width, height, rgba) = Self::kitty_image_to_rgba(&image)?;
                     Some(KittyGraphicsImageData {

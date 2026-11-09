@@ -41,7 +41,8 @@ impl super::GhosttyTerminal {
         encoder.set_any_button_pressed(!matches!(action, mouse::Action::Release));
         let cols = grid_cols(terminal);
         let rows = grid_rows(terminal);
-        encoder.set_size(mouse::EncoderSize {
+        // 尺寸写不进编码器时事件不可用：编码器仍持旧尺寸，坐标会按过期网格换算。
+        if let Err(error) = encoder.set_size(mouse::EncoderSize {
             screen_width: cols.saturating_mul(cell_width.max(1.0) as u32),
             screen_height: rows.saturating_mul(cell_height.max(1.0) as u32),
             cell_width: cell_width.max(1.0) as u32,
@@ -50,7 +51,10 @@ impl super::GhosttyTerminal {
             padding_bottom: 0,
             padding_right: 0,
             padding_left: 0,
-        });
+        }) {
+            log::error!("ghostty_terminal: mouse encoder size rejected: {error}");
+            return;
+        }
         event.set_position(mouse::Position {
             x: position.0,
             y: position.1,

@@ -33,19 +33,27 @@ impl super::GhosttyTerminal {
         };
         let selection =
             libghostty_vt::selection::Selection::new(start_gref, end_gref, SELECTION_RECTANGLE);
-        let mut formatter = match libghostty_vt::fmt::Formatter::new(
-            terminal,
-            libghostty_vt::fmt::FormatterOptions::new()
-                .with_unwrap(true)
-                .with_trim(true)
-                .with_selection(&selection),
-        ) {
+        let mut formatter = match libghostty_vt::fmt::Formatter::new(terminal) {
             Ok(initialized_formatter) => initialized_formatter,
             Err(error) => {
                 log::error!("ghostty_terminal: formatter new failed: {error}");
                 return String::new();
             }
         };
+        // SAFETY: 选区两端点取自同一终端活动屏的网格快照（`absolute_point` + `grid_ref`），
+        // 且建格式化器与装选区之间没有任何终端写操作，快照仍然有效。
+        if let Err(error) = unsafe { formatter.set_selection(Some(&selection)) } {
+            log::error!("ghostty_terminal: formatter set_selection failed: {error}");
+            return String::new();
+        }
+        if let Err(error) = formatter.set_unwrap(true) {
+            log::error!("ghostty_terminal: formatter set_unwrap failed: {error}");
+            return String::new();
+        }
+        if let Err(error) = formatter.set_trim(true) {
+            log::error!("ghostty_terminal: formatter set_trim failed: {error}");
+            return String::new();
+        }
         match formatter.format_alloc(None) {
             Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
             Err(error) => {

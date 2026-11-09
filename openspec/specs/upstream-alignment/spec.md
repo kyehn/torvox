@@ -38,6 +38,13 @@ master rev，MUST NOT 长期停在某个旧 rev 上——DESIGN 已要求「跟�
       rev 的唯一载体是 `Cargo.toml` 的依赖钉——那是构建清单的功能性声明，不是正文。
       「落后多少」由提交日期与提交数差表达，与 hash 无关
 
+#### Scenario: 上游改的是语义而非签名
+
+- **WHEN** 上游改动使既有调用的**含义**改变而签名不变（如回滚字节预算的 `None`
+      由「无上限」变为「恢复默认上限」）
+- **THEN** 本仓 MUST 逐条核对该调用点的既有取值是否仍表意，MUST 用既有本地用例
+      钉住行为（去掉修复即失败），MUST NOT 只以「能编译」判定跟进完成
+
 ### Requirement: 上游测试资产只在不产生自验证时采纳
 
 引入任何上游项目的测试体系、测试数据或测试样例时，MUST 满足全部三条：
@@ -486,6 +493,9 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | `style::RgbColor::parse` / `perceived_luminance` | 采用（已修） | 主题色值解析与深浅分组原为本仓手写（`#RGB` 展开、Rec.601 加权 0.299/0.587/0.114）；两者都取自上游，阈值语义与 ghostty 一致 |
 | `on_clipboard_read` | 不采用 | 上游要求在回调内同步应答（VT 流暂停）。本仓的应答链必须异步：剪贴板内容来自 Android 系统剪贴板，经 `pollEvent` 上报后再回写 PTY；若改走上游回调，VT 线程要阻塞到 Kotlin 应答，终端在应答期间冻结。识别仍需自研扫描（上游回调装上后才拦截得到），故净收益为负 |
 | `fmt::Formatter` 取全量纯文本 | 不采用 | 文档写明只覆盖 active screen，而本仓 `ReadAllText` 的口径是「回滚 + 视口」；上游补回滚参数后才可能跟进 |
+| `fmt::Formatter` 取选区文本 | 采用（已修） | 选区文本经上游格式化器提取（换行感知、CJK 宽字符不被切开）；上游把选项改为活选项后，装指定选区须走 `set_selection`（上游标为 unsafe），本仓在 `internal/selection.rs` 的 `selection_text_impl` 处按 SAFETY 约定装同一终端活动屏的网格快照 |
+| `Terminal::set_scrollback_max_bytes` | 采用（已修） | 回滚以行数为唯一约束，字节预算须显式解除；上游语义由「`None` 解除」改为「`None` 恢复默认的 10 000 字节预算」，故改传 `Some(usize::MAX)`，否则深缓冲回滚被截断到几百行（`scrollback_deep_buffer_does_not_collapse` 钉住） |
+| `mouse::Encoder::set_size` | 采用（已修） | 上游改为返回 `Result`：尺寸写不进编码器时该事件不可用，本仓记错误并丢弃事件，不沿用旧尺寸换算坐标 |
 
 ### Requirement: 六大上游对标结论按「能力 → 本仓现状 → 差距 → 阻塞层」登记
 
@@ -516,7 +526,7 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | Kitty 图像 PNG 解码 | `kitty/graphics.rs:997` 的 `RustPngDecoder`（`pub const fn new`）经 `set_png_decoder` 注册；解码前先按 libghostty 分配器取定长缓冲，未受该上限约束的尺寸不会被 PNG 头放大 | 已采纳（本次改判）：删除本仓 60 行等价实现与 `png` 直接依赖 | 无 | 无 |
 | 颜色语法与深浅判定 | `style.rs:390` `RgbColor::parse`（3/6/9/12 位 hex、X11 名、`rgb:`/`rgbi:`）与 `style.rs:415` `perceived_luminance`（文档写明「背景亮度超过 0.5 即视为浅色」） | 已采纳：主题色值与深浅分组都走上游，本仓不再手写 `#RGB` 展开与 Rec.601 公式 | 无 | 无 |
 | 终端模式查询 | `terminal.rs:1380` `Mode::BRACKETED_PASTE`、`terminal.rs:1367` `Mode::FOCUS_EVENT` 具名常量 | 已采纳：`Query::ModeGet` 携带上游 `Mode`，删掉 `(u16, u8)` 裸号与各调用点的数字 | 无 | 无 |
-| `fmt::Formatter` 全量纯文本 | `fmt.rs:163` `Formatter::new(terminal, opts)` 文档写明「a terminal's **active screen**」，只覆盖活动屏 | 不采纳：本仓的 `ReadAllText` 覆盖回滚 + 视口（`scrollback_len + grid_rows`），格式化器取不到已滚出的行 | 逐格 FFI 扫描（每格 `grid_ref`→`cell`→`codepoint`）在回滚填满时单趟可越过查询超时，靠 `all_text` 缓存兜住 | 上游（格式化器需补回滚范围参数） |
+| `fmt::Formatter` 全量纯文本 | `fmt.rs` `Formatter::new(terminal)` 文档写明只覆盖「a terminal's **active screen**」，只覆盖活动屏 | 不采纳：本仓的 `ReadAllText` 覆盖回滚 + 视口（`scrollback_len + grid_rows`），格式化器取不到已滚出的行 | 逐格 FFI 扫描（每格 `grid_ref`→`cell`→`codepoint`）在回滚填满时单趟可越过查询超时，靠 `all_text` 缓存兜住 | 上游（格式化器需补回滚范围参数） |
 | `on_clipboard_read` 同步回调 | `terminal.rs:2754` 回调文档：应答须在回调返回前完成，回调期间 VT 流暂停；不装回调则 OSC 52 读取被忽略 | 不采纳：应答链是「VT 线程 → 会话队列 → `pollEvent` → Kotlin 读系统剪贴板 → JNI 回写 PTY」的异步链，改用回调须让 VT 线程阻塞等待 Android 侧剪贴板应答 | 读取请求的识别自研逐字节状态机（`output_processor.rs`），应答由本仓拼 OSC 52 帧 + base64 | 本仓（架构取舍：宁可不走上游回调，也不冻结 VT 线程） |
 
 ### Requirement: 跨 JNI 扁平数据 MUST 用直接量而非 JSON
@@ -1392,7 +1402,7 @@ MUST NOT 攒批后一次补写。整批研究收敛为 105 个键、187 行，�
 | `18-mirute02-anoterm.md` | P0「零宽判法加宽表加歧义开关」「粘包重解加永不抛」「搜索无正则加行粒度加进回滚加三分之一落点」「组字内外删除分流加恒零光标模式」 | 已有去向：宽度表归上游（`upstream-alignment` 的 mintty 行口径「宽度表归上游」，本仓不自建宽表），零宽与代理项归 `cjk-rendering`；粘包重解同「PTY 输出合并投递与 UTF-8 粘包保留解码」行（Rust 字节直传上游 stream）；搜索四项归 `text-search`（上行匹配语义无开关、行粒度、定位保留上下文）；组字分流归 `ime-editor-contract` 与「IME 组字内外删除分流、组字光标模式」行 |
 | `18-mirute02-anoterm.md` | P1「异种拒加首见指纹展示」「裁弱算法」「馈送分片加同监绘制」「备屏不污染回滚」「尺寸变更回滚追随」 | 前三项不适用：本仓无 SSH／算法协商面，输出管道为 Rust 字节直传（同粘包解码行）；后两项仅参照——备屏与回滚语义归上游 Ghostty，本仓不重实现 |
 | `18-mirute02-anoterm.md` | P2「引号优先加折行估计加白名单」「后台停收集加 bell 节流」 | 链接屏扫白名单不采纳：本仓链接识别只走 Ghostty 查询、不做自研屏扫（与 charon 行同口径）；bell 节流已由 `runtime/BellPlayer.kt` 的限频窗口覆盖（`termux-configuration`「bell-character 的三态执行」），上游的后台停收集形态不另立 |
-| `18-mirute02-anoterm.md` | P2「回滚上限防爆内存」 | 已实现：回滚行数固定 2000（`native/src/terminal/session/mod.rs` 的 `DEFAULT_SCROLLBACK_LINES`），`set_scrollback_max_bytes(None)` 解除字节上限、无用户可调项（`PROHIBITED.md` 明禁回滚行数设置） |
+| `18-mirute02-anoterm.md` | P2「回滚上限防爆内存」 | 已实现：回滚行数固定 2000（`native/src/terminal/session/mod.rs` 的 `DEFAULT_SCROLLBACK_LINES`），`set_scrollback_max_bytes(Some(usize::MAX))` 解除字节上限（上游语义：`None` 是恢复默认的 10 000 字节预算）、无用户可调项（`PROHIBITED.md` 明禁回滚行数设置） |
 | `19-TOYTTQE-PufiX.md` | 全篇「无 PTY／VT／渲染；动态执行外部文件与落盘画像与本仓方向冲突；无可参考点」 | 已登记为不采纳：复查台账行写明 13 个 Python 文件的桌面 REPL 只产生 ANSI 从不解析、无网格无 PTY、零测试；动态执行外部文件与落盘画像未声明，不立项 |
 | `20-Malik1stmkw-termux-clone.md` | 全篇「仓库仅一句 README，无代码，无可参考点」 | 已登记为不采纳：复查台账行写明全仓仅 1 个 59 字节的 `README.md`、无源码或二进制，「终端模拟器」主张在仓内无支撑 |
 | `21-Adhi-hub07-on3-terminal.md` | P0「子进程开从端、setsid 后开从端建控终端、关多余 fd、清空环境后重装的核对清单」＋P1「termios 与窗口像素尺寸设置；exec 失败写从端报错后退出的诊断姿势」 | 已实现并已立规范：`pty-lifecycle` 增量「子进程侧的 fork/exec 不变量」（本次随该文档补入）四场景分别钉住控制终端、`FD_CLOEXEC`、`100 + errno` 退出码与从端错误行、`IUTF8` 与流控关闭；实现见 `native/src/terminal/pty.rs` 的 `spawn` 与 `child_exit_with_reason`。该文档自设的前提（「规范未细化 fork 步骤，引入前须先立规范」）因此闭合 |

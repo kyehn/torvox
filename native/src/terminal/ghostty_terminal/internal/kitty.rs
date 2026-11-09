@@ -80,7 +80,7 @@ fn scrollback_delete_commands(terminal: &Terminal<'_, '_>) -> Vec<u8> {
             return Vec::new();
         }
     };
-    let Ok(graphics) = terminal.kitty_graphics() else {
+    let Ok(Some(graphics)) = terminal.kitty_graphics() else {
         return Vec::new();
     };
     let Ok(mut placements) = iterator.update(&graphics) else {
@@ -282,7 +282,7 @@ impl super::GhosttyTerminal {
                 return Vec::new();
             }
         };
-        let Ok(graphics) = terminal.kitty_graphics() else {
+        let Ok(Some(graphics)) = terminal.kitty_graphics() else {
             return Vec::new();
         };
         match graphics.generation() {

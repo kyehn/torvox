@@ -353,6 +353,7 @@ impl super::GhosttyTerminal {
                 kitty_generation: terminal
                     .kitty_graphics()
                     .ok()
+                    .flatten()
                     .and_then(|graphics| graphics.generation().ok())
                     .unwrap_or(0),
                 kitty_placement_generation: snapshot.image_placements_generation().unwrap_or(0),
