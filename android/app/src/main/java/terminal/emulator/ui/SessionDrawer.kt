@@ -78,14 +78,15 @@ fun SessionDrawer(
         modifier =
         modifier
             .fillMaxHeight()
-            // 抽屉宽度 = 抽屉可用宽度的 84%，上限 320.dp。
-            // `fillMaxWidth(0.84f)` 交给下游的是 min=max=0.84×W 的单点约束，`widthIn`
-            // 把该点夹进区间。下限 MUST NOT 设置：ZTE 折叠屏外屏可用宽度只有约 236dp，
-            // 0.84×236≈198dp 的抽屉会被 240dp 下限强制抬宽到 240dp——比可用宽度还宽。
-            // 按钮行与会话项在 198dp 上不溢出，无需下限保底；上限 320.dp 收窄宽屏
-            // （0.84×411dp≈345dp）。
-            .fillMaxWidth(0.84f)
-            .widthIn(max = 320.dp)
+            // 抽屉宽度 = 抽屉可用宽度的 75%，上限 280.dp。
+            // `fillMaxWidth(0.75f)` 交给下游的是 min=max=0.75×W 的单点约束，`widthIn`
+            // 把该点夹进区间。
+            // 下限 MUST NOT 设置：ZTE 折叠屏外屏可用宽度只有约 236dp，0.75×236≈177dp；
+            // 历史上的 240dp 下限会把抽屉抬宽到比可用宽度还宽，已移除且不得重新引入。
+            // 按钮行与会话项在 177dp 上不溢出，无需下限保底；上限 280.dp 收窄宽屏
+            // （0.75×411dp≈308dp），并给终端留出可辨认的一条。
+            .fillMaxWidth(0.75f)
+            .widthIn(max = 280.dp)
             .background(backgroundColor)
             .testTag("SessionDrawer")
             // 需要 AndroidManifest 的 `windowSoftInputMode="adjustNothing"`
@@ -173,7 +174,7 @@ private fun AddSessionButton(onClick: () -> Unit, textColor: Color, accent: Colo
             .padding(horizontal = 12.dp)
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp)
+            .padding(vertical = 6.dp)
             .testTag("AddSessionButton"),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -216,7 +217,7 @@ private fun SessionDrawerActions(
         modifier =
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         actions.chunked(ACTIONS_PER_ROW).forEach { row ->
@@ -345,21 +346,22 @@ private fun DrawerActionButton(
         modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 8.dp)
+            .padding(horizontal = 4.dp, vertical = 4.dp)
             .testTag(testTag),
     ) {
         Icon(
             imageVector = icon,
             contentDescription = label,
             tint = textColor.copy(alpha = 0.8f),
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(20.dp),
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = label,
             color = textColor.copy(alpha = 0.7f),
             fontSize = 11.sp,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

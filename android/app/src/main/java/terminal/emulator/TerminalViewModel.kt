@@ -52,9 +52,6 @@ import terminal.emulator.settings.MacroStep
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.settings.TermuxConfiguration
 import terminal.emulator.settings.TermuxPropertiesRepository
-import terminal.emulator.ui.SelectionBounds
-import terminal.emulator.ui.clampSelection
-import terminal.emulator.ui.normalizeSelectionAnchors
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.formatWorkingDirectory
 import terminal.emulator.util.runCatchingCancellable

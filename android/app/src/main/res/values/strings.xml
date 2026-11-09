@@ -129,5 +129,5 @@
     <string name="session_number">会话 %1$d</string>
     <string name="soft_keyboard_disabled">软键盘已禁用，轻点终端不再弹出</string>
     <string name="soft_keyboard_enabled">软键盘已启用，轻点终端即可输入</string>
-    <string name="toggle_keyboard">显示、隐藏或禁用键盘</string>
+    <string name="toggle_keyboard">显示/隐藏输入法</string>
 </resources>

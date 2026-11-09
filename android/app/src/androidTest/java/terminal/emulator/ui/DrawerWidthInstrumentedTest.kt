@@ -16,23 +16,23 @@ import terminal.emulator.waitForTerminalPixels
 /**
  * 会话抽屉宽度验收：抽屉 MUST NOT 宽于可用宽度。
  *
- * 宽度口径 = 抽屉可用宽度的 84%，上限 320dp，**无下限**：ZTE 折叠屏外屏（约 236dp）
- * 上旧的 240dp 下限会把 0.84×236≈198dp 的抽屉强制抬宽到 240dp，比可用宽度还宽。
- * 三条断言：不超可用宽、不超 320dp 上限、小屏上不被下限抬宽（超出 84% 口径）。
+ * 宽度口径 = 抽屉可用宽度的 75%，上限 280dp，**无下限**：ZTE 折叠屏外屏（约 236dp）
+ * 上旧的 240dp 下限会把 0.75×236≈177dp 的抽屉强制抬宽到 240dp，比可用宽度还宽。
+ * 三条断言：不超可用宽、不超 280dp 上限、小屏上不被下限抬宽（超出 75% 口径）。
  */
 @RunWith(JUnit4::class)
 class DrawerWidthInstrumentedTest : ComposeTerminalLogcatTest() {
     companion object {
         private const val WIDTH_TOLERANCE_PX = 2f
 
-        /** 与 [SessionDrawer] 的 `fillMaxWidth(0.84f)` 同口径。 */
-        private const val DRAWER_WIDTH_FRACTION = 0.84f
+        /** 与 [SessionDrawer] 的 `fillMaxWidth(0.75f)` 同口径。 */
+        private const val DRAWER_WIDTH_FRACTION = 0.75f
 
-        /** 与 [SessionDrawer] 的 `widthIn(max = 320.dp)` 同口径。 */
-        private const val DRAWER_WIDTH_CAP_DP = 320
+        /** 与 [SessionDrawer] 的 `widthIn(max = 280.dp)` 同口径。 */
+        private const val DRAWER_WIDTH_CAP_DP = 280
 
-        /** 可用宽度低于该值时，240dp 下限会抬宽抽屉（0.84 × 286dp ≈ 240dp）。 */
-        private const val MIN_FLOOR_OVERFLOW_THRESHOLD_DP = 286
+        /** 可用宽度低于该值时，240dp 下限会抬宽抽屉（0.75 × 320dp = 240dp）。 */
+        private const val MIN_FLOOR_OVERFLOW_THRESHOLD_DP = 320
     }
 
     @Before
@@ -72,7 +72,7 @@ class DrawerWidthInstrumentedTest : ComposeTerminalLogcatTest() {
         if (decorWidth < MIN_FLOOR_OVERFLOW_THRESHOLD_DP * density) {
             val fractionPx = DRAWER_WIDTH_FRACTION * decorWidth
             assertTrue(
-                "小屏上抽屉不得被宽度下限抬宽 (抽屉=$drawerWidth 84%=$fractionPx)",
+                "小屏上抽屉不得被宽度下限抬宽 (抽屉=$drawerWidth 75%=$fractionPx)",
                 drawerWidth <= fractionPx + WIDTH_TOLERANCE_PX,
             )
         }
