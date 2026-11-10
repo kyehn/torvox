@@ -4,11 +4,8 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.PixelFormat
-import android.graphics.Rect
-import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.SystemClock
 import android.util.AttributeSet
@@ -21,7 +18,6 @@ import android.view.PointerIcon
 import android.view.ScaleGestureDetector
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.WindowInsets.Type
@@ -36,7 +32,6 @@ import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.view.inputmethod.SurroundingText
 import android.view.inputmethod.TextAttribute
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Magnifier
 import android.widget.PopupWindow
@@ -74,7 +69,6 @@ import terminal.emulator.util.runCatchingCancellable
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
-import android.R as AndroidR
 
 class TerminalSurface
 @JvmOverloads
@@ -1350,408 +1344,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // 五之四、选区手柄弹窗
-    // ══════════════════════════════════════════════════════════════════════
-
-    /**
-     * 拥有选区手柄覆盖层：一个铺满 Surface 的 TYPE_APPLICATION_SUB_PANEL 窗口承载两个泪滴手柄。
-     *
-     * 为何用单个覆盖层而非两个 WRAP_CONTENT 弹窗：
-     * - 拖动时只需在覆盖层内改 View 的 translationX/Y 并 invalidate——
-     *   每帧零次 WindowManager IPC（旧的双手柄弹窗方案每个 ACTION_MOVE
-     *   要发 2 次 PopupWindow.update 的 binder 事务）；
-     * - 单一窗口整体创建/关闭，不会泄漏孤立手柄（旧的 dismiss 异常路径
-     *   会把窗口留在屏幕上——即「多个指针始终不消失」的反馈）；
-     * - [HandleOverlayLayout.dispatchTouchEvent] 把手柄触摸路由到拖动逻辑，
-     *   其余全部转发给终端 Surface（termux TextSelectionPopupView 模式）。
-     *
-     * 拖动状态（handleDragState/HandleDrag/dragPointerId）保留在外层类
-     * ——触摸路径与边缘滚动 runnable 会读取它们。
-     */
-    inner class SelectionHandles {
-        private var overlayPopup: PopupWindow? = null
-        private var overlayContent: HandleOverlayLayout? = null
-        private val startHandleRect = Rect()
-        private val endHandleRect = Rect()
-
-        /**
-         * 系统 Material 选区手柄：解析平台主题属性
-         * （AndroidR.attr.textSelectHandleLeft/Right），
-         * 使手柄形态是框架自带的泪滴形而非自定义矢量图。
-         */
-        internal fun resolveSelectionHandleDrawable(left: Boolean): Drawable? {
-            val attributes =
-                intArrayOf(
-                    if (left) {
-                        AndroidR.attr.textSelectHandleLeft
-                    } else {
-                        AndroidR.attr.textSelectHandleRight
-                    },
-                )
-            val typedArray = context.theme.obtainStyledAttributes(attributes)
-            try {
-                return typedArray.getDrawable(0)
-            } finally {
-                typedArray.recycle()
-            }
-        }
-
-        fun showSelectionHandles(startRow: Int, startCol: Int, endRow: Int, endCol: Int, themeFgColor: Int) {
-            val existingContent = overlayContent
-            val existingPopup = overlayPopup
-            if (existingContent != null && existingContent.streamForwarding) {
-                existingContent.dismissOnStreamEnd(existingPopup)
-                existingContent.onStreamEnded = {
-                    dismissPopupQuietly(existingContent.consumeDeferredDismiss())
-                }
-                overlayContent = null
-                overlayPopup = null
-                startHandleRect.setEmpty()
-                endHandleRect.setEmpty()
-            } else {
-                hideSelectionHandlesNow()
-            }
-            if (startRow < 0 || startCol < 0 || endRow < 0 || endCol < 0) return
-            // showAtLocation 需要窗口 token；在 Activity 结束过渡的帧中
-            // 视图可能已 detach，调用会抛 BadTokenException。
-            // `isAttachedToWindow` 在拆除回调内部仍为 true（见 [viewDetached]），
-            // 故两条件都要查——只凭它会把窗口建在正在销毁的 Activity 上。
-            if (viewDetached || !isAttachedToWindow) return
-            if (width <= 0 || height <= 0) return
-
-            val leftDrawable = resolveSelectionHandleDrawable(left = true)?.mutate() ?: return
-            val rightDrawable = resolveSelectionHandleDrawable(left = false)?.mutate() ?: return
-            leftDrawable.setTint(themeFgColor)
-            rightDrawable.setTint(themeFgColor)
-            selectionHandleWidth = leftDrawable.intrinsicWidth
-
-            val content =
-                HandleOverlayLayout(
-                    leftDrawable,
-                    rightDrawable,
-                    leftDrawable.intrinsicWidth,
-                    leftDrawable.intrinsicHeight,
-                )
-            overlayContent = content
-            content.onStreamEnded = {
-                dismissPopupQuietly(content.consumeDeferredDismiss())
-            }
-
-            val windowLocation = IntArray(2)
-            getLocationInWindow(windowLocation)
-            val popup =
-                PopupWindow(content, width, height).apply {
-                    isClippingEnabled = false
-                    setBackgroundDrawable(null)
-                    setAnimationStyle(0)
-                    // TYPE_APPLICATION_PANEL 而非 SUB_PANEL：覆盖层与选区菜单同在一个
-                    // 选区会话里重建/创建，层号必须把次序钉死——PANEL(1001) 低于
-                    // SUB_PANEL(1002)，菜单恒在覆盖层之上。两者同类型时按添加顺序叠加，
-                    // 覆盖层每次重建都晚于菜单，会把菜单压住：菜单被压住时落在条目上的
-                    // 点击穿透到终端、被当成「柄位外的轻击」清掉选区（现象：所有菜单
-                    // 按钮失效、点击菜单消失）。
-                    setWindowLayoutType(WindowManager.LayoutParams.TYPE_APPLICATION_PANEL)
-                    isSplitTouchEnabled = false
-                    // focusable=false 使键盘输入继续流向终端，
-                    // 同时覆盖层消费其边界内的触摸（由 dispatchTouchEvent 路由）。
-                    isFocusable = false
-                    isOutsideTouchable = false
-                }
-            try {
-                popup.showAtLocation(this@TerminalSurface, 0, windowLocation[0], windowLocation[1])
-            } catch (exception: Exception) {
-                // WindowManager.BadTokenException：Activity 在 isAttachedToWindow
-                // 检查与 showAtLocation 之间被 detach。
-                LogUtil.warn(TAG, "showSelectionHandles: overlay show failed", exception)
-                overlayContent = null
-                return
-            }
-            overlayPopup = popup
-            positionAllHandles(startRow, startCol, endRow, endCol)
-        }
-
-        /**
-         * 把一个被拖动的手柄移到其锚定单元格。纯进程内视图更新：
-         * translationX/Y + invalidate，无任何 WindowManager IPC。
-         */
-        internal fun repositionHandle(which: HandleDrag, row: Int, col: Int) {
-            val content = overlayContent ?: return
-            val viewportTopGrid = currentViewportTopGrid()
-            val visibleRow = (row - viewportTopGrid).coerceIn(0, rows - 1)
-            val anchorCol = if (which == HandleDrag.START) col else col + 1
-            val (anchorXF, anchorYF) =
-                gridToScreen(
-                    visibleRow + 1,
-                    anchorCol,
-                    viewportTopGrid = 0,
-                    cellWidth = cellWidth,
-                    cellHeight = cellHeight,
-                )
-            content.position(which, Math.round(anchorXF), Math.round(anchorYF))
-            updateHitRect(which, Math.round(anchorXF), Math.round(anchorYF))
-        }
-
-        private fun positionAllHandles(startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
-            val viewportTopGrid = currentViewportTopGrid()
-            val visibleStartRow = (startRow - viewportTopGrid).coerceIn(0, rows - 1)
-            val (startX, startY) =
-                gridToScreen(
-                    visibleStartRow + 1,
-                    startCol,
-                    viewportTopGrid = 0,
-                    cellWidth = cellWidth,
-                    cellHeight = cellHeight,
-                )
-            val visibleEndRow = (endRow - viewportTopGrid).coerceIn(0, rows - 1)
-            val (endX, endY) =
-                gridToScreen(
-                    visibleEndRow + 1,
-                    endCol + 1,
-                    viewportTopGrid = 0,
-                    cellWidth = cellWidth,
-                    cellHeight = cellHeight,
-                )
-            val content = overlayContent ?: return
-            content.position(HandleDrag.START, Math.round(startX), Math.round(startY))
-            content.position(HandleDrag.END, Math.round(endX), Math.round(endY))
-            updateHitRect(HandleDrag.START, Math.round(startX), Math.round(startY))
-            updateHitRect(HandleDrag.END, Math.round(endX), Math.round(endY))
-        }
-
-        /** 两条定位路径共用的锚点计算（termux hotspot）：START 悬于其单元格角的左下，END 在右下。 */
-        private fun updateHitRect(which: HandleDrag, anchorX: Int, anchorY: Int) {
-            val handleW = selectionHandleWidth
-            if (handleW == 0) return
-            val content = overlayContent ?: return
-            val handleH = content.handleHeight
-            val handleLeft =
-                (anchorX - (if (which == HandleDrag.START) (handleW * 3) / 4 else handleW / 4)).coerceIn(
-                    0,
-                    (width - handleW).coerceAtLeast(0),
-                )
-            val handleTop = anchorY.coerceIn(0, (height - handleH).coerceAtLeast(0))
-            val handleBounds = if (which == HandleDrag.START) startHandleRect else endHandleRect
-            handleBounds.set(handleLeft, handleTop, handleLeft + handleW, handleTop + handleH)
-            handleBounds.inset(-handleW / 4, -handleH / 4)
-        }
-
-        fun hideSelectionHandles() {
-            val content = overlayContent
-            if (content?.streamForwarding == true) {
-                content.dismissOnStreamEnd(overlayPopup)
-                return
-            }
-            hideSelectionHandlesNow()
-        }
-
-        /** 手柄内容高度（菜单定位避让同源；未知时 0）。 */
-        fun contentHandleHeight(): Int = overlayContent?.handleHeight ?: 0
-
-        private fun hideSelectionHandlesNow() {
-            val popup = overlayPopup
-            overlayPopup = null
-            overlayContent = null
-            startHandleRect.setEmpty()
-            endHandleRect.setEmpty()
-            dismissPopupQuietly(popup)
-        }
-
-        private fun dismissPopupQuietly(popup: PopupWindow?) {
-            if (popup == null) return
-            try {
-                popup.dismiss()
-                return
-            } catch (exception: Exception) {
-                LogUtil.warn(TAG, "dismissPopupQuietly: dismiss failed; forcing remove", exception)
-            }
-            // 仅作兜底：dismiss 成功时 contentView 已被摘出 WindowManager，此时再
-            // removeViewImmediate 必然抛 IllegalArgumentException。原先无条件执行它，
-            // 于是**正常路径每次都抛一次异常**，而 catch 是空的——一次真实的窗口拆除
-            // 失败与「本就无需拆除」在日志里完全无法区分（禁止空 catch / 不隐藏错误）。
-            try {
-                val windowManager =
-                    context.getSystemService(Context.WINDOW_SERVICE)
-                        as WindowManager
-                windowManager.removeViewImmediate(popup.contentView)
-            } catch (exception: Exception) {
-                LogUtil.warn(TAG, "dismissPopupQuietly: forced remove failed", exception)
-            }
-        }
-
-        /**
-         * 铺满 Surface 的透明容器，承载两个泪滴手柄；手柄纯靠 translationX/Y 定位。
-         * 触摸路由：
-         * - DOWN 落在扩大的手柄命中矩形内会锁定该手柄的拖动（按手柄加锁，
-         *   另一个手柄的事件流无法抢走——根因 C3 的修复）；
-         * - 其余全部事件流原样转发给终端 Surface，
-         *   使轻击/滑动/双指缩放手势与没有覆盖层时完全一致。
-         */
-        private inner class HandleOverlayLayout(
-            private val leftDrawable: Drawable,
-            private val rightDrawable: Drawable,
-            val handleWidth: Int,
-            val handleHeight: Int,
-        ) : FrameLayout(context) {
-            private val startView = HandleView(leftDrawable)
-            private val endView = HandleView(rightDrawable)
-
-            /** 该布局当前拖拽所属的手柄；无拖拽时为 `null`。 */
-            var dragOwner: HandleDrag? = null
-            private var dragPointerLocked: Int? = null
-            var streamForwarding: Boolean = false
-                private set
-
-            private var popupDeferredDismiss: PopupWindow? = null
-            var onStreamEnded: (() -> Unit)? = null
-
-            fun dismissOnStreamEnd(popup: PopupWindow?) {
-                popupDeferredDismiss = popup
-            }
-
-            fun consumeDeferredDismiss(): PopupWindow? {
-                val pendingPopup = popupDeferredDismiss
-                popupDeferredDismiss = null
-                return pendingPopup
-            }
-
-            init {
-                addView(startView, LayoutParams(handleWidth, handleHeight))
-                addView(endView, LayoutParams(handleWidth, handleHeight))
-            }
-
-            fun position(which: HandleDrag, anchorX: Int, anchorY: Int) {
-                val view = if (which == HandleDrag.START) startView else endView
-                val targetX =
-                    (anchorX - (if (which == HandleDrag.START) (handleWidth * 3) / 4 else handleWidth / 4))
-                        .coerceIn(0, (this@TerminalSurface.width - handleWidth).coerceAtLeast(0))
-                val targetY =
-                    anchorY.coerceIn(0, (this@TerminalSurface.height - handleHeight).coerceAtLeast(0))
-                view.translationX = targetX.toFloat()
-                view.translationY = targetY.toFloat()
-                view.invalidate()
-            }
-
-            override fun dispatchTouchEvent(event: MotionEvent): Boolean = when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> routeDown(event)
-
-                MotionEvent.ACTION_MOVE -> routeMove(event)
-
-                // 包含 ACTION_POINTER_UP：当所属手指抬起而第二根仍按下时，
-                // 事件流送来的是 POINTER_UP（而非 UP）
-                // ——遗漏它会让拖动永久锁定，边缘滚动还可能自行运转。
-                MotionEvent.ACTION_UP,
-                MotionEvent.ACTION_POINTER_UP,
-                MotionEvent.ACTION_CANCEL,
-                -> routeStreamEnd(event)
-
-                // 其他指针事件（POINTER_DOWN 等）一律吞掉：
-                // 拖动或转发流被占用期间，第二根手指绝不能开启第二条流。
-                else -> true
-            }
-
-            /** DOWN：锁定手柄拖动，或开始转发终端事件流。 */
-            private fun routeDown(event: MotionEvent): Boolean {
-                val touchX = event.x.toInt()
-                val touchY = event.y.toInt()
-                val which = handleAt(touchX, touchY)
-                if (which != null) {
-                    dragOwner = which
-                    dragPointerLocked = event.getPointerId(event.actionIndex)
-                    streamForwarding = false
-                    latchDragAnchor(which, dragPointerLocked)
-                } else {
-                    dragOwner = null
-                    dragPointerLocked = null
-                    streamForwarding = true
-                    return this@TerminalSurface.dispatchTouchEvent(event)
-                }
-                return true
-            }
-
-            private fun handleAt(pixelX: Int, pixelY: Int): HandleDrag? = when {
-                !startHandleRect.isEmpty() && startHandleRect.contains(pixelX, pixelY) -> HandleDrag.START
-                !endHandleRect.isEmpty() && endHandleRect.contains(pixelX, pixelY) -> HandleDrag.END
-                else -> null
-            }
-
-            private fun lockedIndex(event: MotionEvent): Int = dragPointerLocked?.let {
-                event.findPointerIndex(
-                    it,
-                )
-            } ?: -1
-
-            /** MOVE：由本布局拥有的拖拽驱动；吞掉无关指针；否则转发。 */
-            private fun routeMove(event: MotionEvent): Boolean {
-                if (dragOwner != null) {
-                    val lockedIdx = lockedIndex(event)
-                    if (lockedIdx >= 0) {
-                        driveHandleDragMove(event.getX(lockedIdx), event.getY(lockedIdx))
-                    }
-                    // 锁定的手指已消失：吞掉来自任何其他指针的游移（多指防漂移）。
-                    return true
-                }
-                if (streamForwarding) {
-                    return this@TerminalSurface.dispatchTouchEvent(event)
-                }
-                return true
-            }
-
-            /** UP/CANCEL：仅当所属指针抬起时结束已接管的拖动；否则转发。 */
-            private fun routeStreamEnd(event: MotionEvent): Boolean {
-                if (dragOwner != null) {
-                    // 仅当抬起的指针就是锁定的持有者时才结束拖动：
-                    // ACTION_POINTER_UP 会携带所有仍按下的指针，
-                    // 故单靠 lockedIndex>=0 检查会在「第二根手指抬起而持有者
-                    // 仍在拖动」时错误地结束拖动。
-                    val endedByOwner =
-                        event.actionMasked == MotionEvent.ACTION_CANCEL ||
-                            event.getPointerId(event.actionIndex) == dragPointerLocked
-                    if (endedByOwner) {
-                        // UP 携带最终触点：快速拖动时最后一个 MOVE 常落后一两格，
-                        // 少了这一帧提交的就是旧位置——用户侧表现正是「拖动不跟手」。
-                        // 只在 UP 应用（CANCEL 无可靠坐标）。
-                        if (event.actionMasked == MotionEvent.ACTION_UP) {
-                            val lockedIdx = lockedIndex(event)
-                            if (lockedIdx >= 0) {
-                                driveHandleDragMove(event.getX(lockedIdx), event.getY(lockedIdx))
-                            }
-                        }
-                        finishHandleDrag()
-                        dragOwner = null
-                        dragPointerLocked = null
-                    }
-                    return true
-                }
-                if (streamForwarding) {
-                    val handled = this@TerminalSurface.dispatchTouchEvent(event)
-                    if (
-                        event.actionMasked == MotionEvent.ACTION_UP ||
-                        event.actionMasked == MotionEvent.ACTION_CANCEL
-                    ) {
-                        streamForwarding = false
-                        onStreamEnded?.invoke()
-                    }
-                    return handled
-                }
-                return true
-            }
-
-            private inner class HandleView(private val drawable: Drawable) : View(context) {
-                override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                    setMeasuredDimension(handleWidth, handleHeight)
-                }
-
-                override fun onDraw(canvas: Canvas) {
-                    drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
-                    drawable.draw(canvas)
-                }
-            }
-        }
-    }
-
     companion object {
-        private const val TAG = "TerminalSurface"
+        internal const val TAG = "TerminalSurface"
 
         /** 度量未就绪时的兜底网格上界：手机上的终端最多几百列。 */
         private const val MAX_FALLBACK_GRID_SIZE = 512
@@ -1877,7 +1471,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
     }
 
-    @Volatile private var rows: Int = DEFAULT_GRID_ROWS
+    @Volatile internal var rows: Int = DEFAULT_GRID_ROWS
 
     @Volatile private var cols: Int = DEFAULT_GRID_COLS
     private var surfaceWidthPixels: Int = 0
@@ -2319,7 +1913,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 并把窗口永久留在屏幕上（实测 88 次；铺满全屏的手柄覆盖层留在屏幕上后，
      * 后续用例的触摸会被它吃掉）。本旗在回调第一条语句落位，attach 时清除。
      */
-    private var viewDetached = false
+    internal var viewDetached = false
 
     @Volatile private var suppressUntilNanos = 0L
 
@@ -2454,14 +2048,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var zoomBaseFontSizeSp = 0f
     private var lastZoomPreviewNanos = 0L
 
-    internal enum class HandleDrag {
-        NONE,
-        START,
-        END,
-    }
-
     private var handleDragState = HandleDrag.NONE
-    private var selectionHandleWidth = 0
 
     /**
      * 指针 id 锁定（多指针漂移）：在 ACTION_DOWN 时由锁定拖动的那根手指设定
@@ -2619,7 +2206,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 指针锁定的选区更新 + 在视口 [touchX]/[touchY] 处的边缘滚动步进
      * （调用方已把坐标解析到锁定手指的槽位）。
      */
-    private fun driveHandleDragMove(touchX: Float, touchY: Float) {
+    internal fun driveHandleDragMove(touchX: Float, touchY: Float) {
         currentTouchX = touchX
         currentTouchY = touchY
 
@@ -2763,7 +2350,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         wideCharDragSession = false
     }
 
-    private fun latchDragAnchor(which: HandleDrag, pointerId: Int? = null) {
+    internal fun latchDragAnchor(which: HandleDrag, pointerId: Int? = null) {
         handleDragState = which
         // 抓柄即隐藏（design 决策 3）：拖动中菜单不遮挡选择；抬手由
         // finishHandleDrag 按新几何重锚重显。
@@ -2822,7 +2409,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private val clipboardAccess = ClipboardAccess(context, tag = "Surface")
     private val resizeManager = ResizeManager()
     private val imeConnection = ImeConnection()
-    private val selectionHandles = SelectionHandles()
+    private val selectionHandles = SelectionHandles(this)
 
     val isSelectingText: Boolean
         get() = viewModel?.state?.value?.selection?.active == true
@@ -3353,7 +2940,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     }
 
     /** 视口顶部显示的绝对网格行（scrollbackLength - scrollOffset）：选区矩形与拖动/光标手柄都需要的唯一来源。 */
-    private fun currentViewportTopGrid(): Int = currentScrollbackLength() - scrollOffset
+    internal fun currentViewportTopGrid(): Int = currentScrollbackLength() - scrollOffset
 
     fun scrollToRow(row: Int) {
         stopFlingAnimation()

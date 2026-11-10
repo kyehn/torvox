@@ -35,9 +35,9 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         private const val WRITE_RETRY_MAX = 3
         private const val WRITE_RETRY_INTERVAL_MS = 500L
 
-        // 手柄覆盖窗视图类名：TerminalSurface$SelectionHandles$HandleOverlayLayout。
+        // 手柄覆盖窗视图类名：SelectionHandles$HandleOverlayLayout。
         private const val HANDLE_OVERLAY_CLASS =
-            "terminal.emulator.ui.TerminalSurface\$SelectionHandles\$HandleOverlayLayout"
+            "terminal.emulator.ui.SelectionHandles\$HandleOverlayLayout"
         private const val HANDLE_WAIT_TIMEOUT_MS = 10_000L
     }
 
