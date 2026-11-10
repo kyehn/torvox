@@ -6,11 +6,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Handler
-import android.os.Looper
-import android.widget.Toast
 import terminal.emulator.MainActivity
 import terminal.emulator.R
+import terminal.emulator.TransientMessageChannel
 
 /**
  * 一次桌面通知：归属会话、标题与正文。
@@ -21,32 +19,32 @@ import terminal.emulator.R
 data class SessionNotification(val sessionId: Long, val sessionLabel: String, val title: String, val body: String)
 
 /**
- * OSC 9 / OSC 777 桌面通知的投递器（DESIGN：处理 OSC 9 等通知，输出会话序号和通知）。
+ * OSC 9 / OSC 777 桌面通知的投递器。
  *
- * 应用在前台时用 Toast（用户在终端前，不需要离开当前界面）；在后台时用系统通知
- * （Toast 在后台不可见，用户根本看不到）。
+ * 应用在前台时用应用内提示通道呈现（用户在终端前，不需要离开当前界面）；在后台时用系统
+ * 通知（应用内提示在后台不可见，用户根本看不到）。
  *
- * 两种动作以 lambda 注入：单测直接验证「前台走 Toast、后台走系统通知」与文本口径，
+ * 两种动作以 lambda 注入：单测直接验证「前台走应用内提示、后台走系统通知」与文本口径，
  * 不必伪造系统服务。依赖系统服务的默认动作在伴身对象中实现。
  */
 class DesktopNotificationPlayer internal constructor(
-    private val toastAction: (SessionNotification, String) -> Unit,
+    private val inAppMessageAction: (String) -> Unit,
     private val systemNotificationAction: (SessionNotification, String) -> Unit,
 ) {
-    constructor(context: Context) : this(
-        toastAction = { notification, text -> showToast(context, text) },
+    constructor(context: Context, messages: TransientMessageChannel) : this(
+        inAppMessageAction = { text -> messages.send(text) },
         systemNotificationAction = { notification, text -> showSystemNotification(context, notification, text) },
     )
 
     /**
-     * 投递一条通知：[foreground] 为真走 Toast，否则走系统通知。
+     * 投递一条通知：[foreground] 为真走应用内提示通道，否则走系统通知。
      *
      * 文本口径见 [formatText]：会话序号 + 程序给的标题与正文。
      */
     fun dispatch(notification: SessionNotification, foreground: Boolean) {
         val text = formatText(notification)
         if (foreground) {
-            toastAction(notification, text)
+            inAppMessageAction(text)
         } else {
             systemNotificationAction(notification, text)
         }
@@ -73,32 +71,6 @@ class DesktopNotificationPlayer internal constructor(
 
         /** 桌面通知渠道 id：与前台服务的常驻通知渠道分开（重要性不同，见下）。 */
         const val CHANNEL_ID = "desktop_notification"
-
-        /**
-         * Toast 在主线程展示：Toast 的构造与展示都要求有 Looper。
-         *
-         * 惰性求值：单测只注入动作、不碰系统服务，而类初始化时构造 Handler 需要
-         * 真实的 Looper（非 Robolectric 的 JVM 单测里拿不到）。
-         */
-        val mainHandler: Handler by lazy { Handler(Looper.getMainLooper()) }
-
-        /**
-         * 前台展示：Toast。
-         *
-         * 投递到主线程：本类的动作由运行期的 IO 协程调用，而 Toast 的构造需要
-         * Looper（无 Looper 的线程上构造会抛 IllegalStateException）。
-         */
-        fun showToast(context: Context, text: String) {
-            mainHandler.post {
-                try {
-                    Toast.makeText(context, text, Toast.LENGTH_LONG).show()
-                } catch (exception: Exception) {
-                    // Toast 依赖窗口与上下文：进程被杀后重建的短暂窗口里可能失败。
-                    // 通知丢失不得带崩运行期。
-                    LogUtil.warn(TAG, "toast failed: ${exception.javaClass.simpleName}", exception)
-                }
-            }
-        }
 
         /**
          * 后台展示：系统通知。

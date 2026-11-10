@@ -33,6 +33,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import terminal.emulator.BuildConfig
 import terminal.emulator.R
+import terminal.emulator.TransientMessageChannel
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.Shell
@@ -137,6 +138,7 @@ constructor(
     @ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
     private val termuxProperties: TermuxPropertiesRepository,
+    private val transientMessages: TransientMessageChannel,
 ) {
     /**
      * 由 TerminalSurface 移交的 Surface；待会话的 Bridge 就绪后才绑定（attach 只能在 spawn 之后）。
@@ -162,15 +164,15 @@ constructor(
     /** 终端响铃执行器：按 `bell-character` 三态动作，内部限频防 BEL 洪泛。 */
     private val bellPlayer = BellPlayer(context)
 
-    /** 桌面通知投递器：前台 Toast、后台系统通知（OSC 9 / OSC 777）。 */
-    private val desktopNotificationPlayer = DesktopNotificationPlayer(context)
+    /** 桌面通知投递器：前台应用内提示、后台系统通知（OSC 9 / OSC 777）。 */
+    private val desktopNotificationPlayer = DesktopNotificationPlayer(context, transientMessages)
 
     /**
      * 应用是否位于前台。
      *
      * 判据取 Activity 生命周期（MainActivity 的 onStart/onStop），而非「渲染是否
-     * 暂停」：后者在设置页打开、输入法弹出时也为真，那时用户仍看着终端，用 Toast
-     * 才对；反过来切到别的应用时渲染暂停，但用户不在应用前，Toast 看不见。
+     * 暂停」：后者在设置页打开、输入法弹出时也为真，那时用户仍看着终端，用应用内
+     * 提示通道才对；反过来切到别的应用时渲染暂停，但用户不在应用前，应用内提示看不见。
      */
     @Volatile var appForeground: Boolean = false
         private set

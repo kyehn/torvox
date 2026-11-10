@@ -12,6 +12,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
+import terminal.emulator.TransientMessageChannel
 
 /**
  * 桌面通知的系统投递路径：通知被用户关掉时不得凭空消失。
@@ -37,7 +38,8 @@ class DesktopNotificationSystemPostTest {
     @Test
     fun `notification reaches the system when notifications are enabled`() {
         shadowOf(manager).setNotificationsEnabled(true)
-        DesktopNotificationPlayer(context).dispatch(notification(), foreground = false)
+        DesktopNotificationPlayer(context, TransientMessageChannel())
+            .dispatch(notification(), foreground = false)
         val posted = shadowOf(manager).allNotifications
         assertEquals(1, posted.size)
         val extras = posted.first().extras
@@ -55,7 +57,8 @@ class DesktopNotificationSystemPostTest {
     fun `notification is dropped with a diagnostic when notifications are disabled`() {
         shadowOf(manager).setNotificationsEnabled(false)
         ShadowLog.clear()
-        DesktopNotificationPlayer(context).dispatch(notification(), foreground = false)
+        DesktopNotificationPlayer(context, TransientMessageChannel())
+            .dispatch(notification(), foreground = false)
         assertEquals(0, shadowOf(manager).allNotifications.size)
         val diagnostics =
             ShadowLog.getLogsForTag("DesktopNotification").filter { it.type == android.util.Log.WARN }

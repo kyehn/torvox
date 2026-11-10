@@ -54,6 +54,7 @@ internal fun createTestViewModel(runtime: TerminalRuntime): TerminalViewModel {
         settingsRepository = settingsRepository,
         termuxProperties = termuxProperties,
         runtime = runtime,
+        transientMessages = TransientMessageChannel(),
     )
 }
 

@@ -65,6 +65,13 @@ constructor(
     private val settingsRepository: SettingsRepository,
     private val termuxProperties: TermuxPropertiesRepository,
     val runtime: TerminalRuntime,
+    /**
+     * 应用内瞬时提示的投递通道：终端页与设置页各自订阅并以 Snackbar 呈现。
+     *
+     * 通道是进程内单例，故两条界面与三条业务路径（字体应用、清除数据、桌面通知）共用
+     * 同一条通道；通道本身无窗口，不受平台的提示窗口独占与按包限额约束。
+     */
+    internal val transientMessages: TransientMessageChannel,
 ) : ViewModel() {
     /**
      * `~/.termux/termux.properties` 的最新解析结果。
@@ -118,14 +125,6 @@ constructor(
     @Volatile private var lastGridRows = 0
 
     @Volatile private var lastGridCols = 0
-
-    /**
-     * 应用内瞬时提示的投递通道：终端页与设置页各自订阅并以 Snackbar 呈现。
-     *
-     * 通道由 ViewModel 持有，故两条界面与两条业务路径（字体应用、清除数据）共用同一条
-     * 通道；通道本身无窗口，不受平台的提示窗口独占与按包限额约束。
-     */
-    internal val transientMessages = TransientMessageChannel()
 
     // 视图侧回写的回滚长度缓存：选区行是绝对行（0 = 回滚顶部），
     // 钳位上界必须是绝对空间最后一行（回滚长度 + 视口行数 - 1），不得用视口行数。

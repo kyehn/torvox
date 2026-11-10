@@ -294,7 +294,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 应用进入前台：桌面通知改用 Toast（用户在终端前，无需离开当前界面）。
+     * 应用进入前台：桌面通知改用应用内提示（用户在终端前，无需离开当前界面）。
      *
      * 判据取 Activity 生命周期而非「渲染是否暂停」：后者在设置页打开、输入法弹出
      * 时也为真，那时用户仍看着终端。
@@ -304,7 +304,7 @@ class MainActivity : ComponentActivity() {
         runtime.setAppForeground(true)
     }
 
-    /** 应用退到后台：桌面通知改用系统通知（Toast 在后台不可见）。 */
+    /** 应用退到后台：桌面通知改用系统通知（应用内提示在后台不可见）。 */
     override fun onStop() {
         runtime.setAppForeground(false)
         super.onStop()

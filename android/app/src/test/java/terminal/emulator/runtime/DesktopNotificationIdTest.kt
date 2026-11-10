@@ -11,6 +11,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import terminal.emulator.TransientMessageChannel
 import terminal.emulator.service.TerminalForegroundService
 
 /**
@@ -41,7 +42,7 @@ class DesktopNotificationIdTest {
     }
 
     private fun dispatchDesktopNotification(sessionId: Long) {
-        DesktopNotificationPlayer(context).dispatch(
+        DesktopNotificationPlayer(context, TransientMessageChannel()).dispatch(
             SessionNotification(
                 sessionId = sessionId,
                 sessionLabel = "会话 1",

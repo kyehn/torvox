@@ -9,6 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import terminal.emulator.TransientMessageChannel
 import terminal.emulator.bridge.TestBridges
 import terminal.emulator.monitor.HungLayer
 import terminal.emulator.monitor.RenderWatchDog
@@ -33,6 +34,7 @@ class SessionHangVerdictTest {
             context = ApplicationProvider.getApplicationContext<Context>(),
             settingsRepository = mockk<SettingsRepository>(relaxed = true),
             termuxProperties = mockk<TermuxPropertiesRepository>(relaxed = true),
+            transientMessages = TransientMessageChannel(),
         )
     }
 

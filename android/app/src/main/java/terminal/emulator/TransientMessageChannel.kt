@@ -4,6 +4,8 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * 应用内瞬时提示的投递通道。
@@ -15,8 +17,14 @@ import kotlinx.coroutines.flow.asSharedFlow
  *
  * 消息只对当下有订阅者的界面可见：没有界面时消息直接丢弃，不排队补发——补发一条过时
  * 反馈比不反馈更糟。
+ *
+ * 进程内唯一：界面层与业务路径（字体应用、清除数据、桌面通知）共用同一条通道，故通道
+ * 由依赖注入提供单例，而不是各调用点各自构造。
  */
-internal class TransientMessageChannel {
+@Singleton
+class TransientMessageChannel
+@Inject
+constructor() {
     private val messages =
         MutableSharedFlow<String>(
             replay = 0,
