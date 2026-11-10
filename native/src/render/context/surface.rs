@@ -31,6 +31,18 @@ pub fn apply_scroll_px_offset(
 /// 并不构成该下限的来源——留一个最小值让契约与 wgpu 的要求对齐。
 pub const MIN_VERTEX_BUFFER_SIZE: u64 = 64;
 
+/// Android 窗口缓冲格式 `WINDOW_FORMAT_RGBA_8888`（= `AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM`）。
+///
+/// 与交换链格式一一对应：该格式在 Vulkan 上是 `VK_FORMAT_R8G8B8A8_UNORM`，即
+/// wgpu 的 [`wgpu::TextureFormat::Rgba8Unorm`]；宿主侧 `SurfaceHolder` 置的
+/// `PixelFormat.RGBA_8888` 是同一件事的 Android 说法。三处必须同格式：
+/// 队列按别的格式分配缓冲时，厂商 Vulkan 驱动会试分配单通道格式，Mali 的
+/// 分配器直接拒收（`Requested R8 format is not supported with this allocator`）。
+///
+/// 挂载路径（`ANativeWindow_setBuffersGeometry`）用它，交换链路径
+/// （[`Renderer::select_surface_format`]）取与之对应的 `Rgba8Unorm`。
+pub const WINDOW_FORMAT_RGBA_8888: i32 = 1;
+
 /// 交换链尺寸的唯一计算点：按跨渲染器固定的 `RENDER_SCALE` 缩放，再钳制到
 /// `[1, max_texture_dimension_2d]`。
 ///
@@ -61,6 +73,10 @@ impl Renderer {
     /// 多通道格式 → 任意多通道格式。**单通道与双通道格式一律不选**：颜色渲染不出来，
     /// 且 R8 在部分设备的分配器上根本分配不出来。每一档退化都记一条日志，避免
     /// 「用了个奇怪格式」这件事再次无声发生。
+    ///
+    /// 首选的 `Rgba8Unorm` 与窗口缓冲格式 [`WINDOW_FORMAT_RGBA_8888`] 一一对应
+    /// （`VK_FORMAT_R8G8B8A8_UNORM`）：窗口缓冲格式与交换链格式必须同格式，
+    /// 否则队列按另一种格式分配缓冲，厂商驱动便会试分配单通道格式而遭分配器拒收。
     /// 与 `select_present_mode` 同理：唯一调用方 `attach_surface` 仅 Android 存在，
     /// 故限定为 Android 生产构建 + 测试，而非加 `allow(dead_code)`。
     #[cfg(any(target_os = "android", test))]

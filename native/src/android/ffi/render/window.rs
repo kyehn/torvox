@@ -58,7 +58,8 @@ unsafe fn attach_window_inner(
     //
     // 显式把交换链配置对齐到 BufferQueue：以 TextureView 为后端的 surface 否则可能
     // 停留在陈旧/默认几何，而模拟器上的 SwiftShader 会拒绝出队格式/几何与队列不符的
-    // 缓冲（dequeueBuffer 超时）。WINDOW_FORMAT_RGBA_8888 = 1。
+    // 缓冲（dequeueBuffer 超时）。格式取 `WINDOW_FORMAT_RGBA_8888`——它与交换链
+    // 格式 `Rgba8Unorm` 一一对应（见 `render::context::WINDOW_FORMAT_RGBA_8888`）。
     //
     // 尺寸先钳位再两处共用：NDK 调用与 `attach_surface` 必须看到同一组尺寸，
     // 否则队列几何与交换链几何各说各话，SwiftShader 仍会拒绝出队。
@@ -66,8 +67,14 @@ unsafe fn attach_window_inner(
     let surface_height = height.max(0);
     // SAFETY: `ptr` 是有效的 `ANativeWindow*`（上方已检查非空）；
     // `ANativeWindow_setBuffersGeometry` 是有文档的 NDK 函数。
-    let geometry_status =
-        unsafe { ANativeWindow_setBuffersGeometry(ptr, surface_width, surface_height, 1) };
+    let geometry_status = unsafe {
+        ANativeWindow_setBuffersGeometry(
+            ptr,
+            surface_width,
+            surface_height,
+            crate::render::context::WINDOW_FORMAT_RGBA_8888,
+        )
+    };
     if geometry_status != 0 {
         // 非 0 即失败。丢弃它会让几何错配在 dequeueBuffer 超时后才暴露，且无从归因，
         // 故不挂载 surface 并在此出声。宿主不观察挂载结果（返回 Unit），因此

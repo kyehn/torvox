@@ -15,7 +15,10 @@ pub(crate) use gpu::{log_gpu_error, try_global_gpu};
 pub(crate) use renderer::{rebuild_blocked_by_in_flight_surface, reuse_attached_surface};
 #[cfg(test)]
 pub(crate) use surface::surface_extent;
-pub use surface::{MIN_VERTEX_BUFFER_SIZE, apply_scroll_px_offset, orthographic_projection};
+pub use surface::{
+    MIN_VERTEX_BUFFER_SIZE, WINDOW_FORMAT_RGBA_8888, apply_scroll_px_offset,
+    orthographic_projection,
+};
 
 /// GPU 渲染器：持有 wgpu 资源与管线。字段按空行分组：核心资源、单元管线资源、图集资源、
 /// Kitty 图形协议（kgp_*）、逐帧瞬时状态。

@@ -76,6 +76,28 @@ mod surface_format_selection {
     fn empty_format_list_is_an_error() {
         assert!(Renderer::select_surface_format(&caps(Vec::new())).is_err());
     }
+
+    /// 窗口缓冲格式与交换链格式必须一致。
+    ///
+    /// 窗口缓冲格式 `WINDOW_FORMAT_RGBA_8888`（AOSP 的 `1`，即
+    /// `AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM`）在 Vulkan 上是
+    /// `VK_FORMAT_R8G8B8A8_UNORM`，也就是 wgpu 的 `Rgba8Unorm`——交换链必须用
+    /// 它。两者不一致时队列按另一种格式分配缓冲，厂商 Vulkan 驱动会试分配
+    /// 单通道格式，Mali 的分配器直接拒收（`Requested R8 format is not supported
+    /// with this allocator`）。
+    ///
+    /// 这里钉住的是外部事实（AOSP 的常量值）与格式选择的首选，两头任一漂移
+    /// 都会让窗口缓冲与交换链对不上。
+    #[test]
+    fn window_buffer_format_matches_the_swapchain_format() {
+        assert_eq!(super::super::WINDOW_FORMAT_RGBA_8888, 1);
+        let selected = Renderer::select_surface_format(&caps(vec![
+            TextureFormat::R8Unorm,
+            TextureFormat::Rgba8Unorm,
+        ]))
+        .expect("candidate present");
+        assert_eq!(selected, TextureFormat::Rgba8Unorm);
+    }
 }
 
 #[cfg(test)]

@@ -376,10 +376,10 @@ fun TerminalScreen(
     // 底部只按导航栏内缩，不再为全面屏手势区（safeGestures 超出导航栏的部分）
     // 附加内缩：ZTE 折叠屏外屏等「导航栏 inset=0 的纯手势设备」上，那段附加内缩
     // 会在键栏下留一条只有背景色的空带（STATUS「输入法隐藏时底端辅助按键下空白」）。
-    // 手势冲突的代价已由键栏自身的取消处理吸收：底部上滑需要位移才会被系统认领，
-    // 静止轻点不受影响；被认领时的 ACTION_CANCEL 由
-    // ExtraKeyButton 的 processCancel 合成与按下反馈延迟（PRESS_FEEDBACK_DELAY_MS）
-    // 正确复位——这正是上游 termux（ExtraKeysView 不为手势区留白）的同一取舍。
+    // 手势冲突的代价由键栏自身吸收：落在系统手势区（safeGestures）内的按下
+    // 一律不启动按下反馈——系统随时可能接管这次触摸并补发 ACTION_CANCEL，
+    // 已画出的缩放就是用户看到的「上滑触发了按键动画」。区外的按下照旧给反馈。
+    // 这正是上游 termux（ExtraKeysView 不为手势区留白）的同一取舍。
     val density = LocalDensity.current
 
     ModalNavigationDrawer(
