@@ -61,6 +61,7 @@ import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.settings.TerminalCursorStyle
 import terminal.emulator.settings.TermuxPropertiesRepository
 import terminal.emulator.termuxFontDirs
+import terminal.emulator.ui.BackgroundRenderPause
 import terminal.emulator.ui.RenderPauseLedger
 import terminal.emulator.ui.SurfaceAttachGate
 import terminal.emulator.ui.SurfaceOwnership
@@ -5032,12 +5033,6 @@ constructor(
         return true
     }
 
-    /** 切后台那次暂停的凭证；重复调用先归还前一次，故不会累计持有。 */
-    // 读取方 activateReplacementSession 跑在渲染监视的 IO 作用域，写入方是主线程：
-    // 没有 volatile 时后台线程可能永远看不到游客状态，进而在后台拉起渲染线程。
-    @Volatile
-    private var backgroundPauseToken: Long? = null
-
     /**
      * 切后台那次暂停是否仍在持有。
      *
@@ -5047,22 +5042,19 @@ constructor(
      * 且恢复出来的渲染线程会与推进泵重复消费同一全局事件队列。
      */
     val isBackgroundPaused: Boolean
-        get() = backgroundPauseToken != null
+        get() = backgroundRenderPause.isPaused
 
     /** 切后台：领一次渲染暂停并停止渲染线程。 */
+    @MainThread
     fun pauseRenderingForBackground() {
-        val previous = backgroundPauseToken
-        backgroundPauseToken = renderPauseLedger.acquire()
-        previous?.let { renderPauseLedger.release(it) }
-        LogUtil.debug("Runtime", "TRACE pauseRenderingForBackground token=${backgroundPauseToken} previous=$previous holders=${renderPauseLedger.holderCount}")
+        backgroundRenderPause.onBackground()
         pauseRendering()
     }
 
     /** 切前台：归还切后台那次暂停。 */
+    @MainThread
     fun resumeRenderingFromBackground() {
-        LogUtil.debug("Runtime", "TRACE resumeRenderingFromBackground token=$backgroundPauseToken holders=${renderPauseLedger.holderCount}")
-        backgroundPauseToken?.let { renderPauseLedger.release(it) }
-        backgroundPauseToken = null
+        backgroundRenderPause.onForeground()
     }
 
     /**
@@ -5095,6 +5087,14 @@ constructor(
      * BufferQueue 上出帧 → 永久黑屏）。收进运行期后所有来源共用一本账。
      */
     private val renderPauseLedger = RenderPauseLedger { paused -> setRenderPaused(paused) }
+
+    /**
+     * 「切后台」那次渲染暂停的持有者。
+     *
+     * 凭证由它私有持有并自行归还：渲染路径上的恢复事件（Surface 重新交付、
+     * 尺寸防抖到期）可能在应用仍处于后台时到达，那条路径无权代还这次暂停。
+     */
+    private val backgroundRenderPause = BackgroundRenderPause(renderPauseLedger)
 
     /**
      * Surface 挂载门闸：Surface 销毁后必须等新窗口挂上原生才解除那次渲染暂停。

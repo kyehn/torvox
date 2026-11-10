@@ -2200,10 +2200,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private fun forceResumeRendering() {
         cancelDebounceHolds()
         // 立刻恢复渲染：本函数的所有调用点都刚把可用 Surface 挂上原生，故「Surface
-        // 销毁」那次暂停已由挂载门闸解除；此处再归还切后台那次——残留持有会让后续
-        // 领用永远发不出暂停。是否真的恢复由账本计数决定（设置页仍在展示时计数非零，
-        // 仍保持暂停）：那是界面层的独立意图，终端视图在设置覆盖层之下仍会收到尺寸变化。
-        viewModel?.runtime?.resumeRenderingFromBackground()
+        // 销毁」那次暂停已由挂载门闸解除。是否真的恢复由账本计数决定（设置页仍在
+        // 展示时计数非零，仍保持暂停）：那是界面层的独立意图，终端视图在设置覆盖层
+        // 之下仍会收到尺寸变化。
+        //
+        // 「切后台」那次暂停不在此归还：它只能由「回到前台」这一转场解除。
+        // 本函数的调用点（Surface 重新交付、尺寸防抖到期）可能在应用仍处于后台时
+        // 到达——平台收走原生窗口后宿主会换一个新 SurfaceView，新窗口交付时若把
+        // 后台暂停一并还掉，渲染线程就重新在后台对着正在消亡的队列取帧
+        // （ERROR_SURFACE_LOST_KHR，切回前台后终端永久黑屏）。
     }
 
     /**
@@ -3281,9 +3286,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 if (!hasWindowFocus()) return@Runnable
                 isPaused = false
                 val viewModel = viewModel ?: return@Runnable
-                // ON_RESUME 已经发生（只是 Surface 当时未就绪）：切后台那次暂停必须
-                // 此时归还，否则账本里永远留着它，此后任何 acquire 都发不出暂停。
-                viewModel.runtime.resumeRenderingFromBackground()
                 val surface = holder.surface
                 // Surface 就绪后按常规路径恢复：重启渲染线程并出一帧探针。
                 // Surface 仍无效时留待下一次 surfaceChanged/resize。

@@ -320,10 +320,16 @@ fun TerminalScreen(
                 inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
             } else if (event == Lifecycle.Event.ON_RESUME) {
                 val surface = surfaceRef.value
+                // 回到前台是「切后台那次暂停」唯一的解除时机：此刻归还，
+                // 不论 Surface 是否已就绪。归还之后是否恢复渲染由下面按 Surface
+                // 状态决定——「Surface 销毁」那次暂停另有门闸持有（等新窗口挂上
+                // 原生才解除），故此处归还不会让渲染线程在被平台废弃的
+                // BufferQueue 上取帧（ERROR_SURFACE_LOST_KHR）。
+                viewModel.runtime.resumeRenderingFromBackground()
                 // 切应用连续性：若 Surface 被保留（无 surfaceDestroyed），
                 // render_paused 仍为 true（来自 onSurfaceDestroyed 或此前的暂停），
                 // 而 surfaceCreated 从未被调用以清除它 → 黑屏。
-                // Surface 已挂载且已定尺寸时立即清除；仅在 Surface 尚未就绪
+                // Surface 已挂载且已定尺寸时立即恢复；仅在 Surface 尚未就绪
                 // （与布局竞争）时延迟 200ms。
                 if (
                     surface != null && surface.isAttachedToWindow && surface.width > 0 && surface.height > 0
@@ -333,11 +339,6 @@ fun TerminalScreen(
                     // 真的被系统回收时，渲染线程会在取帧失败后随帧上报
                     // `surfaceInvalidated`，由 `maybeRequestSurfaceRecreate` 换成新窗口；
                     // `surfaceDestroyed` 路径则由 `surfaceCreated` 重新绑定。
-                    //
-                    // 切后台那次暂停在此归还；「Surface 销毁」那次由门闸持有，
-                    // 等新窗口挂上原生才解除——提前解除会让渲染线程在被平台
-                    // 废弃的 BufferQueue 上取帧（ERROR_SURFACE_LOST_KHR）。
-                    viewModel.runtime.resumeRenderingFromBackground()
                     if (!viewModel.runtime.isAwaitingSurfaceAttach) {
                         viewModel.runtime.resumeRendering()
                         // 即使没有新输出也立即出一帧：交换链若已失效，这一帧就是探针。
