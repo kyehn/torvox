@@ -289,6 +289,15 @@ object NativeBridge {
      */
     @JvmStatic external fun renderWithNewOutput(sessionId: Long, width: Int, height: Int): Long
 
+    /**
+     * 请求指定会话按当前状态重推一帧；会话未知返回 false。
+     *
+     * 原生侧的渲染路径在「缓存帧属于别的会话」时也会自动索要重推；本入口供宿主在
+     * 「新会话首帧迟迟未产出」时补一次索要——内容去重在 VT 侧随之失效，故终端毫无
+     * 变化也会推出该帧。
+     */
+    @JvmStatic external fun requestRepaint(sessionId: Long): Boolean
+
     // ── 用户输入回调 ──
 
     // ── TerminalQueryPort（原生查询导出） ──

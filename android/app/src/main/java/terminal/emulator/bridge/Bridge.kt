@@ -251,6 +251,17 @@ class Bridge(private val config: TerminalConfig) {
         val altScreenActive: Boolean,
     )
 
+    /**
+     * 请求本会话按当前状态重推一帧；会话已销毁时返回 false。
+     *
+     * 用于「新会话首帧迟迟未产出」的恢复：内容去重在 VT 侧随之失效，故终端毫无变化
+     * 也会推出该帧。渲染路径自身在「缓存帧属于别的会话」时也会自动索要，本入口补的是
+     * 「缓存帧恰好属于本会话（帧已取走、尚未呈现）」这一情形。
+     */
+    fun requestRepaint(): Boolean = onSession("requestRepaint", false) {
+        NativeBridge.requestRepaint(it)
+    }
+
     /** 绑定 Android Surface 供 GPU 渲染。 */
     fun attachSurface(surface: Any, width: Int, height: Int) {
         lastSurfaceWidth = width

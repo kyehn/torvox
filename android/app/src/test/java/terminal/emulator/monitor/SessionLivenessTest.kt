@@ -125,6 +125,58 @@ class SessionLivenessTest {
     }
 
     @Test
+    fun `no frame produced past the deadline is a first frame hang`() {
+        val inputs = healthyInputs().copy(firstFrameWaitNanos = 16 * ONE_SECOND_NANOS)
+        val diagnosis = diagnoseSessionLiveness(inputs)
+        assertEquals(HungLayer.FIRST_FRAME, diagnosis.hungLayer)
+        assertEquals(16 * ONE_SECOND_NANOS, diagnosis.busyNanos)
+    }
+
+    @Test
+    fun `no frame produced within the deadline is not a hang`() {
+        val inputs = healthyInputs().copy(firstFrameWaitNanos = 14 * ONE_SECOND_NANOS)
+        assertNull(diagnoseSessionLiveness(inputs).hungLayer)
+    }
+
+    /**
+     * 首帧层排在最后：渲染层与 VT 层都是「有在途工作」的形态，它们的解释比
+     * 「内容一直没送到」更具体，故命中即止，不得越级报成首帧层。
+     */
+    @Test
+    fun `render and vt hangs win over the first frame hang`() {
+        val renderInputs =
+            healthyInputs().copy(
+                renderFrameBusyNanos = 30 * ONE_SECOND_NANOS,
+                firstFrameWaitNanos = 30 * ONE_SECOND_NANOS,
+            )
+        assertEquals(HungLayer.RENDER, diagnoseSessionLiveness(renderInputs).hungLayer)
+        val vtInputs =
+            healthyInputs().copy(
+                vtBusyNanos = 30 * ONE_SECOND_NANOS,
+                firstFrameWaitNanos = 30 * ONE_SECOND_NANOS,
+            )
+        assertEquals(HungLayer.VT, diagnoseSessionLiveness(vtInputs).hungLayer)
+    }
+
+    @Test
+    fun `dead render thread wins over the first frame hang`() {
+        val inputs =
+            healthyInputs().copy(
+                renderThreadAlive = false,
+                firstFrameWaitNanos = 30 * ONE_SECOND_NANOS,
+            )
+        assertEquals(HungLayer.LIFECYCLE, diagnoseSessionLiveness(inputs).hungLayer)
+    }
+
+    @Test
+    fun `recovery action requests a repaint for the first frame hang`() {
+        assertEquals(
+            LivenessRecovery.REQUEST_REPAINT,
+            recoveryActionFor(HungLayer.FIRST_FRAME),
+        )
+    }
+
+    @Test
     fun `never closed session may be closed immediately`() {
         assertTrue(shouldCloseSession(0L, 1_000L))
     }

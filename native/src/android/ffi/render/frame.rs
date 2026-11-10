@@ -4,6 +4,10 @@ use super::super::{
     SLOW_RENDER_INNER_THROTTLE, ThrowRuntimeExAndFailure, jint, jlong, kitty_cache_invalidation,
     pack_rendered_cursor, render_state_mut, repack_kitty_atlas, rlock_session_registry,
 };
+// 仅 Android 构建使用的 JNI 布尔类型与常量：放在 cfg 门闸内，否则宿主构建
+// （cargo test 跑在 Linux 上）会把它们判成未使用的导入。
+#[cfg(target_os = "android")]
+use super::super::{JNI_FALSE, JNI_TRUE, jboolean};
 use super::overlay::{
     build_cursor, frame_reflects_scroll, log_frame_failure, mark_dirty_rows,
     request_session_repaint, should_repaint_idle,
@@ -32,6 +36,30 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<
     _height: jint,
 ) -> jint {
     jni_export_guard!(&mut unowned_env, -1, |_env| render_inner(session_id as u64))
+}
+
+/// JNI：请求指定会话按当前状态重推一帧。返回是否真的发出了请求。
+///
+/// 渲染路径自身也会索要重推（缓存帧会话与当前会话不一致时，见 [`prepare_render`]），
+/// 但那条请求以「缓存帧归属」为前提：缓存帧恰好属于当前会话时（帧已取走、尚未呈现）
+/// 不会再索要。宿主在「新会话首帧迟迟未产出」时经本入口补一次索要：内容去重在
+/// VT 侧随之失效，故终端毫无变化也会推出该帧。
+///
+/// 会话已从注册表消失时返回 false（静默跳过，不抛异常）——宿主据此只记日志。
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_requestRepaint<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+) -> jboolean {
+    jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
+        if request_session_repaint(session_id as u64) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    })
 }
 
 /// 一帧的单元数据：有新输出时携带自有单元与光标，空闲时只表示可绘制。

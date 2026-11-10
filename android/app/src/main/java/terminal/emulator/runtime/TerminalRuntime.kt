@@ -398,6 +398,16 @@ internal data class SessionEntry(
     // 上次因「会话挂起」被自动关闭的时刻（System.nanoTime）；0 = 从未自动关闭过。
     // 自动关闭按 60s 节流：反复关闭又新建会让用户看到会话号乱跳。
     @Volatile var lastAutoCloseNanos: Long = 0L,
+    // 本会话是否已向 Surface 呈现过至少一帧。
+    //
+    // 按**会话**记，不按进程记：进程级的首帧标志在首个会话出帧后恒为真，无法反映
+    // 后建会话是否出过帧——「新建会话一片空白」正是这样被掩盖的。
+    @Volatile var firstFramePresented: Boolean = false,
+    // 本会话开始渲染的时刻（System.nanoTime）；0 = 尚未开始计时。
+    //
+    // 只在该会话**第一次**获得渲染线程时落定：渲染线程重启不重置它（重启不改变
+    // 「这个会话出过帧没有」这一事实），切后台暂停也不重置（暂停期间不出帧是正常的）。
+    @Volatile var firstFrameWaitStartNanos: Long = 0L,
     // 宿主侧信号到达时的钩子：帧回调链在空闲时会停掉，靠它把链重新拉起。
     // 单测构造的条目不需要链，默认空实现。
     val onSessionActive: () -> Unit = {},
@@ -1881,6 +1891,11 @@ constructor(
             entry.renderThreadExited = false
             entry.running = false
             entry.renderSignaled.set(false)
+            // 首帧计时只落定一次：渲染线程重启不重置（重启不改变「这个会话出过帧没有」
+            // 这一事实），切后台暂停也不重置（暂停期间不出帧是正常的）。
+            if (entry.firstFrameWaitStartNanos == 0L) {
+                entry.firstFrameWaitStartNanos = System.nanoTime()
+            }
             val oldThread = entry.renderThreadRef
             entry.renderThreadRef = null
             oldThread?.let { thread ->
@@ -2085,6 +2100,9 @@ constructor(
                                         val count = renderResult.count
                                         if (count > 0) {
                                             publishSurfaceBufferPresent(true)
+                                            // 按会话记下「已出过帧」：进程级标志在首个会话出帧后
+                                            // 恒为真，后建会话是否出过帧只能靠这一位判断。
+                                            entry.firstFramePresented = true
                                         }
                                         // count > 0 = 本帧真的渲染并提交了缓冲（空闲帧为 0，
                                         // 失败帧为负）：据此判定首帧已呈现给 Surface。
@@ -2563,12 +2581,20 @@ constructor(
             val marks = entry.frameMarks
             val renderFrameBusyNanos =
                 if (marks.startNanos > marks.doneNanos) System.nanoTime() - marks.startNanos else 0L
+            // 首帧未产出时长：按会话计，且只在计时已落定且尚未出过帧时非零。
+            val firstFrameWaitNanos =
+                if (entry.firstFramePresented || entry.firstFrameWaitStartNanos == 0L) {
+                    0L
+                } else {
+                    System.nanoTime() - entry.firstFrameWaitStartNanos
+                }
             return diagnoseSessionLiveness(
                 SessionLivenessInputs(
                     renderFrameBusyNanos = renderFrameBusyNanos,
                     vtBusyNanos = entry.bridge.vtBusyNanos(),
                     ptySendBusyNanos = entry.bridge.ptySendBusyNanos(),
                     renderThreadAlive = entry.renderThreadRef?.isAlive == true,
+                    firstFrameWaitNanos = firstFrameWaitNanos,
                 ),
                 LivenessThresholds(renderHangNanos = RENDER_HANG_TIMEOUT_NANOS),
             )
@@ -2651,6 +2677,27 @@ constructor(
                         "session ${entry.sessionId} hung at $hungLayer (busy=${diagnosis.busyNanos / 1_000_000L}ms)",
                     )
                     closeDeadSession(entry, "hung at $hungLayer")
+                }
+
+                LivenessRecovery.REQUEST_REPAINT -> {
+                    // 首帧迟迟未产出：向 VT 补一次索要（非破坏性）。内容去重在 VT 侧
+                    // 随之失效，故终端毫无变化也会推出该帧。失败只记日志——会话仍在，
+                    // 下一次看门狗节拍会再试。
+                    //
+                    // 捕 Throwable 而非 Exception：此处位于看门狗协程内，未捕获的 Error
+                    // 会终止该协程并经默认异常处理器带崩进程，而恢复动作失败不应有
+                    // 这种杀伤力（见 Bridge.close 的同款理由）。
+                    val requested = try {
+                        entry.bridge.requestRepaint()
+                    } catch (throwable: Throwable) {
+                        LogUtil.error("Runtime", "session ${entry.sessionId} repaint request failed", throwable)
+                        false
+                    }
+                    LogUtil.error(
+                        "Runtime",
+                        "session ${entry.sessionId} produced no frame within " +
+                            "${diagnosis.busyNanos / 1_000_000L}ms — repaint requested=$requested",
+                    )
                 }
 
                 LivenessRecovery.RECORD_ONLY -> {
@@ -3764,6 +3811,13 @@ constructor(
                 "Runtime",
                 "switchSession: initial render for session $sessionId result=$initialRender (attempts=$attempts)",
             )
+            if (initialRender > 0) {
+                // 同步首帧是真帧：开孔已有缓冲区（窗口层据此撤下底色覆盖），本会话
+                // 「已出过帧」这一事实也成立。漏记会让窗口层在已呈现内容之上继续盖着
+                // 底色（闪一下），并让首帧诊断把已出过帧的会话误判成未出过帧。
+                target.firstFramePresented = true
+                publishSurfaceBufferPresent(true)
+            }
             target.forceRenderRequested = true
             target.notifyRender()
         } catch (exception: Exception) {

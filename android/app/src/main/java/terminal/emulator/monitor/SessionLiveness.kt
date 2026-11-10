@@ -18,6 +18,14 @@ enum class HungLayer {
 
     /** 渲染线程已死或从未启动，而会话仍处于运行态。 */
     LIFECYCLE,
+
+    /**
+     * 会话已建立并开始渲染，却始终没有向 Surface 呈现过任何一帧。
+     *
+     * 与前四层不同：这里没有任何「在途工作」——渲染线程在跑、各层都不忙，只是内容
+     * 一直没送到。故它排在最后判定，只有其余层皆不成立时才命中。
+     */
+    FIRST_FRAME,
 }
 
 /** 挂起层级对应的恢复动作。 */
@@ -30,6 +38,14 @@ enum class LivenessRecovery {
 
     /** 只记录，不自动处理。 */
     RECORD_ONLY,
+
+    /**
+     * 向 VT 线程索要一帧：内容去重随之失效，终端毫无变化也会推出该帧。
+     *
+     * 非破坏性：不动会话的 shell 状态（工作目录、后台任务、已输入内容），只补一次
+     * 内容交付。故用于「首帧迟迟未产出」这类尚不能断定会话已死的形态。
+     */
+    REQUEST_REPAINT,
 }
 
 /**
@@ -48,13 +64,20 @@ data class SessionLivenessInputs(
     val ptySendBusyNanos: Long,
     /** 渲染线程是否存活。 */
     val renderThreadAlive: Boolean,
+    /**
+     * 本会话自开始渲染起、仍未呈现过任何一帧的时长（纳秒）；0 = 不是该形态。
+     *
+     * 按**会话**计，不按进程计：进程级的首帧标志在首个会话出帧后恒为真，无法反映
+     * 后建会话是否出过帧。
+     */
+    val firstFrameWaitNanos: Long = 0L,
 )
 
 /**
  * 挂起诊断结果。
  *
  * [hungLayer] 为 `null` 表示未挂起（含空闲会话）。[busyNanos] 是命中那一层的
- * 已忙时长，供日志说明「卡了多久」。
+ * 已忙时长，供日志说明「卡了多久」；首帧层上它是「等了多久仍未出帧」。
  */
 data class SessionLivenessDiagnosis(val hungLayer: HungLayer?, val busyNanos: Long)
 
@@ -68,15 +91,24 @@ data class LivenessThresholds(
     val renderHangNanos: Long = 10_000_000_000L,
     val vtHangNanos: Long = 15_000_000_000L,
     val outputBacklogNanos: Long = 20_000_000_000L,
+    /**
+     * 首帧期限：会话开始渲染后仍无任何一帧呈现的时长上限（纳秒）。
+     *
+     * 取 15s：冷启动的启动屏预算是 5s，但首帧还要等 shell 起进程并吐出提示符；
+     * 新会话的 shell 启动在同一量级。判定只用于「定位 + 索要重推」，不关闭会话，
+     * 故宁可晚判——误判的代价只是多要一帧。
+     */
+    val firstFrameTimeoutNanos: Long = 15_000_000_000L,
 )
 
 /**
  * 判定会话挂在哪一层；未挂起时返回层级为 `null` 的诊断。
  *
  * 判定顺序即优先级：命中即止。渲染层最先判——它是唯一可自愈的层，且渲染帧在途
- * 时其它层的读数多半只是它的下游后果。
+ * 时其它层的读数多半只是它的下游后果。首帧层最后判：它表示「什么都没在途，只是
+ * 内容一直没送到」，只有其余层皆不成立时才是真正的解释。
  *
- * 纯函数：输入是判定瞬间的快照，不读时钟、不读全局状态，故五种情形都可由单测
+ * 纯函数：输入是判定瞬间的快照，不读时钟、不读全局状态，故六种情形都可由单测
  * 直接构造。
  */
 fun diagnoseSessionLiveness(
@@ -94,6 +126,9 @@ fun diagnoseSessionLiveness(
 
     !inputs.renderThreadAlive -> SessionLivenessDiagnosis(HungLayer.LIFECYCLE, 0L)
 
+    inputs.firstFrameWaitNanos > thresholds.firstFrameTimeoutNanos ->
+        SessionLivenessDiagnosis(HungLayer.FIRST_FRAME, inputs.firstFrameWaitNanos)
+
     else -> SessionLivenessDiagnosis(null, 0L)
 }
 
@@ -102,10 +137,14 @@ fun diagnoseSessionLiveness(
  *
  * VT 层与输出投递阻塞同归「关闭会话」：后者的归因本就是下游未消费，重启渲染线程
  * 对它无效。生命周期层只记录：Activity 重建、切后台期间不得误杀用户的 shell。
+ *
+ * 首帧层只索要一帧：此时没有任何在途工作可归因，尚不能断定会话已死，故取非破坏性
+ * 的动作（向 VT 补一次内容交付），不关闭会话。
  */
 fun recoveryActionFor(hungLayer: HungLayer?): LivenessRecovery = when (hungLayer) {
     HungLayer.RENDER -> LivenessRecovery.RESTART_RENDER_THREAD
     HungLayer.VT, HungLayer.OUTPUT_BACKLOG -> LivenessRecovery.CLOSE_SESSION
+    HungLayer.FIRST_FRAME -> LivenessRecovery.REQUEST_REPAINT
     HungLayer.LIFECYCLE, null -> LivenessRecovery.RECORD_ONLY
 }
 
