@@ -5,14 +5,14 @@
 
 ## 审查范围与覆盖证据
 
-- 被跟踪文件 1496 个；源码集合为 `native/src` 与 `android/app/src/main`（重复率扫描），
+- 被跟踪文件 1497 个；源码集合为 `native/src` 与 `android/app/src/main`（重复率扫描），
   规模统计另含 `native/tests` 与 `native/benches`。
 - 全部数字取自已提交的树快照（`git archive <提交> | tar -x -C <目录>` 后在快照上测量），
   不取工作区状态：工作区可能同时存在他人进行中的改动，逐次测量会漂移。重复率的
   「收敛前」快照取本次收敛开始前的提交，「收敛后」快照取收敛完成后的提交。
 - 树坐标以提交标题指代（可用 `git log --grep=<标题>` 解析）：本留档建立时的基线树为
   「docs: 新增代码健康度审查留档并更新重复率基线」，当前树为
-  「docs(openspec): 固化前台桌面通知经应用内通道投递的规约」。
+  「refactor(android): 抽出 SessionConfigBuilder 顶层类承载会话启动配置」。
 - 参考项目快照重新拉取到本地缓存后统计：`termux/termux-app` 与
   `sylirre/ghostty-android-terminal`，两者与上一轮留档的数字相差 2 行与 43 行，
   说明口径可复现。
@@ -28,7 +28,7 @@ native/src android/app/src/main`。
 | --- | --- | --- | --- | --- | --- | --- |
 | 收敛前 | 5 | 54 | 0.1% | 0.12% | 207 | 54818 |
 | 收敛后 | 1 | 12 | 0.02% | 0.02% | 207 | 54789 |
-| 当前树复算 | 1 | 12 | 0.02% | 0.02% | 236 | 62299 |
+| 当前树复算 | 1 | 12 | 0.02% | 0.02% | 237 | 62467 |
 | 规约留档基线 | 2 | 26 | 0.04% | — | 115 | — |
 
 当前树复算的唯一克隆仍是 `launcher_monochrome.xml` 与 `logo_art.xml` 的同形 `pathData`
@@ -64,7 +64,7 @@ native/src android/app/src/main`。
 
 | 项目 | 生产 SLOC | 测试 SLOC | 源码合计 | 测试/生产比 | 生产文件 | 测试文件 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 本项目 | 38941 | 39784 | 78725 | 1.02 | 201 | 255 |
+| 本项目 | 38956 | 39784 | 78740 | 1.02 | 202 | 255 |
 | termux-app | 26637 | 2471 | 29108 | 0.09 | 181 | 23 |
 | ghostty-android-terminal | 22381 | 2850 | 25231 | 0.13 | 90 | 18 |
 | 两者之和 | 49018 | 5321 | 54339 | 0.11 | 271 | 41 |
@@ -73,7 +73,7 @@ native/src android/app/src/main`。
 项目取自本地缓存的浅克隆，脚本与参数一致。
 
 与本留档建立时的基线（生产 37829 / 测试 38979 / 合计 76808，生产
-171 / 测试 247 个文件）的偏差：生产 +1112、测试 +805、合计 +1917 行，生产文件 +30、
+171 / 测试 247 个文件）的偏差：生产 +1127、测试 +805、合计 +1932 行，生产文件 +31、
 测试文件 +8。来源是此后的提交——设置页按职责拆分（外观/主题/Shell/Bootstrap/
 清除数据分区）、`SelectionManager`/`FontManager`/`BootstrapManager`/`ThemeManager`/
 `SelectionState`/`SessionState`/`TerminalSurfaceMath` 的独立文件化、新会话首帧按会话
@@ -81,14 +81,14 @@ native/src android/app/src/main`。
 VT 对外 API 按职责拆为六个实现文件，以及这些改动各自带出的回归用例。最近一轮又把
 界面侧的 `TerminalSurface`（→ `SelectionHandles`/`ResizeManager`/`ImeConnection`/
 `SelectionMenu`/`HandleDragController`/`SurfaceInput`/`ImeShiftController`）与运行期的
-`TerminalRuntime`（→ `SessionEntry`/`TerminalRuntimeMath`/`RenderSupervisor`）按职责边界
-拆开：新增文件各带一份包声明与 import，故生产 SLOC 净增约 144 行，而两个超阈值
-生产文件已消解其一（详见「超大文件」一节）。两个参考项目在同口径下的复算结果与
+`TerminalRuntime`（→ `SessionEntry`/`TerminalRuntimeMath`/`RenderSupervisor`/
+`SessionConfigBuilder`）按职责边界拆开：新增文件各带一份包声明与 import，故生产
+SLOC 净增约 159 行，而两个超阈值生产文件已消解其一（详见「超大文件」一节）。两个参考项目在同口径下的复算结果与
 上一轮一致（termux 26637/2471、ghostty 22381/2850），偏差只来自本仓代码树增长。
 
 规模约束判定：`STYLE.md` 要求「代码量不得超过 ghostty-android-terminal + termux」。
-生产口径 38941 低于两者生产之和 49018（占 79.4%），测试口径 39784 高于两者测试之和
-5321，源码合计 78725 高于两者合计 54339（为 1.45 倍）。同一约束在不同口径下结论
+生产口径 38956 低于两者生产之和 49018（占 79.4%），测试口径 39784 高于两者测试之和
+5321，源码合计 78740 高于两者合计 54339（为 1.45 倍）。同一约束在不同口径下结论
 相反，按 `code-health` 规约该判定为**不可判定**：口径与留档位置已如上固定，可判定
 的部分是生产代码规模在参考项目之和以内，差额由测试代码占据。规约明确
 MUST NOT 通过删除测试满足该约束，故本轮不以削减测试换取结论。
@@ -126,25 +126,25 @@ MUST NOT 通过删除测试满足该约束，故本轮不以削减测试换取�
 | --- | --- | --- |
 | Rust 生产源码 | 0 | — |
 | Rust 测试源码 | 2 | `terminal/ghostty_terminal/tests/lifecycle.rs` 1189 行、`terminal/ghostty_terminal/tests/render_cache.rs` 1123 行 |
-| Kotlin 生产源码 | 1 | `runtime/TerminalRuntime.kt` 3735 行 |
+| Kotlin 生产源码 | 1 | `runtime/TerminalRuntime.kt` 3585 行 |
 | Kotlin 测试源码 | 1 | `test/terminal/emulator/DocumentsProviderTest.kt` 1694 行 |
 
 判定：原生侧已按阈值拆分（`terminal/ghostty_terminal/public_api.rs` 按构造与生命周期、
 命令下发、帧与快照、只读查询、输入编码、回调事件六类职责拆为 `public_api/` 下的独立
 文件，门面只留模块声明与输入清洗契约）；界面侧原有四个超阈值生产文件，本轮按职责
-边界拆开 `ui/TerminalSurface.kt`（4022 → 1065 行，已在阈值下）与
-`runtime/TerminalRuntime.kt`（5725 → 3735 行，仍在阈值上，为原生侧最大生产文件的
+边界拆开 `ui/TerminalSurface.kt`（4022 → 1073 行，已在阈值下）与
+`runtime/TerminalRuntime.kt`（5725 → 3585 行，仍在阈值上，为原生侧最大生产文件的
 三倍余）。按 `code-health` 规约「超大文件阈值必须跨源码语言一致应用」，本项
 **判定为不一致并登记为未完成**：运行期门面尚未按关注面拆到阈值下。
 
 与本留档建立时的差异：界面侧原有的四个超阈值生产文件已消解四个——
 `TerminalViewModel.kt`（2143 → 1093 行）随 `SelectionState`/`SessionState` 独立成文件，
 `ui/SettingsScreen.kt`（1303 → 238 行）按外观/主题/Shell/Bootstrap/清除数据分区拆开，
-`ui/TerminalSurface.kt`（4438 → 1065 行）按输入（`SurfaceInput`/`HandleDragController`）、
+`ui/TerminalSurface.kt`（4438 → 1073 行）按输入（`SurfaceInput`/`HandleDragController`）、
 选区（`SelectionHandles`/`SelectionMenu`）、尺寸（`ResizeManager`）、输入法
 （`ImeConnection`/`ImeShiftController`）四条关注面拆开，`runtime/TerminalRuntime.kt`
-（5725 → 3735 行）先摘出纯计算与状态（`TerminalRuntimeMath`/`SessionEntry`）与渲染线程
-监管（`RenderSupervisor`）。原生侧的 `public_api.rs`（1122 行）已按职责拆为门面加六个
+（5725 → 3585 行）先摘出纯计算与状态（`TerminalRuntimeMath`/`SessionEntry`）、渲染线程
+监管（`RenderSupervisor`）与会话启动配置（`SessionConfigBuilder`）。原生侧的 `public_api.rs`（1122 行）已按职责拆为门面加六个
 实现文件，最大的实现文件为只读查询 397 行。`render/font/tests/glyphs.rs`（1036 → 1049 行）已降至
 阈值下。距阈值最近的其余文件是 `render/cell_builder.rs` 1094 行、
 `TerminalViewModel.kt` 1093 行、`runtime/RenderSupervisor.kt` 1070 行、
