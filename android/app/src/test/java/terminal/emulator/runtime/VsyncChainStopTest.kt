@@ -61,4 +61,56 @@ class VsyncChainStopTest {
             ),
         )
     }
+
+    @Test
+    fun `chain restarts when a signal arrives between the stop decision and the stop`() {
+        assertTrue(
+            "判定时空闲、复核时活跃说明新信号刚到，必须重新拉起链",
+            shouldRestartVsyncChain(
+                hasSessions = true,
+                appForeground = true,
+                wasActive = false,
+                isActiveNow = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `chain is not restarted while the app is not visible`() {
+        assertFalse(
+            "应用不可见时复核必然得到会话仍活跃，据此重拉起会让链每显示帧停一次又起一次",
+            shouldRestartVsyncChain(
+                hasSessions = true,
+                appForeground = false,
+                wasActive = true,
+                isActiveNow = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `chain is not restarted when there is no session`() {
+        assertFalse(
+            "已无会话时不得重新拉起链",
+            shouldRestartVsyncChain(
+                hasSessions = false,
+                appForeground = true,
+                wasActive = false,
+                isActiveNow = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `chain is not restarted while the session stays idle`() {
+        assertFalse(
+            "会话持续空闲时不得重新拉起链",
+            shouldRestartVsyncChain(
+                hasSessions = true,
+                appForeground = true,
+                wasActive = false,
+                isActiveNow = false,
+            ),
+        )
+    }
 }

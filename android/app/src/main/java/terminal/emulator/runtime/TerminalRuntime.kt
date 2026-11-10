@@ -287,6 +287,25 @@ internal fun shouldStopVsyncChain(hasSessions: Boolean, appForeground: Boolean, 
     !hasSessions || !appForeground || !hasActiveSession
 
 /**
+ * 停链后的复核：是否因为「判定与停链之间刚好来了新信号」而重新拉起链。
+ *
+ * 复核只在停链原因就是「会话空闲」时才作数：停链原因若是「应用不可见」或「已无
+ * 会话」，复核必然得到「会话仍活跃」——后台时宿主信号在 5 秒阈值内仍算新鲜，于是
+ * 每显示帧停一次又拉起一次，链永不停住，主线程被逐帧唤醒，链启动日志也逐帧刷屏。
+ *
+ * @param hasSessions 判定时刻是否还有会话。
+ * @param appForeground 复核时刻应用是否可见（切后台须立即生效，故复核时重读）。
+ * @param wasActive 判定时刻是否有活跃会话。
+ * @param isActiveNow 复核时刻是否有活跃会话。
+ */
+internal fun shouldRestartVsyncChain(
+    hasSessions: Boolean,
+    appForeground: Boolean,
+    wasActive: Boolean,
+    isActiveNow: Boolean,
+): Boolean = hasSessions && appForeground && !wasActive && isActiveNow
+
+/**
  * 活跃期闭锁超时：vsync 链健康时它只作安全网，不得成为第二路帧节拍。
  *
  * 两路节拍（Choreographer 每显示帧 + 17ms 闭锁）周期只差 0.3ms，相位漂移会让
@@ -840,17 +859,28 @@ constructor(
                     entry.vsyncRequested = true
                     entry.pokeVsync()
                 }
+                val hasSessions = sessions.isNotEmpty()
+                val hasActiveSession = anySessionActive(nowNanos)
                 if (
                     shouldStopVsyncChain(
-                        hasSessions = sessions.isNotEmpty(),
+                        hasSessions = hasSessions,
                         appForeground = appForeground,
-                        hasActiveSession = anySessionActive(nowNanos),
+                        hasActiveSession = hasActiveSession,
                     )
                 ) {
                     stopVsyncChain()
                     // 判定与停链之间可能刚好来了宿主侧信号：复核一次，活跃就重新拉起。
                     // 否则那一次信号会被吞掉，渲染只剩 17ms 闭锁这一路节拍，丢掉 vsync 对齐。
-                    if (anySessionActive(System.nanoTime())) {
+                    // 复核只认「停链原因就是会话空闲」：应用不可见或已无会话时复核必然
+                    // 得到「仍活跃」，链于是每显示帧停一次又拉起一次，永不停住。
+                    if (
+                        shouldRestartVsyncChain(
+                            hasSessions = hasSessions,
+                            appForeground = appForeground,
+                            wasActive = hasActiveSession,
+                            isActiveNow = anySessionActive(System.nanoTime()),
+                        )
+                    ) {
                         ensureVsyncChainRunning()
                     }
                     return
@@ -5024,11 +5054,13 @@ constructor(
         val previous = backgroundPauseToken
         backgroundPauseToken = renderPauseLedger.acquire()
         previous?.let { renderPauseLedger.release(it) }
+        LogUtil.debug("Runtime", "TRACE pauseRenderingForBackground token=${backgroundPauseToken} previous=$previous holders=${renderPauseLedger.holderCount}")
         pauseRendering()
     }
 
     /** 切前台：归还切后台那次暂停。 */
     fun resumeRenderingFromBackground() {
+        LogUtil.debug("Runtime", "TRACE resumeRenderingFromBackground token=$backgroundPauseToken holders=${renderPauseLedger.holderCount}")
         backgroundPauseToken?.let { renderPauseLedger.release(it) }
         backgroundPauseToken = null
     }
