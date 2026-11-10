@@ -11,6 +11,7 @@
 - [x] 补单测钉住「首帧逾期的层级归属、层级优先级与恢复动作」
 - [x] 更新 `docs/STATUS.md` 的未决问题清单（获用户明确同意后改，逐条写明收口口径与
       归因；首行的禁止修改声明保留）
-- [ ] 运行 `cargo fmt`、`cargo clippy`、`cargo test` 与 Gradle 检查
-- [ ] 定向运行 OpenSpec 严格校验，确认全部能力通过
-- [ ] 归档本 change 并同步主规约
+- [x] 运行 `cargo fmt`、`cargo clippy`、`cargo test` 与 Gradle 检查（`scripts/check.nu`
+      全量通过：Rust 单测 887 项、文档构建、基准、semgrep、markdownlint、Gradle 检查）
+- [x] 定向运行 OpenSpec 严格校验，确认全部能力通过
+- [x] 归档本 change 并同步主规约

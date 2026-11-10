@@ -8,18 +8,13 @@
 退化为直杀子进程、Surface 尚未就绪而延迟处理、平台收走原生窗口、共享内存等介质
 在平台不支持时——MUST 记为 debug 或 info，MUST NOT 记为 warn 或 error；只有真正
 表示异常的路径（信号投递失败、命令通道失效、载荷解码失败、宿主迟迟换不来新窗口）
-才可记为 warn 或 error。
+才可记为 warn 或 error。正常路径产生 warn 等于取消「应用缺陷」与「环境噪声」的
+分辨闸门。
 
-正常路径产生 warn 的代价是真实的：日志分级是排障时区分「应用缺陷」与「环境噪声」
-的第一道闸门，把它淹没在正常噪声里，等于取消这道闸门。
+同一情形在不同调用点 MUST 判成同一等级，MUST NOT 一处记 warn、另一处记 debug。
 
-正常退化的判据 MUST 覆盖「同一情形在不同调用点」的情形：同一状况在不同路径上被
-判成同一等级，MUST NOT 一处记 warn、另一处记 debug。
-
-框架侧的条目同样在判据之内：应用的行为 MUST NOT 触发框架的 W 级「Failed during
-query」——框架把 `DocumentsProvider#query` 抛出的 `FileNotFoundException` 记成
-一条告警，而缺失文档回 null 游标与抛异常在客户端看到的响应逐位相同，差异只有
-这一条告警。
+框架侧的条目同样在判据之内：应用 MUST NOT 触发框架的 W 级「Failed during query」
+——缺失文档回 null 游标与抛 `FileNotFoundException` 在客户端看到的响应逐位相同。
 
 #### Scenario: 会话正常收尾
 

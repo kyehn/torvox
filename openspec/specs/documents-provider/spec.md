@@ -165,38 +165,6 @@ MUST 只写请求投影包含的列，缺失列跳过而非填 `null`。对请�
 - **WHEN** 以 `null` 投影查询文档
 - **THEN** 返回全部六个文档列
 
-### Requirement: 缺失路径的查询按 AOSP 契约抛 FileNotFoundException
-
-对不存在的 docId 调 `queryDocument`、对不存在的目录调 `queryChildDocuments`
-MUST 抛 `FileNotFoundException`（裸类型，不得被框架包装成
-`RuntimeException`/`IllegalStateException`），树 URI 与非树 URI 一致——AOSP
-`DocumentsProvider#queryDocument` 的文档写明「若文档不存在 Implementation
-should throw FileNotFoundException」（也即让 SAF 界面把失效路径当成
-「文档已消失」重列，而不是把脏错误弹给用户）。实现 MUST 用 lstat 语义判
-存在（`Files.isSymbolicLink` 为真即地址可解析），断链自身仍在列举里可见、
-回查同样可达；判存在 MUST 先于 `watch()` 登记，避免对已消失目录登记观察者。
-
-#### Scenario: 缺失文档按树/非树 URI 一致拒绝
-
-- **WHEN** 客户端（content CLI 或 SAF）以不存在的 docId 查询，无论树与非树形式
-- **THEN** 得到 `FileNotFoundException`（CLI 呈现为 No result found），不抛包装异常
-
-#### Scenario: 断链可见性与回查一致
-
-- **WHEN** 目录存在一个指向缺失目标的符号链接并在列举中出现
-- **THEN** 以该 docId 回查 `queryDocument` 仍返回（lstat 可见），只有真正无
-      inode 的缺失路径才被拒绝
-
-#### Scenario: 缺失父目录不登记观察者
-
-- **WHEN** 对不存在的目录发起 `queryChildDocuments`
-- **THEN** 抛 `FileNotFoundException` 且不得对该目录调用 `watch()` 登记
-
-#### Scenario: 目录列举失败不按空目录回答
-
-- **WHEN** 客户端查询一个存在但内容列举失败的目录
-- **THEN** MUST 抛 `FileNotFoundException`，MUST NOT 回空游标把「读不到」说成「空目录」
-
 ### Requirement: 树寻址的前置校验由提供者按根内包含性回答
 
 平台对树 URI 的每次访问先调用 `DocumentsProvider.isChildDocument`（`enforceTree`），
@@ -423,20 +391,47 @@ SAF 没有 chmod 通道，而编辑器/文件管理器的「保存并替换」�
 - **WHEN** 客户端经 `ContentResolver.call()` 走树 URI（docId 含 `/`）发起修改、复制或移动
 - **THEN** 三者 MUST 各自可用，目标内容 MUST 落盘且返回的 docId MUST 可再次寻址
 
-### Requirement: 缺失文档的契约异常不得被改写为成功响应
+### Requirement: 缺失路径的查询回 null 游标
 
-提供者 MUST 按 AOSP 契约对不存在的 docId 抛 `FileNotFoundException`，MUST NOT 以空游标、
-占位行或改抛其他异常类型替代。框架据该异常在提供者的 catch 块打出 W 级日志；改写响应
-语义会把「文档不存在」伪装成「文档存在但没有内容」，客户端据此把新建与改名撞成
-「路径已存在」，并停在旧快照上。
+对不存在的 docId 调 `queryDocument`、对不存在的目录调 `queryChildDocuments`、对越界的
+搜索根调 `querySearchDocuments`，MUST 回 null 游标，MUST NOT 抛
+`FileNotFoundException`，MUST NOT 回带行的空游标。MUST 用 lstat 语义判存在
+（`Files.isSymbolicLink` 为真即地址可解析），断链自身仍在列举里可见、回查同样可达；
+判存在 MUST 先于 `watch()` 登记，避免对已消失目录登记观察者。
+
+#### Scenario: 缺失文档回 null 游标
+
+- **WHEN** 客户端（content CLI 或 SAF）以不存在的 docId 查询，无论树与非树形式
+- **THEN** 得到 null 游标，MUST NOT 得到占位行或带行的空游标
+
+#### Scenario: 断链可见性与回查一致
+
+- **WHEN** 目录存在一个指向缺失目标的符号链接并在列举中出现
+- **THEN** 以该 docId 回查 `queryDocument` 仍返回（lstat 可见），只有真正无
+        inode 的缺失路径才回 null
+
+#### Scenario: 缺失父目录不登记观察者
+
+- **WHEN** 对不存在的目录发起 `queryChildDocuments`
+- **THEN** 回 null 游标且不得对该目录调用 `watch()` 登记
+
+#### Scenario: 目录列举失败不按空目录回答
+
+- **WHEN** 客户端查询一个存在但内容列举失败的目录
+- **THEN** MUST 回 null 游标，MUST NOT 回带行的空游标把「读不到」说成「空目录」
+
+### Requirement: 缺失文档的响应不得被改写为存在
+
+提供者 MUST 对不存在的 docId 回 null 游标，MUST NOT 回占位行或任何暗示文档存在的
+响应。回带行的空游标会把「文档不存在」伪装成「文档存在但没有内容」，客户端据此把
+新建与改名撞成「路径已存在」，并停在旧快照上。
 
 #### Scenario: 让位文件尚不存在时的回查
 
 - **WHEN** 客户端在「替换保存」流程中回查尚未创建的让位文件
-- **THEN** 提供者 MUST 抛 `FileNotFoundException`，MUST NOT 返回空游标或占位行
+- **THEN** 提供者 MUST 回 null 游标，MUST NOT 回占位行
 
 #### Scenario: 改名让位后原 docId 的回查
 
 - **WHEN** 原文件已被改名让位，客户端回查原 docId
-- **THEN** 提供者 MUST 抛 `FileNotFoundException`；该次回查引发的框架告警归入客户端
-      流程，应用 MUST NOT 为其改写契约语义
+- **THEN** 提供者 MUST 回 null 游标，且 MUST NOT 引发框架 W 级「Failed during query」
