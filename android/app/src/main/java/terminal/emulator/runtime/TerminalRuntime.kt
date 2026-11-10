@@ -28,7 +28,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -43,15 +42,6 @@ import terminal.emulator.installer.BootstrapInstaller
 import terminal.emulator.installer.BootstrapOrchestrator
 import terminal.emulator.installer.SecondStageRunner
 import terminal.emulator.installer.bootstrapDirectories
-import terminal.emulator.monitor.LivenessRecovery
-import terminal.emulator.monitor.LivenessThresholds
-import terminal.emulator.monitor.RenderWatchDog
-import terminal.emulator.monitor.SESSION_CLOSE_THROTTLE_NANOS
-import terminal.emulator.monitor.SessionLivenessDiagnosis
-import terminal.emulator.monitor.SessionLivenessInputs
-import terminal.emulator.monitor.diagnoseSessionLiveness
-import terminal.emulator.monitor.recoveryActionFor
-import terminal.emulator.monitor.shouldCloseSession
 import terminal.emulator.resolveEffectiveFontFamily
 import terminal.emulator.service.TerminalForegroundService
 import terminal.emulator.settings.SettingsRepository
@@ -80,6 +70,25 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
+
+// 渲染线程监管与节拍诊断的阈值常量（与 [RenderSupervisor] 共用，故置于文件层）。
+internal const val THREAD_JOIN_TIMEOUT_MS = 1000L
+
+internal const val RENDER_MONITOR_INTERVAL_MS = 500L
+
+internal const val RENDER_MAX_RESTART_ATTEMPTS = 5
+
+internal const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
+
+internal const val NANOS_PER_MILLI = 1_000_000.0
+
+internal const val NANOS_PER_SECOND = 1_000_000_000.0
+
+internal const val RENDER_DIAGNOSTIC_FREQUENCY = 60
+
+internal const val RENDER_HANG_TIMEOUT_NANOS = 10_000_000_000L // 10 seconds
+
+internal const val RUNTIME_LOG_TAG = "Runtime"
 
 data class RuntimeState(
     val isRunning: Boolean = false,
@@ -146,7 +155,7 @@ constructor(
     private class PendingSurface(val surface: Surface, val width: Int, val height: Int)
 
     /** 渲染线程生命周期监管。 */
-    val renderSupervisor = RenderSupervisor()
+    internal val renderSupervisor = RenderSupervisor(this)
 
     private val clipboardAccess = ClipboardAccess(context, tag = "Runtime")
 
@@ -176,12 +185,12 @@ constructor(
         }
     }
 
-    private val eventDispatcher = EventDispatcher()
+    internal val eventDispatcher = EventDispatcher()
 
-    private val scope = CoroutineScope(SupervisorJob() + TerminalDispatchers.inputOutput)
+    internal val scope = CoroutineScope(SupervisorJob() + TerminalDispatchers.inputOutput)
 
-    private val _state = MutableStateFlow(RuntimeState())
-    val state: StateFlow<RuntimeState> = _state.asStateFlow()
+    internal val runtimeState = MutableStateFlow(RuntimeState())
+    val state: StateFlow<RuntimeState> = runtimeState.asStateFlow()
 
     /**
      * 是否已向 Surface 呈现过至少一帧（渲染线程写，主线程读）。
@@ -195,7 +204,7 @@ constructor(
      */
     @Volatile
     var hasPresentedFrame: Boolean = false
-        private set
+        internal set
 
     /**
      * 当前 Surface 自最近一次（重）交付以来是否已有一帧提交进它的缓冲区。
@@ -211,7 +220,7 @@ constructor(
     private val surfaceBufferPresentFlow = MutableStateFlow(false)
     val surfaceBufferPresent: StateFlow<Boolean> = surfaceBufferPresentFlow.asStateFlow()
 
-    private fun publishSurfaceBufferPresent(present: Boolean) {
+    internal fun publishSurfaceBufferPresent(present: Boolean) {
         if (surfaceBufferPresentFlow.value == present) return
         surfaceBufferPresentFlow.value = present
     }
@@ -228,10 +237,10 @@ constructor(
     val startupMetrics: StateFlow<StartupMetrics> = startupMetricsFlow.asStateFlow()
 
     /** 进程启动至今的毫秒数（uptime 时基，与 `Process.getStartUptimeMillis()` 同源）。 */
-    private fun elapsedSinceProcessStartMs(): Long = SystemClock.uptimeMillis() - Process.getStartUptimeMillis()
+    internal fun elapsedSinceProcessStartMs(): Long = SystemClock.uptimeMillis() - Process.getStartUptimeMillis()
 
     /** 渲染线程写；只在值真正变化时发布。 */
-    private fun publishStartupMetrics(startupToFirstFrameMs: Long? = null, startupToFirstOutputMs: Long? = null) {
+    internal fun publishStartupMetrics(startupToFirstFrameMs: Long? = null, startupToFirstOutputMs: Long? = null) {
         val current = startupMetricsFlow.value
         val next =
             StartupMetrics(
@@ -248,14 +257,14 @@ constructor(
      * 仅在变化时由渲染线程发布；输入法跟随位移订阅它以裁剪平移量。
      * 与 [state] 分开，使光标/内容变化不触发 state 订阅者重组。
      */
-    private val lastContentRowFlowInternal = MutableStateFlow(Bridge.LAST_CONTENT_ROW_NONE)
+    internal val lastContentRowFlowInternal = MutableStateFlow(Bridge.LAST_CONTENT_ROW_NONE)
     val lastContentRowFlow: StateFlow<Int> = lastContentRowFlowInternal.asStateFlow()
 
     /**
      * 活动会话的备用屏激活状态。仅在变化时由渲染线程发布（随每帧渲染结果一并上报）。
      * 与 [state] 分开，使备用屏切换不触发 state 订阅者重组。
      */
-    private val altScreenActiveFlowInternal = MutableStateFlow(false)
+    internal val altScreenActiveFlowInternal = MutableStateFlow(false)
     val altScreenActiveFlow: StateFlow<Boolean> = altScreenActiveFlowInternal.asStateFlow()
 
     /**
@@ -356,7 +365,7 @@ constructor(
      */
     fun claimStartupKeyboardRequest(): Boolean = startupKeyboardRequested.compareAndSet(false, true)
 
-    private val sessions = ConcurrentHashMap<Long, SessionEntry>()
+    internal val sessions = ConcurrentHashMap<Long, SessionEntry>()
 
     /**
      * 渲染契约下发的串行闸。
@@ -493,7 +502,7 @@ constructor(
      * 报实测值而不是写死 16.7ms：刷新率会被系统按省电与热节流调整，写死的数字
      * 会把显示降频误读成渲染故障。
      */
-    private fun displayPeriodText(): String {
+    internal fun displayPeriodText(): String {
         val periodNanos = displayPeriodEstimate.periodNanos
         val periodText = if (periodNanos <= 0L) "未测得" else millisText(periodNanos)
         val report = vsyncIntervalReport ?: return periodText
@@ -508,7 +517,7 @@ constructor(
     }
 
     /** 在主 Looper 上拉起 vsync 帧回调链。幂等：CAS 保护保证每进程至多一条链。 */
-    private fun ensureVsyncChainRunning() {
+    internal fun ensureVsyncChainRunning() {
         if (!vsyncChainRunning.compareAndSet(false, true)) return
         mainHandler.post {
             try {
@@ -592,7 +601,7 @@ constructor(
     // 而非原始设置值出发（后者在字号从未显式设置时可能不同）。
     @Volatile internal var appliedFontSizeTenths: Int = 0
 
-    private val renderGeneration = AtomicInteger(0)
+    internal val renderGeneration = AtomicInteger(0)
 
     /**
      * 活动会话 id。**唯一写入口**：赋值时同步对齐运行期镜像
@@ -618,7 +627,7 @@ constructor(
     }
 
     @Volatile private var starting = false
-    private val sessionLock = Any()
+    internal val sessionLock = Any()
 
     /**
      * 结束「启动中」标记的唯一写入口（置真的唯一入口是 [start] 的锁内）。
@@ -673,13 +682,13 @@ constructor(
 
     @Volatile private var foregroundServiceRunning = false
 
-    @Volatile private var renderMonitorJob: Job? = null
+    @Volatile internal var renderMonitorJob: Job? = null
 
     // 串行化 startRenderMonitor 的「检查后赋值」：start()（IO 协程）与
     // resumeRendering（surfaceTransitionExecutor 线程）都可能到达，
     // 未同步的一对操作会启动两个监视循环
     // （stopRenderMonitor 只取消被引用的那个，另一个会空转到作用域取消为止）。
-    private val monitorLock = Any()
+    internal val monitorLock = Any()
 
     // ══════════════════════════════════════════════════════════════════════
     // 二、渲染线程生命周期
@@ -699,7 +708,7 @@ constructor(
      * 抛出去就会跳过 `handleSessionExit`，把已从原生队列消费、不再重发的退出事件
      * 连同整个原生会话与子进程一起泄漏。
      */
-    private fun dispatchClipboardRequests(requests: List<Bridge.ClipboardRequest>) {
+    internal fun dispatchClipboardRequests(requests: List<Bridge.ClipboardRequest>) {
         if (requests.isEmpty()) return
         val answer = clipboardAccess.clipboardText()
         // 读取失败即 null（不作答，而非空串）：远端请求悬空好过粘出空白。
@@ -765,7 +774,7 @@ constructor(
      * `[Process completed]` 提示，也无从得知 shell 是怎么没的。码未知一律按「非正常
      * 退出」对待：保留现场、显示退出码未知的提示，等用户回车确认。
      */
-    private fun handleSessionExit(entry: SessionEntry, exitCode: Int?) {
+    internal fun handleSessionExit(entry: SessionEntry, exitCode: Int?) {
         // 启动入口失败不得回退：shell 退出即走 [Process completed] 提示，
         // 输出保留显示，由用户确认关闭。
         // 本函数既用于 shell 首次退出（poll.exit 分支），也用于用户在 [Process completed]
@@ -839,7 +848,7 @@ constructor(
         if (activeSessionReplaced) scheduleActiveSessionTitleRefresh()
     }
 
-    private fun closeDeadSession(entry: SessionEntry, reason: String) {
+    internal fun closeDeadSession(entry: SessionEntry, reason: String) {
         // 锁内置 closing 标志，与 closeSession 对称：handleSessionExit/closeDeadSession 的
         // 接替分支会为新活动会话调用 startRenderThread，缺少该标志时竞争的
         // closeDeadSession(entry) 可能在接替渲染线程启动期间关闭其 bridge，
@@ -942,7 +951,7 @@ constructor(
         }
     }
 
-    private data class SelectionStateSnapshot(
+    internal data class SelectionStateSnapshot(
         val startRow: Int,
         val startCol: Int,
         val endRow: Int,
@@ -954,7 +963,7 @@ constructor(
         val dragging: Boolean = false,
     )
 
-    private val selectionState =
+    internal val selectionState =
         AtomicReference(
             SelectionStateSnapshot(0, 0, 0, 0, false),
         )
@@ -1072,7 +1081,7 @@ constructor(
      * 的长尾：只放弃意味着渲染线程永远空转在一张死窗口上，用户看到的是一块永久空白，
      * 而这恰恰发生在切后台往返、平台仍在重排窗口的时刻。
      */
-    private fun maybeRequestSurfaceRecreate(entry: SessionEntry) {
+    internal fun maybeRequestSurfaceRecreate(entry: SessionEntry) {
         val now = System.nanoTime()
         val budgetRef = entry.surfaceRecreateBudget
         while (true) {
@@ -1084,7 +1093,7 @@ constructor(
                 // 只告警一次：慢重试仍然每轮都发请求，重复告警只会淹没日志。
                 if (budgetRef.compareAndSet(budget, budget.copy(exhaustedLogged = true))) {
                     LogUtil.error(
-                        TAG,
+                        RUNTIME_LOG_TAG,
                         "surface invalidated and $SURFACE_RECREATE_MAX_ATTEMPTS fast recreate attempts exhausted; " +
                             "falling back to one attempt every $SURFACE_RECREATE_SLOW_INTERVAL_MS ms",
                     )
@@ -1103,7 +1112,7 @@ constructor(
                     surfaceRecreateSignalState.intValue += 1
                     // 走 LogUtil 而非裸 android.util.Log：仪器化失败时 TerminalLogcatRule
                     // 只按终端相关标签过滤，独立标签的锚点会被整条丢掉。
-                    LogUtil.debug(TAG, "surface recreate signal -> ${surfaceRecreateSignalState.intValue}")
+                    LogUtil.debug(RUNTIME_LOG_TAG, "surface recreate signal -> ${surfaceRecreateSignalState.intValue}")
                 }
                 // 报刚才写下的那次计数，而不是重新读引用——并发复位会让日志
                 // 印出一个从未请求过的次数。慢重试阶段不再有分母。
@@ -1119,9 +1128,9 @@ constructor(
                 // 首次换窗口是平台收走窗口后的正常退化，连续换不来才说明新窗口迟迟
                 // 不来，分级见 surfaceRecreateIsWarning。
                 if (surfaceRecreateIsWarning(attempt)) {
-                    LogUtil.warn(TAG, message)
+                    LogUtil.warn(RUNTIME_LOG_TAG, message)
                 } else {
-                    LogUtil.info(TAG, message)
+                    LogUtil.info(RUNTIME_LOG_TAG, message)
                 }
                 return
             }
@@ -1249,1051 +1258,6 @@ constructor(
     // 三之二、渲染线程监管
     // ══════════════════════════════════════════════════════════════════════
 
-    /**
-     * 拥有渲染线程生命周期：监视循环、死线程检测、重启/退避与线程启停。
-     *
-     * 内部类：直接访问 TerminalRuntime 的会话注册表与锁，无需经构造函数层层传递
-     * （纯代码搬迁，行为零变化）。
-     */
-    inner class RenderSupervisor {
-        internal fun startRenderMonitor() {
-            synchronized(monitorLock) {
-                if (renderMonitorJob?.isActive == true) return
-                renderMonitorJob = scope.launch {
-                    while (isActive) {
-                        delay(RENDER_MONITOR_INTERVAL_MS)
-                        checkSessions()
-                    }
-                }
-            }
-        }
-
-        internal fun stopRenderMonitor() {
-            synchronized(monitorLock) {
-                renderMonitorJob?.cancel()
-                renderMonitorJob = null
-            }
-        }
-
-        internal fun checkSessions() {
-            val deadSessions = mutableListOf<SessionEntry>()
-            val healthySessions = mutableListOf<SessionEntry>()
-            synchronized(sessionLock) {
-                scanSessionsForDeath(deadSessions, healthySessions)
-            }
-            decayRestartCounts(healthySessions)
-            for (entry in deadSessions) {
-                scope.launch {
-                    handleDeadRenderThread(entry)
-                }
-            }
-        }
-
-        internal fun scanSessionsForDeath(
-            deadSessions: MutableList<SessionEntry>,
-            healthySessions: MutableList<SessionEntry>,
-        ) {
-            for (entry in sessions.values) {
-                if (!entry.running) continue
-                if (isRenderThreadDead(entry.renderThreadExited, entry.renderThreadRef?.isAlive)) {
-                    deadSessions.add(entry)
-                } else if (entry.restartAttempts > 0) {
-                    healthySessions.add(entry)
-                }
-            }
-        }
-
-        internal fun decayRestartCounts(healthySessions: List<SessionEntry>) {
-            if (healthySessions.isEmpty()) return
-            // 整批一次加锁：逐条加锁会在会话多时反复进出总闸，而这里只是清计数。
-            synchronized(sessionLock) {
-                for (entry in healthySessions) {
-                    // 扫描与本次衰减之间条目可能已死（线程在两步之间退出）：
-                    // 只有仍在运行且线程确实存活的条目才算「健康期」，否则会把
-                    // 刚死条目的重启预算清零，使 RENDER_MAX_RESTART_ATTEMPTS 永不生效。
-                    if (!entry.running) continue
-                    if (isRenderThreadDead(entry.renderThreadExited, entry.renderThreadRef?.isAlive)) continue
-                    if (entry.restartAttempts > 0) {
-                        entry.restartAttempts = 0
-                        entry.nextRestartDelayMs = INITIAL_RESTART_DELAY_MS
-                    }
-                }
-            }
-        }
-
-        internal suspend fun handleDeadRenderThread(entry: SessionEntry) {
-            LogUtil.warn(
-                "Runtime",
-                "session ${entry.sessionId} render thread exited, restart attempt ${entry.restartAttempts + 1}",
-            )
-
-            // 阶段 1（加锁）：仅做快速状态检查。阶段 2（不持锁）：
-            // stopDeadRenderThreadResources 会 join 旧线程（最长 1s），
-            // 跨 join 持有 sessionLock 会阻塞所有会话操作。
-            synchronized(sessionLock) {
-                if (!entry.running) return
-                if (!entry.renderThreadExited) {
-                    val thread = entry.renderThreadRef
-                    if (thread != null && thread.isAlive) return
-                    entry.renderThreadExited = true
-                }
-            }
-
-            // 阶段 2（不持锁）：下方 join 在渲染线程卡死于原生 GPU 代码时
-            // 最长阻塞 THREAD_JOIN_TIMEOUT_MS——这正是若持有 sessionLock
-            // 就会拖住所有会话操作的情形，故刻意置于锁外。
-            stopDeadRenderThreadResources(entry)
-
-            synchronized(sessionLock) {
-                // 上方 join 后 running 仍为 true（它是会话意图标志，只有 pause/stop 置假）。
-                // 在此重查，使在阶段 1 与此刻之间运行的并发 pauseRendering()
-                // 能取消重启，而非在已销毁的 Surface 上启动渲染线程。
-                if (!entry.running) return
-                if (!sessions.containsKey(entry.sessionId)) return
-                if (entry.restartScheduled) return
-                entry.restartScheduled = true
-                entry.restartAttempts++
-            }
-            // closeDeadSession 在锁外运行：它会关闭 bridge（Session::drop 会 kill
-            // 并 join 线程，~100ms+）并可能启动接替渲染线程（join 最长
-            // THREAD_JOIN_TIMEOUT_MS），两者绝不可在持有 sessionLock 时运行。
-            // 尝试计数单调递增且 closeDeadSession 会重查 sessions.containsKey，
-            // 故并发竞争调用无害（第二次调用立即返回）。
-            if (shouldCloseDeadRender(entry.restartAttempts, RENDER_MAX_RESTART_ATTEMPTS)) {
-                closeDeadSession(entry, "exceeded max restart attempts")
-                return
-            }
-            val restartDelayMillis =
-                synchronized(sessionLock) {
-                    val next = entry.nextRestartDelayMs
-                    entry.nextRestartDelayMs =
-                        nextRestartDelayMs(entry.nextRestartDelayMs, MAX_RESTART_DELAY_MS)
-                    next
-                }
-
-            delay(restartDelayMillis)
-            restartRenderThreadAfterDelay(entry)
-            delay(GRACE_PERIOD_AFTER_RESTART_MS)
-            confirmRestartGrace(entry)
-        }
-
-        internal fun stopDeadRenderThreadResources(entry: SessionEntry) {
-            detachWatchDog(entry)
-            // 注意：此处绝不要把 entry.running 置假。running 是会话意图标志
-            // （pause/stop 置假，start/resume 置真）。死线程重启路径依赖 running 保持为真，
-            // 使延迟重启（restartRenderThreadAfterDelay）仍能执行；
-            // 也使并发的 pauseRendering()（将 running 置假）能正确取消待执行的重启。
-            entry.renderThreadRef?.let { renderThread ->
-                entry.wakeRenderThread(renderThread)
-                renderThread.join(THREAD_JOIN_TIMEOUT_MS)
-                if (renderThread.isAlive) {
-                    LogUtil.warn("Runtime", "Render thread did not exit within timeout, continuing anyway")
-                    entry.renderThreadPossiblyAlive = true
-                    entry.hungRenderThread = renderThread
-                    return
-                }
-            }
-            entry.renderThreadRef = null
-            entry.renderSignaled.set(false)
-            // renderThreadRef 的 join 成功，并不能证明先前 join 超时时记录的挂起线程也已死亡
-            // ——它可能仍在原生渲染代码中。仅在未记录挂起线程时才清标志，
-            // 或先给挂起线程最后一次 join；无条件清除会让关闭路径在存活线程下
-            // 销毁原生会话（use-after-free）。
-            val hung = entry.hungRenderThread
-            if (entry.renderThreadPossiblyAlive && hung != null && hung.isAlive) {
-                hung.interrupt()
-                hung.join(THREAD_JOIN_TIMEOUT_MS)
-            }
-            if (entry.renderThreadPossiblyAlive && hung != null && !hung.isAlive) {
-                entry.renderThreadPossiblyAlive = false
-                entry.hungRenderThread = null
-            }
-            // 此处跳过 releaseGpuSurface——新渲染线程会经 attachSurface 重新配置 Surface。
-        }
-
-        internal suspend fun restartRenderThreadAfterDelay(entry: SessionEntry) {
-            synchronized(sessionLock) {
-                // 先消费调度标记：无论本次重启执行还是被取消（暂停/关闭），
-                // 后续监视器派发都必须能调度一次全新的重启。
-                entry.restartScheduled = false
-                if (!sessions.containsKey(entry.sessionId)) return
-                // 仅当会话仍意图运行时才重启。已暂停的会话（Surface 已销毁）
-                // 不应获得渲染线程——恢复路径会在 Surface 回来时启动它。
-                if (!entry.running) return
-                // 其他线程可能已启动（例如恢复与延迟重启竞争）；不要启动第二个。
-                if (entry.renderThreadRef?.isAlive == true) return
-                entry.renderThreadExited = false
-                startRenderThread(entry)
-                LogUtil.debug(
-                    "Runtime",
-                    "session ${entry.sessionId} render thread restarted (attempt ${entry.restartAttempts})",
-                )
-            }
-        }
-
-        internal suspend fun confirmRestartGrace(entry: SessionEntry) {
-            synchronized(sessionLock) {
-                if (!sessions.containsKey(entry.sessionId)) return
-                if (!entry.running) return
-                if (entry.renderThreadExited) return
-                val thread = entry.renderThreadRef
-                if (thread != null && thread.isAlive) {
-                    entry.restartAttempts = 0
-                    entry.nextRestartDelayMs = INITIAL_RESTART_DELAY_MS
-                    LogUtil.debug("Runtime", "session ${entry.sessionId} render thread healthy after restart")
-                }
-            }
-        }
-
-        internal fun startRenderThread(entry: SessionEntry) {
-            // 拒绝为正在关闭的会话启动线程：closeSession 在启动不持锁的
-            // 停止/关闭序列之前会在 sessionLock 下置 entry.closing，
-            // 且本函数的每个调用方都持有 sessionLock
-            // ——因此正在关闭的条目绝不可能获得新渲染线程（孤儿线程 TOCTOU，见 closing 字段说明）。
-            // 同时重置运行意图标志：调用方（resumeRendering/switchSession/closeSession 阶段 3）
-            // 在调用前已将其置真，若保留为真会使 closeSession 的锁内重查
-            // 把该条目误判为运行中而跳过 bridge.close（泄漏原生会话与子进程）。
-            if (entry.closing) {
-                entry.running = false
-                LogUtil.debug("Runtime", "session ${entry.sessionId} closing — refusing to start render thread")
-                return
-            }
-            detachWatchDog(entry)
-            entry.renderThreadExited = false
-            entry.running = false
-            entry.renderSignaled.set(false)
-            // 首帧计时只落定一次：渲染线程重启不重置（重启不改变「这个会话出过帧没有」
-            // 这一事实），切后台暂停也不重置（暂停期间不出帧是正常的）。
-            if (entry.firstFrameWaitStartNanos == 0L) {
-                entry.firstFrameWaitStartNanos = System.nanoTime()
-            }
-            val oldThread = entry.renderThreadRef
-            entry.renderThreadRef = null
-            oldThread?.let { thread ->
-                if (thread === Thread.currentThread()) {
-                    // join 自身必然超时并错误地把当前线程标记为挂起；跳过
-                    // （调用方就是渲染线程本身，如 handleSessionExit 的接替）。
-                    LogUtil.warn(
-                        "Runtime",
-                        "session ${entry.sessionId} startRenderThread called from its own render thread — skipping join",
-                    )
-                } else {
-                    entry.wakeRenderThread(thread)
-                    thread.join(THREAD_JOIN_TIMEOUT_MS)
-                    if (thread.isAlive) {
-                        LogUtil.warn(
-                            "Runtime",
-                            "session ${entry.sessionId} previous render thread still alive after join — forcing new thread anyway",
-                        )
-                        // 旧线程可能仍在原生渲染代码中。记录之，
-                        // 使关闭路径跳过 releaseGpuSurface/close，
-                        // 并保留引用以便退出时做最后一次 join。
-                        entry.renderThreadPossiblyAlive = true
-                        entry.hungRenderThread = thread
-                    } else {
-                        // 仅当已 join 的线程就是记录的挂起线程（或未记录）时才清标志。
-                        // 早先 GPU 停滞留下的另一个挂起线程可能仍在原生代码中存活；
-                        // 在此清除会让关闭路径在其下销毁会话（use-after-free）。
-                        if (entry.hungRenderThread == null || entry.hungRenderThread === thread) {
-                            entry.renderThreadPossiblyAlive = false
-                            entry.hungRenderThread = null
-                        }
-                    }
-                }
-            }
-            val generation = renderGeneration.incrementAndGet()
-            entry.running = true
-            val renderThread =
-                Thread(
-                    {
-                        try {
-                            runBlocking {
-                                // 显示优先级的渲染线程：输入法打开或 Surface 频繁变动时，
-                                // 帧管线会与 UI 线程争抢 CPU。THREAD_PRIORITY_DISPLAY 让帧生产
-                                // 优先于 UI 线程时效性较低的工作，在真机与 SwiftShader 模拟器上
-                                // 都可降低帧时间抖动。
-                                Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
-                                var diagCount = 0
-                                // 渲染循环的失败账本：连续错误数（退避与致命上限）与四类
-                                // 失败诊断的窗口闸门都在这里，理由见 RenderErrorLedger。
-                                val renderErrorLedger = RenderErrorLedger()
-                                var lastScrollOffset = Int.MAX_VALUE
-                                var lastScrollRemainderPx = Float.NaN
-                                var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false)
-                                // 慢循环帧的阶段分解日志节流：连续慢帧（如 500ms 空闲闭锁）
-                                // 不刷屏，最密 2 行/秒；行内带窗口内慢循环次数。
-                                val slowLoopThrottle = CountedLogThrottle()
-                                // 慢帧告警同样节流：滚动时每帧都超 30ms，逐帧写 logcat
-                                // 会让诊断本身成为负担；帧时长统计窗口仍保留完整分布。
-                                val slowFrameThrottle = CountedLogThrottle()
-                                // 本会话是否已收到 PTY 输出：首个输出即 shell 真的开始说话，
-                                // 它也是外部驱动（宏基准）判定「可以往终端敲键」的信号——
-                                // shell 就绪前写入会被 tty 初始化冲掉。
-                                var hasReceivedOutput = false
-                                // 每线程帧时长统计：渲染线程重启时重置（新生涯，不带陈旧历史）。
-                                val frameTiming = FrameTimingStats()
-                                // 整循环周期统计（渲染 + pollAll + 事件派发 + waitOutput）：
-                                // 上方 frameTiming 只覆盖 bridge.render()；
-                                // 循环窗口的倒数才是真实帧率，且能区分「原生渲染慢」
-                                // 与「循环中其他环节慢」。
-                                val loopTiming = FrameTimingStats()
-                                // 门控之后、渲染 JNI 之前的「循环自身工作」统计：推送选区/
-                                // 滚动偏移与滚动余量。它必须恒为亚毫秒级——一旦在这段里做
-                                // GPU 调用（曾经把 uniform 写入放在这里），洪流期间会排到
-                                // 100ms+，把整帧拖慢而 SLOW_LOOP 的 render 段看起来正常。
-                                val loopPreTiming = FrameTimingStats()
-                                // 基线自适应降级检测器：学习设备自身的帧时间基线，
-                                // 对回归至其约 3 倍以上的窗口告警——同一套机制
-                                // 既适用于软件模拟器（~555ms/帧）也适用于真机（~17ms），
-                                // 无需固定阈值。
-                                val frameTimingTrend = FrameTimingTrend()
-                                LogUtil.debug(
-                                    "Runtime",
-                                    "render thread started for session ${entry.sessionId} generation=$generation",
-                                )
-                                while (entry.running && renderGeneration.get() == generation) {
-                                    // 用户在 [Process completed] 提示上按了 Enter
-                                    // ——writeToPty 只发信号；关闭路径在此渲染线程上执行，
-                                    // 避免在存活的渲染循环下销毁 bridge。
-                                    if (entry.processCompletedConfirmed) {
-                                        handleSessionExit(entry, entry.processExitCode)
-                                        break
-                                    }
-                                    try {
-                                        val loopFrameStart = System.nanoTime()
-                                        // 渲染失败退避的实测时长：主动等的等待，单独计量
-                                        // 以便从慢循环判定中扣除（见 slowLoopWorkNanos）。
-                                        var loopBackoffNanos = 0L
-                                        val bridge = entry.bridge
-                                        // ── vsync 唤醒门控 ──
-                                        // 循环仅在有唤醒源触发时才渲染：
-                                        //   ① vsyncRequested — Choreographer 帧回调
-                                        //     （显示帧信号；该回调只发信号，绝不触碰 surface
-                                        //     Mutex，也绝不自行调用 render），
-                                        //   ② forceRenderRequested — 即时反馈旁路
-                                        //     （forceRender()，语义不变），
-                                        //   ③ renderSignaled — 任意 notifyRender() 生产者
-                                        //     （滚动/选区/PTY 相邻的 UI 信号）。
-                                        // 否则驻留在输出闭锁上。闭锁超时（活跃 17–34ms / 空闲 500ms）
-                                        // 同时充当安全网节奏：超时返回仍会落下一次渲染尝试，
-                                        // 使主线程阻塞或 vsync 信号丢失时延迟字段的消费不会停摆。
-                                        // 关于 PTY 输出：waitOutput 是纯 park——PTY 到达无法提前唤醒它；
-                                        // 新输出在下一次 vsync 尝试（~16.7ms）或本超时回退时
-                                        // 被取走，此时 receive_cell_data 消费待处理数据。
-                                        // 唤醒后 render() 无条件调用——空闲门控决策完全位于原生门控内部。
-                                        if (
-                                            !entry.vsyncRequested &&
-                                            !entry.forceRenderRequested &&
-                                            !entry.renderSignaled.get()
-                                        ) {
-                                            val nowNanos = System.nanoTime()
-                                            val timeoutNanos: Long =
-                                                if (
-                                                    shouldUseIdleLatch(
-                                                        idleNanos =
-                                                        nowNanos - entry.lastSignalNanos,
-                                                        hasScrollMotion =
-                                                        entry.hasScrollMotion(),
-                                                        idleThresholdNanos =
-                                                        RENDER_IDLE_THRESHOLD_NANOS,
-                                                    )
-                                                ) {
-                                                    RENDER_LATCH_IDLE_TIMEOUT_NANOS
-                                                } else {
-                                                    activeLatchTimeoutNanos(
-                                                        vsyncFresh =
-                                                        nowNanos - entry.lastVsyncNanos <=
-                                                            RENDER_VSYNC_STALE_NANOS,
-                                                    )
-                                                }
-                                            entry.wakeGeneration =
-                                                bridge.waitOutput(
-                                                    entry.wakeGeneration,
-                                                    timeoutNanos / 1_000_000L,
-                                                )
-                                            if (Thread.interrupted()) throw InterruptedException()
-                                        }
-                                        val loopGateDoneNanos = System.nanoTime()
-                                        // 渲染前消费唤醒标志。三者都无条件清除：
-                                        // 落在门控检查与本次清除之间的信号会并入下方的渲染；
-                                        // 落在渲染期间的信号则等下一次 vsync/超时节拍
-                                        // ——最多多一帧延迟，绝不会丢唤醒。
-                                        // 在此（而非在驻留分支内）清除 renderSignaled 修掉了忙等泄漏：
-                                        // 当 vsyncRequested 赢得门控检查时，renderSignaled 会永远为真，
-                                        // 之后每次迭代都跳过驻留，
-                                        // 线程在两次渲染之间全速空转空耗 CPU。
-                                        entry.vsyncRequested = false
-                                        entry.forceRenderRequested = false
-                                        entry.renderSignaled.set(false)
-                                        // 写入可能被推迟（会话锁被 PTY 写入持有）：此时不推进
-                                        // 记账，下一帧以同一快照重试。绝不在这里等锁——那会把
-                                        // 每帧拖到 PTY 输出的时长（真机日志 pre 段 100ms+）。
-                                        val selectionSnapshot = selectionState.get()
-                                        if (
-                                            selectionSnapshot != lastSelection &&
-                                            bridge.setSelection(
-                                                selectionSnapshot.startRow,
-                                                selectionSnapshot.startCol,
-                                                selectionSnapshot.endRow,
-                                                selectionSnapshot.endCol,
-                                                selectionSnapshot.hasSelection,
-                                            )
-                                        ) {
-                                            lastSelection = selectionSnapshot
-                                        }
-                                        val currentScrollOffset = entry.scrollOffset
-                                        // 行偏移未被原生接受时（会话锁占用或命令通道满），
-                                        // 原生视口仍是旧的：此时下发亚行余量就是「旧视口配
-                                        // 新余量」，内容会先上跳半行、待新视口到达再下跳整行
-                                        // （上下滑动晃动）。故余量随偏移同拍提交，偏移未
-                                        // 接受时保留旧值、下一帧重试。
-                                        val scrollOffsetAccepted =
-                                            currentScrollOffset == lastScrollOffset ||
-                                                bridge.setScrollOffset(currentScrollOffset)
-                                        if (scrollOffsetAccepted) {
-                                            lastScrollOffset = currentScrollOffset
-                                        }
-                                        val currentRemainderPx = entry.scrollRemainderPx
-                                        if (
-                                            scrollOffsetAccepted &&
-                                            currentRemainderPx != lastScrollRemainderPx
-                                        ) {
-                                            // 只登记待用偏移：原生侧下一帧的 begin_frame
-                                            // 会按它重写 uniform，此处不做任何 GPU 调用。
-                                            bridge.setScrollYPx(currentRemainderPx)
-                                            lastScrollRemainderPx = currentRemainderPx
-                                        }
-                                        val loopPrerenderDoneNanos = System.nanoTime()
-                                        entry.frameMarks = entry.frameMarks.copy(startNanos = System.nanoTime())
-                                        // 渲染与 new_output 消费合并为单次 JNI 穿越（每帧省 ~0.1-0.3ms）。
-                                        // 解构超过 3 项被 detekt 禁止，故取对象再逐字段读。
-                                        val renderResult = bridge.renderWithNewOutput()
-                                        val count = renderResult.count
-                                        if (count > 0) {
-                                            publishSurfaceBufferPresent(true)
-                                            // 按会话记下「已出过帧」：进程级标志在首个会话出帧后
-                                            // 恒为真，后建会话是否出过帧只能靠这一位判断。
-                                            entry.firstFramePresented = true
-                                        }
-                                        // count > 0 = 本帧真的渲染并提交了缓冲（空闲帧为 0，
-                                        // 失败帧为负）：据此判定首帧已呈现给 Surface。
-                                        if (count > 0 && !hasPresentedFrame) {
-                                            hasPresentedFrame = true
-                                            // 冷启动耗时的唯一终点标记：系统启动屏等到这里才撤下，
-                                            // 故「进程启动 → 本行」就是用户看到的启动时长。
-                                            LogUtil.info(TAG, "first frame presented")
-                                            publishStartupMetrics(startupToFirstFrameMs = elapsedSinceProcessStartMs())
-                                        }
-                                        val newOutput = renderResult.newOutput
-                                        val lastContentRow = renderResult.lastContentRow
-                                        if (lastContentRow != entry.lastContentRow) {
-                                            entry.lastContentRow = lastContentRow
-                                            if (entry.sessionId == activeSessionId) {
-                                                lastContentRowFlowInternal.value = lastContentRow
-                                            }
-                                        }
-                                        // 备用屏同样只随每帧上报：输入法弹出动画期间它会翻转
-                                        // （启动 helix 的同时键盘正收起），另发查询得到的缓存
-                                        // 必然滞后于当帧的位移计算，表现为顶部被推出屏幕。
-                                        val altScreenActive = renderResult.altScreenActive
-                                        if (altScreenActive != entry.altScreenActive) {
-                                            entry.altScreenActive = altScreenActive
-                                            if (entry.sessionId == activeSessionId) {
-                                                altScreenActiveFlowInternal.value = altScreenActive
-                                            }
-                                        }
-                                        if (renderResult.surfaceInvalidated) {
-                                            entry.surfaceInvalidated = true
-                                            maybeRequestSurfaceRecreate(entry)
-                                        } else if (entry.surfaceInvalidated) {
-                                            // 恢复即清零预算：下一次判死仍从满额开始。
-                                            entry.surfaceInvalidated = false
-                                            entry.surfaceRecreateBudget.set(SessionEntry.SurfaceRecreateBudget())
-                                        }
-                                        // 渲染窗口到此为止：pollAll、事件派发与标题查询
-                                        // 属于循环而非渲染，计入 frameTiming 会让
-                                        // loopTiming 与它测同一个量、二者再也分不开。
-                                        val renderDoneNanos = System.nanoTime()
-                                        frameTiming.record(renderDoneNanos - entry.frameMarks.startNanos)
-                                        val frameMs = (renderDoneNanos - entry.frameMarks.startNanos) / 1_000_000.0
-                                        if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
-                                            slowFrameThrottle.record()?.let { slowFrames ->
-                                                LogUtil.warn(
-                                                    "Runtime",
-                                                    "SLOW_FRAME session=${entry.sessionId} render=$frameMs count=$count slow_frames=$slowFrames newOutput=$newOutput scrollOffset=$currentScrollOffset scrollRemainderPx=${entry.scrollRemainderPx}",
-                                                )
-                                            }
-                                        }
-                                        if (newOutput) {
-                                            // 只有真实的 PTY 摄入才刷新空闲时钟：count 同样统计静态网格的
-                                            // 空闲重绘，会使 lastSignalNanos 永远处于空闲阈值内，
-                                            // 500ms 空闲闭锁因而永不生效。持续输出流
-                                            // （tail -f、ping、gradle）总是携带 newOutput，故保持活跃。
-                                            entry.lastSignalNanos = System.nanoTime()
-                                            // 输出让会话重新活跃：帧回调链可能已因空闲停下，
-                                            // 拉起它才能继续按 vsync 对齐出帧。
-                                            ensureVsyncChainRunning()
-                                            if (!hasReceivedOutput) {
-                                                hasReceivedOutput = true
-                                                LogUtil.info(
-                                                    TAG,
-                                                    "session ${entry.sessionId} first output received",
-                                                )
-                                            }
-                                            // 首个 PTY 输出 = shell 真的开始说话了（提示符已落格）：
-                                            // 「进程启动 → 这一刻」是用户口径的「shell 启动慢」。
-                                            publishStartupMetrics(startupToFirstOutputMs = elapsedSinceProcessStartMs())
-                                            // 滚动语义（termux onScreenUpdated 对等）：消费原生 new_output
-                                            // 标志（PTY 摄入的旁路标志，而非同样统计空闲重绘的
-                                            // render() 计数），且仅在无选区/拖拽、SCROLL 锁关闭、
-                                            // 且 RECENT_SCROLL_WINDOW_NANOS 内无滚动手势时才把视口复位到底部。
-                                            // 被跳过的复位就此丢弃（「跳过 = 放弃」）：标志已是读后即清，
-                                            // 下次输出到达时会再次复位（termux：持续输出总是胜出）。
-                                            if (
-                                                entry.scrollOffset != 0 &&
-                                                shouldResetScroll(
-                                                    scrollActive = entry.scrollActive || entry.scrollGestureActive,
-                                                    hasSelectionOrDrag =
-                                                    selectionSnapshot.hasSelection ||
-                                                        selectionSnapshot.dragging,
-                                                    newOutput = newOutput,
-                                                    recentlyScrolled =
-                                                    System.nanoTime() - entry.lastScrollNanos <
-                                                        RECENT_SCROLL_WINDOW_NANOS,
-                                                )
-                                            ) {
-                                                // 渲染线程上的单点复位写入；lastScrollOffset 保持不动，
-                                                // 使既有的差量推送在下一帧把偏移 0 转发给原生。
-                                                entry.scrollOffset = 0
-                                                // 搜索高亮按 Compose 镜像换算绘制：此处同步递增复位计数，
-                                                // 使订阅方重读真实偏移，否则高亮按旧偏移错位。
-                                                _state.update { current ->
-                                                    current.copy(
-                                                        scrollResetEpoch = current.scrollResetEpoch + 1,
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        if (count < 0) {
-                                            // 瞬时渲染错误（Surface 未就绪、快照不可用等），
-                                            // 会自行恢复，不计入致命上限。
-                                            // 绝不在此 break：本线程同时驱动 pollAll 泵送，
-                                            // 退出会冻结原生输出处理且不保证重启
-                                            // （旋转/切应用的 Surface 中断会让终端永久卡死）。
-                                            // 正常退出仍走上方 entry.running / generation 条件。
-                                            // 瞬时渲染错误按窗口汇总：成功一帧即把连续数清零，
-                                            // 「失败—成功—失败」的交替形态下按连续数节流每次都
-                                            // 命中首条分支，于是逐帧记日志。行内带窗口内次数。
-                                            renderErrorLedger.onTransientError()?.let { transientCount ->
-                                                val consecutive = renderErrorLedger.consecutiveErrors
-                                                val message =
-                                                    "session ${entry.sessionId} transient render error code=$count " +
-                                                        "(consecutive=$consecutive, " +
-                                                        "transient_errors=$transientCount, surviving)"
-                                                // 首次是正常退化（平台收走了窗口），重复才是异常：
-                                                // 分级见 transientRenderErrorIsWarning。
-                                                if (transientRenderErrorIsWarning(consecutive)) {
-                                                    LogUtil.warn("Runtime", message)
-                                                } else {
-                                                    LogUtil.info("Runtime", message)
-                                                }
-                                            }
-                                            // 帧已正常返回（只是渲染失败），渲染线程没有挂起。
-                                            // 必须刷新完成时刻：`RenderWatchDog` 以
-                                            // 「开始 > 完成」判定挂起，若此处不更新，
-                                            // 持续失败（Surface 迟迟不就绪）会让完成时刻
-                                            // 冻结在最后一帧成功处，10s 后看门狗把仍在循环的
-                                            // 线程判为挂死，反复重启直至 `closeDeadSession`
-                                            // 关掉用户的 shell。
-                                            entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
-                                            // 自适应退避：前若干次短退避，之后长退避
-                                            // （档位见 renderErrorBackoffMillis）。
-                                            val sleepMs = renderErrorBackoffMillis(renderErrorLedger.consecutiveErrors)
-                                            // 退避是设计上主动等的等待：单独计量，既不进慢循环
-                                            // 判定，也不并进 poll 段——否则平台收走窗口这条正常
-                                            // 退化路径会在退避后记出 warn 级慢循环告警。
-                                            val backoffStartNanos = System.nanoTime()
-                                            delay(sleepMs)
-                                            loopBackoffNanos = System.nanoTime() - backoffStartNanos
-                                        } else {
-                                            // 恢复消息同样可能逐帧发生（失败—成功交替），
-                                            // 故按窗口汇总，行内带窗口内恢复次数。
-                                            if (renderErrorLedger.consecutiveErrors > 0) {
-                                                val consecutive = renderErrorLedger.consecutiveErrors
-                                                renderErrorLedger.onRecovery()?.let { recoveries ->
-                                                    LogUtil.info(
-                                                        "Runtime",
-                                                        "session ${entry.sessionId} recovered " +
-                                                            "(consecutive=$consecutive, recoveries=$recoveries)",
-                                                    )
-                                                }
-                                            }
-                                            renderErrorLedger.onSuccess()
-                                        }
-                                        // 输出泵与渲染解耦：无论渲染成功与否都必须排空原生输出，
-                                        // 否则一次持续渲染失败会阻塞读取线程并冻结全部会话。
-                                        try {
-                                            val poll = bridge.pollAll()
-                                            // 退出优先在独立分支中处理：该事件已从原生队列消费且无法重放，
-                                            // 故下方剪贴板处理中的异常绝不能跳过清理。
-                                            if (poll.exit) {
-                                                // 本帧退出的是否就是本条目（而非同帧里某个后台会话）。
-                                                // 只有「自己退出」才允许结束本渲染循环；后台会话退出
-                                                // 绝不能把活动会话的循环 break 掉——那会让可见终端
-                                                // 冻结到看门狗重启（每次还累加重启计数，最终误关活会话）。
-                                                val selfExited =
-                                                    poll.sessionId == 0L || poll.sessionId == entry.sessionId
-                                                // 先回复空值，再做任何清理：这些剪贴板读取请求
-                                                // 已从原生队列消费且永不会再被派发，
-                                                // 不予回复会挂起请求方。
-                                                // 先于 handleSessionExit 回复（后者可能关闭
-                                                // bridge，~100ms+）也把延迟降到最低。
-                                                // 每个应答在 dispatchClipboardRequests 内部各自保护，
-                                                // 那里吞掉 JNI 失败正是为了不跳过下方的退出清理。
-                                                dispatchClipboardRequests(poll.clipboardReads)
-                                                if (poll.sessionId != 0L && poll.sessionId != entry.sessionId) {
-                                                    // 后台（非活动）会话的 shell 已退出。
-                                                    // 其渲染线程已停止，不会再有其他方回收它
-                                                    // ——原生清扫只经本队列上报一次。在此关闭它
-                                                    // （handleSessionExit 对非活动会话是安全的：
-                                                    // 接替分支以 entry.sessionId == activeSessionId 为闸门）。
-                                                    val exitedEntry =
-                                                        synchronized(sessionLock) { sessions[poll.sessionId] }
-                                                    if (exitedEntry != null) {
-                                                        LogUtil.info(
-                                                            "Runtime",
-                                                            "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
-                                                        )
-                                                        handleSessionExit(
-                                                            exitedEntry,
-                                                            poll.exitCode,
-                                                        )
-                                                    }
-                                                } else {
-                                                    // 完整清理（关闭 bridge、移除会话、更新状态）在此进行；
-                                                    // 渲染监视器跳过 !running 的条目，因而绝不会回收已退出会话。
-                                                    handleSessionExit(entry, poll.exitCode)
-                                                }
-                                                // 两个分支共用：回收同一帧内退出的其他会话
-                                                // （首个已在上方处理）。它们的原生 exit_reported
-                                                // 标志已置位且不重发。
-                                                // 仅排除 poll.sessionId——列表中其他每个 id
-                                                // （含后台分支下的 entry.sessionId）都必须回收，
-                                                // 否则 Kotlin 条目、原生会话与僵尸子进程将永久泄漏。
-                                                // handleSessionExit 幂等（内部重查 containsKey）。
-                                                poll.exits.forEach { exitInfo ->
-                                                    if (exitInfo.sessionId != poll.sessionId) {
-                                                        val extra =
-                                                            synchronized(
-                                                                sessionLock,
-                                                            ) { sessions[exitInfo.sessionId] }
-                                                        if (extra != null) {
-                                                            LogUtil.info(
-                                                                "Runtime",
-                                                                "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
-                                                            )
-                                                            handleSessionExit(
-                                                                extra,
-                                                                exitInfo.exitCode,
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                                if (selfExited && !entry.waitingForProcessCompleted) {
-                                                    break
-                                                }
-                                                // 正在显示 [Process completed] 提示
-                                                // ——保持会话可见（running 保持为真）
-                                                // 直到用户按 Enter。
-                                                // 原生 exit_reported 已置位，故不会再有退出事件到达。
-                                            }
-                                            eventDispatcher.handle(poll)
-                                        } catch (exception: Exception) {
-                                            // 输出泵失败会逐帧发生（桥接层持续抛异常）：按窗口
-                                            // 汇总，行内带窗口内失败次数。窗口内只有这一次时
-                                            // 给完整栈——成堆重复时同一异常的栈并不变，每
-                                            // 500ms 重复一份只会把 logcat 刷满。
-                                            renderErrorLedger.onPollFailure()?.let { pollFailures ->
-                                                LogUtil.error(
-                                                    "Runtime",
-                                                    "pollAll failed for session ${entry.sessionId}; " +
-                                                        "deferred events dropped (poll_failures=$pollFailures, " +
-                                                        "cause=${exception.javaClass.simpleName})",
-                                                    if (pollFailures == 1) exception else null,
-                                                )
-                                            }
-                                        }
-                                        val loopPollDoneNanos = System.nanoTime()
-                                        if (count >= 0) {
-                                            diagCount++
-                                            if (diagCount == 1) {
-                                                LogUtil.debug("Runtime", "session ${entry.sessionId} first render OK")
-                                            }
-                                            if (diagCount % RENDER_DIAGNOSTIC_FREQUENCY == 0) {
-                                                // 标题刷新移出渲染线程：getTitle 是 VT 通道外置查询，
-                                                // 要等 VT 线程下一次 50ms 空闲 tick 应答
-                                                // （VT 忙时等满 QUERY_TIMEOUT_MS）。真机日志实测该
-                                                // 查询每逢本分支（60 帧窗口 ≈ 1 秒）将渲染帧拉到
-                                                // 60–115ms；压测环境下踩满 500ms。
-                                                scope.launch {
-                                                    // 取标题失败由 NativeQueryPort 归为缺省值（空串），
-                                                    // 不抛异常：此处的 catch 是死代码，且它把取消
-                                                    // 信号也当成失败——应用收尾时留下一条假错误。
-                                                    val title = bridge.getActiveSessionTitle()
-                                                    if (title.isNotEmpty() && title != _state.value.title) {
-                                                        // CAS 更新：收集器与 IO 会话函数也会写 _state，
-                                                        // 此处非原子的读-改-写会覆盖它们的会话列表。
-                                                        _state.update { current -> current.copy(title = title) }
-                                                    }
-                                                }
-                                            }
-                                            // 整循环的结束时刻（供 RenderWatchDog 判挂起）：
-                                            // 与上面的 renderDoneNanos 是两个窗口，勿合并。
-                                            entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
-                                            frameTiming.takeReport()?.let { report ->
-                                                // 趋势基线序列只有渲染线程按帧序推进——observe() 必须
-                                                // 留在渲染线程串行喂入；摘要的 scrollbackLength() 是
-                                                // 同一条 VT 通道外置查询（同 title 同款 50–500ms 等待），
-                                                // 一起移出渲染线程——否则它把下一个窗口首帧拖慢。
-                                                val trendDegraded = frameTimingTrend.observe(report.averageNanos)
-                                                val baselineNanos = frameTimingTrend.currentBaselineNanos()
-                                                scope.launch {
-                                                    logFrameTiming(
-                                                        entry,
-                                                        report,
-                                                        trendDegraded,
-                                                        baselineNanos?.div(NANOS_PER_MILLI),
-                                                    )
-                                                }
-                                            }
-                                            // 尾部队列等待已移除——驻留现在发生在上方的循环顶部唤醒门控
-                                            // （同一闭锁、同一活跃/空闲超时）。落到此处即直接返回门控。
-                                        }
-                                        // 整循环周期：平均值的倒数才是真实帧率
-                                        // （含 waitOutput + pollAll + 事件派发）。
-                                        // 若渲染均值 ~16ms 而此处 ~50ms，
-                                        // 说明时间花在循环的其他环节，而非原生渲染路径。
-                                        val loopDurationNanos = System.nanoTime() - loopFrameStart
-                                        loopTiming.record(loopDurationNanos)
-                                        loopPreTiming.record(loopPrerenderDoneNanos - loopGateDoneNanos)
-                                        // 慢循环帧的定位仪器：整循环超阈值才看——但空闲会话的门控
-                                        // 驻留（waitOutput 至多 500ms）与渲染失败退避都是设计上
-                                        // 主动等的等待而非慢，按去掉两段等待后的工作时长判定，
-                                        // 避免 release 里空终端永久 WARN 刷屏，也避免平台收走
-                                        // 窗口这类正常退化路径在退避后记出 WARN。各阶段耗时
-                                        // （渲染前推送/渲染 JNI/退避/输出泵+事件/循环尾）供真机
-                                        // 日志定位吃时环节，各段之和等于 total。
-                                        // SLOW_FRAME 只看渲染 JNI，循环其他环节静默。
-                                        if (
-                                            slowLoopWorkNanos(
-                                                totalNanos = loopDurationNanos,
-                                                gateNanos = loopGateDoneNanos - loopFrameStart,
-                                                backoffNanos = loopBackoffNanos,
-                                            ) > SLOW_FRAME_LOG_THRESHOLD_MS * 1_000_000L
-                                        ) {
-                                            slowLoopThrottle.record()?.let { slowLoops ->
-                                                val tailNanos =
-                                                    loopDurationNanos - (loopPollDoneNanos - loopFrameStart)
-                                                val gateMs =
-                                                    (loopGateDoneNanos - loopFrameStart) / NANOS_PER_MILLI
-                                                val preMs =
-                                                    (loopPrerenderDoneNanos - loopGateDoneNanos) / NANOS_PER_MILLI
-                                                val renderMs =
-                                                    (renderDoneNanos - loopPrerenderDoneNanos) / NANOS_PER_MILLI
-                                                val backoffMs = loopBackoffNanos / NANOS_PER_MILLI
-                                                val pollMs =
-                                                    (loopPollDoneNanos - renderDoneNanos - loopBackoffNanos) /
-                                                        NANOS_PER_MILLI
-                                                val totalMs = loopDurationNanos / NANOS_PER_MILLI
-                                                LogUtil.warn(
-                                                    "Runtime",
-                                                    "SLOW_LOOP " +
-                                                        "session=${entry.sessionId} " +
-                                                        "total=${totalMs}ms " +
-                                                        "gate=${gateMs}ms " +
-                                                        "pre=${preMs}ms " +
-                                                        "render=${renderMs}ms " +
-                                                        "backoff=${backoffMs}ms " +
-                                                        "poll=${pollMs}ms " +
-                                                        "tail=${tailNanos / NANOS_PER_MILLI}ms " +
-                                                        "slow_loops=$slowLoops",
-                                                )
-                                            }
-                                        }
-                                        val preReport = loopPreTiming.takeReport()
-                                        loopTiming.takeReport()?.let { loopReport ->
-                                            val loopAvgMs = loopReport.averageNanos / NANOS_PER_MILLI
-                                            val loopP95Ms = loopReport.p95Nanos / NANOS_PER_MILLI
-                                            val loopMaxMs = loopReport.maxNanos / NANOS_PER_MILLI
-                                            val preMaxMs = (preReport?.maxNanos ?: 0L) / NANOS_PER_MILLI
-                                            val preP95Ms = (preReport?.p95Nanos ?: 0L) / NANOS_PER_MILLI
-                                            val framesPerSecond =
-                                                if (loopReport.averageNanos > 0) {
-                                                    (NANOS_PER_SECOND / loopReport.averageNanos).toInt()
-                                                } else {
-                                                    0
-                                                }
-                                            LogUtil.info(
-                                                "Runtime",
-                                                "session ${entry.sessionId} loop timing window " +
-                                                    "(${loopReport.frameCount} frames): " +
-                                                    "avg=${loopAvgMs}ms p95=${loopP95Ms}ms " +
-                                                    "max=${loopMaxMs}ms pre_max=${preMaxMs}ms " +
-                                                    "pre_p95=${preP95Ms}ms " +
-                                                    "≈${framesPerSecond}fps vsync=${displayPeriodText()}",
-                                            )
-                                        }
-                                    } catch (exception: InterruptedException) {
-                                        // 渲染线程在关闭期间（会话切换/运行期停止）被中断。
-                                        // 这是预期信号而非渲染失败——干净地退出循环。
-                                        Thread.currentThread().interrupt()
-                                        break
-                                    } catch (exception: Exception) {
-                                        if (isRenderThreadInterruption(exception)) {
-                                            // 关闭路径的中断：runBlocking 以取消异常收尾，
-                                            // 其 cause 是 InterruptedException。预期信号而非
-                                            // 渲染失败——干净地退出循环，不记 error。
-                                            Thread.currentThread().interrupt()
-                                            LogUtil.debug(
-                                                "Runtime",
-                                                "session ${entry.sessionId} render thread cancelled by interruption",
-                                            )
-                                            break
-                                        }
-                                        // 渲染异常按窗口汇总：成功一帧即把连续数清零，交替
-                                        // 形态下旧的「首条即记」分支每次都命中，逐帧记
-                                        // error 加栈。行内带窗口内异常次数。
-                                        renderErrorLedger.onRenderException()?.let { renderErrors ->
-                                            LogUtil.error(
-                                                "Runtime",
-                                                "session ${entry.sessionId} render exception " +
-                                                    "(render_errors=$renderErrors, " +
-                                                    "consecutive=${renderErrorLedger.consecutiveErrors}, " +
-                                                    "cause=${exception.javaClass.simpleName})",
-                                                if (renderErrors == 1) exception else null,
-                                            )
-                                        }
-                                        // 异常帧同样是「渲染线程没挂」的证据：
-                                        // 不刷新完成时刻，连续异常会让 `start > done`
-                                        // 一直成立，`RenderWatchDog` 在 10s 后把仍在循环的
-                                        // 线程判为挂死。当前上限恰好（约 5s）小于超时，
-                                        // 但那只是两个常量的巧合，任一改动即成误杀。
-                                        entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
-                                        if (renderErrorLedger.consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
-                                            LogUtil.error(
-                                                "Runtime",
-                                                "session ${entry.sessionId} too many render exceptions " +
-                                                    "(${renderErrorLedger.consecutiveErrors}), stopping render thread",
-                                                exception,
-                                            )
-                                            break
-                                        }
-                                        delay(RENDER_ERROR_SLEEP_MS)
-                                    }
-                                }
-                                entry.markRenderThreadExited()
-                                LogUtil.debug("Runtime", "render thread stopped for session ${entry.sessionId}")
-                            }
-                        } catch (expected: InterruptedException) {
-                            // runBlocking 体外的中断（join 前 interrupt 已送达
-                            // 但循环尚未进入 try 区）：join 是协作式关闭，
-                            // 中断即退出信号而非崩溃，instrumentation 不应报红。
-                            Thread.currentThread().interrupt()
-                            entry.markRenderThreadExited()
-                            LogUtil.debug("Runtime", "render thread interrupted for session ${entry.sessionId}")
-                        }
-                    },
-                    "Render-${entry.sessionId}",
-                )
-                    .apply {
-                        isDaemon = true
-                    }
-            entry.renderThreadRef = renderThread
-            renderThread.start()
-            // 以显示 vsync 驱动新渲染循环的唤醒门控
-            // （每进程一条自调度的 Choreographer 链）。
-            ensureVsyncChainRunning()
-            entry.renderWatchDog =
-                RenderWatchDog(
-                    diagnose = { diagnoseEntryLiveness(entry) },
-                    isRunning = {
-                        entry.running && !entry.renderThreadExited && activeSessionId == entry.sessionId
-                    },
-                    onHangDetected = { watchdog, diagnosis -> handleSessionHang(entry, watchdog, diagnosis) },
-                )
-                    .also { it.start() }
-        }
-
-        internal fun stopRenderThread(entry: SessionEntry): Boolean {
-            detachWatchDog(entry)
-            entry.running = false
-            val thread = entry.renderThreadRef
-            entry.renderThreadRef = null
-            entry.renderSignaled.set(false)
-            thread?.let { thread ->
-                entry.wakeRenderThread(thread)
-                thread.join(THREAD_JOIN_TIMEOUT_MS)
-                if (thread.isAlive) {
-                    LogUtil.error(
-                        "Runtime",
-                        "session ${entry.sessionId} render thread still alive after join — possibly hung",
-                    )
-                    entry.renderThreadPossiblyAlive = true
-                    entry.hungRenderThread = thread
-                    return false
-                }
-            }
-            // 仅当已 join 的线程就是记录的挂起线程（或未记录）时才清除存活标志；
-            // 另一个挂起线程可能仍在原生代码中存活，在此清除会让关闭路径在其下
-            // 销毁原生会话。
-            if (entry.hungRenderThread == null || entry.hungRenderThread === thread) {
-                entry.renderThreadPossiblyAlive = false
-                entry.hungRenderThread = null
-            }
-            return true
-        }
-
-        /**
-         * 采集判定挂起层级所需的输入快照。
-         *
-         * 帧起止一次读出：分两次读可能拿到新 start 配旧 done，伪造出「帧在途」并
-         * 误杀健康的渲染线程。
-         */
-        internal fun diagnoseEntryLiveness(entry: SessionEntry): SessionLivenessDiagnosis {
-            val marks = entry.frameMarks
-            val renderFrameBusyNanos =
-                if (marks.startNanos > marks.doneNanos) System.nanoTime() - marks.startNanos else 0L
-            // 首帧未产出时长：按会话计，且只在计时已落定且尚未出过帧时非零。
-            val firstFrameWaitNanos =
-                if (entry.firstFramePresented || entry.firstFrameWaitStartNanos == 0L) {
-                    0L
-                } else {
-                    System.nanoTime() - entry.firstFrameWaitStartNanos
-                }
-            return diagnoseSessionLiveness(
-                SessionLivenessInputs(
-                    renderFrameBusyNanos = renderFrameBusyNanos,
-                    vtBusyNanos = entry.bridge.vtBusyNanos(),
-                    ptySendBusyNanos = entry.bridge.ptySendBusyNanos(),
-                    renderThreadAlive = entry.renderThreadRef?.isAlive == true,
-                    firstFrameWaitNanos = firstFrameWaitNanos,
-                ),
-                LivenessThresholds(renderHangNanos = RENDER_HANG_TIMEOUT_NANOS),
-            )
-        }
-
-        /**
-         * 摘除并停止该会话的存活看门狗。
-         *
-         * 在 [sessionLock] 内完成：处置回调（[handleSessionHang]）以「本实例仍是
-         * 当前看门狗」为生效前提，摘除与该复核必须互斥，否则陈旧看门狗会在新
-         * 看门狗就位后仍被判为当前，把已经恢复的会话关掉。
-         *
-         * 锁序固定为 sessionLock → 看门狗闸门锁：看门狗线程永不持闸门锁取
-         * sessionLock（见 [RenderWatchDog]），故两把锁不会互等。
-         */
-        internal fun detachWatchDog(entry: SessionEntry) {
-            synchronized(sessionLock) {
-                val watchdog = entry.renderWatchDog
-                entry.renderWatchDog = null
-                watchdog?.stop()
-            }
-        }
-
-        /**
-         * 按挂起层级处置：渲染层重启线程，VT 层与输出投递阻塞关闭会话，生命周期层
-         * 只记录。
-         *
-         * 关闭会话走 [closeDeadSession]：VT 状态在原生侧持有，无法安全热重建，
-         * 且静默重建会丢掉用户的 shell 状态（工作目录、后台任务、已输入内容）。
-         *
-         * 身份复核：只有仍是本会话当前看门狗的判定才处置。渲染线程重启会换上一个
-         * 新看门狗，陈旧看门狗的迟到判定不得作用于新线程——否则把健康的渲染线程
-         * 标记为死亡，或关闭一个已经恢复的会话。复核与状态变更在同一次
-         * [sessionLock] 获取内完成，故两者不会交错。
-         */
-        internal fun handleSessionHang(
-            entry: SessionEntry,
-            watchdog: RenderWatchDog,
-            diagnosis: SessionLivenessDiagnosis,
-        ) {
-            val hungLayer = diagnosis.hungLayer ?: return
-            when (recoveryActionFor(hungLayer)) {
-                LivenessRecovery.RESTART_RENDER_THREAD -> {
-                    synchronized(sessionLock) {
-                        if (entry.renderWatchDog !== watchdog) {
-                            LogUtil.debug("Runtime", "session ${entry.sessionId} stale watchdog ignored")
-                            return
-                        }
-                        // 把线程标记为死亡。渲染监视器（checkSessions）会侦测到并
-                        // 以指数退避重启线程，避免因 GPU 挂起而杀掉整个进程。
-                        entry.renderThreadExited = true
-                    }
-                    LogUtil.error(
-                        "Runtime",
-                        "session ${entry.sessionId} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s) — marking thread for restart",
-                    )
-                }
-
-                LivenessRecovery.CLOSE_SESSION -> {
-                    val now = System.nanoTime()
-                    synchronized(sessionLock) {
-                        if (entry.renderWatchDog !== watchdog) {
-                            LogUtil.debug("Runtime", "session ${entry.sessionId} stale watchdog ignored")
-                            return
-                        }
-                        // 自动关闭按 60s 节流：反复关闭又新建会让用户看到会话号乱跳。
-                        // 在 sessionLock 内领取：两个看门狗回调并发时必须只有一个拿到
-                        // 许可，否则同一会话会被重复关闭。
-                        if (!shouldCloseSession(entry.lastAutoCloseNanos, now)) {
-                            LogUtil.warn(
-                                "Runtime",
-                                "session ${entry.sessionId} hung at $hungLayer — close throttled (${SESSION_CLOSE_THROTTLE_NANOS / 1_000_000L}ms)",
-                            )
-                            return
-                        }
-                        entry.lastAutoCloseNanos = now
-                    }
-                    LogUtil.error(
-                        "Runtime",
-                        "session ${entry.sessionId} hung at $hungLayer (busy=${diagnosis.busyNanos / 1_000_000L}ms)",
-                    )
-                    closeDeadSession(entry, "hung at $hungLayer")
-                }
-
-                LivenessRecovery.REQUEST_REPAINT -> {
-                    // 首帧迟迟未产出：向 VT 补一次索要（非破坏性）。内容去重在 VT 侧
-                    // 随之失效，故终端毫无变化也会推出该帧。失败只记日志——会话仍在，
-                    // 下一次看门狗节拍会再试。
-                    //
-                    // 捕 Throwable 而非 Exception：此处位于看门狗协程内，未捕获的 Error
-                    // 会终止该协程并经默认异常处理器带崩进程，而恢复动作失败不应有
-                    // 这种杀伤力（见 Bridge.close 的同款理由）。
-                    val requested = try {
-                        entry.bridge.requestRepaint()
-                    } catch (throwable: Throwable) {
-                        LogUtil.error("Runtime", "session ${entry.sessionId} repaint request failed", throwable)
-                        false
-                    }
-                    // 成功路径记 debug：看门狗已按 2s 节拍记过 error 级「挂起」行
-                    // （含层级与已忙时长），此处再记一条 error 只是把同一事实说两遍。
-                    LogUtil.debug(
-                        "Runtime",
-                        "session ${entry.sessionId} produced no frame within " +
-                            "${diagnosis.busyNanos / 1_000_000L}ms — repaint requested=$requested",
-                    )
-                }
-
-                LivenessRecovery.RECORD_ONLY -> {
-                    LogUtil.warn(
-                        "Runtime",
-                        "session ${entry.sessionId} hung at $hungLayer — recorded only",
-                    )
-                }
-            }
-        }
-    }
-
     // ══════════════════════════════════════════════════════════════════════
     // 四之二、事件派发
     // ══════════════════════════════════════════════════════════════════════
@@ -2346,7 +1310,7 @@ constructor(
                     // 单次轮询失败不终止轮询：原生侧把 VT 处理的 panic 转成 Java 异常
                     // 抛出（见 `pollEvent` 的同类保护），异常逸出协程会走默认的未捕获
                     // 异常处理——直接带崩进程。渲染循环对同类失败也是记日志后继续。
-                    LogUtil.error(TAG, "desktop notification polling failed", exception)
+                    LogUtil.error(RUNTIME_LOG_TAG, "desktop notification polling failed", exception)
                 }
                 delay(NOTIFICATION_POLL_INTERVAL_MS)
             }
@@ -2376,13 +1340,12 @@ constructor(
      * 现算，不缓存。
      */
     private fun desktopNotificationSessionLabel(sessionId: Long): String {
-        val sessionNumber = _state.value.sessionIds.indexOf(sessionId) + 1
+        val sessionNumber = runtimeState.value.sessionIds.indexOf(sessionId) + 1
         if (sessionNumber <= 0) return ""
         return context.getString(R.string.session_number, sessionNumber)
     }
 
     private companion object {
-        private const val TAG = "Runtime"
 
         /** mksh 交互 shell 经 `$ENV` 加载的启动文件名（DESIGN Shell 节）。 */
         const val MKSHRC_FILENAME = ".mkshrc"
@@ -2410,18 +1373,11 @@ constructor(
         private const val PROCESS_COMPLETED_PROMPT_PREFIX = "\r\n[Process completed (code "
         private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ") - press Enter]"
 
-        private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
-
         // 慢帧诊断的阈值见文件顶层的 SLOW_FRAME_LOG_THRESHOLD_MS。
 
         // 计时报告的换算基数用 Double：真机帧时长集中在 0–2ms，以 Long 整除换算会让
         // 健康窗口一律报出 `avg=0ms p95=0ms`，且由截断均值换算的 fps 会把同一台设备
         // 报成 55/58/62/66/71/76 六个值（全部是舍入产物，不含帧率信息）。
-        private const val NANOS_PER_MILLI = 1_000_000.0
-        private const val NANOS_PER_SECOND = 1_000_000_000.0
-        private const val RENDER_DIAGNOSTIC_FREQUENCY = 60
-        private const val THREAD_JOIN_TIMEOUT_MS = 1000L
-        private const val RENDER_HANG_TIMEOUT_NANOS = 10_000_000_000L // 10 seconds
 
         // 帧时间诊断（FrameTimingStats + FrameTimingTrend）：下方的绝对阈值覆盖超出任何设备
         // 预期的停滞（实测模拟器空闲窗口平均个位数毫秒；真机目标 ~17ms）。
@@ -2434,14 +1390,12 @@ constructor(
         private const val RENDER_INITIAL_RETRY_DELAY_MS = 150L
 
         // 渲染监视器 —— 主动死亡检测
-        private const val RENDER_MONITOR_INTERVAL_MS = 500L
 
         /** 渲染暂停期间会话推进泵的节拍（毫秒），对标上游读侧 16ms 合并投递。 */
         private const val SESSION_PUMP_INTERVAL_MS = 16L
 
         /** 桌面通知轮询间隔（毫秒）：通知低频，100ms 足以让通知及时出现而不空转。 */
         private const val NOTIFICATION_POLL_INTERVAL_MS = 100L
-        private const val RENDER_MAX_RESTART_ATTEMPTS = 5
     }
 
     /** 自定义入口原样透传；默认入口走前缀探测结果，探测失败即系统 shell。 */
@@ -2460,7 +1414,7 @@ constructor(
      * （≈1 秒）把那一帧拖到 60–115ms（压测环境踩满 500ms）。
      * 严重度判定与趋势喂入已在渲染线程内完成，这里只做取数与打印。
      */
-    private fun logFrameTiming(
+    internal fun logFrameTiming(
         entry: SessionEntry,
         report: FrameTimingReport,
         trendDegraded: Boolean,
@@ -2941,7 +1895,7 @@ constructor(
             // 在 spawn 序列中锚定网格尺寸以便验证。
             LogUtil.debug(
                 "Runtime",
-                "first resize after spawn: grid=${_state.value.rows}x${_state.value.cols}",
+                "first resize after spawn: grid=${runtimeState.value.rows}x${runtimeState.value.cols}",
             )
             startedEntry.forceRenderRequested = true
             // 在同一个 sessionLock 临界区内启动渲染线程、发布 UI 状态并启动前台服务与监视器：
@@ -2967,7 +1921,7 @@ constructor(
 
                 // 在启动线程之前发布状态：否则渲染线程对 title 的 CAS
                 // 会在其首帧被这次直接赋值覆盖。
-                _state.value =
+                runtimeState.value =
                     RuntimeState(
                         isRunning = true,
                         rows = spawn.rows,
@@ -3047,7 +2001,7 @@ constructor(
                 }
                 if (sessions.isEmpty()) {
                     setActiveSessionId(0L)
-                    _state.update { RuntimeState() }
+                    runtimeState.update { RuntimeState() }
                     // 服务可能在失败前已在锁内启动；把计数归零，
                     // 使通知与唤醒锁不活得比空会话映射更久
                     // （updateForegroundSessionCount 异常安全，且在 0 时清除运行标志）。
@@ -3523,7 +2477,7 @@ constructor(
                 syncGridDimensions(target.bridge)
                 // 尺寸一致跳过 resize：冗余 SIGWINCH 会清 mksh 提示符；
                 // 查不到原生网格则无条件对齐（fail-open）。
-                alignGridOnSwitch(target.bridge, _state.value.rows, _state.value.cols)
+                alignGridOnSwitch(target.bridge, runtimeState.value.rows, runtimeState.value.cols)
                 // 目标会话的 PTY 像素字段必须与当前 Surface 对齐：后台会话在 Surface
                 // 尺寸变化时不被 applyGridResize 触及，切换过来时仍是旧值。网格对齐
                 // 之后再推——resize 会把 VT 的单元格像素几何复位成默认值，先推会被抹掉。
@@ -3736,8 +2690,8 @@ constructor(
         val pending = pendingSurface
         val surfaceW = pending?.width ?: 0
         val surfaceH = pending?.height ?: 0
-        val currentRows = _state.value.rows.coerceAtLeast(1)
-        val currentCols = _state.value.cols.coerceAtLeast(1)
+        val currentRows = runtimeState.value.rows.coerceAtLeast(1)
+        val currentCols = runtimeState.value.cols.coerceAtLeast(1)
         if (surfaceW <= 0 || surfaceH <= 0 || cellWidth <= 0f || cellHeight <= 0f) return
         // 由物理 surface / 物理单元格度量计算网格尺寸。
         // 两者都是物理像素（已按密度缩放）。ModifierBar 覆盖 Surface 底部，
@@ -3788,7 +2742,7 @@ constructor(
         // 于是旋转 / 改字号走本条路径时像素字段停在旧值——像素感知的程序
         // （kitty 图像协议、icat）经 TIOCGWINSZ 读到过期的窗口像素尺寸。
         setPixelSize(surfaceW, availableHeight)
-        _state.update { it.copy(rows = newRows, cols = newCols) }
+        runtimeState.update { it.copy(rows = newRows, cols = newCols) }
     }
 
     /**
@@ -4116,7 +3070,7 @@ constructor(
         val clampedCols = cols.coerceIn(1, U16_MAX)
         entry.bridge.resize(clampedRows, clampedCols)
         // CAS：普通 copy 会覆盖渲染线程在读与写之间发布的 title 更新。
-        _state.update { it.copy(rows = clampedRows, cols = clampedCols) }
+        runtimeState.update { it.copy(rows = clampedRows, cols = clampedCols) }
         entry.notifyRender()
     }
 
@@ -4245,7 +3199,7 @@ constructor(
     private fun publishActiveSessionState(entry: SessionEntry?) {
         // entry 为 null = 活动会话归零：无会话即无备用屏、也没有内容下沿。沿用上一个
         // 会话的标记会让 imeGridReserve 继续扣着一份早已撤走的键盘高度，并把据此
-        // 算出的幻影网格写进 _state，随后由 alignGridOnSwitch 套到下一个会话上。
+        // 算出的幻影网格写进 runtimeState，随后由 alignGridOnSwitch 套到下一个会话上。
         lastContentRowFlowInternal.value = entry?.lastContentRow ?: Bridge.LAST_CONTENT_ROW_NONE
         altScreenActiveFlowInternal.value = entry?.altScreenActive ?: false
         // 选区同样必须复位：它是**进程级**的单一快照（渲染循环逐帧转发给活动会话），
@@ -4551,7 +3505,7 @@ constructor(
         // rows/cols 是 CAS 之前从 bridge 读到的快照：重试时它们可能用略陈旧的尺寸
         // 覆盖更新的尺寸——这是「CAS 外读取」的固有特性，下次同步会自愈，
         // 且严格窄于旧的在锁外读-检查-写。
-        _state.update { previous ->
+        runtimeState.update { previous ->
             if (rows > 0 && cols > 0 && (rows != previous.rows || cols != previous.cols)) {
                 previous.copy(rows = rows, cols = cols)
             } else {
@@ -4574,7 +3528,7 @@ constructor(
     private fun updateState() {
         // 标题不在这里取：标题只能通过阻塞式 VT 往返获得（最长约 1 秒），
         // 而本函数会在持有 sessionLock 时被调用。
-        _state.update { current ->
+        runtimeState.update { current ->
             val active = activeSessionId
             current.copy(
                 isRunning = sessions.isNotEmpty(),
@@ -4602,7 +3556,7 @@ constructor(
         scope.launch {
             val sessionId = synchronized(sessionLock) { activeSessionId }
             if (sessionId == 0L) {
-                _state.update { current -> current.copy(title = "") }
+                runtimeState.update { current -> current.copy(title = "") }
                 return@launch
             }
             // 按会话 ID 查标题，而不是查「当前活动会话」：后者是全局查询，
@@ -4616,7 +3570,7 @@ constructor(
             // 查询失败（会话刚销毁/JNI 报错）时不动已有标题：宁可显示旧标题，
             // 也不要把还能用的名字抹成空。
             if (queried == null) return@launch
-            _state.update { current ->
+            runtimeState.update { current ->
                 if (current.activeSessionId == sessionId) current.copy(title = queried) else current
             }
         }
@@ -4649,7 +3603,7 @@ constructor(
     fun onSurfaceDestroyed(owner: Any): Boolean {
         if (!surfaceOwnership.release(owner)) {
             LogUtil.warn(
-                TAG,
+                RUNTIME_LOG_TAG,
                 "onSurfaceDestroyed: stale view ignored (current owner=${surfaceOwnership.currentOwner})",
             )
             return false
