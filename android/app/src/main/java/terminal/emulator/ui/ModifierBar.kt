@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.safeGestures
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,10 +37,15 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -302,6 +309,62 @@ internal const val PRESS_SCALE_TWEEN_MS = 90
 
 // 按下反馈的延迟：覆盖系统底部上滑从 ACTION_DOWN 到 ACTION_CANCEL 的窗口。
 internal const val PRESS_FEEDBACK_DELAY_MS = 40
+
+/**
+ * 系统手势区（像素）：系统手势在此区域内优先，应用随时可能被补发 `ACTION_CANCEL`。
+ *
+ * 四条边的厚度由系统给出：左右两侧是 back 手势区，底部是 home 手势区（Android 14
+ * 起才有独立的 mandatory gesture inset，之前只能取到左右两侧）。
+ */
+@Immutable
+internal data class SystemGestureArea(val left: Int, val top: Int, val right: Int, val bottom: Int)
+
+/** 按下反馈所需的按键几何：按键在根坐标系里的位置与视口尺寸。 */
+@Immutable
+internal data class PressFeedbackGeometry(val keyBoundsInRoot: Rect, val viewportWidth: Int, val viewportHeight: Int)
+
+/**
+ * 触摸点是否落在系统手势区内。
+ *
+ * 落在区内说明系统手势随时可能接管这次触摸：应用先收到 `ACTION_DOWN`，随后被补发
+ * `ACTION_CANCEL`。此时已经画出的按下反馈就是用户看到的「上滑触发了按键动画」。
+ * 与其猜测系统认领手势要多久，不如在该区域干脆不给反馈——区内无反馈，动画问题从
+ * 根上消失，也不必再依赖任何超时常数。
+ *
+ * 视口尺寸尚未就绪（按键还没布局）时一律判否：此时无法判定，宁可保留反馈也不要
+ * 把正常按键的反馈吞掉。
+ */
+internal fun isInsideSystemGestureArea(
+    touchX: Float,
+    touchY: Float,
+    geometry: PressFeedbackGeometry,
+    gestureArea: SystemGestureArea,
+): Boolean {
+    if (geometry.viewportWidth <= 0 || geometry.viewportHeight <= 0) return false
+    return touchX < gestureArea.left ||
+        touchY < gestureArea.top ||
+        touchX > geometry.viewportWidth - gestureArea.right ||
+        touchY > geometry.viewportHeight - gestureArea.bottom
+}
+
+/**
+ * 读取系统手势区（像素）。
+ *
+ * [WindowInsets.safeGestures] 覆盖系统手势优先的四条边：Android 14 起它含底部
+ * home 手势区，更早的版本只有左右两侧的 back 手势区。
+ */
+@Composable
+private fun rememberSystemGestureArea(): SystemGestureArea {
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val insets = WindowInsets.safeGestures
+    return SystemGestureArea(
+        left = insets.getLeft(density, layoutDirection),
+        top = insets.getTop(density),
+        right = insets.getRight(density, layoutDirection),
+        bottom = insets.getBottom(density),
+    )
+}
 
 // 按下态的缩放。
 private const val PRESSED_SCALE = 0.90f
@@ -721,6 +784,15 @@ private fun RowScope.ExtraKeyButton(
         }
 
     val view = LocalView.current
+    val gestureArea = rememberSystemGestureArea()
+    // 按键在根坐标系里的位置：判定触摸点是否落在系统手势区要用。
+    var pressGeometry by remember {
+        mutableStateOf(PressFeedbackGeometry(Rect.Zero, viewportWidth = 0, viewportHeight = 0))
+    }
+    // 指针协程以 Unit 为 key 启动一次，捕获的是首次组合时的值；最新值必须经
+    // rememberUpdatedState 读取，否则按键位置与手势区变化后判定仍按旧值走。
+    val currentPressGeometry by rememberUpdatedState(pressGeometry)
+    val currentGestureArea by rememberUpdatedState(gestureArea)
 
     // 旧的 pointerInput(onRepeat, secondaryAction) 以新分配的 lambda 实例为 key，
     // 于是长按期间（CTRL 切换、分页状态变化）的任何重组都会取消并重启手势协程
@@ -733,6 +805,16 @@ private fun RowScope.ExtraKeyButton(
             awaitEachGesture {
                 val down = awaitFirstDown()
                 val downPos = down.position
+                // 系统手势区内的按下不给反馈：系统随时可能接管这次触摸并补发
+                // ACTION_CANCEL，已经画出的缩放就是用户看到的「上滑触发了按键动画」。
+                // 区外的按下照旧给反馈（带延迟），行为不变。
+                val insideGestureArea =
+                    isInsideSystemGestureArea(
+                        touchX = currentPressGeometry.keyBoundsInRoot.left + downPos.x,
+                        touchY = currentPressGeometry.keyBoundsInRoot.top + downPos.y,
+                        geometry = currentPressGeometry,
+                        gestureArea = currentGestureArea,
+                    )
                 // 长按阈值取手势事件时间（单调 uptime）而非墙钟：用户改系统时间
                 // 不会让长按误判，测试的虚拟时钟也推进同一条时间线。
                 val downEventTime = down.uptimeMillis
@@ -750,7 +832,7 @@ private fun RowScope.ExtraKeyButton(
                     }
                     return sawRawMotionEvent && changes.all { !it.pressed }
                 }
-                isPressed = true
+                isPressed = !insideGestureArea
                 try {
                     var gestureValid = true
                     if (currentSecondaryAction != null) {
@@ -912,7 +994,19 @@ private fun RowScope.ExtraKeyButton(
             ).graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-            }.then(gestureModifier),
+            }.then(
+                Modifier.onGloballyPositioned { coordinates ->
+                    val geometry =
+                        PressFeedbackGeometry(
+                            keyBoundsInRoot = coordinates.boundsInRoot(),
+                            viewportWidth = view.width,
+                            viewportHeight = view.height,
+                        )
+                    if (geometry != pressGeometry) {
+                        pressGeometry = geometry
+                    }
+                },
+            ).then(gestureModifier),
         contentAlignment = Alignment.Center,
     ) {
         Text(
