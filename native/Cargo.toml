@@ -26,7 +26,7 @@ pollster = "1"
 etagere = "0.3"
 jni = { version = "0.22", default-features = false }
 libc = "0.2"
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "9b598d6528c08c013407052767bb2e885ba869ba", features = [
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "768add93c54ccdba3f5c4d8763789ab6416f3151", features = [
   "log",
   "png",
 ] }
