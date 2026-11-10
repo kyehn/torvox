@@ -7,7 +7,6 @@ import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.Surface
-import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -32,7 +31,6 @@ import terminal.emulator.input.toggled
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
-import terminal.emulator.runtime.ToastNotifier
 import terminal.emulator.settings.MacroParser
 import terminal.emulator.settings.MacroStep
 import terminal.emulator.settings.SettingsRepository
@@ -121,6 +119,14 @@ constructor(
 
     @Volatile private var lastGridCols = 0
 
+    /**
+     * 应用内瞬时提示的投递通道：终端页与设置页各自订阅并以 Snackbar 呈现。
+     *
+     * 通道由 ViewModel 持有，故两条界面与两条业务路径（字体应用、清除数据）共用同一条
+     * 通道；通道本身无窗口，不受平台的提示窗口独占与按包限额约束。
+     */
+    internal val transientMessages = TransientMessageChannel()
+
     // 视图侧回写的回滚长度缓存：选区行是绝对行（0 = 回滚顶部），
     // 钳位上界必须是绝对空间最后一行（回滚长度 + 视口行数 - 1），不得用视口行数。
     private val fontManager =
@@ -129,6 +135,7 @@ constructor(
             settingsRepository = settingsRepository,
             context = context,
             scope = viewModelScope,
+            messages = transientMessages,
         )
 
     private val themeManager =
@@ -555,9 +562,8 @@ constructor(
      * 清空设置内容，删除与用户数据（files 目录下的 home/usr）无关的设置与缓存数据，
      * 并重建 DataStore 的 prefs 目录，使下一次设置写入不会失败。
      *
-     * 全部在 IO 调度器上完成，成功提示由本方法自己切回主线程弹出（与 `setFontFamily`
-     * 同款）：把回调交给界面层就得在契约里写明「非主线程」，而调用方一旦在回调里
-     * 直接 `Toast.show()` 就会因无 Looper 抛 `IllegalStateException` 杀掉进程。
+     * 全部在 IO 调度器上完成，成功提示经 [transientMessages] 投递（与 `setFontFamily`
+     * 同款）：通道线程安全，界面层在主线程订阅并呈现，不要求调用方切线程。
      * 有条目删不掉时记错误日志且**不**提示成功——抛异常会经协程默认处理器杀掉整个
      * 进程，而无条件提示又会让用户被告知「已清除」而 `settings.preferences_pb` 原封不动。
      */
@@ -595,13 +601,7 @@ constructor(
                     LogUtil.error("TerminalViewModel", "clear app data incomplete, undeleted or unreadable: $survivors")
                     return@launch
                 }
-                withContext(TerminalDispatchers.main) {
-                    ToastNotifier.show(
-                        context,
-                        context.getString(R.string.clear_app_data_done),
-                        Toast.LENGTH_LONG,
-                    )
-                }
+                transientMessages.send(context.getString(R.string.clear_app_data_done))
             } finally {
                 // 无论成败都重新接受编辑：否则清除后用户再改 URL 永不落盘。
                 settingsRepository.rearmBootstrapUrlEdits()

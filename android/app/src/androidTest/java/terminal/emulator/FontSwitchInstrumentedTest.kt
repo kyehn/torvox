@@ -2,6 +2,7 @@ package terminal.emulator
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -96,6 +97,15 @@ class FontSwitchInstrumentedTest : ComposeTerminalLogcatTest() {
                 family == target
             }
         assertTrue("选定后字体族必须落入设置流 (期望=$target)", applied != null)
+        // 提示必须看得见：它由应用内通道承载并以 Snackbar 呈现，平台提示窗口那条路
+        // 已被规约禁用（那条路会把提示限额丢弃，用户看不到反馈）。
+        val shown =
+            UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 200) {
+                composeTestRule.onAllNodesWithText("字体已应用", substring = true)
+                    .fetchSemanticsNodes()
+                    .isNotEmpty()
+            }
+        assertTrue("字族切换后必须给出可见提示", shown != null)
     }
 
     @Test

@@ -11,12 +11,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.FontInfo
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
-import terminal.emulator.runtime.ToastNotifier
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.settings.availableFontFamilies
 import terminal.emulator.util.TerminalDispatchers
@@ -32,6 +30,7 @@ internal class FontManager(
     private val settingsRepository: SettingsRepository,
     private val context: Context,
     private val scope: CoroutineScope,
+    private val messages: TransientMessageChannel,
 ) {
     private val _availableFonts = MutableStateFlow<List<String>>(emptyList())
 
@@ -195,24 +194,19 @@ internal class FontManager(
                 clearUnknownFontFamily(family, applied)
                 publishFontState(bridge)
                 LogUtil.debug("FontManager", "Font applied: ${_defaultFontName.value}")
-                withContext(TerminalDispatchers.main) {
-                    val message =
-                        if (applied == false) {
-                            context.getString(R.string.font_apply_failed, family)
-                        } else {
-                            context.getString(R.string.font_applied, _defaultFontName.value)
-                        }
-                    ToastNotifier.show(context, message)
-                }
+                val message =
+                    if (applied == false) {
+                        context.getString(R.string.font_apply_failed, family)
+                    } else {
+                        context.getString(R.string.font_applied, _defaultFontName.value)
+                    }
+                messages.send(message)
             } catch (exception: Exception) {
                 if (exception is CancellationException) throw exception
                 LogUtil.error("FontManager", "setFontFamily failed for $family", exception)
-                withContext(TerminalDispatchers.main) {
-                    ToastNotifier.show(
-                        context,
-                        context.getString(R.string.font_apply_failed, exception.message ?: ""),
-                    )
-                }
+                messages.send(
+                    context.getString(R.string.font_apply_failed, exception.message ?: ""),
+                )
             }
         }
     }

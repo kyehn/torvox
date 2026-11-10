@@ -32,6 +32,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -68,6 +70,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.R
@@ -75,7 +78,6 @@ import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.SearchMatchRange
 import terminal.emulator.runtime.LogUtil
-import terminal.emulator.runtime.ToastNotifier
 import terminal.emulator.selectionEndpoints
 import terminal.emulator.settings.SoftKeyboardToggleBehaviour
 import terminal.emulator.ui.theme.ThemeRepository
@@ -194,6 +196,18 @@ fun TerminalScreen(
     val terminalBackground = resolvedTerminalTheme.background
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    // 应用内瞬时提示：订阅 ViewModel 持有的通道并以 Snackbar 呈现。
+    // 设置页打开时停止订阅——两层界面同时在场时同一条消息会被呈现两次，
+    // 此时由设置页呈现（终端页的提示条在设置页之下）。
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(isOverlayVisible) {
+        if (isOverlayVisible) return@LaunchedEffect
+        viewModel.transientMessages.flow.collectLatest { text ->
+            // 新提示到达即撤下当前那条：连切字体时不会排出一列旧反馈。
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(text)
+        }
+    }
     // 只在事件回调里读写，从不在组合期读，故不用快照状态——那会让每次赋值多触发
     // 一次无效失效（写入还发生在 Handler 回调里，本就不在快照范围内）。
     val searchJobHolder = remember { AtomicReference<Job?>(null) }
@@ -239,7 +253,7 @@ fun TerminalScreen(
     // 与否」，而不是当次可见性：禁用后轻点终端不再拉起输入法（见 TerminalSurface 的
     // `softKeyboardEnabled`），再按一次恢复。禁用时若键盘正显示着，顺手收起——否则
     // 「已禁用」与眼前的键盘自相矛盾。这个模式在屏幕上不留任何痕迹，故两种切换都
-    // 给一声 Toast；没有提示的话，再按一次看起来就像没反应。
+    // 给一条应用内提示；没有提示的话，再按一次看起来就像没反应。
     val toggleKeyboard: () -> Unit = {
         val inputMethodManager =
             context.getSystemService(Context.INPUT_METHOD_SERVICE)
@@ -249,8 +263,7 @@ fun TerminalScreen(
             if (!softKeyboardEnabled) {
                 inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
             }
-            ToastNotifier.show(
-                context,
+            viewModel.transientMessages.send(
                 context.getString(
                     if (softKeyboardEnabled) R.string.soft_keyboard_enabled else R.string.soft_keyboard_disabled,
                 ),
@@ -380,6 +393,8 @@ fun TerminalScreen(
     // 已画出的缩放就是用户看到的「上滑触发了按键动画」。区外的按下照旧给反馈。
     // 这正是上游 termux（ExtraKeysView 不为手势区留白）的同一取舍。
     val density = LocalDensity.current
+    // 键栏高度：提示条贴在键栏之上，不遮挡按键。键栏为空时高度为 0。
+    val modifierBarHeight = with(density) { viewModel.runtime.modifierBarHeightPx.toDp() }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -943,6 +958,13 @@ fun TerminalScreen(
                         }
                     }
                 }
+                // 应用内瞬时提示：贴在键栏之上，不遮挡按键，也不推移终端内容。
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = modifierBarHeight),
+                )
             } // 关闭内容盒——终端 Surface 与键栏读同一个 ime 高度，但平移量按内容
             // 下沿各自裁剪（键栏恒为整块键盘高度），故两者位移值不同是设计而非双位移源
         }

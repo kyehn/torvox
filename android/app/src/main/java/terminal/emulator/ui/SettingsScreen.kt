@@ -3,6 +3,7 @@ package terminal.emulator.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,10 +22,14 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.collectLatest
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.installer.BootstrapProgress
@@ -64,6 +70,16 @@ fun SettingsScreen(
     val bootstrapRunning by viewModel.bootstrapRunning.collectAsStateWithLifecycle()
     val bootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
     val bootstrapProgress: BootstrapProgress? by viewModel.bootstrapProgress.collectAsStateWithLifecycle()
+    // 应用内瞬时提示：订阅 ViewModel 持有的通道并以 Snackbar 呈现。
+    // 设置页只在覆盖层打开时在场，故与终端页不会同时呈现同一条消息。
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        viewModel.transientMessages.flow.collectLatest { text ->
+            // 新提示到达即撤下当前那条：连切字体时不会排出一列旧反馈。
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(text)
+        }
+    }
     BackHandler(enabled = true) { onBack() }
     // 系统栏图标明暗按**设置页自己的底色**判定：设置页是浅色面，若沿用终端页
     // （深底）的判定，状态栏时钟会是浅色压浅底，几乎看不清。
@@ -80,103 +96,112 @@ fun SettingsScreen(
             .pointerInput(Unit) { detectTapGestures(onTap = {}) },
         color = backgroundColor,
     ) {
-        Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            // 固定表头：SettingsHeader 必须在 LazyColumn 滚动时保持可见，
-            // 否则返回按钮会滚出可达范围
-            // （maestro 的 open-settings 流程在向下滚动后找不到 SettingsBackButton）。
-            SettingsHeader(onBack, textColor, isSmallScreen)
-            LazyColumn(
-                modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = horizontalPadding)
-                    .testTag("SettingsLazyColumn"),
-                verticalArrangement = Arrangement.spacedBy(if (isSmallScreen) 8.dp else 12.dp),
-                contentPadding = PaddingValues(bottom = 32.dp),
-            ) {
-                item {
-                    SectionHeader(stringResource(R.string.appearance), sectionTitleColor)
-                    SettingsCard(cardBackground) {
-                        AppearanceSectionContent(
-                            fontSize = settings.fontSize,
-                            spToPxScale = viewModel.runtime.spToPxScale,
-                            screenWidthDp = viewModel.runtime.screenWidthDp,
-                            fontFamily = settings.fontFamily,
-                            availableFonts = availableFonts,
-                            defaultFontName = defaultFontName,
-                            fontInfo = fontInfo,
-                            onFontSizePreview = { viewModel.setFontSizeInPlacePreview(it) },
-                            onFontSizeCommitted = { viewModel.setFontSize(it) },
-                            onFontFamilySelected = { viewModel.setFontFamily(it) },
-                            onFontsVisible = { viewModel.refreshFontList() },
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                // 固定表头：SettingsHeader 必须在 LazyColumn 滚动时保持可见，
+                // 否则返回按钮会滚出可达范围
+                // （maestro 的 open-settings 流程在向下滚动后找不到 SettingsBackButton）。
+                SettingsHeader(onBack, textColor, isSmallScreen)
+                LazyColumn(
+                    modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = horizontalPadding)
+                        .testTag("SettingsLazyColumn"),
+                    verticalArrangement = Arrangement.spacedBy(if (isSmallScreen) 8.dp else 12.dp),
+                    contentPadding = PaddingValues(bottom = 32.dp),
+                ) {
+                    item {
+                        SectionHeader(stringResource(R.string.appearance), sectionTitleColor)
+                        SettingsCard(cardBackground) {
+                            AppearanceSectionContent(
+                                fontSize = settings.fontSize,
+                                spToPxScale = viewModel.runtime.spToPxScale,
+                                screenWidthDp = viewModel.runtime.screenWidthDp,
+                                fontFamily = settings.fontFamily,
+                                availableFonts = availableFonts,
+                                defaultFontName = defaultFontName,
+                                fontInfo = fontInfo,
+                                onFontSizePreview = { viewModel.setFontSizeInPlacePreview(it) },
+                                onFontSizeCommitted = { viewModel.setFontSize(it) },
+                                onFontFamilySelected = { viewModel.setFontFamily(it) },
+                                onFontsVisible = { viewModel.refreshFontList() },
+                                textColor = textColor,
+                                secondaryText = secondaryText,
+                                accentColor = accentColor,
+                                backgroundColor = backgroundColor,
+                            )
+                        }
+                    }
+                    item {
+                        AppThemeSection(
+                            appThemeMode = settings.appThemeMode,
+                            onAppThemeModeSelected = { viewModel.setAppThemeMode(it) },
+                            cardBackground = cardBackground,
+                            textColor = textColor,
+                            accentColor = accentColor,
+                            sectionTitleColor = sectionTitleColor,
+                        )
+                    }
+                    item {
+                        TerminalThemeSection(
+                            themeMode = settings.themeMode,
+                            dayThemeName = settings.dayThemeName,
+                            nightThemeName = settings.nightThemeName,
+                            themeName = settings.themeName,
+                            onThemeModeSelected = { viewModel.setThemeMode(it) },
+                            onDayThemeSelected = { viewModel.setDayThemeName(it) },
+                            onNightThemeSelected = { viewModel.setNightThemeName(it) },
+                            onFixedThemeSelected = { viewModel.setThemeName(it) },
+                            textColor = textColor,
+                            cardBackground = cardBackground,
+                            sectionTitleColor = sectionTitleColor,
+                        )
+                    }
+                    item {
+                        TerminalConfigSection(
+                            selectedShell = settings.shell,
+                            onShellSaved = { viewModel.setShell(it) },
+                            textColor = textColor,
+                            accentColor = accentColor,
+                            cardBackground = cardBackground,
+                            sectionTitleColor = sectionTitleColor,
+                        )
+                    }
+                    item {
+                        BootstrapSectionFromSettings(
+                            bootstrapUrl = settings.bootstrapUrl,
+                            bootstrapRunning = bootstrapRunning,
+                            bootstrapResult = bootstrapResult,
+                            bootstrapProgress = bootstrapProgress,
+                            onUrlChanged = { viewModel.setBootstrapUrl(it) },
+                            onRunBootstrap = { viewModel.runBootstrap() },
+                            onInstallOffline = { viewModel.installOffline(it) },
                             textColor = textColor,
                             secondaryText = secondaryText,
                             accentColor = accentColor,
-                            backgroundColor = backgroundColor,
+                            cardBackground = cardBackground,
+                            sectionTitleColor = sectionTitleColor,
                         )
                     }
+                    item {
+                        ClearAppDataSectionItem(
+                            onClearAppData = { viewModel.clearAppData() },
+                            textColor = textColor,
+                            cardBackground = cardBackground,
+                            sectionTitleColor = sectionTitleColor,
+                        )
+                    }
+                    item { Spacer(modifier = Modifier.height(24.dp)) }
                 }
-                item {
-                    AppThemeSection(
-                        appThemeMode = settings.appThemeMode,
-                        onAppThemeModeSelected = { viewModel.setAppThemeMode(it) },
-                        cardBackground = cardBackground,
-                        textColor = textColor,
-                        accentColor = accentColor,
-                        sectionTitleColor = sectionTitleColor,
-                    )
-                }
-                item {
-                    TerminalThemeSection(
-                        themeMode = settings.themeMode,
-                        dayThemeName = settings.dayThemeName,
-                        nightThemeName = settings.nightThemeName,
-                        themeName = settings.themeName,
-                        onThemeModeSelected = { viewModel.setThemeMode(it) },
-                        onDayThemeSelected = { viewModel.setDayThemeName(it) },
-                        onNightThemeSelected = { viewModel.setNightThemeName(it) },
-                        onFixedThemeSelected = { viewModel.setThemeName(it) },
-                        textColor = textColor,
-                        cardBackground = cardBackground,
-                        sectionTitleColor = sectionTitleColor,
-                    )
-                }
-                item {
-                    TerminalConfigSection(
-                        selectedShell = settings.shell,
-                        onShellSaved = { viewModel.setShell(it) },
-                        textColor = textColor,
-                        accentColor = accentColor,
-                        cardBackground = cardBackground,
-                        sectionTitleColor = sectionTitleColor,
-                    )
-                }
-                item {
-                    BootstrapSectionFromSettings(
-                        bootstrapUrl = settings.bootstrapUrl,
-                        bootstrapRunning = bootstrapRunning,
-                        bootstrapResult = bootstrapResult,
-                        bootstrapProgress = bootstrapProgress,
-                        onUrlChanged = { viewModel.setBootstrapUrl(it) },
-                        onRunBootstrap = { viewModel.runBootstrap() },
-                        onInstallOffline = { viewModel.installOffline(it) },
-                        textColor = textColor,
-                        secondaryText = secondaryText,
-                        accentColor = accentColor,
-                        cardBackground = cardBackground,
-                        sectionTitleColor = sectionTitleColor,
-                    )
-                }
-                item {
-                    ClearAppDataSectionItem(
-                        onClearAppData = { viewModel.clearAppData() },
-                        textColor = textColor,
-                        cardBackground = cardBackground,
-                        sectionTitleColor = sectionTitleColor,
-                    )
-                }
-                item { Spacer(modifier = Modifier.height(24.dp)) }
             }
+            // 应用内瞬时提示：贴在内容底部，避开系统导航条。
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding(),
+            )
         }
     }
 }
