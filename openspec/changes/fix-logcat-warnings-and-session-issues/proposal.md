@@ -19,8 +19,9 @@
   分配器在每次重建时按不支持的单通道格式申请缓冲。
 - 输入法连接失活时的光标锚点请求不再由应用侧主动触发。
 - 修饰键栏在全面屏手势区内的按压反馈不再启动动画。
-- 新会话的首帧必须真正产出：生成后立即补齐网格与像素尺寸，首帧未产出时按会话存活
-  规约定位到层级并恢复。
+- 新会话的首帧必须真正产出：首帧按**会话**记账（进程级标志在首个会话出帧后恒为
+  真，后建会话是否出过帧无从判断），首帧未产出时按会话存活规约定位到层级并恢复
+  （归因首帧层，恢复动作为向 VT 索要一帧，非破坏性）。
 
 ## Capabilities
 
@@ -37,6 +38,16 @@
 
 - `android/app/src/main/java/terminal/emulator/TerminalDocumentsProvider.kt`
 - `android/app/src/main/java/terminal/emulator/runtime/TerminalRuntime.kt`
+- `android/app/src/main/java/terminal/emulator/monitor/SessionLiveness.kt`
+- `android/app/src/main/java/terminal/emulator/bridge/Bridge.kt`
+- `android/app/src/main/java/terminal/emulator/bridge/NativeBridge.kt`
 - `android/app/src/main/java/terminal/emulator/ui/ModifierBar.kt`
 - `native/src/render/context/surface.rs`
 - `native/src/android/ffi/render/window.rs`
+- `native/src/android/ffi/render/frame.rs`
+
+## 未解决的缺口
+
+- `docs/STATUS.md` 的未决问题清单未更新：该文件首行写明「禁止对本文件进行任何修改」，
+  `AGENTS.md` 亦将其列为需用户明确同意方可修改的受保护文件。未获用户明确同意前
+  不改，其内容与本 change 的实际状态暂时不一致。
