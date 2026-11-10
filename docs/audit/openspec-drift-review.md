@@ -45,7 +45,7 @@
   Kotlin 生命周期四层判定，以及各层的恢复动作，与 `monitor/RenderWatchDog.kt`、
   `monitor/SessionLiveness.kt` 的实现一致；看门狗身份复核的三条 Requirement 已在
   归档变更中同步。
-- `desktop-notification`：OSC 9 与 OSC 777 的采集、前台 Toast 与后台系统通知、
+- `desktop-notification`：OSC 9 与 OSC 777 的采集、前台应用内提示与后台系统通知、
   点击切回会话、排空有界、通知 id 与常驻通知分离，与 `runtime/DesktopNotificationDrain.kt`、
   `runtime/DesktopNotificationPlayer.kt` 的实现一致。
 - `text-search`：命中总数、导航、视口高亮、关闭后原生回到 idle 的要求与上游

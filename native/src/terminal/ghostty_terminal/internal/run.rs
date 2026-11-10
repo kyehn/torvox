@@ -411,7 +411,7 @@ impl super::GhosttyTerminal {
         // VT 线程；OSC 52 读取请求（`?`）上游明确忽略，仍由 OutputProcessor
         // 的最小扫描器拦截（FR-036）。
         Self::register_clipboard_write_callback(&mut terminal, config.clipboard_tx.clone());
-        // OSC 9 / OSC 777 桌面通知（DESIGN：前台 Toast、后台系统通知）：走上游
+        // OSC 9 / OSC 777 桌面通知（前台应用内提示、后台系统通知）：走上游
         // on_desktop_notification 回调，本仓不另建 OSC 解析器。
         Self::register_desktop_notification_callback(
             &mut terminal,
