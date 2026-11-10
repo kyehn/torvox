@@ -40,7 +40,7 @@ pub const MIN_VERTEX_BUFFER_SIZE: u64 = 64;
 /// 分配器直接拒收（`Requested R8 format is not supported with this allocator`）。
 ///
 /// 挂载路径（`ANativeWindow_setBuffersGeometry`）用它，交换链路径
-/// （[`Renderer::select_surface_format`]）取与之对应的 `Rgba8Unorm`。
+/// （`Renderer::select_surface_format`）取与之对应的 `Rgba8Unorm`。
 pub const WINDOW_FORMAT_RGBA_8888: i32 = 1;
 
 /// 交换链尺寸的唯一计算点：按跨渲染器固定的 `RENDER_SCALE` 缩放，再钳制到
