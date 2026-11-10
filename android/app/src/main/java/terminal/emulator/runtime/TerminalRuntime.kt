@@ -2478,6 +2478,17 @@ constructor(
                                         Thread.currentThread().interrupt()
                                         break
                                     } catch (exception: Exception) {
+                                        if (isRenderThreadInterruption(exception)) {
+                                            // 关闭路径的中断：runBlocking 以取消异常收尾，
+                                            // 其 cause 是 InterruptedException。预期信号而非
+                                            // 渲染失败——干净地退出循环，不记 error。
+                                            Thread.currentThread().interrupt()
+                                            LogUtil.debug(
+                                                "Runtime",
+                                                "session ${entry.sessionId} render thread cancelled by interruption",
+                                            )
+                                            break
+                                        }
                                         // 渲染异常按窗口汇总：成功一帧即把连续数清零，交替
                                         // 形态下旧的「首条即记」分支每次都命中，逐帧记
                                         // error 加栈。行内带窗口内异常次数。
@@ -5627,6 +5638,20 @@ internal data class SurfaceRecreateDecision(val request: Boolean = false, val ex
  * @param consecutiveErrors 含本次在内的连续错误数（1 = 首次）
  */
 internal fun transientRenderErrorIsWarning(consecutiveErrors: Int): Boolean = consecutiveErrors > 1
+
+/**
+ * 渲染线程抛出的异常是否只是关闭路径的中断信号：不是渲染失败。
+ *
+ * 关闭路径（会话切换、运行期停止）中断渲染线程时，`runBlocking` 以取消异常收尾，
+ * 其 cause 是 `InterruptedException`（栈顶落在 `BlockingCoroutine.joinBlocking`）。
+ * 把它当渲染失败会记出 error 加完整栈——关闭流程的正常一步不是缺陷
+ * （见 `logcat-hygiene`「应用自身的正常路径不得产生警告与错误」）。
+ *
+ * 判据取 cause 而非异常类型：取消异常也可能来自别处（协程作用域被取消），
+ * 只有 cause 是 `InterruptedException` 时才说明是线程被中断。
+ */
+internal fun isRenderThreadInterruption(exception: Throwable): Boolean = exception is InterruptedException ||
+    (exception is CancellationException && exception.cause is InterruptedException)
 
 /** 渲染失败后的短退避（毫秒）：连续错误未达长退避阈值时用。 */
 private const val RENDER_ERROR_SLEEP_MS = 50L
