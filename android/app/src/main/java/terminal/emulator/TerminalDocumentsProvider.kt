@@ -306,24 +306,36 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         return cursor
     }
 
-    override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor {
+    override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor? {
         val columns = projection ?: DOC_PROJECTION
         val rootDir = queries.rootDir()
-        val file = queries.resolveLinkEntry(documentId, rootDir)
-        // AOSP 契约：文档不存在必须抛 FileNotFoundException（基类签名即如此声明）。
+        // 缺失文档（含越出根目录、地址不可解析）回 null 游标，而不是抛
+        // FileNotFoundException：框架的 `DocumentsProvider#query` 捕获该异常后回的
+        // 同样是 null 游标，客户端看到的结果逐位相同，差异只有它在 catch 块打出的一条
+        // W 级「Failed during query」。文件管理器的「替换保存」流程每次都先回查让位
+        // 文件与原 docId，真机上每次回查都留下一条这样的框架告警。
+        // 越出根目录的 docId 同样回 null：它与「文档不存在」对客户端是同一件事，
+        // 且不泄露根外是否存在。
+        val file =
+            try {
+                queries.resolveLinkEntry(documentId, rootDir)
+            } catch (error: FileNotFoundException) {
+                return null
+            }
         // 此前无条件 addDocRow 会回一行 size=0/lastModified=0 的空壳：客户端把不存在的
-        // 路径当成仍存在，新建/改名撞「路径已存在」，列表停在旧快照。
+        // 路径当成仍存在，新建/改名撞「路径已存在」，列表停在旧快照。回 null 游标同样
+        // 不含任何行，且被框架原样转交客户端。
         // 链接按链接自身判存在（lstat 语义）：断链会出现在列举结果里，按列举结果回查
         // 必须同样拿得到，否则客户端点开列举里的条目就报「不存在」。
         if (!file.exists() &&
             !Files
                 .isSymbolicLink(file.toPath())
         ) {
-            throw FileNotFoundException("queryDocument: no such document '$documentId'")
+            return null
         }
-        // 游标在全部可能抛错的检查之后才建：框架吞掉 FileNotFoundException 后
-        // 只回 null，先建后抛会留下没人关闭的游标，回收时平台打出
-        // 「A resource failed to call AbstractCursor.close.」告警。
+        // 游标在全部可能失败的检查之后才建：查询失败时框架只回 null，先建后失败会留下
+        // 没人关闭的游标，回收时平台打出「A resource failed to call AbstractCursor.close.」
+        // 告警。
         val cursor = MatrixCursor(columns)
         queries.addDocRow(cursor, file, rootDir, columns)
         context?.contentResolver?.let { resolver ->
@@ -347,26 +359,35 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         parentDocumentId: String,
         projection: Array<out String>?,
         sortOrder: String?,
-    ): Cursor {
+    ): Cursor? {
         val started = SystemClock.elapsedRealtime()
         val columns = projection ?: DOC_PROJECTION
         val rootDir = queries.rootDir()
-        val parent = decodeDocId(parentDocumentId, rootDir)
-        requireInsideRoot(parent, rootDir)
+        // 同 queryDocument：目录不存在、越出根目录、或内容列举失败，一律回 null 游标。
+        // 框架把 FileNotFoundException 吞成同样的 null 游标，客户端看到的完全一致，
+        // 差异只有框架在 catch 块打出的一条 W 级「Failed during query」。
+        val parent =
+            try {
+                decodeDocId(parentDocumentId, rootDir).also { requireInsideRoot(it, rootDir) }
+            } catch (error: FileNotFoundException) {
+                return null
+            }
         // 规范路径只算一次：列目录与行编码都以它为准（子项路径 = 父规范路径 + 名字）。
         val parentCanonical = parent.canonicalFile
-        // 同 queryDocument：目录不存在（或已不是目录）必须抛 FileNotFoundException，
-        // 而不是回空游标。空游标让客户端把「目录已消失」当成「空目录」，
-        // 继续往一个不存在的路径写入。
         if (!parentCanonical.isDirectory) {
-            throw FileNotFoundException(
-                "queryChildDocuments: no such directory '$parentDocumentId'",
-            )
+            return null
         }
         watcher.watch(parentCanonical)
         // 每项一次 lstat，排序键 `isDirectory` 与折叠名也只取一次，
         // 避免 O(n log n) 次比较各触发一次 stat，也避免默认 Locale 把 `i` 排错。
-        val entries = queries.readChildren(parentCanonical, rootDir.canonicalPath)
+        val entries =
+            try {
+                queries.readChildren(parentCanonical, rootDir.canonicalPath)
+            } catch (error: FileNotFoundException) {
+                // 列举失败不是「空目录」：这一支的条目读不到，必须如实告诉客户端，
+                // 否则它会把「读不到」当成「空目录」继续往看不见内容的路径写入。
+                return null
+            }
         val cursor = MatrixCursor(columns)
         for (entry in entries) {
             queries.addChildRow(cursor, entry, columns)
@@ -546,7 +567,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         return if (file.isDirectory) Document.MIME_TYPE_DIR else queries.getMimeType(file.name)
     }
 
-    override fun querySearchDocuments(rootId: String, query: String, projection: Array<out String>?): Cursor {
+    override fun querySearchDocuments(rootId: String, query: String, projection: Array<out String>?): Cursor? {
         // 与 Termux 一致的按文件名搜索：迭代遍历、上限截断、符号链接
         // 不得跳出 home。查询词双向小写，修正 Termux 仅小写文件名的遗漏。
         val columns = projection ?: DOC_PROJECTION
@@ -554,7 +575,14 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val rootPath = rootDir.canonicalPath
         val needle = query.lowercase()
         val pending = ArrayDeque<File>()
-        pending.addLast(decodeDocId(rootId, rootDir))
+        // 搜索根越出根目录时回 null 游标：同 queryDocument，框架把异常吞成同样的 null。
+        val searchRoot =
+            try {
+                decodeDocId(rootId, rootDir)
+            } catch (error: FileNotFoundException) {
+                return null
+            }
+        pending.addLast(searchRoot)
         val cursor = MatrixCursor(columns)
         var visits = 0
         var truncated = false

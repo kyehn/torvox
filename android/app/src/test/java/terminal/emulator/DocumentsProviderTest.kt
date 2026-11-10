@@ -187,7 +187,7 @@ class DocumentsProviderTest {
         assertEquals("createDocument must create the file", true, file.exists())
         assertTrue("created document must be a file", file.isFile)
         // Query it back (round-trip).
-        val cursor = provider.queryDocument(docId, null)
+        val cursor = requireNotNull(provider.queryDocument(docId, null))
         assertTrue("created doc must be queryable", cursor.moveToFirst())
         cursor.close()
         // Delete it.
@@ -687,7 +687,7 @@ class DocumentsProviderTest {
         val provider = ensureProvider()
         java.io.File(rootDir(), "MeetingNotes.txt").writeText("x")
         java.io.File(rootDir(), "unrelated.log").writeText("y")
-        val cursor = provider.querySearchDocuments("terminal_home", "MEETING", null)
+        val cursor = requireNotNull(provider.querySearchDocuments("terminal_home", "MEETING", null))
         cursor.use {
             assertEquals("search must match exactly one file", 1, it.count)
             it.moveToFirst()
@@ -716,7 +716,7 @@ class DocumentsProviderTest {
         } catch (expected: Exception) {
             fail("symlink creation must work for this test: $expected")
         }
-        val cursor = provider.querySearchDocuments("terminal_home", "outside-secret", null)
+        val cursor = requireNotNull(provider.querySearchDocuments("terminal_home", "outside-secret", null))
         cursor.use {
             assertEquals("outside-home symlink target must never surface", 0, it.count)
         }
@@ -726,7 +726,7 @@ class DocumentsProviderTest {
     fun image_row_advertises_thumbnail_and_opens() {
         val provider = ensureProvider()
         java.io.File(rootDir(), "photo.png").writeBytes(byteArrayOf(1, 2, 3, 4))
-        val cursor = provider.queryDocument("photo.png", null)
+        val cursor = requireNotNull(provider.queryDocument("photo.png", null))
         cursor.use {
             assertTrue(it.moveToFirst())
             val flags = it.getInt(it.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS))
@@ -814,14 +814,14 @@ class DocumentsProviderTest {
         val target = java.io.File(rootDir(), "target.txt").apply { writeText("data") }
         createSymlink("link.txt", target)
         // 浏览与回查必须给出同一 docId：链接自身，而非其目标。
-        val childCursor = provider.queryChildDocuments("terminal_home", null, null as String?)
+        val childCursor = requireNotNull(provider.queryChildDocuments("terminal_home", null, null as String?))
         val childIds = mutableListOf<String>()
         childCursor.use {
             val idIndex = it.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
             while (it.moveToNext()) childIds.add(it.getString(idIndex))
         }
         assertTrue("listing must address the link entry", childIds.contains("link.txt"))
-        val docCursor = provider.queryDocument("link.txt", null)
+        val docCursor = requireNotNull(provider.queryDocument("link.txt", null))
         docCursor.use {
             assertEquals("link must resolve to exactly one row", 1, it.count)
             assertTrue(it.moveToFirst())
@@ -841,7 +841,7 @@ class DocumentsProviderTest {
         val provider = ensureProvider()
         val subdir = java.io.File(rootDir(), "subdir").apply { mkdirs() }
         createSymlink("linkdir", subdir)
-        val cursor = provider.queryDocument("linkdir", null)
+        val cursor = requireNotNull(provider.queryDocument("linkdir", null))
         cursor.use {
             assertTrue(it.moveToFirst())
             assertEquals(
@@ -852,30 +852,27 @@ class DocumentsProviderTest {
     }
 
     @Test
-    fun queryDocument_missing_throws_instead_of_emitting_ghost_row() {
-        // AOSP 契约：不存在的文档抛 FileNotFoundException。回幽灵行会让客户端
-        // 认定路径仍存在（新建撞「路径已存在」、列表停在旧快照）。
-        try {
-            ensureProvider().queryDocument("definitely-absent.txt", null)
-            fail("missing document must throw FileNotFoundException")
-        } catch (expected: java.io.FileNotFoundException) {
-            // expected
-        }
+    fun queryDocument_missing_returns_null_instead_of_emitting_ghost_row() {
+        // 缺失文档回 null 游标：框架的 `DocumentsProvider#query` 捕获
+        // FileNotFoundException 后回的同样是 null，客户端看到的结果逐位相同，
+        // 差异只有框架在 catch 块打出的一条 W 级「Failed during query」。
+        // 回幽灵行会让客户端认定路径仍存在（新建撞「路径已存在」、列表停在旧快照），
+        // 故断言必须是「无行」而不是「有行」。
+        assertNull(
+            "缺失文档必须回 null 游标",
+            ensureProvider().queryDocument("definitely-absent.txt", null),
+        )
     }
 
     @Test
-    fun queryDocument_missing_rollback_placeholder_throws() {
-        // 外部编辑器的「替换保存」流程会先回查让位文件——此时它还没建，框架据此
-        // 在 provider 的 catch 块打出 W 级「Failed during query ... no such
-        // document '*.rollback'」。该告警由客户端的回查时机决定，应用侧的契约
-        // 是缺失即抛 FileNotFoundException：改抛空游标或占位行会让客户端把不存在的
-        // 路径当成仍存在（新建撞「路径已存在」、列表停在旧快照）。
-        try {
-            ensureProvider().queryDocument("15398985.rollback", null)
-            fail("missing rollback placeholder must throw FileNotFoundException")
-        } catch (expected: java.io.FileNotFoundException) {
-            // expected
-        }
+    fun queryDocument_missing_rollback_placeholder_returns_null() {
+        // 外部编辑器的「替换保存」流程会先回查让位文件——此时它还没建。回 null 游标
+        // 让这次回查不再触发框架的 W 级「Failed during query ... no such document
+        // '*.rollback'」，而客户端拿到的仍是「不存在」这一事实。
+        assertNull(
+            "缺失的让位文件必须回 null 游标",
+            ensureProvider().queryDocument("15398985.rollback", null),
+        )
     }
 
     @Test
@@ -887,7 +884,7 @@ class DocumentsProviderTest {
         val kept = java.io.File(rootDir(), "deploy.sh").apply { writeText("#!/bin/sh\n") }
         java.io.File(rootDir(), "15398985.rollback").apply { writeText("superseded") }
         java.io.File(rootDir(), "rollback").apply { writeText("plain name is NOT hidden") }
-        val childCursor = provider.queryChildDocuments("terminal_home", null, null as String?)
+        val childCursor = requireNotNull(provider.queryChildDocuments("terminal_home", null, null as String?))
         val names = mutableListOf<String>()
         childCursor.use {
             val nameIndex = it.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
@@ -902,14 +899,13 @@ class DocumentsProviderTest {
     }
 
     @Test
-    fun queryChildDocuments_missing_directory_throws() {
-        // 空游标会把「目录已消失」伪装成「空目录」，客户端继续往不存在处写入。
-        try {
-            ensureProvider().queryChildDocuments("definitely-absent-dir", null, null as String?)
-            fail("missing directory must throw FileNotFoundException")
-        } catch (expected: java.io.FileNotFoundException) {
-            // expected
-        }
+    fun queryChildDocuments_missing_directory_returns_null() {
+        // 缺失目录回 null 游标：框架把 FileNotFoundException 吞成同样的 null，
+        // 客户端看到的完全一致，差异只有框架在 catch 块打出的一条 W 级日志。
+        assertNull(
+            "缺失目录必须回 null 游标",
+            ensureProvider().queryChildDocuments("definitely-absent-dir", null, null as String?),
+        )
     }
 
     @Test
@@ -918,7 +914,7 @@ class DocumentsProviderTest {
         // 否则客户端点开列表里的条目就报「不存在」。
         val provider = ensureProvider()
         createSymlink("dangling.txt", java.io.File(rootDir(), "not-there.txt"))
-        val cursor = provider.queryDocument("dangling.txt", null)
+        val cursor = requireNotNull(provider.queryDocument("dangling.txt", null))
         cursor.use {
             assertEquals("broken link must still be one row", 1, it.count)
         }
@@ -926,12 +922,11 @@ class DocumentsProviderTest {
 
     @Test
     fun queryDocument_dotdot_escape_rejected() {
-        try {
-            ensureProvider().queryDocument("../outside.txt", null)
-            fail("path escape must be rejected")
-        } catch (expected: java.io.FileNotFoundException) {
-            // ".." escapes the root — refuse.
-        }
+        // ".." escapes the root — refuse. 越界与不存在对客户端是同一件事，回 null 游标。
+        assertNull(
+            "越界 docId 必须回 null 游标",
+            ensureProvider().queryDocument("../outside.txt", null),
+        )
     }
 
     @Test
@@ -1061,7 +1056,7 @@ class DocumentsProviderTest {
     fun file_row_advertises_rename_copy_move() {
         val provider = ensureProvider()
         java.io.File(rootDir(), "doc.txt").apply { writeText("x") }
-        val cursor = provider.queryDocument("doc.txt", null)
+        val cursor = requireNotNull(provider.queryDocument("doc.txt", null))
         cursor.use {
             assertTrue(it.moveToFirst())
             val flags = it.getInt(it.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS))
@@ -1377,7 +1372,7 @@ class DocumentsProviderTest {
         val provider = ensureProvider()
         java.io.File(rootDir(), "MyProjects").apply { mkdirs() }
         java.io.File(rootDir(), "unrelated.txt").apply { writeText("y") }
-        val cursor = provider.querySearchDocuments("terminal_home", "project", null)
+        val cursor = requireNotNull(provider.querySearchDocuments("terminal_home", "project", null))
         cursor.use {
             assertEquals("search must match the directory", 1, it.count)
             it.moveToFirst()
@@ -1435,9 +1430,11 @@ class DocumentsProviderTest {
         val provider = ensureProvider()
         java.io.File(rootDir(), "subset.txt").apply { writeText("x") }
         val cursor =
-            provider.queryDocument(
-                "subset.txt",
-                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+            requireNotNull(
+                provider.queryDocument(
+                    "subset.txt",
+                    arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                ),
             )
         cursor.use {
             assertTrue(it.moveToFirst())
@@ -1614,7 +1611,7 @@ class DocumentsProviderTest {
             java.io.File(parent, "delta").mkdirs()
 
             val cursor =
-                ensureProvider().queryChildDocuments("ordering-fixture", null, null as String?)
+                requireNotNull(ensureProvider().queryChildDocuments("ordering-fixture", null, null as String?))
             val names =
                 cursor.use {
                     val index = it.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
@@ -1634,7 +1631,7 @@ class DocumentsProviderTest {
      */
     @Test
     fun shutdown_releases_watchers_and_query_still_works() {
-        val children = { ensureProvider().queryChildDocuments("terminal_home", null, null as String?) }
+        val children = { requireNotNull(ensureProvider().queryChildDocuments("terminal_home", null, null as String?)) }
 
         children().use { assertNotNull("停止前应能列举家目录", it) }
         ensureProvider().shutdown()
