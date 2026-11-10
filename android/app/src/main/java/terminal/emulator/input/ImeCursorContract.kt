@@ -101,3 +101,27 @@ class CursorUpdateMonitor {
         const val MONITOR = InputConnection.CURSOR_UPDATE_MONITOR
     }
 }
+
+/**
+ * 组字光标锚点的回报准入判据：四项缺一不可。
+ *
+ * - `monitoring`：输入法请求过光标监视（见 [CursorUpdateMonitor]）。
+ * - `composing`：当前有组字内容。
+ * - `viewFocused`：视图有窗口焦点且获焦——输入法尚未接管本视图时提交锚点，平台
+ *   会丢弃这次更新（输入法动画/焦点切换的中间帧）。
+ * - `imeConnected`：输入法连接仍然活着——连接失活时平台同样丢弃这次更新，并在
+ *   输入法侧记一条 `requestCursorAnchorInfo on inactive InputConnection` 的告警。
+ *   判据取公开的 `InputMethodManager.isActive(view)`，其条件与平台自身
+ *   `updateCursorAnchorInfo` 的前置条件一致（被服务视图 + 当前 EditorInfo 存在）。
+ *
+ * 判据在取坐标**之前**判定，使不需要回报的路径不付这份开销。
+ *
+ * @param imeConnected 输入法连接是否仍然活着。**惰性求值**：前面的判据为假时不必
+ *   再问它（`InputMethodManager.isActive` 要进输入法管理器的锁）。
+ */
+fun admitCursorAnchor(
+    monitoring: Boolean,
+    composing: Boolean,
+    viewFocused: Boolean,
+    imeConnected: () -> Boolean,
+): Boolean = monitoring && composing && viewFocused && imeConnected()

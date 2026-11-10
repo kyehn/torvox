@@ -58,6 +58,7 @@ import terminal.emulator.input.CursorUpdateMonitor
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.SelectionMover
+import terminal.emulator.input.admitCursorAnchor
 import terminal.emulator.input.applyTerminalEditorInfo
 import terminal.emulator.input.isActive
 import terminal.emulator.runtime.ClipboardAccess
@@ -920,12 +921,26 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                      *   等下一次组字变化会让候选窗口先落在旧格上。
                      */
                     private fun reportComposingCursorAnchor(immediate: Boolean = false) {
+                        val inputMethodManager =
+                            context.getSystemService(InputMethodManager::class.java) ?: return
                         // 准入判据先于取坐标：未请求监视或无组字时连帧内光标都不必取。
-                        if (!cursorMonitor.isMonitoring || !composing.isComposing) return
-                        // 输入法尚未接管本视图（IME 动画/焦点切换的中间帧）时提交锚点，
-                        // 平台会打 "requestCursorAnchorInfo on inactive InputConnection"
-                        // 并丢弃这次更新；等真正获得焦点后的组字变化再报。
-                        if (!hasWindowFocus() || !isFocused) return
+                        //
+                        // 末项是「输入法连接失活」：连接失活时平台丢弃这次更新，并在
+                        // 输入法侧记一条 "requestCursorAnchorInfo on inactive
+                        // InputConnection" 的告警——应用侧不得再主动触发这次回报。
+                        // 判据取公开的 `InputMethodManager.isActive(view)`，其条件与
+                        // 平台自身 `updateCursorAnchorInfo` 的前置条件一致。
+                        if (!admitCursorAnchor(
+                                monitoring = cursorMonitor.isMonitoring,
+                                composing = composing.isComposing,
+                                viewFocused = hasWindowFocus() && isFocused,
+                                imeConnected = {
+                                    inputMethodManager.isActive(this@TerminalSurface)
+                                },
+                            )
+                        ) {
+                            return
+                        }
                         if (!immediate) {
                             val now = System.nanoTime()
                             if (now - lastCursorAnchorQueryNanos < CURSOR_ANCHOR_QUERY_THROTTLE_NANOS) return
@@ -965,8 +980,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                                     0,
                                 )
                                 .build()
-                        context.getSystemService(InputMethodManager::class.java)
-                            ?.updateCursorAnchorInfo(this@TerminalSurface, info)
+                        inputMethodManager.updateCursorAnchorInfo(this@TerminalSurface, info)
                     }
 
                     /** [getLocationOnScreen] 的落点，复用以免逐键分配。仅主线程使用。 */

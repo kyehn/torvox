@@ -122,4 +122,41 @@ class ImeCursorContractTest {
         monitor.update(CursorUpdateMonitor.MONITOR or (1 shl 4))
         assertTrue(monitor.isMonitoring)
     }
+
+    // ── 锚点回报准入 ──────────────────────────────────────────────
+
+    @Test
+    fun `anchor is admitted only when every criterion holds`() {
+        assertTrue(admitCursorAnchor(monitoring = true, composing = true, viewFocused = true) { true })
+        // 未请求监视：无组字变化时不得回报。
+        assertFalse(admitCursorAnchor(monitoring = false, composing = true, viewFocused = true) { true })
+        // 无组字：候选窗口没有可贴的位置。
+        assertFalse(admitCursorAnchor(monitoring = true, composing = false, viewFocused = true) { true })
+        // 视图未获焦：输入法尚未接管本视图，平台会丢弃这次更新。
+        assertFalse(admitCursorAnchor(monitoring = true, composing = true, viewFocused = false) { true })
+        // 输入法连接失活：平台丢弃这次更新，并在输入法侧记一条
+        // "requestCursorAnchorInfo on inactive InputConnection" 的告警。
+        assertFalse(admitCursorAnchor(monitoring = true, composing = true, viewFocused = true) { false })
+    }
+
+    @Test
+    fun `the ime connection is not queried when an earlier criterion fails`() {
+        var queried = false
+        val probe: () -> Boolean = {
+            queried = true
+            true
+        }
+        // 未请求监视与无组字两条路径都不必问输入法连接：
+        // `InputMethodManager.isActive` 要进输入法管理器的锁，逐键路径上省不得。
+        assertFalse(admitCursorAnchor(monitoring = false, composing = true, viewFocused = true, imeConnected = probe))
+        assertFalse(queried)
+        assertFalse(admitCursorAnchor(monitoring = true, composing = false, viewFocused = true, imeConnected = probe))
+        assertFalse(queried)
+        // 视图未获焦时同样不必问。
+        assertFalse(admitCursorAnchor(monitoring = true, composing = true, viewFocused = false, imeConnected = probe))
+        assertFalse(queried)
+        // 前面都成立时才问一次。
+        assertTrue(admitCursorAnchor(monitoring = true, composing = true, viewFocused = true, imeConnected = probe))
+        assertTrue(queried)
+    }
 }
