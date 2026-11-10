@@ -95,8 +95,8 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                     surface.cellHeight,
                     surface.scrollOffset,
                     scrollbackLen,
-                    surface.imeShiftRevealPx,
-                    surface.imeShiftCapacityPx.toFloat(),
+                    surface.ime.imeShiftRevealPx,
+                    surface.ime.imeShiftCapacityPx.toFloat(),
                 ),
                 scrollbackLen,
             )
@@ -174,7 +174,7 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                 surface.viewModel?.runtime?.activeSessionScrollOffset()?.let {
                     surface.scrollOffset = it
                     // 会话切换连回滚长度一起换掉，位移显出量的上界随之变化（见 applyImeShift）。
-                    surface.applyImeShift()
+                    surface.ime.applyImeShift()
                 }
                 surface.scrollAccumulatorPx = 0f
                 surface.viewModel?.runtime?.setScrollRemainderPx(0f)
@@ -249,8 +249,8 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                         surface.cellHeight,
                         surface.scrollOffset,
                         scrollbackLen,
-                        surface.imeShiftRevealPx,
-                        surface.imeShiftCapacityPx.toFloat(),
+                        surface.ime.imeShiftRevealPx,
+                        surface.ime.imeShiftCapacityPx.toFloat(),
                     )
                 surface.applyScrollStep(scrollStep, scrollbackLen)
                 return true
@@ -295,7 +295,7 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                 surface.onScrollingStateChanged?.invoke(true)
                 flingStartPx = surface.scrollOffset * surface.cellHeight + surface.scrollAccumulatorPx
                 flingVelocityPxPerS = velocityY
-                flingLimitPx = scrollbackLen * surface.cellHeight + surface.imeShiftCapacityPx
+                flingLimitPx = scrollbackLen * surface.cellHeight + surface.ime.imeShiftCapacityPx
                 flingStartUptimeMs = SystemClock.uptimeMillis()
                 // 起点先夹进范围：不夹的话首帧差值会多出被夹掉的一段、方向相反。
                 lastFlingPx = flingStartPx.coerceIn(0f, flingLimitPx)
@@ -862,8 +862,8 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                             rowHeight,
                             surface.scrollOffset,
                             scrollbackLen,
-                            surface.imeShiftRevealPx,
-                            surface.imeShiftCapacityPx.toFloat(),
+                            surface.ime.imeShiftRevealPx,
+                            surface.ime.imeShiftCapacityPx.toFloat(),
                         ),
                         scrollbackLen,
                     )
