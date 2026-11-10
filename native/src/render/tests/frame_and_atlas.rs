@@ -85,7 +85,7 @@ mod dirty_band_tests {
 // ══════════════════════════════════════════════════════════════════════════
 #[cfg(test)]
 mod surface_loss_tests {
-    use crate::render::context::surface_loss_transition;
+    use crate::render::context::{SURFACE_INVALIDATION_LOG_LEVEL, surface_loss_transition};
 
     /// A single Lost/Outdated can be a `SurfaceFlinger` scaling race that recovers on
     /// the next reconfigure — it must NOT invalidate (that would force a rebuild on
@@ -137,6 +137,17 @@ mod surface_loss_tests {
     fn invalidation_is_idempotent() {
         assert_eq!(surface_loss_transition(2, true, true), (3, true));
         assert_eq!(surface_loss_transition(7, true, true), (8, true));
+    }
+
+    /// 原生窗口判死是平台事件的正常后果，不得占用 W/E 闸门。
+    ///
+    /// 平台收走原生窗口后取纹理必然失败，宿主换新窗口重挂载即恢复；新窗口迟迟
+    /// 不来的异常由宿主侧的重建预算裁决并升级为 error（见 `logcat-hygiene`
+    /// 「平台收走原生窗口后的瞬时渲染错误」）。原生侧若先一步报成 error 或 warn，
+    /// 正常的切后台往返就会刷出应用自身的告警。
+    #[test]
+    fn surface_invalidation_stays_below_warning() {
+        assert_eq!(SURFACE_INVALIDATION_LOG_LEVEL, log::Level::Debug);
     }
 }
 

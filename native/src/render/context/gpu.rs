@@ -98,6 +98,14 @@ pub(crate) fn surface_loss_transition(
     (streak, invalidated || streak >= SURFACE_LOSS_STREAK_LIMIT)
 }
 
+/// 原生窗口判死的日志级别：正常退化记 debug。
+///
+/// 平台收走原生窗口后取纹理必然失败，宿主换新窗口重挂载即恢复——这是平台事件的
+/// 正常后果，按 `logcat-hygiene` 规范「平台收走原生窗口后的瞬时渲染错误」记
+/// debug。新窗口迟迟不来的异常由宿主侧的重建预算裁决并升级为 error，原生侧
+/// 不先一步报成告警。
+pub(crate) const SURFACE_INVALIDATION_LOG_LEVEL: log::Level = log::Level::Debug;
+
 /// 逐帧渲染上下文：打包 encoder、surface 纹理与 view，把短生命周期资源与长生命周期的
 /// `Renderer` 状态分开。由 `Renderer::begin_frame()` 创建。
 pub struct FrameContext {

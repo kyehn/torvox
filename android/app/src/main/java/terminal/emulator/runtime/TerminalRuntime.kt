@@ -1538,20 +1538,26 @@ constructor(
                     surfaceRecreateSignalState.intValue += 1
                     // 走 LogUtil 而非裸 android.util.Log：仪器化失败时 TerminalLogcatRule
                     // 只按终端相关标签过滤，独立标签的锚点会被整条丢掉。
-                    LogUtil.warn(TAG, "surface recreate signal -> ${surfaceRecreateSignalState.intValue}")
+                    LogUtil.debug(TAG, "surface recreate signal -> ${surfaceRecreateSignalState.intValue}")
                 }
-                LogUtil.warn(
-                    TAG,
-                    // 报刚才写下的那次计数，而不是重新读引用——并发复位会让日志
-                    // 印出一个从未请求过的次数。慢重试阶段不再有分母。
-                    if (budget.attempts + 1 <= SURFACE_RECREATE_MAX_ATTEMPTS) {
-                        "surface invalidated (attempt ${budget.attempts + 1}/$SURFACE_RECREATE_MAX_ATTEMPTS): " +
+                // 报刚才写下的那次计数，而不是重新读引用——并发复位会让日志
+                // 印出一个从未请求过的次数。慢重试阶段不再有分母。
+                val attempt = budget.attempts + 1
+                val message =
+                    if (attempt <= SURFACE_RECREATE_MAX_ATTEMPTS) {
+                        "surface invalidated (attempt $attempt/$SURFACE_RECREATE_MAX_ATTEMPTS): " +
                             "requesting a fresh Android surface"
                     } else {
-                        "surface invalidated (slow retry ${budget.attempts + 1 - SURFACE_RECREATE_MAX_ATTEMPTS}): " +
+                        "surface invalidated (slow retry ${attempt - SURFACE_RECREATE_MAX_ATTEMPTS}): " +
                             "requesting a fresh Android surface"
-                    },
-                )
+                    }
+                // 首次换窗口是平台收走窗口后的正常退化，连续换不来才说明新窗口迟迟
+                // 不来，分级见 surfaceRecreateIsWarning。
+                if (surfaceRecreateIsWarning(attempt)) {
+                    LogUtil.warn(TAG, message)
+                } else {
+                    LogUtil.info(TAG, message)
+                }
                 return
             }
         }
@@ -5638,6 +5644,17 @@ internal data class SurfaceRecreateDecision(val request: Boolean = false, val ex
  * @param consecutiveErrors 含本次在内的连续错误数（1 = 首次）
  */
 internal fun transientRenderErrorIsWarning(consecutiveErrors: Int): Boolean = consecutiveErrors > 1
+
+/**
+ * 请求换新的原生窗口是否按 warn 记：首次是正常退化，连续才是异常。
+ *
+ * 平台收走原生窗口后渲染帧取不到纹理，宿主随即请求换新窗口重挂载即恢复
+ * （见 `logcat-hygiene` 规范「平台收走原生窗口后的瞬时渲染错误」）。首次请求
+ * 按 info 记；连续请求说明新窗口迟迟不来，那才是异常，保留 warn。
+ *
+ * @param attempt 含本次在内的请求次数（1 = 首次）
+ */
+internal fun surfaceRecreateIsWarning(attempt: Int): Boolean = attempt > 1
 
 /**
  * 渲染线程抛出的异常是否只是关闭路径的中断信号：不是渲染失败。

@@ -1,8 +1,8 @@
 use wgpu::util::DeviceExt;
 
 use super::gpu::{
-    SIZE_MISMATCH_THROTTLE, SKIP_FATAL_FRAME_LIMIT, background_clear_color, global_gpu,
-    initial_background_color, surface_loss_transition,
+    SIZE_MISMATCH_THROTTLE, SKIP_FATAL_FRAME_LIMIT, SURFACE_INVALIDATION_LOG_LEVEL,
+    background_clear_color, global_gpu, initial_background_color, surface_loss_transition,
 };
 use super::{FrameContext, Renderer};
 #[cfg(target_os = "android")]
@@ -321,7 +321,9 @@ impl Renderer {
             return Ok(());
         }
         if self.surface_invalidated {
-            log::warn!(
+            // 与相邻的「窗口变更后重建」同级：两者都是宿主换上新窗口后的正常
+            // 重建动作，不是失败。
+            log::info!(
                 "attach_surface: previous surface invalidated; rebuilding from ANativeWindow"
             );
         } else if self.attached_window.is_some() {
@@ -603,7 +605,8 @@ impl Renderer {
         self.surface_loss_streak = streak;
         if invalidated && !self.surface_invalidated {
             self.surface_invalidated = true;
-            log::error!(
+            log::log!(
+                SURFACE_INVALIDATION_LOG_LEVEL,
                 "surface invalidated after {} consecutive acquire failures ({}x{})",
                 streak,
                 self.surface_config

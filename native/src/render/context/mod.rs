@@ -8,7 +8,8 @@ mod surface;
 pub use gpu::FrameContext;
 #[cfg(test)]
 pub(crate) use gpu::{
-    INITIALIZATION_COUNT, global_gpu_for_tests, gpu_error_is_surface_lost, surface_loss_transition,
+    INITIALIZATION_COUNT, SURFACE_INVALIDATION_LOG_LEVEL, global_gpu_for_tests,
+    gpu_error_is_surface_lost, surface_loss_transition,
 };
 pub(crate) use gpu::{log_gpu_error, try_global_gpu};
 #[cfg(test)]
