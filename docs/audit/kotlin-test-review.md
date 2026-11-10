@@ -76,6 +76,33 @@ UnknownField/MissingField，事件整批丢弃——用户刚复制的内容消�
 换成查不到的串，等计数从「共 N 个」翻回「无结果」——「无结果」文案在搜索跑完前
 就已经显示，只断言它存在证明不了搜索跑过。
 
+### 空闲唤醒用例拿「长命令的回显」当接收判据
+
+`IdleOutputWakeTest` 量的是「静置超过 5s 后的后台输出多久上屏」，判据之一是
+「命令回显已出现」。该判据在长命令下恒不成立：输入超过屏宽时 mksh 的行编辑器
+改用横向滚动重绘（`\r` + 滚动窗口 + `<` 标记 + 退格串，成因与规避见
+`TerminalRuntime.ensureMkshPromptRc`），回显被截断并覆写——CI 模拟器只有 37 列，
+而用例的命令连路径带标记共 150 余字符，回显在可见文本里只剩标记尾部几个字符
+（「…ake-cold1-13073779015892」），判据恒超时，判红的原因是量具而不是被测行为。
+
+处置：判据改用命令**自己打印的短标记**（`printf 'K%s\n' <nonce>`）——ACK 由
+shell 直接输出，不经行编辑器，出现在屏幕上即证明命令已被接收并开始执行；这与
+共享 shell 复位（`restoreSharedShellState`）用输出而非回显判活是同一口径。比对
+前剔除全部空白：窄网格上 ACK 会被软换行切成两段，行尾填充的空格会把两段隔开
+（只去掉 `\n` 不够）。native 侧同时补一条回归测试，钉住「折行片段去掉行分隔符
+能拼回原串」这一读回契约。
+
+### 仪器化整轮跑的「进程崩溃」是并发跑的产物
+
+整轮 `connectedDebugAndroidTest` 偶发报 `Instrumentation run failed to complete.
+Instrumentation run failed due to Process crashed`，崩溃点每次不同（Sgr 像素验收、
+滚动行为量化…），看上去像随机崩溃。根因不在被测代码：同一台模拟器上再起一轮
+仪器化时，AGP 会以「set debug app」名义强杀正在跑的那一轮 app 进程
+（logcat：`ActivityManager: Killing …: stop com.termux due to set debug app`），
+被杀的那一轮遂报「进程崩溃」。判别办法：logcat 里能查到同刻的强杀记录，且崩溃
+的测试类与被杀时刻的运行轮次无关。分块跑、或确认没有别的仪器化轮次在跑，即可
+复现为通过。
+
 ## 明确不作处置的项
 
 - **`SettingsRepositoryTest` 的两处 `Thread.sleep(700)`**：仓库收集器跑在真实 IO
