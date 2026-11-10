@@ -8,7 +8,6 @@ import android.os.Handler
 import android.os.Looper
 import android.view.WindowInsets.Type
 import android.view.inputmethod.InputMethodManager
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -76,6 +75,7 @@ import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.SearchMatchRange
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.ToastNotifier
 import terminal.emulator.selectionEndpoints
 import terminal.emulator.settings.SoftKeyboardToggleBehaviour
 import terminal.emulator.ui.theme.ThemeRepository
@@ -249,13 +249,12 @@ fun TerminalScreen(
             if (!softKeyboardEnabled) {
                 inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
             }
-            Toast.makeText(
+            ToastNotifier.show(
                 context,
                 context.getString(
                     if (softKeyboardEnabled) R.string.soft_keyboard_enabled else R.string.soft_keyboard_disabled,
                 ),
-                Toast.LENGTH_SHORT,
-            ).show()
+            )
         } else {
             val imeCurrentlyVisible =
                 view.rootWindowInsets?.isVisible(Type.ime()) == true

@@ -1,7 +1,6 @@
 package terminal.emulator
 
 import android.content.Context
-import android.widget.Toast
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -17,6 +16,7 @@ import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.FontInfo
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
+import terminal.emulator.runtime.ToastNotifier
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.settings.availableFontFamilies
 import terminal.emulator.util.TerminalDispatchers
@@ -202,23 +202,16 @@ internal class FontManager(
                         } else {
                             context.getString(R.string.font_applied, _defaultFontName.value)
                         }
-                    Toast.makeText(
-                        context,
-                        message,
-                        Toast.LENGTH_SHORT,
-                    )
-                        .show()
+                    ToastNotifier.show(context, message)
                 }
             } catch (exception: Exception) {
                 if (exception is CancellationException) throw exception
                 LogUtil.error("FontManager", "setFontFamily failed for $family", exception)
                 withContext(TerminalDispatchers.main) {
-                    Toast.makeText(
+                    ToastNotifier.show(
                         context,
                         context.getString(R.string.font_apply_failed, exception.message ?: ""),
-                        Toast.LENGTH_SHORT,
                     )
-                        .show()
                 }
             }
         }

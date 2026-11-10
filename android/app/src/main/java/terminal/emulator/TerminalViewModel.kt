@@ -32,6 +32,7 @@ import terminal.emulator.input.toggled
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
+import terminal.emulator.runtime.ToastNotifier
 import terminal.emulator.settings.MacroParser
 import terminal.emulator.settings.MacroStep
 import terminal.emulator.settings.SettingsRepository
@@ -595,12 +596,11 @@ constructor(
                     return@launch
                 }
                 withContext(TerminalDispatchers.main) {
-                    Toast.makeText(
+                    ToastNotifier.show(
                         context,
                         context.getString(R.string.clear_app_data_done),
                         Toast.LENGTH_LONG,
                     )
-                        .show()
                 }
             } finally {
                 // 无论成败都重新接受编辑：否则清除后用户再改 URL 永不落盘。
