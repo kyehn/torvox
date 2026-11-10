@@ -33,10 +33,19 @@
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.Terminal">
 
+        <!-- singleTask：进程内只允许一个主界面实例。
+             终端的原生渲染器全局唯一（一份交换链、一份会话表），第二个实例会与
+             第一个实例争抢同一块进程级状态：先退到后台的实例领着「切后台暂停」，
+             后启动的实例一恢复就把那次暂停还掉——渲染线程随即在已被系统回收的
+             BufferQueue 上取帧（ERROR_SURFACE_LOST_KHR），返回后终端永久黑屏
+             （表现为「新会话概率无响应，切换会话后刷新」）。
+             singleTask 让再次从桌面图标启动时复用既有实例并经 onNewIntent 投递
+             新 Intent（快捷方式新建会话、通知点击切会话照常生效）。 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:enableOnBackInvokedCallback="true"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|fontScale|density|smallestScreenSize|keyboard|navigation"
             android:theme="@style/Theme.Terminal.Splash"
             android:windowSoftInputMode="adjustNothing">
