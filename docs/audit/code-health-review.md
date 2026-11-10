@@ -25,7 +25,12 @@ native/src android/app/src/main`。
 | --- | --- | --- | --- | --- | --- | --- |
 | 收敛前 | 5 | 54 | 0.1% | 0.12% | 207 | 54818 |
 | 收敛后 | 1 | 12 | 0.02% | 0.02% | 207 | 54789 |
+| 当前树复算（`ff1a4ff3`） | 1 | 12 | 0.02% | 0.02% | 219 | 56971 |
 | 规约留档基线 | 2 | 26 | 0.04% | — | 115 | — |
+
+当前树复算的唯一克隆仍是 `launcher_monochrome.xml` 与 `logo_art.xml` 的同形 `pathData`
+（下方「天然相似」一行已逐条判定），与收敛后同一处；源文件与源码行随代码树增长而增加，
+重复率与克隆处数未变。
 
 收敛前的五处克隆与处置：
 
@@ -56,20 +61,26 @@ native/src android/app/src/main`。
 
 | 项目 | 生产 SLOC | 测试 SLOC | 源码合计 | 测试/生产比 | 生产文件 | 测试文件 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 本项目 | 37829 | 38979 | 76808 | 1.03 | 171 | 247 |
+| 本项目 | 38731 | 39650 | 78381 | 1.02 | 184 | 251 |
 | termux-app | 26637 | 2471 | 29108 | 0.09 | 181 | 23 |
 | ghostty-android-terminal | 22381 | 2850 | 25231 | 0.13 | 90 | 18 |
 | 两者之和 | 49018 | 5321 | 54339 | 0.11 | 271 | 41 |
 
-与上一轮留档（生产 38722 / 测试 36900 / 合计 75622）的偏差：合计增加 1186 行，
-来自此后新增的模块与用例；生产与测试的拆分比例变化源于本轮口径把 Rust 侧
-`tests.rs` 形态的文件（如 `native/src/terminal/pty/tests.rs`）明确判为测试代码，
-上一轮口径未作此区分。两个参考项目在同口径下的复算结果与上一轮相差 2 行与 43 行，
-偏差来源为参考仓库在上轮之后的新提交。
+本项目一行取自提交 `ff1a4ff3` 的树快照（`git archive` 后按下述脚本统计），两个参考
+项目取自本地缓存的浅克隆，脚本与参数一致。
+
+与本留档建立时的基线（提交 `e4de2d65`：生产 37829 / 测试 38979 / 合计 76808，生产
+171 / 测试 247 个文件）的偏差：生产 +902、测试 +671、合计 +1573 行，生产文件 +13、
+测试文件 +4。来源是此后的 36 个提交——设置页按职责拆分（外观/主题/Shell/Bootstrap/
+清除数据分区）、`SelectionManager`/`FontManager`/`BootstrapManager`/`ThemeManager`/
+`SelectionState`/`SessionState`/`TerminalSurfaceMath` 的独立文件化、新会话首帧按会话
+记账与首帧层恢复、切后台渲染暂停的归属转场、输入法锚点契约、主界面单实例化，
+以及这些改动各自带出的回归用例。两个参考项目在同口径下的复算结果与上一轮一致
+（termux 26637/2471、ghostty 22381/2850），偏差只来自本仓代码树增长。
 
 规模约束判定：`STYLE.md` 要求「代码量不得超过 ghostty-android-terminal + termux」。
-生产口径 37829 低于两者生产之和 49018（占 77.2%），测试口径 38979 高于两者测试之和
-5321，源码合计 76808 高于两者合计 54339（为 1.41 倍）。同一约束在不同口径下结论
+生产口径 38731 低于两者生产之和 49018（占 79.0%），测试口径 39650 高于两者测试之和
+5321，源码合计 78381 高于两者合计 54339（为 1.44 倍）。同一约束在不同口径下结论
 相反，按 `code-health` 规约该判定为**不可判定**：口径与留档位置已如上固定，可判定
 的部分是生产代码规模在参考项目之和以内，差额由测试代码占据。规约明确
 MUST NOT 通过删除测试满足该约束，故本轮不以削减测试换取结论。
@@ -87,13 +98,13 @@ MUST NOT 通过删除测试满足该约束，故本轮不以削减测试换取�
 
 | 扫描 | 命中 | 判定 | 可复核依据 |
 | --- | --- | --- | --- |
-| `semgrep`（仓内 54 条规则，1351 个被跟踪文件） | 0 | 通过 | 扫描退出码 0，`Findings: 0` |
+| `semgrep`（仓内 54 条规则，1395 个被跟踪文件） | 0 | 通过 | 扫描退出码 0，`Findings: 0` |
 | Android `lintDebug` | 0 | 通过 | `lint-results-debug.txt` 为「No issues found.」；此前的唯一命中是 `NewerVersionAvailable`（`io.mockk:mockk` 1.14.11 有 1.14.12 可用），已随依赖刷新升到 1.14.12 |
 | `aislop scan --json native/src` | 1 | 不是缺陷 | 唯一命中是 `complexity/file-too-large`：`native/src/terminal/ghostty_terminal/public_api.rs` 1123 行。工具自身把该项归为 `style-policy`，即「大文件是复核压力，体积本身不是已确认缺陷」；该文件承载 VT 对外 API 的单一门面，详见下方超大文件一节 |
 | `aislop scan --json`（全仓） | 1 | 不是缺陷 | 与子目录扫描同一条命中；`score` 100、`label` `Healthy`、`confirmed-defect` 0。覆盖面限制仍在：`unsupportedFiles` 164、`dominantUnsupported` 为 `Kotlin`，该工具扫不到本仓界面侧代码，故其分数不得当作全仓质量结论 |
-| Rust 生产代码 `unwrap()` | 0 | 通过 | 全量统计生产路径无 `unwrap()` |
-| Rust 生产代码 `expect(` | 17 | 不是缺陷 | 逐条为不变式断言：`font.rs` 的字体族计数上界、`render/window.rs` 的渲染状态必然已初始化、`logging.rs` 的硬编码字符串无 NUL 与日志器只装一次、`glyph_cache.rs` 的容量常量大于零、`internal/commands.rs` 的缓存必然存在、`theme.rs` 的默认主题必在清单中。均为编译期或初始化期即可判定的事实，不存在运行时不确定输入 |
-| Rust 生产代码 `unsafe` | 114 | 不是缺陷 | 口径：`native/src/**/*.rs`，剔除 `#[cfg(test)]` 模块与 `tests.rs` 文件后统计 `unsafe` 一词的全部出现。74 处是 JNI 导出的 `#[unsafe(no_mangle)]` ABI 标注；3 处是 `unsafe fn` 签名（JNI 导出与 NDK 内部函数）；28 处是 `unsafe` 块，分布在 10 个文件：`font.rs`/`input.rs`/`session_ops.rs`/`window.rs` 的 JNI 数组读取与 `ANativeWindow_*` 调用、`logging.rs` 的日志器一次性安装、`renderer.rs`/`wgpu_backend.rs` 的 wgpu 设备创建（被 `catch_unwind` 包裹）、`ghostty_terminal/mod.rs` 的 PNG 解码器安装、`pty/child.rs` 的 `termios` 与 `libc` 系统调用（PTY 的 `tcgetattr`/`tcsetattr`/`write`/`_exit`/`getrlimit`）、`ghostty_terminal/internal/selection.rs` 的 `fmt::Formatter::set_selection`（上游把「装指定选区」标为 unsafe，其前提是两端点须为该格式化器所属终端同一活动屏的有效快照，本仓两端点取自 `absolute_point` + `grid_ref` 且其间无终端写操作，就地写明 SAFETY 依据）；其余 9 处是注释与文档提及 |
+| Rust 生产代码 `unwrap()` | 0 | 通过 | 全量统计生产路径无 `unwrap()`（测试专用文件与 `#[cfg(test)]` 模块已剔除） |
+| Rust 生产代码 `expect(` | 19 | 不是缺陷 | 逐条为不变式断言：`font.rs` 的字体族计数上界（2）、`render/window.rs` 的渲染状态必然已初始化（2）、`logging.rs` 的硬编码字符串无 NUL 与日志器只装一次（4）、`glyph_cache.rs` 的容量常量大于零（6）、`theme.rs` 的默认主题必在清单中（2）、`internal/commands.rs` 的缓存必然存在、`render/cell_builder.rs` 的增量构建蕴含缓存存在、`pty.rs` 的超时值已钳位在 `i32` 范围内各 1 处。均为编译期或初始化期即可判定的事实，不存在运行时不确定输入 |
+| Rust 生产代码 `unsafe` | 127 | 不是缺陷 | 口径：`native/src/**/*.rs`，剔除 `#[cfg(test)]` 模块块与测试专用文件（`tests.rs`、`*_tests.rs`、`mock_pty.rs`、`test_helpers.rs`）后，去掉注释再统计 `unsafe` 一词的出现：75 处是 JNI 导出的 `#[unsafe(no_mangle)]` ABI 标注；3 处是 `unsafe fn` 签名；45 处是 `unsafe` 块；4 处是 `unsafe extern` 块与导出签名。全部落在 FFI、系统调用与图形后端路径：`font.rs`/`input.rs`/`query.rs`/`session_ops.rs`/`window.rs`/`wake.rs`/`state.rs`/`session.rs` 的 JNI 数组读取与 `ANativeWindow_*` 调用、`logging.rs` 的日志器一次性安装、`renderer.rs`/`wgpu_backend.rs` 的 wgpu 设备创建（被 `catch_unwind` 包裹）、`ghostty_terminal/mod.rs` 的 PNG 解码器安装、`pty.rs`/`pty/child.rs` 的 `fork`/`termios`/`libc` 系统调用、`ghostty_terminal/internal/selection.rs` 的 `fmt::Formatter::set_selection`（上游把「装指定选区」标为 unsafe，其前提是两端点须为该格式化器所属终端同一活动屏的有效快照，本仓两端点取自 `absolute_point` + `grid_ref` 且其间无终端写操作，就地写明 SAFETY 依据）；逐处均有 SAFETY 依据，非缺陷 |
 | Kotlin 主源码顶层类型引用 | 0 孤儿 | 通过 | 逐个文件提取顶层 `class`/`object`/`interface` 名并全仓检索，每个名字至少在自身文件内被引用 |
 | 资源文件引用 | 0 孤儿 | 通过 | `layout`、`drawable`、`menu`、`xml` 目录下每个资源名至少被一处引用 |
 | Rust 模块声明 | 0 孤儿 | 通过 | 每个 `mod` 声明都指向存在的文件；每个 `.rs` 文件都被某个 `mod` 声明或 Cargo 目标（`build.rs`、`benches/`、`tests/`）引用 |
@@ -106,12 +117,20 @@ MUST NOT 通过删除测试满足该约束，故本轮不以削减测试换取�
 | 语言 | 超阈值文件 | 明细 |
 | --- | --- | --- |
 | Rust 生产源码 | 1 | `terminal/ghostty_terminal/public_api.rs` 1122 行 |
-| Rust 测试源码 | 3 | `terminal/ghostty_terminal/tests/lifecycle.rs` 1189 行、`terminal/ghostty_terminal/tests/render_cache.rs` 1123 行、`render/font/tests/glyphs.rs` 1036 行 |
-| Kotlin 生产源码 | 4 | `runtime/TerminalRuntime.kt` 5562 行、`ui/TerminalSurface.kt` 4438 行、`TerminalViewModel.kt` 2143 行、`ui/SettingsScreen.kt` 1303 行 |
+| Rust 测试源码 | 2 | `terminal/ghostty_terminal/tests/lifecycle.rs` 1189 行、`terminal/ghostty_terminal/tests/render_cache.rs` 1123 行 |
+| Kotlin 生产源码 | 2 | `runtime/TerminalRuntime.kt` 5683 行、`ui/TerminalSurface.kt` 4022 行 |
 
-判定：原生侧已按阈值拆分，界面侧仍留有四个超阈值生产文件，其中 `TerminalRuntime.kt`
+判定：原生侧已按阈值拆分，界面侧仍留有两个超阈值生产文件，其中 `TerminalRuntime.kt`
 的规模是原生侧最大生产文件的五倍。按 `code-health` 规约「超大文件阈值必须跨源码语言
 一致应用」，本项**判定为不一致并登记为未完成**。
+
+与本留档建立时（`e4de2d65`）的差异：界面侧原有的四个超阈值文件已消解三个——
+`TerminalViewModel.kt`（2143 → 1094 行）随 `SelectionState`/`SessionState` 独立成文件，
+`ui/SettingsScreen.kt`（1303 → 213 行）按外观/主题/Shell/Bootstrap/清除数据分区拆开，
+`ui/TerminalSurface.kt`（4438 → 4022 行）抽出 `TerminalSurfaceMath` 顶层纯计算函数后
+仍在阈值上。`render/font/tests/glyphs.rs`（1036 → 1049 行）已降至阈值下。距阈值最近的
+其余文件是 `TerminalViewModel.kt` 1094 行、`render/cell_builder.rs` 1094 行、
+`ui/TerminalScreen.kt` 1029 行、`ui/ModifierBar.kt` 1021 行。
 
 逐条保留理由与后续处置方向：
 
@@ -120,9 +139,7 @@ MUST NOT 通过删除测试满足该约束，故本轮不以削减测试换取�
 | `terminal/ghostty_terminal/public_api.rs` | VT 对外 API 的单一门面：构造与生命周期、VT 写入与帧取回、快照与查询、键鼠编码 | 按上述四类独立职责切分，切分后门面只留转发 |
 | `runtime/TerminalRuntime.kt` | 会话生命周期、渲染线程调度、看门狗、通知、剪贴板、响铃、主题、字体、输入法、选区、滚动、前台服务 | 按关注面切分为若干独立文件，运行时门面只留编排 |
 | `ui/TerminalSurface.kt` | 触摸与手势映射、绘制、选区、滚动、输入法插入 | 绘制与输入两条线分开 |
-| `TerminalViewModel.kt` | 状态聚合与配置传播 | 配置传播与会话状态分开 |
-| `ui/SettingsScreen.kt` | 设置项渲染与交互 | 按设置分组拆出可组合的小节 |
-| `terminal/ghostty_terminal/tests/lifecycle.rs`、`tests/render_cache.rs`、`render/font/tests/glyphs.rs` | 测试文件，本身不受生产源码规模约束 | 不处置 |
+| `terminal/ghostty_terminal/tests/lifecycle.rs`、`tests/render_cache.rs` | 测试文件，本身不受生产源码规模约束 | 不处置 |
 
 拆分 MUST 依据彼此独立的职责边界，MUST NOT 按行数机械切分，也 MUST NOT 制造仅用一次的
 空壳抽象。
