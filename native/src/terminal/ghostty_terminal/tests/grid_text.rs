@@ -44,6 +44,27 @@ fn read_visible_text_keeps_blank_rows() {
     assert_eq!(text.lines().skip(1).collect::<Vec<_>>(), vec![""; 4]);
 }
 
+/// 软换行把一行切成多行读回：去掉行分隔符必须能拼回原串。
+///
+/// Kotlin 侧「标记已上屏」的判据靠这个口径把跨行的标记拼回来（见
+/// `androidTest` 的 `IdleOutputWakeTest`）：折行片段之间不得插入填充字符，
+/// 否则标记会被行尾空格切开而永远匹配不上。
+#[test]
+fn read_visible_text_joins_wrapped_line_fragments() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 10, 0).expect("terminal");
+    terminal_under_test.vt_write(b"0123456789ABCDE");
+    terminal_under_test.flush();
+    let text = terminal_under_test.read_visible_text();
+    let joined: String = text
+        .chars()
+        .filter(|character| *character != '\n')
+        .collect();
+    assert_eq!(
+        joined, "0123456789ABCDE",
+        "折行片段必须能原样拼回：{text:?}"
+    );
+}
+
 /// 行文本的字符下标恒等于网格列（每列恰好一个字符），宽字符尾格是空格占位。
 /// Kotlin 侧据此按列直取字符，不再用宽度表反推。
 #[test]

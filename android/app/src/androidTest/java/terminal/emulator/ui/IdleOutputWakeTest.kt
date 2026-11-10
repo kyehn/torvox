@@ -116,21 +116,32 @@ class IdleOutputWakeTest : ComposeTerminalLogcatTest() {
 
         val sleepMillis = (sleepSeconds.toDouble() * 1_000).toLong()
         // 一次 date：写文件在打印之前（相隔不到 1ms），故文件里的时刻就是打印时刻。
-        // 行尾的一次性注记让「本样本的回显已落地」可判——否则上一样本的同类行会命中。
+        //
+        // 「命令已被 shell 接收」的判据取命令**自己打印的短标记**（ACK），不取命令行回显：
+        // 输入超过屏宽时 mksh 的行编辑器改用横向滚动重绘（`\r` + 滚动窗口 + `<` 标记 +
+        // 退格串，见 TerminalRuntime.ensureMkshPromptRc），回显会被截断并覆写——长命令的
+        // 回显在可见文本里根本凑不齐（实测冷样本只剩标记尾部的几个字符，回显判据恒超时）。
+        // ACK 由 shell 直接输出，不经行编辑器，出现在屏幕上即证明命令已被接收并开始执行；
+        // 这与共享 shell 复位（restoreSharedShellState）用输出而非回显判活是同一口径。
         val nonce = "wake-$label-${System.nanoTime()}"
+        val ack = "K$nonce"
         val command =
-            "sleep $sleepSeconds; S=\$(date +%s%3N); " +
-                "printf '%s' \"\$S\" > ${stampFile.absolutePath}; printf '%s\\n' \"\$S\" # $nonce\n"
+            "printf 'K%s\\n' '$nonce'; sleep $sleepSeconds; S=\$(date +%s%3N); " +
+                "printf '%s' \"\$S\" > ${stampFile.absolutePath}; printf '%s\\n' \"\$S\"\n"
         assertTrue("[$label] 命令未写入 PTY", bridge.writeToPty(command.toByteArray()))
 
-        // 回显先落地再计时：慢查询（数十毫秒）留在静置窗口里，不进关键路径。
-        // 视口文本按行拼接（行间有 \n），长回显行被软换行切断时 nonce 会被切成两半，
-        // 故先把 \n 去掉再匹配，与仓库其它回显判据（FontSizeReflow 等）保持一致。
-        val echoed =
+        // ACK 先落地再计时：慢查询（数十毫秒）留在静置窗口里，不进关键路径。
+        // 比对前剔除全部空白：窄网格上 ACK 会被软换行切成两段，行尾填充的空格会把两段隔开
+        // （去掉 \n 还不够，行内填充也要去掉）。
+        val acknowledged =
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 20) {
-                bridge.getVisibleText().replace("\n", "").contains(nonce)
+                bridge.getVisibleText().filterNot { it.isWhitespace() }.contains(ack)
             }
-        assertNotNull("[$label] 命令回显未出现", echoed)
+        assertNotNull(
+            "[$label] 命令未被 shell 接收（未见 ACK=$ack；可见文本尾部=${bridge.getVisibleText().takeLast(200)}；" +
+                "全量文本尾部=${bridge.getTerminalText()?.takeLast(200)}）",
+            acknowledged,
+        )
 
         // 留出 200ms 余量再开始轮询，避免把「等待」算进延迟；闭锁相位因此仍然随机。
         Thread.sleep((sleepMillis - 200).coerceAtLeast(0))
