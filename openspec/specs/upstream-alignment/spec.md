@@ -522,7 +522,7 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | 选区拖动手柄 | `termlib` 的 `applyHandleDrag` 锚点语义 + 交叉翻转 | 已采纳（同源实现与单测） | 无 | 无 |
 | Linux 用户态 SDK | `libtermux-android` 提供 `core`/`os`/`terminal-view`/`bootstrap-*`/`shizuku` 模块（README 自述实验阶段） | 自持 bootstrap 安装与终端视图 | Shizuku 集成 | PROHIBITED（明禁）；其余能力已由本仓自实现覆盖 |
 | 其余 libghostty-rs 能力 | `gesture`/`select_output`/`format_selection_*`/`snapshot decoder`/`on_title_changed`/`on_pwd_changed`/`on_render_hold`/`on_progress_report`/`device_attributes`/`xtversion`/`color_scheme`/`set_terminfo_name`/`track_grid_ref`/`width_px`/`height_px` | 均未采纳 | 无消费者 | 本仓（按需取用，见「上游 API 取用判定」表） |
-| 桌面通知回调 | `terminal.rs:3475` 的 `on_desktop_notification` 经 C ABI 的 `GhosttyTerminalDesktopNotification` 回调暴露；上游 `osc9.zig` 与 `rxvt_extension.zig` 分别把 OSC 9 与 OSC 777 的 `notify` 归到同一条 `show_desktop_notification` 命令 | 已采纳（2026-11-05 改判）：注册上游回调，通知按会话归属投递，前台 Toast、后台系统通知、点击切换会话 | 无 | 无 |
+| 桌面通知回调 | `terminal.rs:3475` 的 `on_desktop_notification` 经 C ABI 的 `GhosttyTerminalDesktopNotification` 回调暴露；上游 `osc9.zig` 与 `rxvt_extension.zig` 分别把 OSC 9 与 OSC 777 的 `notify` 归到同一条 `show_desktop_notification` 命令 | 已采纳（2026-11-05 改判）：注册上游回调，通知按会话归属投递，前台应用内提示、后台系统通知、点击切换会话 | 无 | 无 |
 | Kitty 图像 PNG 解码 | `kitty/graphics.rs:997` 的 `RustPngDecoder`（`pub const fn new`）经 `set_png_decoder` 注册；解码前先按 libghostty 分配器取定长缓冲，未受该上限约束的尺寸不会被 PNG 头放大 | 已采纳（本次改判）：删除本仓 60 行等价实现与 `png` 直接依赖 | 无 | 无 |
 | 颜色语法与深浅判定 | `style.rs:390` `RgbColor::parse`（3/6/9/12 位 hex、X11 名、`rgb:`/`rgbi:`）与 `style.rs:415` `perceived_luminance`（文档写明「背景亮度超过 0.5 即视为浅色」） | 已采纳：主题色值与深浅分组都走上游，本仓不再手写 `#RGB` 展开与 Rec.601 公式 | 无 | 无 |
 | 终端模式查询 | `terminal.rs:1380` `Mode::BRACKETED_PASTE`、`terminal.rs:1367` `Mode::FOCUS_EVENT` 具名常量 | 已采纳：`Query::ModeGet` 携带上游 `Mode`，删掉 `(u16, u8)` 裸号与各调用点的数字 | 无 | 无 |

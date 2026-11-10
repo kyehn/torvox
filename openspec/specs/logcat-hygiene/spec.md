@@ -639,11 +639,12 @@ MUST 留在 warn，MUST NOT 由应用侧自行吞掉。
 以及按包的提示频率限额（超额的提示被直接丢弃，用户看不到反馈）。两条约束的告警都由
 平台打出，根因却在应用的调用方式。
 
-提示 MUST 由单一通道投递，MUST NOT 由各调用点各自构造；MUST NOT 借提示顺带做别的事
-（后台桌面通知另走系统通知）。
+前台桌面通知同属应用内瞬时提示，MUST 经同一条通道投递；后台桌面通知另走系统通知。
 
-实现：`TransientMessageChannel` 为唯一投递通道，`TerminalViewModel` 持有它，终端页与设置页
-各自订阅并以 Snackbar 呈现。
+提示 MUST 由单一通道投递，MUST NOT 由各调用点各自构造；MUST NOT 借提示顺带做别的事。
+
+实现：`TransientMessageChannel` 为唯一投递通道（进程内单例，由依赖注入提供），终端页与设置页
+各自订阅并以 Snackbar 呈现，桌面通知经同一通道投递。
 
 #### Scenario: 连续切换字族
 
@@ -655,3 +656,8 @@ MUST 留在 warn，MUST NOT 由应用侧自行吞掉。
 
 - **WHEN** 应用没有前台界面而投递提示
 - **THEN** 提示 MUST 直接丢弃，MUST NOT 在平台侧排队，MUST NOT 触发平台限额告警
+
+#### Scenario: 前台桌面通知经同一条通道
+
+- **WHEN** 应用位于前台且收到终端程序的桌面通知
+- **THEN** 通知 MUST 经应用内通道投递，平台 MUST NOT 出现提示窗口条目
