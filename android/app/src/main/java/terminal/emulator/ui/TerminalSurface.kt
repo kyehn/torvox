@@ -300,7 +300,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 旧窗口已不在（平台移除或已 dismiss）：清掉引用再重建。
         hideSelectionMenu("showSelectionMenu", restoreHandles = false)
         if (viewDetached || !isAttachedToWindow) {
-            LogUtil.warn(TAG, "菜单跳过：未附着")
+            // 视图未附着时的正常退化（平台正在拆除或已重建）：按 debug 记，
+            // 不占 W 闸门（见 `logcat-hygiene`「应用自身的正常路径不得产生警告与错误」）。
+            LogUtil.debug(TAG, "菜单跳过：未附着")
             return
         }
         val menuBar = buildMenuBar(actions)
