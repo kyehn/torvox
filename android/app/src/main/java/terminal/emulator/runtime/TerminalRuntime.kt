@@ -2693,7 +2693,9 @@ constructor(
                         LogUtil.error("Runtime", "session ${entry.sessionId} repaint request failed", throwable)
                         false
                     }
-                    LogUtil.error(
+                    // 成功路径记 debug：看门狗已按 2s 节拍记过 error 级「挂起」行
+                    // （含层级与已忙时长），此处再记一条 error 只是把同一事实说两遍。
+                    LogUtil.debug(
                         "Runtime",
                         "session ${entry.sessionId} produced no frame within " +
                             "${diagnosis.busyNanos / 1_000_000L}ms — repaint requested=$requested",
