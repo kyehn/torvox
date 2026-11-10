@@ -195,8 +195,8 @@ class SelectionEspressoTest : ComposeTerminalLogcatTest() {
             val menuHolderField =
                 terminal.emulator.ui.TerminalSurface::class.java.getDeclaredField("selectionMenu")
             menuHolderField.isAccessible = true
-            val menuHolder = menuHolderField.get(surface)
-            val menuField = menuHolder!!.javaClass.getDeclaredField("selectionMenuPopup")
+            val menuHolder = requireNotNull(menuHolderField.get(surface)) { "选区菜单持有者缺失" }
+            val menuField = menuHolder.javaClass.getDeclaredField("selectionMenuPopup")
             menuField.isAccessible = true
             val popup = menuField.get(menuHolder) as android.widget.PopupWindow?
             // PopupWindow 无 y getter：内容视图相对自身窗口恒为 [0,0]，

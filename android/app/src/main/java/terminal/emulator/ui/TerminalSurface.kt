@@ -917,7 +917,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     override fun performClick(): Boolean = super.performClick()
 
-    /** 派发约 15 种彼此不同的手势/意图，涵盖选区、滚动、长按与硬件按键交互（实现见 [SurfaceInput]）。 */
+    /**
+     * 派发约 15 种彼此不同的手势/意图，涵盖选区、滚动、长按与硬件按键交互（实现见 [SurfaceInput]）。
+     *
+     * 轻击的无障碍播报由 [SurfaceInput] 在抬手时调用本视图的 [performClick]——播报时机
+     * 必须在抽屉边缘手势与遮罩轻击之后（那两条抬手不属于终端），故不能把调用点挪回本
+     * 函数开头。lint 的 `ClickableViewAccessibility` 只看本函数的调用图，看不到委托，
+     * 故在此定点抑制：无障碍行为本身已实现。
+     */
+    @Suppress("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean = input.onTouchEvent(event)
 
     /**
