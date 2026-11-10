@@ -190,10 +190,15 @@ class SelectionEspressoTest : ComposeTerminalLogcatTest() {
             val scrollOffset = activity.terminalViewModel.runtime.activeSessionScrollOffset()
             val visibleBottomRow = endRow - (depth - scrollOffset)
             selectionBottomWindowY = location[1] + ((visibleBottomRow + 1) * cellHeightPx).toInt()
-            val menuField =
-                terminal.emulator.ui.TerminalSurface::class.java.getDeclaredField("selectionMenuPopup")
+            // 选区菜单由 SelectionMenu 承载：先取宿主视图上的菜单持有者，
+            // 再从持有者里读当前弹窗（两层都是私有字段，故走反射）。
+            val menuHolderField =
+                terminal.emulator.ui.TerminalSurface::class.java.getDeclaredField("selectionMenu")
+            menuHolderField.isAccessible = true
+            val menuHolder = menuHolderField.get(surface)
+            val menuField = menuHolder!!.javaClass.getDeclaredField("selectionMenuPopup")
             menuField.isAccessible = true
-            val popup = menuField.get(surface) as android.widget.PopupWindow?
+            val popup = menuField.get(menuHolder) as android.widget.PopupWindow?
             // PopupWindow 无 y getter：内容视图相对自身窗口恒为 [0,0]，
             // 故取屏幕坐标（与 surface 的窗口坐标同为屏幕系，可比）。
             val contentLocation = IntArray(2)
