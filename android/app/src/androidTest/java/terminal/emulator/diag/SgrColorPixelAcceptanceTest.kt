@@ -1,6 +1,5 @@
 package terminal.emulator.diag
 
-import android.graphics.Bitmap
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
@@ -51,13 +50,27 @@ class SgrColorPixelAcceptanceTest : ComposeTerminalLogcatTest() {
         return requireNotNull(ready) { "运行时桥必须就绪" }
     }
 
+    /**
+     * 写标记并等渲染帧真正带上它。
+     *
+     * 直写 VT 不置脏：[placeTextAtRow] 的判据是 **VT 光标**（同步查询），
+     * 光标到位不等于已经上屏，截图可能仍是旧帧。故这里再等**最近一帧的光标**
+     * 落到目标格——该值只由渲染线程在真正出帧时发布，等到了就说明这一帧已
+     * 带上标记。光标闪烁时该值为 -1，轮询会继续，直到撞上可见相位。
+     */
+    private fun placeAndAwaitFrame(bridge: Bridge, row: Int, text: String, visibleLength: Int) {
+        placeTextAtRow(bridge, row, text)
+        val target = (row.toLong() shl 32) or visibleLength.toLong()
+        val rendered =
+            UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 50) {
+                bridge.renderedCursorPacked() == target
+            }
+        assertNotNull("标记必须已随帧上屏 (行=$row)", rendered)
+    }
+
     @Test
     fun sgrRedTextProducesRedPixels() {
         val bridge = awaitBridge()
-        val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
-        val beforeRed = countReddishPixels(before)
-        val beforeGreen = countGreenishPixels(before)
-        val beforeBlue = countBluishPixels(before)
         // 三色各占一行：同行的三段在小网格（CI 模拟器仅 25 列）上必折行，
         // 折行后行内位置随网格变化。行号取视口上部，任何后续输出滚动视口都
         // 不会把它们推出可见区。
@@ -66,37 +79,59 @@ class SgrColorPixelAcceptanceTest : ComposeTerminalLogcatTest() {
             Triple(4, "EEE_GREEN", "\u001B[32m"),
             Triple(6, "EEE_BLUE", "\u001B[34m"),
         )
-        for ((row, text, sgr) in markers) {
-            placeTextAtRow(bridge, row, "$sgr$text\u001B[0m")
+
+        // 判据取「彩色帧 − 无色帧」的差，而不是「有标记帧 − 标记前帧」。
+        // 后者的基线是上一个用例留下的屏幕：写标记会顺手覆盖那里的彩色内容，
+        // 该色的增量于是可以为负（实测蓝像素 182 → 58），判据随用例顺序漂移。
+        // 同一段文字先按默认色写一遍，残留内容在两帧里同时出现、直接抵消；
+        // 只有字形本身的颜色留下差值。
+        // 先复位 SGR：默认色那一遍必须落在默认属性上，否则上一个用例留下的
+        // 颜色/反显会跟着基线帧一起被量进去。
+        assertTrue("SGR 复位送显失败", bridge.feedTerminal("\u001B[0m".toByteArray(Charsets.UTF_8)))
+        for ((row, text) in markers.map { it.first to it.second }) {
+            placeAndAwaitFrame(bridge, row, text, text.length)
         }
-        // 呈现是异步的（运行时循环节拍）：落格不等于已上屏，盲等固定时长在慢机上
-        // 不可靠；改为轮询截图直到三色增益出现，超时大声失败。运行时循环持续呈现
-        // 同一网格，每轮截图都是有效采样，不存在覆盖竞态。
+        val plain = device.takeScreenshot() ?: throw AssertionError("截图失败")
+        val plainRed = countReddishPixels(plain)
+        val plainGreen = countGreenishPixels(plain)
+        val plainBlue = countBluishPixels(plain)
+
+        // 彩色帧按 6→4→2 写：与基线帧的写入顺序相反，末帧光标落在 (2,7)，
+        // 与基线帧的末帧光标 (6,7) 不同，「已上屏」的判据不会误命中旧帧。
+        for ((row, text, sgr) in markers.reversed()) {
+            placeAndAwaitFrame(bridge, row, "$sgr$text\u001B[0m", text.length)
+        }
+        // 呈现是异步的（运行时循环节拍）：字形首次入图集还要再等一帧；盲等
+        // 固定时长在慢机上不可靠，改为轮询截图直到三色差值出现，超时大声失败。
+        // 运行时循环持续呈现同一网格，每轮截图都是有效采样，不存在覆盖竞态。
         var red = 0
         var green = 0
         var blue = 0
         val gained =
             UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 500) {
                 val shot = device.takeScreenshot() ?: return@pollUntilTrue false
-                red = countReddishPixels(shot)
-                green = countGreenishPixels(shot)
-                blue = countBluishPixels(shot)
-                red > beforeRed + PIXEL_GAIN_THRESHOLD &&
-                    green > beforeGreen + PIXEL_GAIN_THRESHOLD &&
-                    blue > beforeBlue + PIXEL_GAIN_THRESHOLD
+                red = countReddishPixels(shot) - plainRed
+                green = countGreenishPixels(shot) - plainGreen
+                blue = countBluishPixels(shot) - plainBlue
+                red > PIXEL_GAIN_THRESHOLD &&
+                    green > PIXEL_GAIN_THRESHOLD &&
+                    blue > PIXEL_GAIN_THRESHOLD
             }
-        assertNotNull("SGR 三色必须呈现 (红=$red 绿=$green 蓝=$blue 前=$beforeRed/$beforeGreen/$beforeBlue)", gained)
-        assertTrue(
-            "SGR 红色文本必须产生红色像素 (前=$beforeRed 现=$red)",
-            red > beforeRed + PIXEL_GAIN_THRESHOLD,
+        assertNotNull(
+            "SGR 三色必须呈现 (差 红=$red 绿=$green 蓝=$blue 无色基线=$plainRed/$plainGreen/$plainBlue)",
+            gained,
         )
         assertTrue(
-            "SGR 绿色文本必须产生绿色像素 (前=$beforeGreen 现=$green)",
-            green > beforeGreen + PIXEL_GAIN_THRESHOLD,
+            "SGR 红色文本必须产生红色像素 (差=$red 无色基线=$plainRed)",
+            red > PIXEL_GAIN_THRESHOLD,
         )
         assertTrue(
-            "SGR 蓝色文本必须产生蓝色像素 (前=$beforeBlue 现=$blue)",
-            blue > beforeBlue + PIXEL_GAIN_THRESHOLD,
+            "SGR 绿色文本必须产生绿色像素 (差=$green 无色基线=$plainGreen)",
+            green > PIXEL_GAIN_THRESHOLD,
+        )
+        assertTrue(
+            "SGR 蓝色文本必须产生蓝色像素 (差=$blue 无色基线=$plainBlue)",
+            blue > PIXEL_GAIN_THRESHOLD,
         )
     }
 
