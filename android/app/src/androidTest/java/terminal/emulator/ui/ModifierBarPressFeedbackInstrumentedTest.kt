@@ -64,6 +64,14 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
         private const val POLL_INTERVAL_MS = 100L
 
         /**
+         * 每次采样前推进的组合时钟时长（毫秒）。
+         *
+         * 手势区内的按下反馈要「按住不动达到阈值」才亮起，该阈值与随后的动画都
+         * 挂在组合时钟上；推进步长与轮询间隔同档，几次轮询即越过阈值。
+         */
+        private const val CLOCK_STEP_MS = 100L
+
+        /**
          * 按下时按键区域里变了的像素占比下限。
          *
          * 按下反馈给整块按键铺一层底色并整体缩放，除去圆角几乎每个像素都变；
@@ -128,6 +136,15 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
         val before = sampleBand(UxTestUtils.screenshot(device), left, right, top, bottom)
         assertTrue("按键底部必须取到样（截图或定位失败）", before.isNotEmpty())
 
+        // 底边那排按键落在系统手势区内：按下反馈不是立即给的，而是「按住不动
+        // 达到阈值」才亮起（系统认领上滑的时机没有上界，按下即亮会被慢速起滑
+        // 穿过，见 modifier-bar-gesture-cancel 规范）。
+        //
+        // 该阈值与随后的缩放/底色动画都挂在组合时钟上：不推进时钟就既不会亮起
+        // 也不会动（实测不推进时钟时按键区域逐像素无变化）。故关掉自动推进，
+        // 改为每次采样前显式推进。
+        composeTestRule.mainClock.autoAdvance = false
+
         val downTime = SystemClock.uptimeMillis()
         dispatchMotion(downTime, MotionEvent.ACTION_DOWN, pressX.toFloat(), pressY.toFloat())
         var during: IntArray? = null
@@ -137,8 +154,7 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
                 timeoutMs = FEEDBACK_TIMEOUT_MS,
                 intervalMs = POLL_INTERVAL_MS,
             ) {
-                // 按下反馈是动画：不推进组合时钟，动画根本不走，量到的永远是未按下
-                // 的画面（实测不 waitForIdle 时按键区域逐像素无变化）。
+                composeTestRule.mainClock.advanceTimeBy(CLOCK_STEP_MS)
                 composeTestRule.waitForIdle()
                 val band = sampleBand(UxTestUtils.screenshot(device), left, right, top, bottom)
                 if (band.contentEquals(before)) {

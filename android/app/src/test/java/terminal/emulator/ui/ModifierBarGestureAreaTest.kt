@@ -118,7 +118,7 @@ class ModifierBarGestureAreaTest {
     }
 
     @Test
-    fun `gesture area presses only give feedback on tap or long press`() {
+    fun `gesture area presses only give feedback after a still hold`() {
         // 区内不在按下时给反馈：认领时机取决于手指移动快慢，任何固定延迟窗口
         // 都会被慢速起滑穿过；区外的触摸系统不会认领，立即给反馈。
         assertFalse(
@@ -128,6 +128,20 @@ class ModifierBarGestureAreaTest {
         assertTrue(
             "手势区外的按下必须立即给出反馈",
             pressFeedbackStartsImmediately(insideSystemGestureArea = false),
+        )
+    }
+
+    @Test
+    fun `the still hold threshold is shorter than the long press`() {
+        // 静止按住的反馈必须早于长按/连发亮起：否则用户看到的是「连发」而不是
+        // 「按压」，而底边那排不连发的按键就永远没有按下反馈。
+        assertTrue(
+            "静止按住的反馈阈值必须短于长按阈值",
+            PRESS_FEEDBACK_HOLD_MS < modifierLongPressMillis(500L),
+        )
+        assertTrue(
+            "静止按住的反馈阈值必须为正，否则退化成按下即亮（等于上滑会触发动画）",
+            PRESS_FEEDBACK_HOLD_MS > 0,
         )
     }
 }

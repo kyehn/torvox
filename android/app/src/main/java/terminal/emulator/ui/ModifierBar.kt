@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
@@ -313,6 +314,18 @@ internal const val PRESS_SCALE_TWEEN_MS = 90
 
 // 按下反馈的轻点脉冲时长：手势区内抬手后才亮起，需留够缩放动画走完的时间。
 internal const val PRESS_FEEDBACK_PULSE_MS = 120
+
+// 手势区内「静止按住」的反馈启动阈值（毫秒）：手指按住这么久不动才亮起。
+//
+// 手势区内不在按下时给反馈（系统认领上滑的时机取决于手指移动快慢，没有上界，
+// 见 pressFeedbackStartsImmediately），但整个吞掉会让键栏底边那排按键永远没有
+// 按下反馈——同一个按键上半部分有反馈、下半部分没有，是明显的割裂。
+//
+// 折中口径：静止按住达到该阈值才亮起并保持到抬手；一旦手指越过 touchSlop
+// （即成为一次滑动/上滑），本次计时随之作废，故上滑全程看不到任何动画。
+// 阈值取常见上滑手势识别耗时的量级：一次正常上滑在越过 touchSlop 之前不会
+// 停留这么久，故不会被误判成按压。
+internal const val PRESS_FEEDBACK_HOLD_MS = 250
 
 /**
  * 手势区内的按下是否立即给出反馈。
@@ -862,6 +875,28 @@ private fun RowScope.ExtraKeyButton(
                         }
                 }
                 isPressed = feedbackVisible
+                // 手势区内的按下反馈延迟到「手指不动」之后（见
+                // pressFeedbackStartsImmediately）：系统认领上滑的时机取决于手指
+                // 移动快慢，没有上界，按下即亮会被慢速起滑穿过。
+                //
+                // 计时走指针事件自身的等待超时：手指一动就有事件、等待随之结束，
+                // 手指不动则超时到点。期限以按下时刻为基准（绝对期限），手指的
+                // 细微抖动不会把计时无限往后推。
+                suspend fun AwaitPointerEventScope.awaitStillHold(): PointerEvent? {
+                    if (!feedbackVisible) {
+                        val remaining =
+                            PRESS_FEEDBACK_HOLD_MS - (SystemClock.uptimeMillis() - downEventTime)
+                        if (remaining > 0L) {
+                            val event = withTimeoutOrNull(remaining) { awaitPointerEvent() }
+                            if (event == null) {
+                                showFeedbackNow()
+                            }
+                            return event
+                        }
+                        showFeedbackNow()
+                    }
+                    return awaitPointerEvent()
+                }
                 try {
                     var gestureValid = true
                     if (currentSecondaryAction != null) {
@@ -885,7 +920,7 @@ private fun RowScope.ExtraKeyButton(
                             }
                         }
                         while (true) {
-                            val pointerEvent = awaitPointerEvent()
+                            val pointerEvent = awaitStillHold() ?: continue
                             if (pointerEvent.isGestureCancelled()) {
                                 gestureValid = false
                                 break
@@ -916,7 +951,7 @@ private fun RowScope.ExtraKeyButton(
                         if (currentOnRepeat == null) {
                             var tapValid = true
                             while (true) {
-                                val pointerEvent = awaitPointerEvent()
+                                val pointerEvent = awaitStillHold() ?: continue
                                 if (pointerEvent.isGestureCancelled()) {
                                     tapValid = false
                                     break
@@ -1002,6 +1037,8 @@ private fun RowScope.ExtraKeyButton(
                         }
                     }
                 } finally {
+                    // 静止按住的计时随手势结束作废：滑出的上滑与系统认领的取消
+                    // 全程不亮起（亮起过的也立刻复位，不做反向插值）。
                     // 轻点脉冲由 scope 的协程负责复位；取消/滑出与正常抬手立即复位。
                     if (pulseJob == null) isPressed = false
                 }
