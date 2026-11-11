@@ -3,7 +3,9 @@
 
 package terminal.emulator.ui
 
+import android.app.Activity
 import android.content.Context
+import android.graphics.drawable.ColorDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.WindowInsets.Type
@@ -84,6 +86,7 @@ import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 // toggleKeyboard lambda 在抽屉完全关闭时已跳过延迟路径；
@@ -230,6 +233,10 @@ fun TerminalScreen(
         )
     }
     val context = LocalContext.current
+    // 已应用到窗口的背景色：窗口背景取终端底色（见下方说明），主题切换时随之更新。
+    // 用普通持有者而非快照状态：改的是窗口属性而非界面，改完不需要重组——
+    // 写成状态会在组合期多触发一次重组。
+    val appliedWindowBackground = remember { AtomicInteger(0) }
     var showTextSearch by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val view = LocalView.current
@@ -243,6 +250,22 @@ fun TerminalScreen(
             fullscreen = termuxProperties.properties.fullscreen,
             transientBarsBySwipe = termuxProperties.properties.useFullscreenWorkaround,
         )
+        // 窗口背景取终端底色。
+        //
+        // SurfaceView 的开孔把窗口自己的像素挖掉，透出后面那一层；原生尚无缓冲时
+        // 那一层就是窗口背景（MainActivity 把它设成透明，于是透出的是桌面）。
+        // 切后台返回的那一瞬正是「无缓冲」——窗口背景若是桌面色，用户看到的就是
+        // 「闪一下桌面」。窗口背景取终端底色后，开孔在拿到第一帧之前显示的就是
+        // 终端底色，与开孔遮罩同色，闪烁消失。
+        //
+        // 终端内容与键栏由组合层自己画，盖住窗口背景，故这里改窗口背景不影响
+        // 任何可见内容；设置页遮住终端时不必改（那一层盖着整个窗口）。
+        val window = (view.context as? Activity)?.window
+        val terminalBackgroundArgb = terminalBackground.toArgb()
+        if (window != null && appliedWindowBackground.get() != terminalBackgroundArgb) {
+            window.setBackgroundDrawable(ColorDrawable(terminalBackgroundArgb))
+            appliedWindowBackground.set(terminalBackgroundArgb)
+        }
     }
     // `termux.properties` 的按键改写（音量键 / Ctrl+Space / back-key）挂在 Activity
     // 的按键分发上；设置页遮住终端时必须停用，否则在输入框里按音量键也会改终端修饰态。

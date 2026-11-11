@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import android.view.View
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.Lifecycle
 import androidx.test.platform.app.InstrumentationRegistry
@@ -53,16 +54,18 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         private const val INK_SAMPLE_STEP_PX = 3
 
         /**
-         * 区域内相对中位色的最大偏差上限：纯色覆盖时只有边缘抗锯齿会跳一两点；
-         * 透出桌面时壁纸/图标的像素会立刻撑开这个值。
+         * 单个像素与期望画面的通道差之和上限：色彩管理会让屏幕取色与帧内像素
+         * 差一两级，仍远小于「透出别的画面」的差异（后者是几十以上）。
          */
-        private const val COVER_SPREAD_TOLERANCE = 8
+        private const val COVER_PIXEL_TOLERANCE = 24
 
         /**
-         * 中位色相对终端底色的上限：屏幕合成与色彩管理会让纯色整体偏移几级，
-         * 但仍远小于「透出别的画面」的差异（后者是几十以上）。
+         * 开孔区域与期望画面的不符像素占比上限（百分比）。
+         *
+         * 留一点余量：期望画面是切后台时回读的帧，期间终端可能又输出过内容，
+         * 少量行会与帧内像素不同。
          */
-        private const val COVER_COLOR_TOLERANCE = 24
+        private const val MAX_COVER_MISMATCH_PERCENT = 20
     }
 
     /**
@@ -284,6 +287,19 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
                 !runtime.surfaceBufferPresent.value
             },
         )
+        // 等组合层把「无缓冲区」这个事实推给新视图：视图收到该事实才在自己的
+        // `onDraw` 里补画底色（开孔只能由 SurfaceView 自己填，见
+        // TerminalSurface.onDraw）。事实推达之前截到的画面是平台在洞里留的
+        // 空白——透出的是后方桌面，不是应用画的遮罩。
+        assertNotNull(
+            "组合层必须把「无缓冲区」推给换后的 SurfaceView",
+            UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = 50) {
+                (findTerminalSurface(composeTestRule.activity) as? TerminalSurface)
+                    ?.surfaceHasBuffer == false
+            },
+        )
+        // 视图收到事实后要等一帧才画出来：推进组合时钟并等它空闲。
+        composeTestRule.waitForIdle()
         // 像素证据要在「注入仍生效」的这一瞬抓：先把画面拿到手，随后立刻撤注入。
         // 反过来先轮询像素会把注入拖上几秒，重建预算被耗光，之后的恢复就无从发生。
         val shot = runCatchingCancellable { UxTestUtils.screenshot(device) }.getOrNull()
@@ -293,22 +309,20 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         val surface = findTerminalSurface(composeTestRule.activity)
         val location = IntArray(2)
         surface.getLocationOnScreen(location)
-        val cover =
-            checkNotNull(
-                coverPixels(
-                    bitmap = bitmap,
-                    left = location[0].coerceIn(0, bitmap.width - 1),
-                    top = location[1].coerceIn(0, bitmap.height - 1),
-                    width = surface.width,
-                    height = surface.height,
-                ),
-            ) { "开孔区域必须量到像素" }
-        UxTestUtils.metric("cover_spread", cover.spread.toLong())
-        UxTestUtils.metric("cover_median_deviation", cover.medianDeviation.toLong())
+        // 开孔里应当是**终端自己的画面**：切后台时回读的保留帧（有保留帧时），
+        // 否则是终端底色。两者都不是「后方桌面」——后者是壁纸与图标，像素既不
+        // 均匀、颜色也与终端底色无关。
+        //
+        // 断言取逐像素比对：开孔的采样像素必须与期望画面（保留帧或终端底色）
+        // 一致，容忍色彩管理带来的一两级偏差。之前断言「开孔必须是均匀的终端
+        // 底色」，那是保留帧落地之前的旧契约：保留帧里有字，像素本就不均匀。
+        val cover = runtime.coverFrame.value
+        val mismatch = coverMismatchRatio(bitmap, location, surface, cover)
+        UxTestUtils.metric("cover_mismatch_percent", mismatch.toLong())
         assertTrue(
-            "无缓冲区期间开孔区域必须是均匀的终端底色（实测 spread=${cover.spread} " +
-                "medianDeviation=${cover.medianDeviation}），否则就是透出了后方画面",
-            cover.spread <= COVER_SPREAD_TOLERANCE && cover.medianDeviation <= COVER_COLOR_TOLERANCE,
+            "无缓冲区期间开孔区域必须显示终端自己的画面（保留帧或终端底色），" +
+                "实测与期望不符的像素占 $mismatch%，否则就是透出了后方画面",
+            mismatch <= MAX_COVER_MISMATCH_PERCENT,
         )
         // 恢复与「换视图」同源：失效位持续为 1 时宿主会换新 SurfaceView，新窗口出帧后
         // 覆盖层才该撤。每轮都要制造输出——空闲帧不渲染，不喂输出就既驱动不出重试，
@@ -423,51 +437,66 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         )
     }
 
-    /** 开孔区域的底色量测：中位色相对终端底色的偏差，以及区域内相对中位色的最大偏差。 */
-    private data class CoverPixels(val medianDeviation: Int, val spread: Int)
-
     /**
-     * 采样开孔区域的像素。
+     * 开孔区域与期望画面的逐像素不符比例（百分比）。
      *
-     * 判据分两层：`spread` 小表示这块被**均匀**涂了一块纯色（透出桌面时会混进壁纸、
-     * 图标、上一应用，spread 立刻变大）；`medianDeviation` 小表示这块的纯色就是终端
-     * 底色本身。分开量是因为屏幕合成与色彩管理会让纯色整体偏移一两级，但仍远小于
-     * 「透出别的画面」的差异。
+     * 期望画面取「保留帧」（切后台时回读的那一帧，有则优先）或终端底色：
+     * 两者都是终端自己的画面，都不是后方桌面。保留帧是 RGBA8 像素，坐标与
+     * surface 一一对应（帧的左上角即 surface 的左上角）。
+     *
+     * 色彩管理会让屏幕取色与帧内像素差一两级，故单像素偏差在阈值内即算一致。
      */
-    private fun coverPixels(
+    private fun coverMismatchRatio(
         bitmap: android.graphics.Bitmap,
-        left: Int,
-        top: Int,
-        width: Int,
-        height: Int,
-    ): CoverPixels? {
-        val right = (left + width).coerceIn(left + 1, bitmap.width)
-        val bottom = (top + height / 2).coerceIn(top + 1, bitmap.height)
-        val channels = IntArray(3) { index -> index }
-        val samples = ArrayList<IntArray>()
-        var pixelY = top
-        while (pixelY < bottom) {
-            var pixelX = left
-            while (pixelX < right) {
-                val pixel = bitmap.getPixel(pixelX, pixelY)
-                samples += intArrayOf((pixel shr 16) and 0xFF, (pixel shr 8) and 0xFF, pixel and 0xFF)
-                pixelX += INK_SAMPLE_STEP_PX
+        location: IntArray,
+        surface: View,
+        cover: terminal.emulator.bridge.Bridge.CoverFrame?,
+    ): Int {
+        val left = location[0].coerceIn(0, bitmap.width - 1)
+        val top = location[1].coerceIn(0, bitmap.height - 1)
+        val right = (left + surface.width).coerceIn(left + 1, bitmap.width)
+        val bottom = (top + surface.height / 2).coerceIn(top + 1, bitmap.height)
+        var mismatched = 0
+        var total = 0
+        var y = top
+        while (y < bottom) {
+            var x = left
+            while (x < right) {
+                total++
+                val actual = bitmap.getPixel(x, y)
+                val expected = expectedHolePixel(x - location[0], y - location[1], cover)
+                if (expected == null || colorDistance(actual, expected) > COVER_PIXEL_TOLERANCE) {
+                    mismatched++
+                }
+                x += INK_SAMPLE_STEP_PX
             }
-            pixelY += INK_SAMPLE_STEP_PX
+            y += INK_SAMPLE_STEP_PX
         }
-        if (samples.isEmpty()) return null
-        val median =
-            channels.map { channel ->
-                val sorted = samples.map { it[channel] }.sorted()
-                sorted[sorted.size / 2]
+        return if (total == 0) 100 else mismatched * 100 / total
+    }
+
+    /** 期望画面在 (x, y) 处的颜色：保留帧优先，其次终端底色；取不到即 null。 */
+    private fun expectedHolePixel(x: Int, y: Int, cover: terminal.emulator.bridge.Bridge.CoverFrame?): Int? {
+        if (cover != null) {
+            val index = (y * cover.width + x) * 4
+            if (x in 0 until cover.width && y in 0 until cover.height && index + 3 < cover.pixels.size) {
+                val red = cover.pixels[index].toInt() and 0xFF
+                val green = cover.pixels[index + 1].toInt() and 0xFF
+                val blue = cover.pixels[index + 2].toInt() and 0xFF
+                return 0xFF000000.toInt() or (red shl 16) or (green shl 8) or blue
             }
-        val expected = channels.map { channel -> (terminalBackgroundArgb shr (16 - channel * 8)) and 0xFF }
-        val medianDeviation = channels.maxOf { kotlin.math.abs(median[it] - expected[it]) }
-        val spread =
-            samples.maxOf { sample ->
-                channels.maxOf { kotlin.math.abs(sample[it] - median[it]) }
-            }
-        return CoverPixels(medianDeviation = medianDeviation, spread = spread)
+            return null
+        }
+        return terminalBackgroundArgb
+    }
+
+    /** 两个颜色的通道差之和：色彩管理带来的一两级偏差在容忍范围内。 */
+    private fun colorDistance(actual: Int, expected: Int): Int {
+        var distance = 0
+        for (shift in intArrayOf(16, 8, 0)) {
+            distance += kotlin.math.abs(((actual shr shift) and 0xFF) - ((expected shr shift) and 0xFF))
+        }
+        return distance
     }
 
     /** 轮询至选择菜单的「复制」项出现在无障碍树中（返回耗时，null 表示超时）。 */

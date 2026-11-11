@@ -118,7 +118,7 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
 订阅方式：写入发生在 `onStop` 之后，`ON_START` 重启收集与返回后的首帧绘制会抢跑，
 首帧按「有缓冲区」绘制时开孔区就透出桌面或上一个应用。
 
-遮罩 MUST 由 `SurfaceView` **自己**在 `onDraw` 里画，MUST NOT 画在组合层（窗口层）：
+遮罩 MUST 画在 `SurfaceView` **自己**的 `onDraw` 里，MUST NOT 画在组合层（窗口层）：
 平台在 `SurfaceView` 绘制时先给应用窗口打洞，洞里窗口层画过的像素一律被抹掉。
 
 遮罩 MUST 用**离开时的画面**（而非仅一块平底色）：平底色与桌面都是「闪一下」，只是
@@ -134,7 +134,8 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
 #### Scenario: 返回前台首帧前不透出上一个应用
 
 - **WHEN** 应用回到前台，新 surface 尚未提交首帧
-- **THEN** `SurfaceView` MUST 在 `onDraw` 里保持遮罩，MUST NOT 透出桌面或上一个应用
+- **THEN** 开孔 MUST 显示终端自己的画面（离开时的画面或终端底色），MUST NOT 透出
+      桌面或上一个应用
 
 #### Scenario: 返回前台后重新出帧
 
@@ -169,6 +170,27 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
 
 - **WHEN** 回读失败、没有保留的帧或帧格式不是 RGBA8
 - **THEN** 宿主 MUST 沿用平底色遮罩，MUST NOT 以空遮罩代替（空遮罩等于一块黑）
+
+### Requirement: 开孔覆盖由两段互补机制承担
+
+开孔的覆盖 MUST 由两段互补的机制承担，MUST NOT 只靠其中一段：
+
+- surface **尚未交付**（新 `SurfaceView` 还没拿到窗口）：平台还没打洞，窗口层的像素
+  可见，故 `onDraw` 里画的遮罩（离开时的画面，无画面时是终端底色）能挡住后方桌面；
+  窗口背景 MUST 取终端底色，窗口层来不及画的区域也显示终端底色而非桌面。
+- surface **已交付但尚无新帧**（交换链重建期间）：洞已经打好，窗口层的像素被抹掉，
+  遮罩 MUST 由**原生侧**把保留的上一帧呈现进新 surface 来覆盖；`onDraw` 的遮罩在
+  这一段不可见。
+
+#### Scenario: surface 尚未交付时靠窗口层遮罩
+
+- **WHEN** 新 `SurfaceView` 还没拿到窗口，宿主已落回「无缓冲区」状态
+- **THEN** 开孔 MUST 显示终端底色或离开时的画面，MUST NOT 透出后方桌面
+
+#### Scenario: surface 已交付但无新帧时靠原生侧呈现
+
+- **WHEN** 新 surface 已交付但尚未提交首帧
+- **THEN** 原生侧 MUST 把保留的上一帧呈现进新 surface，MUST NOT 让开孔透出桌面
 
 ### Requirement: 冷启动耗时以进程启动为原点被度量
 
