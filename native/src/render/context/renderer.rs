@@ -47,6 +47,8 @@ impl Renderer {
             self.frame_texture = Some(texture);
             // 新纹理内容未定义，下一帧必须全量重绘。
             self.frame_invalidated = true;
+            // 内容未定义，同样不是「保留帧」：warmup 呈现它等于呈现未初始化纹理。
+            self.frame_content_valid = false;
         }
         self.frame_view.clone()
     }
@@ -267,6 +269,7 @@ impl Renderer {
             frame_texture: None,
             frame_view: None,
             frame_invalidated: true,
+            frame_content_valid: false,
             swapchain_copy_supported: false,
             present_log: crate::slow_log::CountedLogThrottle::new(),
         }
@@ -374,6 +377,7 @@ impl Renderer {
             self.frame_texture = None;
             self.frame_view = None;
             self.frame_invalidated = true;
+            self.frame_content_valid = false;
         } else if self.frame_texture.is_some() {
             log::info!(
                 "attach_surface: same-session reattach; keeping last frame for warmup present"

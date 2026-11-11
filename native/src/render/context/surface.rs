@@ -197,6 +197,8 @@ impl Renderer {
         self.frame_texture = None;
         self.frame_view = None;
         self.frame_invalidated = true;
+        // 旧尺寸的累加器已丢弃：尺寸对不上新交换链，它也不再是「保留帧」。
+        self.frame_content_valid = false;
 
         self.projection_width = scaled_width;
         self.projection_height = scaled_height;

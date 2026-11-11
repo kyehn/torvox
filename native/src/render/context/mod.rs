@@ -119,6 +119,13 @@ pub struct Renderer {
     /// 累加器内容陈旧/未知，下一帧必须全量重绘（首帧、resize、格式变更、surface
     /// 重挂载）；成功全量绘制后清除。
     pub(crate) frame_invalidated: bool,
+    /// 累加器里是否有一帧**已渲染**的内容（与 [`Self::frame_invalidated`] 互补：
+    /// 后者说的是「内容是否还新鲜」，这里说的是「内容是否已定义」）。
+    ///
+    /// `warmup` 呈现保留帧看的是这一位：暂停期写入的输出让累加器变陈旧，但那正是
+    /// 用户离开时看到的那一帧，正是要呈现的；而从未渲染过的累加器内容未定义，
+    /// 呈现它等于把未初始化纹理端到屏幕上。
+    pub(crate) frame_content_valid: bool,
     /// 交换链是否支持 `COPY_DST`（挂载时依据 `usages` 检查）；为 false 时走旧的
     /// 直接渲染路径并忽略脏带。
     pub(crate) swapchain_copy_supported: bool,

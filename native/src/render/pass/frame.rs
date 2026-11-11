@@ -33,6 +33,21 @@ pub(super) fn store_attachment(
 }
 
 impl Renderer {
+    /// 保留帧可否呈现：累加器里必须有一帧**已渲染**的内容，且尺寸与格式都跟新交换链
+    /// 一致（`copy_texture_to_texture` 要求逐项相等）。
+    ///
+    /// 「内容已渲染」与「内容还新鲜」是两回事：暂停期写入的输出让累加器变陈旧
+    /// （见 [`Self::frame_invalidated`]),但那正是用户离开时看到的那一帧——warmup 要
+    /// 呈现的正是它；而从未渲染过的累加器内容未定义，呈现它等于把未初始化纹理端到
+    /// 屏幕上。
+    pub(super) fn retained_frame_presentable(
+        surface_loss_injected: bool,
+        content_valid: bool,
+        retained: Option<(u32, u32, wgpu::TextureFormat)>,
+        target: (u32, u32, wgpu::TextureFormat),
+    ) -> bool {
+        !surface_loss_injected && content_valid && retained.is_some_and(|size| size == target)
+    }
     /// Present one frame immediately (启动黑屏防护、渲染稳定性 spec §4)：
     /// 首个内容帧要等 shell 输出 + 冷启动（SwiftShader 上实测数百毫秒），
     /// 期间交换链一帧未提交，屏幕保持空黑；静默 shell 时甚至永远不会来内容帧。
@@ -78,15 +93,21 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Warmup Encoder"),
             });
-        // 上一帧可复现：尺寸与格式都与新交换链一致（copy 合法）且内容有效。
-        // 注入下恒走清屏（见上方注释）：呈现缓存帧会把「无缓冲区」稳定态填上。
-        let resume = !self.surface_loss_injected
-            && self.frame_texture.as_ref().is_some_and(|texture| {
-                !self.frame_invalidated
-                    && texture.width() == config.width
-                    && texture.height() == config.height
-                    && texture.format() == config.format
-            });
+        // 上一帧可复现：累加器里有一帧**已渲染**的内容，尺寸与格式都与新交换链一致
+        // （copy 合法）。注入下恒走清屏（见上方注释）：呈现缓存帧会把「无缓冲区」
+        // 稳定态填上。
+        //
+        // 判据取「内容已定义」而非「内容还新鲜」：暂停期写入的输出让累加器变陈旧
+        // （`frame_invalidated`），但那正是用户离开时看到的那一帧，要呈现的正是它。
+        // 陈旧只影响**下一帧**能否走部分渲染路径，与此处无关。
+        let resume = Self::retained_frame_presentable(
+            self.surface_loss_injected,
+            self.frame_content_valid,
+            self.frame_texture
+                .as_ref()
+                .map(|texture| (texture.width(), texture.height(), texture.format())),
+            (config.width, config.height, config.format),
+        );
         if resume {
             log::info!(
                 "warmup: presenting the retained last frame ({}x{})",
@@ -430,6 +451,8 @@ impl Renderer {
         // 帧已完成，累加器内容保持自洽。
         if accumulator_view.is_some() {
             self.frame_invalidated = false;
+            // 累加器里现在有一帧已渲染的内容：它可以被当作「保留帧」呈现。
+            self.frame_content_valid = true;
         }
         // 本帧已按当前偏移呈现：作为下一帧滚动变化判定基准。
         self.last_drawn_viewport_scroll_px = self.viewport_scroll_px;

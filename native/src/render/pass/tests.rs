@@ -495,7 +495,7 @@ fn scroll_gate_composition_survives_predicate_flips() {
     // 复位瞬间（scroll_active 仍为真）绝不允许脏带残留路径。
     for accumulator_ready in [true, false] {
         for frame_invalidated in [true, false] {
-            for band_count in [0usize, 1usize] {
+            for band_count in [0usize, 1] {
                 for kgp_overlay_dirty in [true, false] {
                     assert!(
                         !planned_frame((
@@ -511,4 +511,83 @@ fn scroll_gate_composition_survives_predicate_flips() {
             }
         }
     }
+}
+
+// ── warmup 保留帧的呈现判定 ──
+//
+// 保留帧是「切后台返回时新 surface 的第一帧」：呈现它，用户看到的还是离开时的
+// 画面；不呈现，开孔里先是一块底色（用户口中的「切应用返回闪一下」）。
+//
+// 判据里「内容已渲染」与「内容还新鲜」必须分开：暂停期写入的输出让累加器变陈旧
+// （`frame_invalidated`），但那正是用户离开时看到的那一帧——要呈现的正是它。
+
+/// `(injected, content_valid, retained, target) -> 可否呈现保留帧`
+fn retained_frame(
+    decision: (
+        bool,
+        bool,
+        Option<(u32, u32, wgpu::TextureFormat)>,
+        (u32, u32, wgpu::TextureFormat),
+    ),
+) -> bool {
+    Renderer::retained_frame_presentable(decision.0, decision.1, decision.2, decision.3)
+}
+
+#[test]
+fn retained_frame_is_presentable_when_it_matches_the_new_swapchain() {
+    assert!(retained_frame((
+        false,
+        true,
+        Some((314, 592, wgpu::TextureFormat::Rgba8Unorm)),
+        (314, 592, wgpu::TextureFormat::Rgba8Unorm),
+    )));
+}
+
+#[test]
+fn retained_frame_is_rejected_when_nothing_was_rendered_yet() {
+    // 累加器刚建好时内容未定义：呈现它等于呈现未初始化纹理。
+    assert!(!retained_frame((
+        false,
+        false,
+        Some((314, 592, wgpu::TextureFormat::Rgba8Unorm)),
+        (314, 592, wgpu::TextureFormat::Rgba8Unorm),
+    )));
+}
+
+#[test]
+fn retained_frame_is_rejected_when_geometry_or_format_differs() {
+    // 尺寸或格式对不上，`copy_texture_to_texture` 不合法。
+    assert!(!retained_frame((
+        false,
+        true,
+        Some((314, 592, wgpu::TextureFormat::Rgba8Unorm)),
+        (314, 321, wgpu::TextureFormat::Rgba8Unorm),
+    )));
+    assert!(!retained_frame((
+        false,
+        true,
+        Some((314, 592, wgpu::TextureFormat::Rgba8Unorm)),
+        (314, 592, wgpu::TextureFormat::Bgra8Unorm),
+    )));
+}
+
+#[test]
+fn retained_frame_is_rejected_without_an_accumulator() {
+    assert!(!retained_frame((
+        false,
+        true,
+        None,
+        (314, 592, wgpu::TextureFormat::Rgba8Unorm),
+    )));
+}
+
+#[test]
+fn retained_frame_is_rejected_while_surface_loss_is_injected() {
+    // 注入模拟的是 BufferQueue 被废弃：此刻呈现缓存帧会把「无缓冲区」稳定态填上。
+    assert!(!retained_frame((
+        true,
+        true,
+        Some((314, 592, wgpu::TextureFormat::Rgba8Unorm)),
+        (314, 592, wgpu::TextureFormat::Rgba8Unorm),
+    )));
 }
