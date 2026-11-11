@@ -308,9 +308,19 @@ internal const val PRESS_BG_TWEEN_MS = 30
 internal const val PRESS_SCALE_TWEEN_MS = 90
 
 // 按下反馈的延迟：覆盖系统底部上滑从 ACTION_DOWN 到 ACTION_CANCEL 的窗口。
-// 只用于落在系统手势区内的触摸（见 pressInsideGestureArea）；区外的触摸
-// 立即给反馈——系统不会认领那里的触摸，延后只是白白迟滞。
 internal const val PRESS_FEEDBACK_DELAY_MS = 40
+
+/**
+ * 按下反馈的启动延迟（毫秒）。
+ *
+ * 系统手势区内的触摸延后一段覆盖系统认领窗口的时间：系统认领手势时先给应用
+ * `ACTION_DOWN`、再补发 `ACTION_CANCEL`，反馈若先亮起，用户看到的就是「上滑触发了
+ * 按键动画」。区外的触摸系统根本不会认领，立即给反馈——延迟只是白白迟滞。
+ *
+ * 区内的反馈**照常给出**（只是延后）：整个吞掉会让键栏底边那排按键永远没有反馈。
+ */
+internal fun pressFeedbackDelayMillis(insideSystemGestureArea: Boolean): Int =
+    if (insideSystemGestureArea) PRESS_FEEDBACK_DELAY_MS else 0
 
 /**
  * 系统手势区（像素）：系统手势在此区域内优先，应用随时可能被补发 `ACTION_CANCEL`。
@@ -747,8 +757,7 @@ private fun RowScope.ExtraKeyButton(
             if (isPressed) {
                 tween(
                     durationMillis = PRESS_SCALE_TWEEN_MS,
-                    delayMillis =
-                    if (pressInsideGestureArea) PRESS_FEEDBACK_DELAY_MS else 0,
+                    delayMillis = pressFeedbackDelayMillis(pressInsideGestureArea),
                 )
             } else {
                 snap()
@@ -771,8 +780,7 @@ private fun RowScope.ExtraKeyButton(
             if (isPressed) {
                 tween(
                     durationMillis = PRESS_BG_TWEEN_MS,
-                    delayMillis =
-                    if (pressInsideGestureArea) PRESS_FEEDBACK_DELAY_MS else 0,
+                    delayMillis = pressFeedbackDelayMillis(pressInsideGestureArea),
                 )
             } else {
                 snap()

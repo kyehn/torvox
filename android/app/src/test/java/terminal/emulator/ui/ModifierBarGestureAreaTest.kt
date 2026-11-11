@@ -1,17 +1,19 @@
 package terminal.emulator.ui
 
 import androidx.compose.ui.geometry.Rect
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 按键的按下反馈是否该被系统手势区吞掉（[isInsideSystemGestureArea]）。
+ * 按键的按下反馈是否落在系统手势区（[isInsideSystemGestureArea]）。
  *
  * 修饰键栏贴着屏幕底边，全面屏手势导航的 home 手势区就在键栏底边那一带。系统认领
  * 手势时先给应用 `ACTION_DOWN`，再补发 `ACTION_CANCEL`——中间任何一帧画出的按下
- * 反馈，都是用户看到的「上滑触发了按键动画」。区内不给反馈，问题便从根上消失，
- * 不必再猜系统认领手势要多久。
+ * 反馈，都是用户看到的「上滑触发了按键动画」。故区内把反馈延后一段覆盖认领窗口的
+ * 时间再启动（而非整个吞掉：吞掉会让键栏底边那排按键永远没有反馈），区外的触摸
+ * 立即给反馈。
  */
 class ModifierBarGestureAreaTest {
 
@@ -114,6 +116,22 @@ class ModifierBarGestureAreaTest {
                 geometry = geometry,
                 gestureArea = SystemGestureArea(left = 0, top = 0, right = 0, bottom = 0),
             ),
+        )
+    }
+
+    @Test
+    fun `gesture area presses defer the feedback but still give it`() {
+        // 区内不吞掉反馈（底边那排按键必须有反馈），只把启动延后一段覆盖系统认领
+        // 窗口的时间；区外的触摸系统不会认领，立即给反馈。
+        assertEquals(
+            "手势区内的按下必须延后启动反馈",
+            PRESS_FEEDBACK_DELAY_MS,
+            pressFeedbackDelayMillis(insideSystemGestureArea = true),
+        )
+        assertEquals(
+            "手势区外的按下必须立即给出反馈",
+            0,
+            pressFeedbackDelayMillis(insideSystemGestureArea = false),
         )
     }
 }

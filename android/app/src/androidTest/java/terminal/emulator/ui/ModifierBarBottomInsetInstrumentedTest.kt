@@ -30,10 +30,11 @@ import terminal.emulator.waitForTerminalPixels
  * 2. 终端 Surface 填满内容盒（屏幕坐标下底边与内容盒齐平）；
  * 3. 键栏覆盖层贴内容盒底边（键栏与内容盒之间不允许出现任何内缩带）。
  *
- * 键位因此可能落在全面屏手势区内：落在系统手势区（safeGestures）内的按下
- * 一律不启动按下反馈——系统随时可能接管这次触摸并补发 ACTION_CANCEL，已画出的
- * 缩放就是用户看到的「上滑触发了按键动画」（ModifierBarGestureAreaTest 有
- * 对应用例）——与上游 termux ExtraKeysView 的同一取舍。
+ * 键位因此可能落在全面屏手势区内：落在系统手势区（safeGestures）内的按下把反馈
+ * 延后一段覆盖系统认领窗口的时间再启动（ModifierBarGestureAreaTest 有对应用例），
+ * 区外的按下立即给反馈——系统随时可能接管手势区内的触摸并补发 ACTION_CANCEL，
+ * 反馈若先亮起就是用户看到的「上滑触发了按键动画」；被认领时按键不触发、复位
+ * 瞬时且无位移——与上游 termux ExtraKeysView 的同一取舍。
  */
 @RunWith(JUnit4::class)
 class ModifierBarBottomInsetInstrumentedTest : ComposeTerminalLogcatTest() {
