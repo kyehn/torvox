@@ -226,7 +226,13 @@ fn parse_csi(data: &[u8], start: usize) -> Option<(usize, CsiKind)> {
                 if !has_param_bytes && separators == 0 {
                     param_value = 0;
                 }
-                param_value = param_value * 10 + u32::from(byte - b'0');
+                // 饱和累加：参数来自终端输出，位数不受限。裸算在 debug 构建下溢出即
+                // panic（debug 构建正是用户安装的形态），release 下绕成另一个值。
+                // 饱和后参数停在 u32::MAX，既不匹配任何清屏参数（原样透传），也不会
+                // 让整帧解析崩掉。
+                param_value = param_value
+                    .saturating_mul(10)
+                    .saturating_add(u32::from(byte - b'0'));
                 has_param_bytes = true;
             }
             0x3b => {
@@ -710,6 +716,22 @@ mod tests {
     fn incomplete_csi_at_chunk_end_is_passed_through() {
         let (payload, _) = filter(b"text\x1b[2*");
         assert_eq!(payload, b"text\x1b[2*");
+    }
+
+    /// 超长数字参数不得让整帧解析崩掉：参数位数不受限，裸算在 debug 构建下溢出即
+    /// panic（debug 构建正是用户安装的形态）。饱和后参数不再是任何清屏参数，
+    /// 序列原样透传。
+    #[test]
+    fn oversized_csi_parameter_does_not_overflow() {
+        let (payload, clears) = filter_clears(b"text\x1b[99999999999999999999Jtail");
+        assert_eq!(
+            payload, b"text\x1b[99999999999999999999Jtail",
+            "超长参数既不得崩掉也不得被当成清屏"
+        );
+        assert!(
+            clears.is_empty(),
+            "超长参数不匹配任何清屏参数，不得误报清屏"
+        );
     }
 
     #[test]
