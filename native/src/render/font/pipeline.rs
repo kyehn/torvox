@@ -3,8 +3,8 @@
 use cosmic_text::FontSystem;
 
 use super::{
-    ASCII_UPPER_BOUND, CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, GlyphSynthesis,
-    NERD_FONT_PRIVATE_USE_END, NERD_FONT_PRIVATE_USE_START,
+    ASCII_UPPER_BOUND, ATLAS_BYTES_PER_PIXEL, CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey,
+    GlyphSynthesis, NERD_FONT_PRIVATE_USE_END, NERD_FONT_PRIVATE_USE_START,
 };
 
 mod families;
@@ -538,6 +538,47 @@ impl FontPipeline {
         self.caches.glyph_cache.get(&key).cloned()
     }
 
+    /// 主字体的私用区字形是否真的出图（而不是映射到 `.notdef` 的豆腐块）。
+    ///
+    /// 私用区字形号非 0 不代表有真字形：不少字体把整个私用区映射到一个与
+    /// `.notdef` 同形的占位字形。这里把两者光栅化后逐像素比较，相同即豆腐块——
+    /// 只有真字形才值得跳过回退链的全库扫描。
+    ///
+    /// `.notdef` 自身无位图（宽或高为 0）时，任何能出图的私用区字形都不是豆腐块。
+    fn private_use_glyph_is_real(
+        &mut self,
+        font_id: fontdb::ID,
+        glyph_id: swash::GlyphId,
+        synthesis: GlyphSynthesis,
+    ) -> bool {
+        if self
+            .glyph_information_from_font_with_synthesis(font_id, glyph_id, synthesis)
+            .is_none()
+        {
+            return false;
+        }
+        if self
+            .glyph_information_from_font_with_synthesis(font_id, 0, synthesis)
+            .is_none()
+        {
+            return true;
+        }
+        // 两次光栅化之间可能触发图集重建或 LRU 驱逐；坐标以最终缓存为准，
+        // 任一被驱逐就退回扫描（保守：宁可多扫，不可把豆腐块当真字形）。
+        let (Some(glyph), Some(notdef)) = (
+            self.lookup_glyph(font_id, glyph_id, synthesis),
+            self.lookup_glyph(font_id, 0, synthesis),
+        ) else {
+            return false;
+        };
+        !bitmaps_equal(
+            self.atlas_bitmap(),
+            self.atlas_width as usize,
+            &glyph,
+            &notdef,
+        )
+    }
+
     /// 取字符的字形信息：先查缓存，未命中则光栅化并入图集。
     pub fn glyph_information(&mut self, ch: char) -> Option<GlyphInfo> {
         self.glyph_information_with_synthesis(ch, GlyphSynthesis::None)
@@ -755,6 +796,27 @@ impl FontPipeline {
             return Some(info);
         }
 
+        // ── 私用区：主字体给出真字形时直接采用 ──────────────────────────────
+        // Nerd Font 的图标都在私用区，而私用区字形号非 0 不代表不是豆腐块。
+        // 与主字体的 `.notdef` 位图比较：不同即真字形，可跳过回退链与全库扫描。
+        // 真机实测：一屏 yazi 图标因每出现一个新图标就扫一遍全库，多花 98ms。
+        // 结论与样式无关（同一个字形号，粗斜是光栅化时的后处理），可入解析缓存。
+        if is_nerd_private_use
+            && glyph_id != 0
+            && !self.caches.unresolvable_glyphs.contains(&ch)
+            && self.private_use_glyph_is_real(primary_font_id, glyph_id, synthesis)
+        {
+            let info = self.glyph_information_from_font_with_synthesis(
+                primary_font_id,
+                glyph_id,
+                synthesis,
+            )?;
+            self.caches
+                .cjk_glyph_cache
+                .put(ch, (primary_font_id, glyph_id));
+            return Some(info);
+        }
+
         // ── CJK：先查轮廓再试回退 ──
         // 合成时跳过：轮廓回退面解析的是常规字形，样式运行必须留在基底路径上，
         // 这样合成的加粗/倾斜才能作用到已光栅化的遮罩。
@@ -854,4 +916,40 @@ impl FontPipeline {
     ) -> Option<GlyphInfo> {
         self.glyph_information_from_font(font_id, '\0', glyph_id)
     }
+}
+
+/// 两张字形位图是否逐像素相同（两者位于图集内不同位置）。
+///
+/// 只比较 RGBA 四通道：私用区字形与 `.notdef` 的 shape 相同即视为豆腐块，
+/// 位移差异由 `placement` 决定、不影响这个判断。
+pub(super) fn bitmaps_equal(
+    bitmap: &[u8],
+    atlas_width: usize,
+    a: &GlyphInfo,
+    b: &GlyphInfo,
+) -> bool {
+    if a.width != b.width || a.height != b.height || a.width <= 0 || a.height <= 0 {
+        return false;
+    }
+    let stride = atlas_width * ATLAS_BYTES_PER_PIXEL;
+    for row in 0..a.height as usize {
+        let a_row =
+            (a.atlas_y as usize + row) * stride + a.atlas_x as usize * ATLAS_BYTES_PER_PIXEL;
+        let b_row =
+            (b.atlas_y as usize + row) * stride + b.atlas_x as usize * ATLAS_BYTES_PER_PIXEL;
+        for column in 0..a.width as usize {
+            let a_pixel = a_row + column * ATLAS_BYTES_PER_PIXEL;
+            let b_pixel = b_row + column * ATLAS_BYTES_PER_PIXEL;
+            let (Some(a_pixel), Some(b_pixel)) = (
+                bitmap.get(a_pixel..a_pixel + ATLAS_BYTES_PER_PIXEL),
+                bitmap.get(b_pixel..b_pixel + ATLAS_BYTES_PER_PIXEL),
+            ) else {
+                return false;
+            };
+            if a_pixel != b_pixel {
+                return false;
+            }
+        }
+    }
+    true
 }

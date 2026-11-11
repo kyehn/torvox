@@ -666,3 +666,79 @@ fn database_scan_conclusion_is_reused_for_the_same_codepoint() {
     pipeline.glyph_information_styled(symbol, true, false);
     assert_eq!(pipeline.scan_count, 1, "合成运行同样不得重扫全库");
 }
+
+/// 回归钉：Nerd Font 主字体里的私用区真字形不得触发全库扫描。
+///
+/// 私用区字形号非 0 不代表不是豆腐块，原实现因此对每个私用区码位都走回退链
+/// 与全库扫描。真机实测：一屏 yazi 图标（Maple Mono NF CN 主字体）因此多花
+/// 98ms。判据是主字体字形与 `.notdef` 位图不同——不同即真字形，可直接采用。
+#[test]
+fn nerd_font_private_use_glyph_skips_database_scan() {
+    let mut font_database = fontdb::Database::new();
+    let font_path = find_maple_mono_font(&mut font_database)
+        .expect("Maple Mono must be present (run inside nix develop)");
+    let mut pipeline = FontPipeline::new(512, 512, 14.0);
+    let family = pipeline.load_font_file(&font_path).expect("maple loads");
+    assert!(pipeline.set_font_family(&family, &[]));
+    pipeline.set_system_locale("zh-CN");
+    pipeline.scan_count = 0;
+
+    // U+F015（nf-fa-home）在 Maple Mono NF CN 里是真字形。
+    let icon = pipeline
+        .glyph_information('\u{F015}')
+        .expect("Nerd Font icon resolves");
+    assert!(icon.width > 0 && icon.height > 0);
+    assert_eq!(
+        pipeline.scan_count, 0,
+        "real private-use glyph must not scan the database"
+    );
+
+    // 结论入解析缓存：再次查询不重新光栅化，也不扫描。
+    let again = pipeline.glyph_information('\u{F015}').expect("cached");
+    assert_eq!((again.width, again.height), (icon.width, icon.height));
+    assert_eq!(pipeline.scan_count, 0);
+
+    // 主字体没有的私用区码位仍须走扫描（不能被当成真字形）。
+    pipeline.scan_count = 0;
+    assert!(pipeline.glyph_information('\u{F8FF}').is_some());
+    assert!(
+        pipeline.scan_count > 0,
+        "unmapped private-use glyph must still scan the database"
+    );
+}
+
+/// `bitmaps_equal` 只比像素，不比图集位置：不同位置上的同形位图必须判等。
+#[test]
+fn bitmap_equality_ignores_atlas_position_but_not_pixels() {
+    // 2×2 像素的图集：两个 1×1 字形分别落在 (0,0) 与 (1,1)。
+    let mut bitmap = vec![0u8; 2 * 2 * BYTES_PER_PIXEL];
+    bitmap[0..4].copy_from_slice(&[1, 2, 3, 4]);
+    bitmap[(3 * BYTES_PER_PIXEL)..(4 * BYTES_PER_PIXEL)].copy_from_slice(&[1, 2, 3, 4]);
+    let placement = swash::zeno::Placement {
+        left: 0,
+        top: 0,
+        width: 1,
+        height: 1,
+    };
+    let first = GlyphInfo {
+        atlas_x: 0,
+        atlas_y: 0,
+        width: 1,
+        height: 1,
+        placement,
+        allocation_id: None,
+    };
+    let second = GlyphInfo {
+        atlas_x: 1,
+        atlas_y: 1,
+        ..first.clone()
+    };
+    assert!(super::super::pipeline::bitmaps_equal(
+        &bitmap, 2, &first, &second
+    ));
+
+    bitmap[(3 * BYTES_PER_PIXEL) + 3] = 9;
+    assert!(!super::super::pipeline::bitmaps_equal(
+        &bitmap, 2, &first, &second
+    ));
+}
