@@ -380,6 +380,13 @@ MUST NOT 自创错误消息、MUST NOT 让上游为客户端探测记警告；�
 - **WHEN** 客户端探测 `t=s` 且平台无 POSIX 共享内存
 - **THEN** 本层 MUST 回 `EINVAL: unsupported medium`，该命令 MUST NOT 到达上游
 
+#### Scenario: 缺省动作按传输处理
+
+- **WHEN** 客户端探测 `t=s` 但省略了动作键 `a`（kitty 规范查询介质的示例写法）
+- **THEN** 本层 MUST 按上游语义把缺省动作视为 `t`，与显式 `a=t` 同等代答，
+      命令 MUST NOT 到达上游，MUST NOT 让上游为它记
+      `erroneous kitty graphics response` 警告
+
 #### Scenario: 文件介质打不开被代答
 
 - **WHEN** 客户端以文件介质传输且路径按进程工作目录打不开

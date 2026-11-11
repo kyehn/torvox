@@ -332,8 +332,10 @@ fn kitty_probe(content: &[u8], capabilities: MediaCapabilities<'_>) -> KittyProb
     };
     let control = ControlData::parse(control_bytes);
     // 只有查询与传输两类命令会因介质不可用而失败；其余（显示、删除、动画等）
-    // 本层不干预。
-    if !matches!(control.action, Some(b'q') | Some(b't') | Some(b'T')) {
+    // 本层不干预。`a` 的缺省值按上游语义是 `t`：kitty 规范里「查询可用传输介质」
+    // 的示例本身就省略 `a`（`ESC_Gi=31,s=10,v=2,t=s;…`），按「无 `a` 即非探测」
+    // 放行会让共享内存探测直达上游，由上游记一条 `erroneous kitty graphics response`。
+    if !matches!(control.action, None | Some(b'q' | b't' | b'T')) {
         return KittyProbe::Pass;
     }
     match control.medium {
@@ -467,7 +469,7 @@ fn decode_path(payload: &[u8]) -> Option<String> {
 
 /// Kitty 控制数据里本层关心的键。
 struct ControlData {
-    /// `a`：动作（`q` 查询 / `t` 传输 / `T` 传输并显示）。
+    /// `a`：动作（`q` 查询 / `t` 传输 / `T` 传输并显示）。缺省时上游按 `t` 处理。
     action: Option<u8>,
     /// `t`：传输介质（默认 `d` 直接）。
     medium: u8,
@@ -738,6 +740,37 @@ mod tests {
         );
     }
 
+    /// kitty 规范里「查询可用传输介质」的示例省略 `a`，而上游按 `t` 处理缺省动作：
+    /// 这类探测必须与本层已覆盖的显式 `a=t` 同等代答，否则上游会为它记一条
+    /// `erroneous kitty graphics response`（真机 logcat 的唯一来源）。
+    #[test]
+    fn shared_memory_probe_without_action_is_answered_by_this_layer() {
+        let (payload, responses) = filter(b"\x1b_Gi=31,s=1,v=1,t=s;AAAA\x1b\\");
+        assert!(payload.is_empty(), "本层代答的探测命令不得到达上游");
+        assert_eq!(
+            responses,
+            [b"\x1b_Gi=31;EINVAL: unsupported medium\x1b\\".to_vec()],
+            "缺省动作按上游语义就是 transmit，应答必须与显式 a=t 一致"
+        );
+    }
+
+    /// 缺省动作 + 能服务的介质仍须交回上游：那是真实传输，拦下图像就传不过来。
+    #[test]
+    fn shared_memory_probe_without_action_is_passed_when_shared_memory_is_available() {
+        let filtered = filter_input(
+            b"\x1b_Gi=31,s=1,v=1,t=s;AAAA\x1b\\",
+            MediaCapabilities {
+                shared_memory: true,
+                temp_dir: None,
+            },
+        );
+        assert_eq!(
+            filtered.payload.as_ref(),
+            b"\x1b_Gi=31,s=1,v=1,t=s;AAAA\x1b\\"
+        );
+        assert!(filtered.responses.is_empty());
+    }
+
     #[test]
     fn shared_memory_probe_is_answered_when_shared_memory_is_available() {
         let filtered = filter_input(
@@ -749,6 +782,17 @@ mod tests {
         );
         assert_eq!(filtered.payload.as_ref(), b"\x1b_Ga=q,i=3,t=s;AAAA\x1b\\");
         assert!(filtered.responses.is_empty());
+    }
+
+    /// 文件介质探测同样可能省略 `a`：缺省动作 + 打不开的路径必须由本层代答。
+    #[test]
+    fn file_probe_without_action_is_answered_by_this_layer() {
+        let (payload, responses) = filter(b"\x1b_Gi=2,t=f;/ZGVmaW5pdGVseS9ub3QvaGVyZS5wbmc=\x1b\\");
+        assert!(payload.is_empty());
+        assert_eq!(
+            responses,
+            [b"\x1b_Gi=2;EINVAL: invalid data\x1b\\".to_vec()]
+        );
     }
 
     #[test]
