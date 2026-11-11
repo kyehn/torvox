@@ -52,6 +52,30 @@ impl WriteGate {
         }
     }
 
+    /// 等待 write 进入临界区，最多等 `timeout`；超时返回 false。
+    ///
+    /// 与 [`Self::wait_until_entered`] 的差别只在超时：挂死的用例比判红的更难排查，
+    /// 故需要「写入确实进了临界区」这一前提的用例应走本方法并对 false 判红。
+    pub fn wait_until_entered_with_timeout(&self, timeout: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        let (lock, cvar) = &self.entered;
+        let mut entered = lock.lock().expect("gate mutex poisoned");
+        while !*entered {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            let (guard, wait) = cvar
+                .wait_timeout(entered, deadline - now)
+                .expect("gate mutex poisoned");
+            entered = guard;
+            if wait.timed_out() && !*entered {
+                return false;
+            }
+        }
+        true
+    }
+
     /// 放行被闸门挡住的写入。
     pub fn release(&self) {
         let (lock, cvar) = &self.release;

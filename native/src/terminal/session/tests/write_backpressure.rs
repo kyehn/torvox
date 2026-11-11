@@ -15,86 +15,42 @@ use std::time::Duration;
 /// 断言会话锁在这段时间内仍可取得。
 #[test]
 fn pty_write_does_not_hold_the_session_lock() {
-    use std::io;
-    use std::os::unix::io::OwnedFd;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::time::Instant;
+    use crate::terminal::mock_pty::{MockPty, WriteGate};
+    use std::time::Duration;
 
-    /// 写入挂起直到本测试放行：模拟真实 `write_all` 在主端缓冲满时的等待分支。
-    struct BlockingPty {
-        entered: Arc<AtomicBool>,
-        released: Arc<AtomicBool>,
-    }
-
-    impl Pty for BlockingPty {
-        fn write(&self, buf: &[u8]) -> io::Result<usize> {
-            self.entered.store(true, Ordering::Release);
-            while !self.released.load(Ordering::Acquire) {
-                std::thread::sleep(Duration::from_millis(1));
-            }
-            Ok(buf.len())
-        }
-        fn read(&self, _buf: &mut [u8]) -> io::Result<usize> {
-            Err(io::Error::new(io::ErrorKind::WouldBlock, "no data"))
-        }
-        fn resize(&self, _rows: u16, _cols: u16) -> Result<(), PtyError> {
-            Ok(())
-        }
-        fn get_winsize(&self) -> Result<(u16, u16), PtyError> {
-            Ok((24, 80))
-        }
-        fn child_pid(&self) -> nix::unistd::Pid {
-            nix::unistd::Pid::from_raw(4_194_305)
-        }
-        fn try_clone_reader_fd(&self) -> io::Result<OwnedFd> {
-            std::fs::File::open("/dev/null").map(OwnedFd::from)
-        }
-        fn set_nonblocking(&self) -> Result<(), PtyError> {
-            Ok(())
-        }
-    }
-
-    let entered = Arc::new(AtomicBool::new(false));
-    let released = Arc::new(AtomicBool::new(false));
+    // 写入挂起直到本测试放行：模拟真实 `write_all` 在主端缓冲满时的等待分支。
+    // 用共享的 [`MockPty`] + [`WriteGate`]：同文件其余用例走的是同一条闸，自造一份
+    // PTY 替身会让「写入如何被挂起」出现两种口径（一份靠 sleep 轮询，一份靠闸）。
+    let gate = WriteGate::new();
+    let (mut pty, _handle) = MockPty::new(24, 80);
+    pty.gate_writes(Arc::clone(&gate));
     let session = Arc::new(std::sync::Mutex::new(
-        Session::with_pty_for_test(
-            Box::new(BlockingPty {
-                entered: Arc::clone(&entered),
-                released: Arc::clone(&released),
-            }) as Box<dyn Pty>,
-            24,
-            80,
-        )
-        .expect("with_pty must succeed"),
+        Session::with_pty_for_test(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed"),
     ));
     let writer = session.lock().expect("session lock").pty_master();
 
     let writer_thread = std::thread::spawn(move || writer.write(b"x"));
-    // 写入线程已进入 `Pty::write` 并挂起在等待分支。
-    let entered_deadline = Instant::now() + Duration::from_secs(5);
-    while !entered.load(Ordering::Acquire) && Instant::now() < entered_deadline {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert!(
-        entered.load(Ordering::Acquire),
-        "写入线程必须已挂起在 PTY 写入内，否则本测试无判别力"
-    );
+    // 写入线程已进入 `Pty::write` 并挂起在等待分支。等待有期限：挂死的用例比判红的
+    // 更难排查，写入若根本没进临界区，本用例应判红而不是永远挂着。
+    const ENTER_BUDGET: Duration = Duration::from_secs(5);
+    let entered_in_time = gate.wait_until_entered_with_timeout(ENTER_BUDGET);
 
     // 关键断言：写入挂起期间会话锁仍可取得。锁被占用即代表写入持锁——
     // 渲染与事件收割每帧都取这把锁，阻塞写入会把整台终端冻住。
+    let lock_result = session.try_lock();
+    // 先放行再断言：任何分支下写入线程都会被放出来，不会被挂在闸里。
+    gate.release();
+    let write_result = writer_thread.join().expect("writer thread panicked");
+    if !entered_in_time {
+        panic!("写入线程未在期限内进入 PTY 写入，本测试无判别力");
+    }
     {
-        let locked = session
-            .try_lock()
-            .expect("PTY 写入不得持有会话锁：渲染与事件收割每帧都取这把锁");
+        let locked = lock_result.expect("PTY 写入不得持有会话锁：渲染与事件收割每帧都取这把锁");
         assert_eq!(locked.terminal().rows(), 24, "取得的必须是本会话");
     }
-
     // 放行后写入照常完成（锁外写入的字节序与结果语义不变）。
-    released.store(true, Ordering::Release);
-    writer_thread
-        .join()
-        .expect("writer thread panicked")
-        .expect("放行后写入必须成功");
+    write_result.expect("放行后写入必须成功");
     assert_eq!(session.lock().expect("session lock").terminal().rows(), 24);
 }
 
