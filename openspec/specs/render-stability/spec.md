@@ -113,33 +113,45 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
 
 ### Requirement: 切后台返回时开孔必须被覆盖且重新出帧
 
-`SurfaceView` 的 surface 在 `onStop` 之后被系统拆除时，组合层 MUST 立即回到「无缓冲区」
-状态并在窗口层涂终端底色，直到新 surface 提交首帧。该状态 MUST NOT 依赖随生命周期
-停止收集的订阅方式：写入发生在 `onStop` 之后，`ON_START` 重启收集与返回后的首帧绘制
-会抢跑，首帧按「有缓冲区」绘制时开孔区就透出桌面或上一个应用。
+`SurfaceView` 的 surface 在 `onStop` 之后被系统拆除时，宿主 MUST 立即回到「无缓冲区」
+状态并遮住开孔，直到新 surface 提交首帧。该状态 MUST NOT 依赖随生命周期停止收集的
+订阅方式：写入发生在 `onStop` 之后，`ON_START` 重启收集与返回后的首帧绘制会抢跑，
+首帧按「有缓冲区」绘制时开孔区就透出桌面或上一个应用。
+
+遮罩 MUST 由 `SurfaceView` **自己**在 `onDraw` 里画，MUST NOT 画在组合层（窗口层）：
+平台在 `SurfaceView` 绘制时先给应用窗口打洞，洞里窗口层画过的像素一律被抹掉。
+
+遮罩 MUST 用**离开时的画面**（而非仅一块平底色）：平底色与桌面都是「闪一下」，只是
+闪成另一种颜色。
 
 返回前台后 MUST 重新出帧，MUST NOT 停留在渲染暂停状态形成永久黑屏。
-
-平台在切后台后会拆掉本应用**窗口**的 surface（实测：转场动画结束后立即拆除），
-`SurfaceView` 的 surface 随之被拆——`SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT` 只让
-surface 跟随视图的挂载，不改变窗口 surface 在后台被拆这一事实，故返回前台时
-交换链必然重建。重建期间开孔没有缓冲，窗口层 MUST 用**离开时的画面**遮住开孔
-（而非仅一块平底色）：平底色与桌面都是「闪一下」，只是闪成另一种颜色。
 
 #### Scenario: 切后台拆除 surface
 
 - **WHEN** 应用切到后台且系统拆除了 `SurfaceView` 的 surface
-- **THEN** 开孔覆盖状态 MUST 落回「无缓冲区」，窗口层涂终端底色
+- **THEN** 开孔覆盖状态 MUST 落回「无缓冲区」，由 `SurfaceView` 在 `onDraw` 里遮住
 
 #### Scenario: 返回前台首帧前不透出上一个应用
 
 - **WHEN** 应用回到前台，新 surface 尚未提交首帧
-- **THEN** 窗口层 MUST 保持终端底色覆盖，MUST NOT 透出桌面或上一个应用
+- **THEN** `SurfaceView` MUST 在 `onDraw` 里保持遮罩，MUST NOT 透出桌面或上一个应用
 
 #### Scenario: 返回前台后重新出帧
 
 - **WHEN** 应用回到前台且新 surface 已挂载
 - **THEN** 终端 MUST 在 30s 内重新提交并呈现帧，覆盖状态随首帧撤下
+
+#### Scenario: 遮罩画在 SurfaceView 自己的绘制里
+
+- **WHEN** 宿主把开孔覆盖画在组合层（窗口层）
+- **THEN** 覆盖 MUST NOT 出现在开孔里——平台给窗口打洞时会把该处像素抹掉（实测：
+      组合层涂的底色只在 `SurfaceView` 之外的边距上可见）
+- **AND** 覆盖 MUST 画在 `SurfaceView` 的 `onDraw` 里（打洞在其之前，`onDraw` 在其之后）
+
+#### Scenario: 窗口 surface 被拆导致交换链重建
+
+- **WHEN** 平台在切后台后拆掉本应用**窗口**的 surface
+- **THEN** 返回前台时交换链 MUST 重建，开孔 MUST 由遮罩覆盖重建期间的空档
 
 #### Scenario: 切后台时把离开时的画面留作开孔遮罩
 
@@ -687,16 +699,19 @@ MUST NOT 各写一份缩放/钳制逻辑——补了钳制的那条路径会给�
 - **WHEN** 传入尺寸为 0（空窗口／尚未布局）
 - **THEN** 结果两维都不小于 1，与 wgpu 对零尺寸 surface 的要求一致
 
-### Requirement: 开孔无缓冲区时由窗口层盖底色
+### Requirement: 开孔无缓冲区时由 SurfaceView 自己盖底色
 
 `SurfaceView` 的原生 surface 位于应用窗口**之下**，窗口在该区域是透明开孔：缓冲区
 一旦缺失（冷启动首帧未出、切后台回来重建窗口、原生判死后换视图），开孔就透出后方
-的桌面或上一个应用，表现为「切换应用返回一闪」。窗口像素盖在 surface 之上，故开孔
-**不可能**靠窗口背景或容器背景遮住——那会把终端本身一起盖掉。
+的桌面或上一个应用，表现为「切换应用返回一闪」。
 
-宿主 MUST 在「当前 Surface 尚无缓冲区」这段窗口内，于开孔区域绘制与当前终端主题
-背景一致的颜色，并在该 Surface 首次成功提交缓冲后立即撤销。撤销 MUST 以「已提交」
-为条件，MUST NOT 以时间或重试次数为条件：提前撤销即退回原缺陷，延后撤销则遮挡画面。
+窗口层 MUST NOT 用来遮这个洞：平台在 `SurfaceView` 绘制时给窗口打洞，洞里窗口层
+画的像素一律被抹掉（实测：组合层涂的底色只在 `SurfaceView` 之外的边距上可见）。
+
+宿主 MUST 在「当前 Surface 尚无缓冲区」这段窗口内，由 `SurfaceView` 在 `onDraw`
+里于开孔区域绘制与当前终端主题背景一致的颜色，并在该 Surface 首次成功提交缓冲后
+立即撤销。撤销 MUST 以「已提交」为条件，MUST NOT 以时间或重试次数为条件：提前撤销
+即退回原缺陷，延后撤销则遮挡画面。
 
 宿主 MUST 区分「换了 Surface 实例」与「同一 Surface 改尺寸」：只有前者使开孔失去
 缓冲区（后者交换链里仍有上一帧），故旋转、输入法重排 MUST NOT 触发这次覆盖。
@@ -720,6 +735,25 @@ MUST NOT 各写一份缩放/钳制逻辑——补了钳制的那条路径会给�
 
 - **WHEN** 旋转或输入法重排导致同一 `Surface` 实例以新尺寸重新挂载
 - **THEN** MUST NOT 置「无缓冲区」，画面不闪底色
+
+### Requirement: 开孔覆盖只在原生无缓冲时画
+
+`onDraw` 的内容盖在原生 surface 之上，故 MUST 只在「原生尚无缓冲」这段窗口内画，
+否则遮罩会把终端内容一起盖住（实测去掉这道闸后开孔里只剩一块平底色）。
+
+判据 MUST 取自运行期的事实（谁呈现过帧），MUST NOT 由视图自行猜测。组合层 MAY 把
+该事实推给视图以便及时重绘，但视图绘制时 MUST 以运行期的当前事实为准——遮罩的撤下
+晚一帧就是用户看到的那一下闪。
+
+#### Scenario: 有缓冲时不画覆盖
+
+- **WHEN** 原生 surface 已提交过缓冲
+- **THEN** `onDraw` MUST NOT 画覆盖，终端内容完整可见
+
+#### Scenario: 判据取自运行期的事实
+
+- **WHEN** 视图判断是否画覆盖
+- **THEN** 判据 MUST 取自运行期记录的「已呈现帧」事实，MUST NOT 由视图猜测
 
 ### Requirement: 增量渲染与全量渲染输出一致
 
