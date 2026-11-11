@@ -1,8 +1,5 @@
 use super::*;
 
-/// 图集每个像素的字节数（RGBA）。
-const BYTES_PER_PIXEL: usize = 4;
-
 fn bearing_fits_inside_cell(glyph: char, label: &str) {
     let mut pipeline = FontPipeline::new(512, 512, 14.0);
     let info = pipeline
@@ -117,7 +114,7 @@ fn glyph_region_alpha(info: &GlyphInfo, bitmap: &[u8], atlas_width: usize) -> Ve
             let offset = ((info.atlas_y as usize + pixel_row) * atlas_width
                 + info.atlas_x as usize
                 + pixel_column)
-                * BYTES_PER_PIXEL;
+                * ATLAS_BYTES_PER_PIXEL;
             region.push(bitmap[offset]);
         }
     }

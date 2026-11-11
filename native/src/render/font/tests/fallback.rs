@@ -711,9 +711,9 @@ fn nerd_font_private_use_glyph_skips_database_scan() {
 #[test]
 fn bitmap_equality_ignores_atlas_position_but_not_pixels() {
     // 2×2 像素的图集：两个 1×1 字形分别落在 (0,0) 与 (1,1)。
-    let mut bitmap = vec![0u8; 2 * 2 * BYTES_PER_PIXEL];
+    let mut bitmap = vec![0u8; 2 * 2 * ATLAS_BYTES_PER_PIXEL];
     bitmap[0..4].copy_from_slice(&[1, 2, 3, 4]);
-    bitmap[(3 * BYTES_PER_PIXEL)..(4 * BYTES_PER_PIXEL)].copy_from_slice(&[1, 2, 3, 4]);
+    bitmap[(3 * ATLAS_BYTES_PER_PIXEL)..(4 * ATLAS_BYTES_PER_PIXEL)].copy_from_slice(&[1, 2, 3, 4]);
     let placement = swash::zeno::Placement {
         left: 0,
         top: 0,
@@ -737,7 +737,7 @@ fn bitmap_equality_ignores_atlas_position_but_not_pixels() {
         &bitmap, 2, &first, &second
     ));
 
-    bitmap[(3 * BYTES_PER_PIXEL) + 3] = 9;
+    bitmap[(3 * ATLAS_BYTES_PER_PIXEL) + 3] = 9;
     assert!(!super::super::pipeline::bitmaps_equal(
         &bitmap, 2, &first, &second
     ));
