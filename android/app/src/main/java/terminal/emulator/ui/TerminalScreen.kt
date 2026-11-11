@@ -4,7 +4,6 @@
 package terminal.emulator.ui
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.view.WindowInsets.Type
@@ -53,10 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -79,7 +75,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
-import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.SearchMatchRange
 import terminal.emulator.runtime.LogUtil
@@ -89,7 +84,6 @@ import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
-import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicReference
 
 // toggleKeyboard lambda 在抽屉完全关闭时已跳过延迟路径；
@@ -165,18 +159,14 @@ fun TerminalScreen(
     // 「切换应用返回一闪」。常驻收集让写入直接落到组合状态上，恢复时的首帧就带底色；
     // 该标志只在 Surface 交付/拆除时翻转，常驻不产生额外唤醒。
     val surfaceBufferPresent by viewModel.runtime.surfaceBufferPresent.collectAsState()
-    // 开孔遮罩：切后台时回读的上一帧。与 `surfaceBufferPresent` 同理用常驻收集——
-    // 遮罩在切后台那一刻就已发布，回前台的首帧必须立刻带上它，否则开孔会闪一下。
-    val coverFrame by viewModel.runtime.coverFrame.collectAsState()
-    val coverImage = rememberCoverImage(coverFrame)
-    // 有遮罩时画遮罩（离开时的画面），没有时退回平底色。
-    val coverImageModifier: Modifier =
-        if (surfaceBufferPresent || coverImage == null) {
-            Modifier
-        } else {
-            val image = coverImage
-            Modifier.drawBehind { drawImage(image) }
-        }
+    // 开孔遮罩（切后台时回读的上一帧）**不画在组合层**：窗口层的像素在平台给
+    // SurfaceView 打的洞之下，一律被抹掉（实测组合层涂的底色只在 SurfaceView 之外的
+    // 边距上可见，洞里始终是空的）。遮罩由视图自己在 `onDraw` 里画（见
+    // TerminalSurface.onDraw），并在绘制时向运行期现取「有没有缓冲」这个事实。
+    //
+    // 组合层只负责把该事实推给视图，好让视图在事实翻转时及时重绘——撤下遮罩晚一帧
+    // 就是用户看到的那一下闪。
+    //
     // `~/.termux/termux.properties` 的解析结果。视图只读，不自己读文件——读取时机
     // （启动、设置变化）统一由运行期裁定。
     val termuxProperties by viewModel.termuxConfiguration.collectAsStateWithLifecycle()
@@ -655,31 +645,20 @@ fun TerminalScreen(
                         Modifier.fillMaxSize()
                             // SurfaceView 的原生 surface 在窗口**之下**：窗口这块是透明
                             // 开孔，缓冲区缺失时（冷启动首帧前、切后台回来重建窗口时）
-                            // 透出后方桌面即「切应用返回一闪」。开孔遮不住（窗口像素盖在
-                            // surface 之上），故只在「还没有缓冲区」这窗口内涂终端底色，
-                            // 一有帧提交就撤（见 TerminalRuntime.surfaceBufferPresent）。
-                            .then(
-                                if (surfaceBufferPresent) {
-                                    Modifier
-                                } else {
-                                    Modifier.background(terminalBackground)
-                                },
-                            )
+                            // 透出后方桌面即「切应用返回一闪」。
+                            //
+                            // 这层底色遮不住开孔——平台在 SurfaceView 绘制时给窗口打洞，
+                            // 洞里窗口层画的像素一律被抹掉（实测这层底色只在 SurfaceView
+                            // 之外的边距上可见）。开孔只能由 SurfaceView 自己画（见
+                            // TerminalSurface.onDraw），故此处只保留边距的底色。
+                            .background(terminalBackground)
                             // `terminal-margin-*`：内缩的是 SurfaceView，不是整个内容盒——
                             // 背景涂满外层，边距处露出的是同一片终端底色，看起来只是
                             // 文字离屏幕边缘远了一点。网格由 Surface 尺寸算出，随之收窄。
                             .padding(
                                 horizontal = termuxProperties.properties.terminalMarginHorizontalDp.dp,
                                 vertical = termuxProperties.properties.terminalMarginVerticalDp.dp,
-                            )
-                            // 开孔遮罩：切后台时平台拆掉本应用的窗口 surface，回前台时
-                            // 交换链必须重建，那几十毫秒里开孔没有缓冲。没有遮罩时开孔
-                            // 透出后方桌面（有底色时是一块平底色）——用户看到的都是
-                            // 「切后台返回闪一下」。遮罩把离开时的画面留在开孔里，
-                            // 新帧到达即撤（见 TerminalRuntime.coverFrame）。
-                            //
-                            // 画在内缩之后：位图的尺寸是 surface 尺寸（与边距无关）。
-                            .then(coverImageModifier),
+                            ),
                     ) {
                         // 工厂在**组合期**被调用（ComposeNode 创建阶段），而
                         // `surfaceRef` 在本组合内被读（LaunchedEffect 的 key）——
@@ -730,6 +709,14 @@ fun TerminalScreen(
                             },
                             update = { surface ->
                                 surface.touchEnabled = !isOverlayVisible
+                                // 开孔遮罩：原生 surface 尚无缓冲时，SurfaceView 在自己的
+                                // `onDraw` 里补画离开时的画面（开孔只能由它自己填，组合层
+                                // 画的像素会被平台的打洞抹掉，见 TerminalSurface.onDraw）。
+                                // 这里只把「有没有缓冲」这个事实推给视图，由视图在绘制时
+                                // 取用并按事实决定画不画。
+                                surface.surfaceHasBuffer = surfaceBufferPresent
+                                // 没有可复现的上一帧时铺的底色（终端底色）：主题变了就得换。
+                                surface.holeCoverBackground = terminalBackground.toArgb()
                                 // 组合状态是唯一真源：翻转后由这里推给视图，轻点路径才
                                 // 知道该不该拉起输入法。update 每次重组都跑，赋值幂等。
                                 surface.softKeyboardEnabled = softKeyboardEnabled
@@ -996,23 +983,6 @@ fun TerminalScreen(
             } // 关闭内容盒——终端 Surface 与键栏读同一个 ime 高度，但平移量按内容
             // 下沿各自裁剪（键栏恒为整块键盘高度），故两者位移值不同是设计而非双位移源
         }
-    }
-}
-
-/**
- * 把回读到的开孔遮罩像素转成可绘制的位图。
- *
- * 像素是 RGBA8（与原生侧的 `Rgba8Unorm` 累加器同格式），`ARGB_8888` 位图在内存里
- * 就是 R、G、B、A 的字节序，故一次原始拷贝即可，不必逐像素换通道。
- *
- * 转换只做一次（`remember` 住）：位图与像素各有一份，再每次重组转换就是白白的拷贝。
- */
-@Composable
-private fun rememberCoverImage(frame: Bridge.CoverFrame?): ImageBitmap? = remember(frame) {
-    frame?.let { cover ->
-        val bitmap = Bitmap.createBitmap(cover.width, cover.height, Bitmap.Config.ARGB_8888)
-        bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(cover.pixels))
-        bitmap.asImageBitmap()
     }
 }
 

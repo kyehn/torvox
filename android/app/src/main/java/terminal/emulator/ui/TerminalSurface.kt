@@ -1,6 +1,9 @@
 package terminal.emulator.ui
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.util.AttributeSet
 import android.view.KeyEvent
@@ -22,6 +25,7 @@ import terminal.emulator.runtime.DEFAULT_GRID_COLS
 import terminal.emulator.runtime.DEFAULT_GRID_ROWS
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
+import java.nio.ByteBuffer
 
 class TerminalSurface
 @JvmOverloads
@@ -960,6 +964,98 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // Activity 声明了 `configChanges` 含 orientation/screenSize，旋转不重建
         // Activity，故同一个视图实例会带着旧平移量走到新高度上。
         ime.applyImeShift()
+    }
+
+    // ── 开孔遮罩 ────────────────────────────────────────────────────────────
+    //
+    // 平台在切后台后会拆掉本应用窗口的 surface（转场动画结束后立即拆除），
+    // `SurfaceView` 的 surface 随之被拆；回前台时交换链必须重建，那几十毫秒里
+    // 窗口的透明开孔没有缓冲——用户看到的就是「切后台返回终端闪烁」。
+    //
+    // 遮罩只能由**本视图自己**画，且必须画在 `onDraw` 里：`SurfaceView.draw` 先给窗口
+    // 打洞（`clearSurfaceViewPort`），再走 `super.draw`——也就是 `onDraw`。故 `onDraw`
+    // 画的内容落在洞**之后**，盖在原生 surface 之上；组合层（窗口层）画的则相反：
+    // 它在洞**之下**，一律被平台的打洞抹掉（实测组合层涂的底色只在 SurfaceView 之外的
+    // 边距上可见，洞里始终是空的）。
+    //
+    // 盖在原生 surface 之上意味着遮罩会把终端内容一起盖住，故只在「原生尚无缓冲」
+    // 这段窗口内画；遮罩内容是切后台时回读到的离开画面（RGBA8 像素），与原生
+    // warmup 呈现的那一帧同源，故撤下时画面不跳变。
+
+    /**
+     * 遮罩位图与其来源：来源换了才重建位图（像素拷贝不便宜）。
+     *
+     * 源是运行期发布的那一帧对象，身份变了才需要重新拷贝像素。
+     */
+    private var holeCoverBitmap: Bitmap? = null
+    private var holeCoverSource: Bridge.CoverFrame? = null
+
+    /**
+     * 原生 surface 是否已有缓冲（组合层推来的，仅用于触发重绘）。
+     *
+     * 画不画遮罩以**运行期的事实**为准（见 [onDraw]），这个字段只负责在事实翻转时
+     * 请求重绘——组合层重组的时机不确定，而遮罩的撤下必须及时。
+     */
+    internal var surfaceHasBuffer: Boolean = true
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
+
+    /**
+     * 没有可复现的上一帧时铺的底色（终端底色）。
+     *
+     * 没有它，开孔会透出后方桌面——那正是「闪一下」的另一种样子。
+     */
+    internal var holeCoverBackground: Int = Color.BLACK
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val runtime = viewModel?.runtime ?: return
+        // 原生 surface 已有缓冲：MUST NOT 画遮罩（它不透明，画上去就把终端内容整个
+        // 盖住）。判据是运行期的事实（谁呈现过帧），不是本视图的猜测。
+        if (runtime.surfaceBufferPresent.value) return
+        val cover = runtime.coverFrame.value
+        // 遮罩与当前 surface 尺寸不一致时不用：错位的位图比没有遮罩更糟。
+        val bitmap =
+            cover?.takeIf { it.width == width && it.height == height }?.let { coverBitmap(it) }
+        if (bitmap != null) {
+            canvas.drawBitmap(bitmap, 0f, 0f, null)
+        } else {
+            canvas.drawColor(holeCoverBackground)
+        }
+    }
+
+    /**
+     * 取（必要时重建）遮罩位图。
+     *
+     * 位图与来源一一对应：来源是运行期发布的那一帧对象，身份变了才重建。
+     */
+    private fun coverBitmap(cover: Bridge.CoverFrame): Bitmap {
+        val cached = holeCoverBitmap
+        if (cached != null && holeCoverSource === cover) return cached
+        val bitmap = cover.toBitmap()
+        holeCoverSource = cover
+        holeCoverBitmap = bitmap
+        return bitmap
+    }
+
+    /**
+     * 把回读到的遮罩像素转成位图。
+     *
+     * 像素是 RGBA8，`ARGB_8888` 位图在内存里就是 R、G、B、A 的字节序，
+     * 故一次原始拷贝即可，不必逐像素换通道。
+     */
+    private fun Bridge.CoverFrame.toBitmap(): Bitmap {
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(pixels))
+        return bitmap
     }
 
     // ══════════════════════════════════════════════════════════════════════
