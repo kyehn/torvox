@@ -600,6 +600,7 @@ impl Renderer {
             let (atlas_w, atlas_h) = font_pipeline.atlas_dimensions();
             self.upload_atlas(font_pipeline.atlas_bitmap(), atlas_w, atlas_h, Some(rect));
         }
+        let upload_done = std::time::Instant::now();
         if converted.is_none() {
             return Err(GpuError::Surface("CellData conversion failed".into()));
         }
@@ -639,9 +640,16 @@ impl Renderer {
             // `cells` 是网格里的单元记录数，`instances` 是真正发射的四边形数：
             // 与清除色同色的空白格不发射，两者差得远。混用会把「空白格被跳过」
             // 误读成「网格全被绘制」。
+            //
+            // 四段（构建 / 图集上传 / 脏带编排 / GPU）之和恰等于整帧时长：
+            // 图集上传夹在构建与脏带编排之间，不单列就会凭空消失——真机上一次新
+            // 字形的上传可达数十毫秒，那段时间既不在「构建」里也不在「GPU」里，
+            // 定位时只剩两个对不上的数字。
             log::warn!(
-                "SLOW_CELL_BUILD build={:.3}ms gpu={:.3}ms total={:.3}ms cells={} instances={} partial={partial} rows={rows} slow_frames={slow_frames}",
+                "SLOW_CELL_BUILD build={:.3}ms upload={:.3}ms plan={:.3}ms gpu={:.3}ms total={:.3}ms cells={} instances={} partial={partial} rows={rows} slow_frames={slow_frames}",
                 ms(build_done.duration_since(build_start)),
+                ms(upload_done.duration_since(build_done)),
+                ms(gpu_start.duration_since(upload_done)),
                 ms(gpu_done.duration_since(gpu_start)),
                 ms(total),
                 cell_data.len(),
