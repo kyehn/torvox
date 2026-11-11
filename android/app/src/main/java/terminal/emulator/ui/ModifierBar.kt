@@ -308,6 +308,8 @@ internal const val PRESS_BG_TWEEN_MS = 30
 internal const val PRESS_SCALE_TWEEN_MS = 90
 
 // 按下反馈的延迟：覆盖系统底部上滑从 ACTION_DOWN 到 ACTION_CANCEL 的窗口。
+// 只用于落在系统手势区内的触摸（见 pressInsideGestureArea）；区外的触摸
+// 立即给反馈——系统不会认领那里的触摸，延后只是白白迟滞。
 internal const val PRESS_FEEDBACK_DELAY_MS = 40
 
 /**
@@ -327,9 +329,9 @@ internal data class PressFeedbackGeometry(val keyBoundsInRoot: Rect, val viewpor
  * 触摸点是否落在系统手势区内。
  *
  * 落在区内说明系统手势随时可能接管这次触摸：应用先收到 `ACTION_DOWN`，随后被补发
- * `ACTION_CANCEL`。此时已经画出的按下反馈就是用户看到的「上滑触发了按键动画」。
- * 与其猜测系统认领手势要多久，不如在该区域干脆不给反馈——区内无反馈，动画问题从
- * 根上消失，也不必再依赖任何超时常数。
+ * `ACTION_CANCEL`。区内不吞掉按下反馈（否则键栏底边那排按键永远没有反馈），
+ * 改为把反馈延后一段覆盖认领窗口的时间再启动：手指在窗口内起滑时反馈尚未亮起，
+ * 用户看到的仍是「上滑没有触发按键」；静止轻点则照常给出反馈。
  *
  * 视口尺寸尚未就绪（按键还没布局）时一律判否：此时无法判定，宁可保留反馈也不要
  * 把正常按键的反馈吞掉。
@@ -725,6 +727,11 @@ private fun RowScope.ExtraKeyButton(
     val isOnce = modifierState == ModifierState.Once
 
     var isPressed by remember { mutableStateOf(false) }
+    // 这次按下是否落在系统手势区内。区内的一次触摸随时可能被系统认领走
+    // （底部上滑、侧缘返回），认领前系统先给应用 ACTION_DOWN：反馈若已经亮起，
+    // 用户看到的就是「上滑触发了按键动画」。故区内把反馈延后到认领窗口之后
+    // 再启动；区外系统根本不会认领，立即给反馈（延迟只是白白迟滞）。
+    var pressInsideGestureArea by remember { mutableStateOf(false) }
 
     val scale by
         animateFloatAsState(
@@ -740,7 +747,8 @@ private fun RowScope.ExtraKeyButton(
             if (isPressed) {
                 tween(
                     durationMillis = PRESS_SCALE_TWEEN_MS,
-                    delayMillis = PRESS_FEEDBACK_DELAY_MS,
+                    delayMillis =
+                    if (pressInsideGestureArea) PRESS_FEEDBACK_DELAY_MS else 0,
                 )
             } else {
                 snap()
@@ -763,7 +771,8 @@ private fun RowScope.ExtraKeyButton(
             if (isPressed) {
                 tween(
                     durationMillis = PRESS_BG_TWEEN_MS,
-                    delayMillis = PRESS_FEEDBACK_DELAY_MS,
+                    delayMillis =
+                    if (pressInsideGestureArea) PRESS_FEEDBACK_DELAY_MS else 0,
                 )
             } else {
                 snap()
@@ -805,9 +814,11 @@ private fun RowScope.ExtraKeyButton(
             awaitEachGesture {
                 val down = awaitFirstDown()
                 val downPos = down.position
-                // 系统手势区内的按下不给反馈：系统随时可能接管这次触摸并补发
-                // ACTION_CANCEL，已经画出的缩放就是用户看到的「上滑触发了按键动画」。
-                // 区外的按下照旧给反馈（带延迟），行为不变。
+                // 系统手势区内的按下：反馈延后一段覆盖系统认领窗口的时间再启动
+                // （见 pressInsideGestureArea）。系统认领手势时先给 ACTION_DOWN、
+                // 再补发 ACTION_CANCEL：反馈若在认领前就亮起，用户看到的就是
+                // 「上滑触发了按键动画」。区外的按下立即给反馈——系统不会认领
+                // 那里的触摸，延后只是白白迟滞。
                 val insideGestureArea =
                     isInsideSystemGestureArea(
                         touchX = currentPressGeometry.keyBoundsInRoot.left + downPos.x,
@@ -832,7 +843,8 @@ private fun RowScope.ExtraKeyButton(
                     }
                     return sawRawMotionEvent && changes.all { !it.pressed }
                 }
-                isPressed = !insideGestureArea
+                pressInsideGestureArea = insideGestureArea
+                isPressed = true
                 try {
                     var gestureValid = true
                     if (currentSecondaryAction != null) {
