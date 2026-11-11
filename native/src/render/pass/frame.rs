@@ -65,6 +65,12 @@ impl Renderer {
             log::warn!("surface loss injected for test; warmup presents background clear only");
         }
         let Some(output) = acquired.into_texture() else {
+            // 取不到纹理就什么都没呈现：开孔在下一帧渲染出来之前是空的（平台会
+            // 露出后方的桌面/上一个应用）。这正是「切后台返回闪一下」的那一段，
+            // 故必须出声——静默返回等于把闪烁的原因藏起来。
+            log::warn!(
+                "warmup: could not acquire a texture; the surface stays empty until the first frame"
+            );
             return;
         };
         let mut encoder = self
@@ -82,6 +88,11 @@ impl Renderer {
                     && texture.format() == config.format
             });
         if resume {
+            log::info!(
+                "warmup: presenting the retained last frame ({}x{})",
+                config.width,
+                config.height
+            );
             // SAFETY（借用）：累加器与交换链纹理互不重叠，copy 合法。
             if let Some(texture) = self.frame_texture.as_ref() {
                 encoder.copy_texture_to_texture(
@@ -95,6 +106,11 @@ impl Renderer {
                 );
             }
         } else {
+            log::info!(
+                "warmup: no retained frame to present ({}x{}), clearing to the background",
+                config.width,
+                config.height
+            );
             let view = output
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
