@@ -1,5 +1,12 @@
 # Proposal
 
+> **后续修正（2026-11-11）**：本变更中「切后台不再拆 surface / 不再重建交换链」的前提
+> 被实测证伪——`SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT` 只让 surface 跟随视图的挂载，
+> 平台在后台拆掉**窗口** surface 这一事实不变，故切后台仍会 `surfaceDestroyed`、
+> 回前台仍会重建交换链。该前提已撤销（见变更
+> `2026-11-11-cover-the-terminal-hole-with-the-last-frame`），闪烁改由「开孔遮罩」
+> 消除。本变更中「修饰键栏手势区内按下反馈改为延后启动」的部分仍然有效。
+
 ## Why
 
 真机 logcat 与 `docs/STATUS.md` 的未决问题指向同一条链路：`SurfaceView` 的 surface 生命周期

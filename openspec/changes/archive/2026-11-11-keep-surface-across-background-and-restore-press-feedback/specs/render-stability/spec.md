@@ -1,5 +1,9 @@
 # render-stability Specification
 
+> **后续修正（2026-11-11）**：本 delta 里「切后台 MUST NOT 触发 surface 的拆除与
+> 重建」与实测相反（平台在后台拆窗口 surface，返回前台必然重建交换链），已由变更
+> `2026-11-11-cover-the-terminal-hole-with-the-last-frame` 撤销并更正。
+
 ## ADDED Requirements
 
 ### Requirement: 终端 Surface 的生命周期跟随挂载而非可见性
