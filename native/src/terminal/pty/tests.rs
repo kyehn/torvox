@@ -89,6 +89,30 @@ fn write_all_retries_after_eintr_instead_of_failing() {
     assert_eq!(handle.written(), b"hello", "字节必须全部送出，一个都不能少");
 }
 
+/// 回归钉：连续 EINTR 也不得越过排空期限。
+///
+/// EINTR 分支不经 EAGAIN 分支的 `wait_writable`（那里才按 deadline 收敛），
+/// 没有期限闸时信号不断就会在期限外无限重试。逐帧回写 VT 应答的那条路全程持
+/// 会话锁，渲染与看门狗同被按住——期限是那道路的总闸。
+///
+/// 判别力：去掉期限闸即写入成功（断言判红）。
+#[test]
+fn write_all_gives_up_at_the_deadline_when_writes_keep_getting_interrupted() {
+    let (mut pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+    // 额度远大于期限内的重试次数：没有期限闸时它会耗尽额度并写入成功。
+    pty.interrupt_next_writes(1_000_000);
+
+    let (written, result) =
+        Pty::write_all(&pty, b"hello", std::time::Duration::from_millis(50), false);
+
+    assert_eq!(written, 0, "一个字节都不该写出去");
+    assert_eq!(
+        result.expect_err("连续 EINTR 必须按期限放弃").kind(),
+        std::io::ErrorKind::WouldBlock,
+        "到期须报「未排空」，不得继续无限重试"
+    );
+}
+
 /// 主端是 `O_NONBLOCK`：PTY 输入缓冲（~4KB）满时 `write` 失败并返回 EAGAIN。
 /// 旧实现据此返回 `WouldBlock` 并丢弃剩余字节——粘贴被静默截断、子进程执行
 /// 半条命令，VT 应答也会被截断在转义序列中间使子应用永久等待。

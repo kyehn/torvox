@@ -182,7 +182,16 @@ pub trait Pty: Send + Sync {
                 // EINTR 不是失败：信号打断了 write。resize 的 SIGWINCH 与子进程退出
                 // 的 SIGCHLD 都走这条，于是一次击键会被报成「写入失败、已丢弃」，
                 // 而字节其实从未送出。直接重试，且**不动**期限——信号不算等待。
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                //
+                // 但期限仍是总闸：这条路径不经 EAGAIN 分支的 `wait_writable`（那里
+                // 才按 deadline 收敛），连续信号会让重试在期限外无限循环——逐帧回写
+                // VT 应答的那条路全程持会话锁，渲染与看门狗同被按住。到期即按
+                // 「子进程此刻不读」返回已写出的长度，剩余字节由调用方退回队列。
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {
+                    if std::time::Instant::now() >= deadline {
+                        return (written, Err(not_drained()));
+                    }
+                }
                 Err(error) => return (written, Err(error)),
             }
         }
