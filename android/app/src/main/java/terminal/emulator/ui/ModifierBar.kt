@@ -33,6 +33,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,6 +62,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.R
 import terminal.emulator.input.KeyModifiers
@@ -307,20 +311,18 @@ internal fun modifierLongPressMillis(systemTimeoutMs: Long): Long =
 internal const val PRESS_BG_TWEEN_MS = 30
 internal const val PRESS_SCALE_TWEEN_MS = 90
 
-// 按下反馈的延迟：覆盖系统底部上滑从 ACTION_DOWN 到 ACTION_CANCEL 的窗口。
-internal const val PRESS_FEEDBACK_DELAY_MS = 40
+// 按下反馈的轻点脉冲时长：手势区内抬手后才亮起，需留够缩放动画走完的时间。
+internal const val PRESS_FEEDBACK_PULSE_MS = 120
 
 /**
- * 按下反馈的启动延迟（毫秒）。
+ * 手势区内的按下是否立即给出反馈。
  *
- * 系统手势区内的触摸延后一段覆盖系统认领窗口的时间：系统认领手势时先给应用
- * `ACTION_DOWN`、再补发 `ACTION_CANCEL`，反馈若先亮起，用户看到的就是「上滑触发了
- * 按键动画」。区外的触摸系统根本不会认领，立即给反馈——延迟只是白白迟滞。
- *
- * 区内的反馈**照常给出**（只是延后）：整个吞掉会让键栏底边那排按键永远没有反馈。
+ * 系统手势区内的触摸随时可能被认领走并补发 `ACTION_CANCEL`，认领时机取决于用户
+ * 手指移动的快慢，没有上界。任何「按下后等固定时长再亮」的窗口都会被慢速起滑穿过，
+ * 用户看到的就是「上滑触发了按键动画」。故区内不在按下时给反馈，改为轻点抬手时给
+ * 一次脉冲、长按或连发触发时再亮起；区外系统不会认领，立即给反馈。
  */
-internal fun pressFeedbackDelayMillis(insideSystemGestureArea: Boolean): Int =
-    if (insideSystemGestureArea) PRESS_FEEDBACK_DELAY_MS else 0
+internal fun pressFeedbackStartsImmediately(insideSystemGestureArea: Boolean): Boolean = !insideSystemGestureArea
 
 /**
  * 系统手势区（像素）：系统手势在此区域内优先，应用随时可能被补发 `ACTION_CANCEL`。
@@ -737,28 +739,20 @@ private fun RowScope.ExtraKeyButton(
     val isOnce = modifierState == ModifierState.Once
 
     var isPressed by remember { mutableStateOf(false) }
-    // 这次按下是否落在系统手势区内。区内的一次触摸随时可能被系统认领走
-    // （底部上滑、侧缘返回），认领前系统先给应用 ACTION_DOWN：反馈若已经亮起，
-    // 用户看到的就是「上滑触发了按键动画」。故区内把反馈延后到认领窗口之后
-    // 再启动；区外系统根本不会认领，立即给反馈（延迟只是白白迟滞）。
-    var pressInsideGestureArea by remember { mutableStateOf(false) }
+    // 手势区内轻点抬手的反馈脉冲：按下时没有反馈，抬手后保持一小段时间再复位。
+    // 新的按下会取消尚未结束的脉冲，避免上一次的反馈盖到这次手势上。
+    var pulseJob by remember { mutableStateOf<Job?>(null) }
+    val scope = rememberCoroutineScope()
 
     val scale by
         animateFloatAsState(
             targetValue = if (isPressed) PRESSED_SCALE else 1f,
-            // 按下反馈延迟启动：系统底部上滑先给 ACTION_DOWN、再把触摸认领走并补发
-            // ACTION_CANCEL。按下即缩放会让取消前的一两帧闪一次动画（用户看到
-            // 「上滑触发按键动画」）。延迟覆盖这段窗口，取消时目标未变、无位移。
-            //
             // 复位一律瞬时（snap）：手势被系统认领后若再插值一遍复位，按键会
             // 先缩后弹地「动」一下，正是用户看到的按键动画。抬手同样瞬时复位，
             // 按下反馈仍由按下方向的插值给出。
             animationSpec =
             if (isPressed) {
-                tween(
-                    durationMillis = PRESS_SCALE_TWEEN_MS,
-                    delayMillis = pressFeedbackDelayMillis(pressInsideGestureArea),
-                )
+                tween(durationMillis = PRESS_SCALE_TWEEN_MS)
             } else {
                 snap()
             },
@@ -778,10 +772,7 @@ private fun RowScope.ExtraKeyButton(
             // 与缩放同一口径：按下才插值，抬起与取消瞬时复位。
             animationSpec =
             if (isPressed) {
-                tween(
-                    durationMillis = PRESS_BG_TWEEN_MS,
-                    delayMillis = pressFeedbackDelayMillis(pressInsideGestureArea),
-                )
+                tween(durationMillis = PRESS_BG_TWEEN_MS)
             } else {
                 snap()
             },
@@ -822,11 +813,10 @@ private fun RowScope.ExtraKeyButton(
             awaitEachGesture {
                 val down = awaitFirstDown()
                 val downPos = down.position
-                // 系统手势区内的按下：反馈延后一段覆盖系统认领窗口的时间再启动
-                // （见 pressInsideGestureArea）。系统认领手势时先给 ACTION_DOWN、
-                // 再补发 ACTION_CANCEL：反馈若在认领前就亮起，用户看到的就是
-                // 「上滑触发了按键动画」。区外的按下立即给反馈——系统不会认领
-                // 那里的触摸，延后只是白白迟滞。
+                // 系统手势区内的按下：按下瞬间不给反馈（见
+                // pressFeedbackStartsImmediately）。系统认领手势时先给 ACTION_DOWN、
+                // 再补发 ACTION_CANCEL，认领时机取决于手指移动快慢；区外系统不会
+                // 认领那里的触摸，立即给反馈。
                 val insideGestureArea =
                     isInsideSystemGestureArea(
                         touchX = currentPressGeometry.keyBoundsInRoot.left + downPos.x,
@@ -851,8 +841,27 @@ private fun RowScope.ExtraKeyButton(
                     }
                     return sawRawMotionEvent && changes.all { !it.pressed }
                 }
-                pressInsideGestureArea = insideGestureArea
-                isPressed = true
+                // 区内不在按下时给反馈：系统认领上滑的时机取决于手指移动快慢，
+                // 固定的「延迟窗口」会被慢速起滑穿过（见 pressFeedbackStartsImmediately）。
+                pulseJob?.cancel()
+                pulseJob = null
+                var feedbackVisible = pressFeedbackStartsImmediately(insideGestureArea)
+                fun showFeedbackNow() {
+                    if (feedbackVisible) return
+                    feedbackVisible = true
+                    isPressed = true
+                }
+                fun showFeedbackOnTap() {
+                    if (feedbackVisible) return
+                    feedbackVisible = true
+                    isPressed = true
+                    pulseJob =
+                        scope.launch {
+                            delay(PRESS_FEEDBACK_PULSE_MS.toLong())
+                            isPressed = false
+                        }
+                }
+                isPressed = feedbackVisible
                 try {
                     var gestureValid = true
                     if (currentSecondaryAction != null) {
@@ -868,6 +877,7 @@ private fun RowScope.ExtraKeyButton(
                                 eventTimeMillis - downEventTime >= longPressMs
                             ) {
                                 longPressTriggered = true
+                                showFeedbackNow()
                                 view.performHapticFeedback(
                                     HapticFeedbackConstants.LONG_PRESS,
                                 )
@@ -894,6 +904,7 @@ private fun RowScope.ExtraKeyButton(
                             maybeFireLongPress(pointerInput.uptimeMillis)
                         }
                         if (!longPressTriggered && gestureValid) {
+                            showFeedbackOnTap()
                             view.performHapticFeedback(
                                 HapticFeedbackConstants.KEYBOARD_TAP,
                             )
@@ -918,6 +929,7 @@ private fun RowScope.ExtraKeyButton(
                                 }
                             }
                             if (tapValid) {
+                                showFeedbackOnTap()
                                 view.performHapticFeedback(
                                     HapticFeedbackConstants.KEYBOARD_TAP,
                                 )
@@ -951,6 +963,7 @@ private fun RowScope.ExtraKeyButton(
                                 if (pointerEvent == null) {
                                     if (repeatValid) {
                                         if (!repeatFired) {
+                                            showFeedbackNow()
                                             view.performHapticFeedback(
                                                 HapticFeedbackConstants.KEYBOARD_TAP,
                                             )
@@ -975,6 +988,7 @@ private fun RowScope.ExtraKeyButton(
                                 }
                             }
                             if (!repeatFired && repeatValid) {
+                                showFeedbackOnTap()
                                 view.performHapticFeedback(
                                     HapticFeedbackConstants.KEYBOARD_TAP,
                                 )
@@ -988,7 +1002,8 @@ private fun RowScope.ExtraKeyButton(
                         }
                     }
                 } finally {
-                    isPressed = false
+                    // 轻点脉冲由 scope 的协程负责复位；取消/滑出与正常抬手立即复位。
+                    if (pulseJob == null) isPressed = false
                 }
             }
         }
