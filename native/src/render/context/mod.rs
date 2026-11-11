@@ -1,6 +1,8 @@
 //! GPU 上下文：把 wgpu 的 instance、adapter、device 与管线集中到单个 `Renderer` 结构。
 
 mod atlas;
+#[cfg(any(target_os = "android", test))]
+mod cover;
 mod gpu;
 mod renderer;
 mod surface;

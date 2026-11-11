@@ -208,3 +208,51 @@ pub(super) fn detach_window_inner(_env: &mut Env, _class: JClass, _session_id: j
         render_state.renderer.release_surface();
     }
 }
+
+/// 回读保留的上一帧（RGBA8 像素），供宿主画开孔遮罩。
+///
+/// 平台在切后台后会拆掉本应用窗口的 surface（转场动画结束后立即拆除），
+/// SurfaceView 的 surface 随之被拆；回前台时交换链必须重建，那几十毫秒里
+/// 窗口的透明开孔没有缓冲——宿主把离开时的画面留在开孔里，用户看到的就不是闪一下。
+///
+/// `width`/`height` 是宿主期望的尺寸（surface 尺寸）：与回读结果不符即放弃遮罩，
+/// 宁可让开孔是平底色，也不要画错内容（尺寸不符的位图铺进去是错位的画面）。
+///
+/// 返回 null 表示没有可遮罩的内容（没有累加器、格式不是 RGBA8、回读失败或超时）。
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_readCoverFrame(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    width: jint,
+    height: jint,
+) -> jbyteArray {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        let mut state = render_state_mut();
+        let renderer = &mut state
+            .as_mut()
+            .expect("render_state_mut always initializes")
+            .renderer;
+        match renderer.read_cover_frame() {
+            None => std::ptr::null_mut(),
+            Some(frame) => {
+                if frame.width != width as u32 || frame.height != height as u32 {
+                    log::warn!(
+                        "FFI: readCoverFrame — 尺寸不符（原生 {}x{}，宿主 {width}x{height}），放弃遮罩",
+                        frame.width,
+                        frame.height
+                    );
+                    std::ptr::null_mut()
+                } else {
+                    match env.byte_array_from_slice(&frame.pixels) {
+                        Ok(array) => array.into_raw(),
+                        Err(error) => {
+                            log::warn!("FFI: readCoverFrame — byte_array_from_slice 失败: {error}");
+                            std::ptr::null_mut()
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
