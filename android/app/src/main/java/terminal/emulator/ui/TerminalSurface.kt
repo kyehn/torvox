@@ -1027,9 +1027,18 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             cover?.takeIf { it.width == width && it.height == height }?.let { coverBitmap(it) }
         if (bitmap != null) {
             canvas.drawBitmap(bitmap, 0f, 0f, null)
-        } else {
-            canvas.drawColor(holeCoverBackground)
+            return
         }
+        // 没有可用遮罩（或遮罩已撤下）：铺终端底色。顺带释放缓存的位图——遮罩撤下后
+        // 它再无用处，留着白占几百 KB 直到视图销毁。
+        releaseCoverBitmap()
+        canvas.drawColor(holeCoverBackground)
+    }
+
+    /** 释放缓存的遮罩位图与它的来源。 */
+    private fun releaseCoverBitmap() {
+        holeCoverBitmap = null
+        holeCoverSource = null
     }
 
     /**
