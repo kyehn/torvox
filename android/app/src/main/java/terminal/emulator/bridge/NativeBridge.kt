@@ -277,6 +277,20 @@ object NativeBridge {
     /** 解绑当前 Surface。 */
     @JvmStatic external fun detachWindow(sessionId: Long)
 
+    /**
+     * 回读保留的上一帧（RGBA8 像素），供窗口开孔画遮罩。
+     *
+     * 平台在切后台后会拆掉本应用窗口的 surface（转场动画结束后立即拆除），
+     * SurfaceView 的 surface 随之被拆；回前台时交换链必须重建，那几十毫秒里
+     * 窗口的透明开孔没有缓冲——把离开时的画面留在开孔里，用户看到的就不是闪一下。
+     *
+     * [width]/[height] 是期望的尺寸（surface 尺寸）：与回读结果不符即放弃遮罩，
+     * 宁可让开孔是平底色，也不要画错内容。
+     *
+     * 返回 null 表示没有可遮罩的内容（没有累加器、格式不是 RGBA8、回读失败或超时）。
+     */
+    @JvmStatic external fun readCoverFrame(width: Int, height: Int): ByteArray?
+
     /** 经 CellData 快路径渲染一帧：1 已输出，0 空闲，-1 出错。 */
     @JvmStatic external fun render(sessionId: Long, width: Int, height: Int): Int
 

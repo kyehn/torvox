@@ -4,6 +4,7 @@
 package terminal.emulator.ui
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.view.WindowInsets.Type
@@ -52,7 +53,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -75,6 +79,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
+import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.SearchMatchRange
 import terminal.emulator.runtime.LogUtil
@@ -84,6 +89,7 @@ import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
+import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicReference
 
 // toggleKeyboard lambda 在抽屉完全关闭时已跳过延迟路径；
@@ -159,6 +165,18 @@ fun TerminalScreen(
     // 「切换应用返回一闪」。常驻收集让写入直接落到组合状态上，恢复时的首帧就带底色；
     // 该标志只在 Surface 交付/拆除时翻转，常驻不产生额外唤醒。
     val surfaceBufferPresent by viewModel.runtime.surfaceBufferPresent.collectAsState()
+    // 开孔遮罩：切后台时回读的上一帧。与 `surfaceBufferPresent` 同理用常驻收集——
+    // 遮罩在切后台那一刻就已发布，回前台的首帧必须立刻带上它，否则开孔会闪一下。
+    val coverFrame by viewModel.runtime.coverFrame.collectAsState()
+    val coverImage = rememberCoverImage(coverFrame)
+    // 有遮罩时画遮罩（离开时的画面），没有时退回平底色。
+    val coverImageModifier: Modifier =
+        if (surfaceBufferPresent || coverImage == null) {
+            Modifier
+        } else {
+            val image = coverImage
+            Modifier.drawBehind { drawImage(image) }
+        }
     // `~/.termux/termux.properties` 的解析结果。视图只读，不自己读文件——读取时机
     // （启动、设置变化）统一由运行期裁定。
     val termuxProperties by viewModel.termuxConfiguration.collectAsStateWithLifecycle()
@@ -313,13 +331,13 @@ fun TerminalScreen(
                 // 组合顶层的 LocalView.current 是 AndroidComposeView 而非 TerminalSurface；
                 // 故使用从 AndroidView 工厂捕获的 surfaceRef。
                 surfaceRef.value?.finishComposing()
-                // 切后台：领一次渲染暂停并停止渲染线程。平台是否在切后台拆掉 Surface
-                // 取决于 API 与本应用设定的生命周期策略（见 TerminalSurface.init：
-                // API 34+ 让 Surface 跟随挂载而保留，更早版本跟随可见性而拆除）——
-                // 两种情形下渲染线程都必须停：被系统回收的 BufferQueue 上取帧会得到
-                // ERROR_SURFACE_LOST_KHR，返回后永久黑屏（模拟器已验证）。
-                // 直写全局布尔则会被随后的前台恢复（或关设置页）把别的来源仍在等的
-                // 暂停一并清掉，故一律经账本。
+                // 切后台：领一次渲染暂停并停止渲染线程。平台在切后台后会拆掉本应用
+                // 窗口的 surface（转场动画结束后立刻拆除，实测 API 35 模拟器上
+                // surfaceDestroyed 紧随「Transition animation finished」到达），
+                // SurfaceView 的 surface 随之被拆：渲染线程若继续在已被系统回收的
+                // BufferQueue 上取帧会得到 ERROR_SURFACE_LOST_KHR，返回后永久黑屏
+                // （模拟器已验证）。直写全局布尔则会被随后的前台恢复（或关设置页）
+                // 把别的来源仍在等的暂停一并清掉，故一律经账本。
                 //
                 // 顺序 MUST 是「先领新的、再取消旧的」：反之会让持有者数经过 0，
                 // 在一个即将被系统回收的窗口上多出一对暂停/恢复。
@@ -340,9 +358,9 @@ fun TerminalScreen(
                 // 原生才解除），故此处归还不会让渲染线程在被平台废弃的
                 // BufferQueue 上取帧（ERROR_SURFACE_LOST_KHR）。
                 viewModel.runtime.resumeRenderingFromBackground()
-                // 切应用连续性：若 Surface 被保留（API 34+ 本应用让 Surface 跟随挂载，
-                // 切后台不拆；见 TerminalSurface.init），无 surfaceDestroyed 也就没有
-                // surfaceCreated 来清除 render_paused → 黑屏。
+                // 切应用连续性：若 Surface 未被拆除（无 surfaceDestroyed），
+                // render_paused 仍为 true（来自此前的暂停），
+                // 而 surfaceCreated 从未被调用以清除它 → 黑屏。
                 // Surface 已挂载且已定尺寸时立即恢复；仅在 Surface 尚未就绪
                 // （与布局竞争）时延迟 200ms。
                 if (
@@ -653,7 +671,15 @@ fun TerminalScreen(
                             .padding(
                                 horizontal = termuxProperties.properties.terminalMarginHorizontalDp.dp,
                                 vertical = termuxProperties.properties.terminalMarginVerticalDp.dp,
-                            ),
+                            )
+                            // 开孔遮罩：切后台时平台拆掉本应用的窗口 surface，回前台时
+                            // 交换链必须重建，那几十毫秒里开孔没有缓冲。没有遮罩时开孔
+                            // 透出后方桌面（有底色时是一块平底色）——用户看到的都是
+                            // 「切后台返回闪一下」。遮罩把离开时的画面留在开孔里，
+                            // 新帧到达即撤（见 TerminalRuntime.coverFrame）。
+                            //
+                            // 画在内缩之后：位图的尺寸是 surface 尺寸（与边距无关）。
+                            .then(coverImageModifier),
                     ) {
                         // 工厂在**组合期**被调用（ComposeNode 创建阶段），而
                         // `surfaceRef` 在本组合内被读（LaunchedEffect 的 key）——
@@ -970,6 +996,23 @@ fun TerminalScreen(
             } // 关闭内容盒——终端 Surface 与键栏读同一个 ime 高度，但平移量按内容
             // 下沿各自裁剪（键栏恒为整块键盘高度），故两者位移值不同是设计而非双位移源
         }
+    }
+}
+
+/**
+ * 把回读到的开孔遮罩像素转成可绘制的位图。
+ *
+ * 像素是 RGBA8（与原生侧的 `Rgba8Unorm` 累加器同格式），`ARGB_8888` 位图在内存里
+ * 就是 R、G、B、A 的字节序，故一次原始拷贝即可，不必逐像素换通道。
+ *
+ * 转换只做一次（`remember` 住）：位图与像素各有一份，再每次重组转换就是白白的拷贝。
+ */
+@Composable
+private fun rememberCoverImage(frame: Bridge.CoverFrame?): ImageBitmap? = remember(frame) {
+    frame?.let { cover ->
+        val bitmap = Bitmap.createBitmap(cover.width, cover.height, Bitmap.Config.ARGB_8888)
+        bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(cover.pixels))
+        bitmap.asImageBitmap()
     }
 }
 

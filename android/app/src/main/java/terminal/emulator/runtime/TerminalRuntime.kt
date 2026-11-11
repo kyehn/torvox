@@ -225,6 +225,63 @@ constructor(
     internal fun publishSurfaceBufferPresent(present: Boolean) {
         if (surfaceBufferPresentFlow.value == present) return
         surfaceBufferPresentFlow.value = present
+        // 新帧已上屏：开孔遮罩使命完成，撤掉并释放像素（见 [coverFrame]）。
+        if (present) clearCoverFrame()
+    }
+
+    /**
+     * 开孔遮罩：切后台时回读的上一帧（RGBA8 像素 + 尺寸）。
+     *
+     * 平台在切后台后会拆掉本应用窗口的 surface（转场动画结束后立即拆除），
+     * SurfaceView 的 surface 随之被拆；回前台时交换链必须重建，那几十毫秒里
+     * 窗口的透明开孔没有缓冲。没有遮罩时开孔透出后方桌面（有底色遮罩时是
+     * 一块平底色）——用户看到的都是「切后台返回闪一下」。有遮罩时开孔里是
+     * 离开时的画面，闪烁消失。
+     *
+     * 渲染线程写（渲染线程停下之前回读），主线程读；新帧到达后随即撤掉。
+     */
+    private val coverFrameFlow = MutableStateFlow<Bridge.CoverFrame?>(null)
+    val coverFrame: StateFlow<Bridge.CoverFrame?> = coverFrameFlow.asStateFlow()
+
+    /**
+     * 发布开孔遮罩。
+     *
+     * [frame] 是回读到的上一帧（尺寸与 RGBA8 像素）；尺寸对不上时直接丢弃——
+     * 错位的位图比没有遮罩更糟。
+     */
+    internal fun publishCoverFrame(frame: Bridge.CoverFrame) {
+        val expected = frame.width.toLong() * frame.height.toLong() * 4L
+        if (frame.width <= 0 || frame.height <= 0 || frame.pixels.size.toLong() != expected) {
+            LogUtil.warn(
+                RUNTIME_LOG_TAG,
+                "publishCoverFrame: 尺寸与像素数不符（${frame.width}x${frame.height}，" +
+                    "${frame.pixels.size} 字节），丢弃遮罩",
+            )
+            return
+        }
+        coverFrameFlow.value = frame
+    }
+
+    /** 新帧已上屏：遮罩使命完成，撤掉并释放像素。 */
+    internal fun clearCoverFrame() {
+        if (coverFrameFlow.value == null) return
+        coverFrameFlow.value = null
+    }
+
+    /**
+     * 回读保留的上一帧并发布为开孔遮罩（渲染线程调用）。
+     *
+     * 回读是一次 GPU 同步等待（约几毫秒），故只在渲染线程停下之前做一次，
+     * 绝不放在主线程上。没有可回读的内容（没有累加器、格式不支持、回读失败）
+     * 时什么都不做：开孔继续用平底色遮。
+     */
+    internal fun captureCoverFrame(bridge: Bridge) {
+        val frame = bridge.readCoverFrame() ?: return
+        LogUtil.debug(
+            RUNTIME_LOG_TAG,
+            "captureCoverFrame: 已回读 ${frame.width}x${frame.height} 的开孔遮罩",
+        )
+        publishCoverFrame(frame)
     }
 
     /**

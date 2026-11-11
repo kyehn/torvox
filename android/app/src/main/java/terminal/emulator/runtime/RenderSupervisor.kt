@@ -866,6 +866,13 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                                     delay(RENDER_ERROR_SLEEP_MS)
                                 }
                             }
+                            // 停下之前把保留的上一帧回读成开孔遮罩：平台在切后台后会
+                            // 拆掉本应用的窗口 surface，回前台时交换链必须重建，那几十
+                            // 毫秒里窗口的透明开孔没有缓冲——遮罩让用户看到的是离开
+                            // 时的画面而不是闪一下（见 TerminalRuntime.publishCoverFrame）。
+                            //
+                            // 回读是一次 GPU 同步等待，故只在渲染线程上做，绝不上主线程。
+                            runtime.captureCoverFrame(entry.bridge)
                             entry.markRenderThreadExited()
                             LogUtil.debug("Runtime", "render thread stopped for session ${entry.sessionId}")
                         }
