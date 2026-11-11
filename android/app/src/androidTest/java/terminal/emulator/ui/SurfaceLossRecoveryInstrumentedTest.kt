@@ -5,6 +5,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -362,6 +363,64 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
             },
         )
         awaitInk("切回后：")
+    }
+
+    /**
+     * 切后台时必须把离开时的画面回读成开孔遮罩。
+     *
+     * 平台在切后台后会拆掉本应用窗口的 surface（转场动画结束后立即拆除），
+     * 回前台时交换链必须重建，那几十毫秒里窗口的透明开孔没有缓冲：没有遮罩时
+     * 开孔透出后方桌面（有平底色遮罩时是一块平底色），用户看到的都是
+     * 「切后台返回闪一下」。遮罩把离开时的画面留在开孔里。
+     *
+     * 断言两件事：遮罩已发布（状态），且它装的是**画面**而非单色——单色遮罩与
+     * 现有的平底色遮罩没有区别，闪烁照旧。
+     */
+    @Test
+    fun backgroundStopPublishesTheLastFrameAsHoleCover() {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
+        composeTestRule.waitForIdle()
+        assertNotNull(
+            "正常出帧后必须报告「已有缓冲区」",
+            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
+                runtime.surfaceBufferPresent.value
+            },
+        )
+        // 画面里要有墨迹：纯空白的终端回读出来也是单色，测不出「装的是画面」。
+        composeTestRule.requireBridge().writeToPty("echo COVER_FRAME_MARK\n".toByteArray(Charsets.UTF_8))
+        composeTestRule.pumpedTerminalText()
+
+        composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        assertNotNull(
+            "切后台后必须回读出开孔遮罩",
+            UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
+                runtime.coverFrame.value != null
+            },
+        )
+        val cover = checkNotNull(runtime.coverFrame.value) { "切后台后必须回读出开孔遮罩" }
+        assertTrue(
+            "遮罩尺寸必须与 surface 尺寸一致（宽 ${cover.width}）",
+            cover.width > 0 && cover.height > 0,
+        )
+        assertEquals(
+            "遮罩像素数必须等于宽×高×4",
+            cover.width.toLong() * cover.height.toLong() * 4L,
+            cover.pixels.size.toLong(),
+        )
+        // 画面必须不是单色：单色遮罩与平底色遮罩无异，闪烁照旧。
+        val distinct = cover.pixels.toHashSet()
+        assertTrue(
+            "遮罩必须装的是画面（实测只有 ${distinct.size} 种像素值，单色即等于没遮）",
+            distinct.size > 4,
+        )
+
+        composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        assertNotNull(
+            "切回前台后新帧到达必须撤掉遮罩",
+            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
+                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
+            },
+        )
     }
 
     /** 开孔区域的底色量测：中位色相对终端底色的偏差，以及区域内相对中位色的最大偏差。 */
