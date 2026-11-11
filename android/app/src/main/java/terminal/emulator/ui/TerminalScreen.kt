@@ -313,17 +313,19 @@ fun TerminalScreen(
                 // 组合顶层的 LocalView.current 是 AndroidComposeView 而非 TerminalSurface；
                 // 故使用从 AndroidView 工厂捕获的 surfaceRef。
                 surfaceRef.value?.finishComposing()
-                // 切后台：领一次渲染暂停并停止渲染线程。切应用不会调用
-                // surfaceDestroyed（Surface 被保留），不做此步线程会继续在已被
-                // 系统回收的 BufferQueue 上取帧 → ERROR_SURFACE_LOST_KHR
-                // → 返回后永久黑屏（模拟器已验证）。直写全局布尔则会被随后的前台
-                // 恢复（或关设置页）把别的来源仍在等的暂停一并清掉，故一律经账本。
+                // 切后台：领一次渲染暂停并停止渲染线程。平台是否在切后台拆掉 Surface
+                // 取决于 API 与本应用设定的生命周期策略（见 TerminalSurface.init：
+                // API 34+ 让 Surface 跟随挂载而保留，更早版本跟随可见性而拆除）——
+                // 两种情形下渲染线程都必须停：被系统回收的 BufferQueue 上取帧会得到
+                // ERROR_SURFACE_LOST_KHR，返回后永久黑屏（模拟器已验证）。
+                // 直写全局布尔则会被随后的前台恢复（或关设置页）把别的来源仍在等的
+                // 暂停一并清掉，故一律经账本。
                 //
                 // 顺序 MUST 是「先领新的、再取消旧的」：反之会让持有者数经过 0，
                 // 在一个即将被系统回收的窗口上多出一对暂停/恢复。
                 viewModel.runtime.pauseRenderingForBackground()
-                // 在途的两个尺寸防抖同样必须取消：后台时 SurfaceView 保留窗口，
-                // 它们却仍会到期执行并恢复渲染，把刚装上的后台暂停撤掉。
+                // 在途的两个尺寸防抖同样必须取消：它们到期后会执行并恢复渲染，
+                // 把刚装上的后台暂停撤掉。
                 surfaceRef.value?.cancelResizeDebounces()
                 val inputMethodManager =
                     context.getSystemService(
@@ -338,9 +340,9 @@ fun TerminalScreen(
                 // 原生才解除），故此处归还不会让渲染线程在被平台废弃的
                 // BufferQueue 上取帧（ERROR_SURFACE_LOST_KHR）。
                 viewModel.runtime.resumeRenderingFromBackground()
-                // 切应用连续性：若 Surface 被保留（无 surfaceDestroyed），
-                // render_paused 仍为 true（来自 onSurfaceDestroyed 或此前的暂停），
-                // 而 surfaceCreated 从未被调用以清除它 → 黑屏。
+                // 切应用连续性：若 Surface 被保留（API 34+ 本应用让 Surface 跟随挂载，
+                // 切后台不拆；见 TerminalSurface.init），无 surfaceDestroyed 也就没有
+                // surfaceCreated 来清除 render_paused → 黑屏。
                 // Surface 已挂载且已定尺寸时立即恢复；仅在 Surface 尚未就绪
                 // （与布局竞争）时延迟 200ms。
                 if (

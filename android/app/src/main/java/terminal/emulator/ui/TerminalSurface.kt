@@ -2,6 +2,7 @@ package terminal.emulator.ui
 
 import android.content.Context
 import android.graphics.PixelFormat
+import android.os.Build
 import android.util.AttributeSet
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -375,10 +376,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     /**
      * 取消两个在途防抖并归还其持有的渲染暂停。
      *
-     * 切后台必须调它：SurfaceView 在后台保留窗口，`surfaceDestroyed` 不会来，
-     * 而在途防抖仍会到期执行——它经 `applyResizeNormal` 恢复渲染，于是刚装上的
-     * 后台暂停被自己的防抖撤掉，渲染线程转去已在被系统回收的 BufferQueue 上取帧
-     * （ERROR_SURFACE_LOST_KHR → 返回后永久黑屏）。
+     * 切后台必须调它：在途防抖仍会到期执行——它经 `applyResizeNormal` 恢复渲染，
+     * 于是刚装上的后台暂停被自己的防抖撤掉，渲染线程转去已在被系统回收的
+     * BufferQueue 上取帧（ERROR_SURFACE_LOST_KHR → 返回后永久黑屏）。
+     *
+     * 与 Surface 是否在切后台被拆除无关：API 34+ 本应用让 Surface 跟随挂载而
+     * 保留，更早版本跟随可见性而拆除（见 init 处的生命周期策略），两种情形下
+     * 防抖都可能在后台到期。
      */
     fun cancelResizeDebounces() {
         cancelDebounceHolds()
@@ -546,6 +550,22 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         setWillNotDraw(false)
         // 输入法遮挡高度的唯一来源：平台 insets 派发（见 installImeInsetListener）。
         ime.installImeInsetListener()
+        // Surface 的生命周期跟随挂载，而不是跟随可见性（默认策略）。
+        //
+        // 默认策略下，切后台时平台拆掉 surface（窗口转不可见即销毁），切回前台再重建：
+        // 原生窗口换了人，交换链必须重配、整帧必须重画，而新窗口在拿到第一个缓冲前
+        // 开孔是空的——用户看到的就是「切后台返回终端闪烁」。实测每次重建还要在
+        // logcat 里留下四行 mali_gralloc 的 R8 分配报错与一串 SurfaceSyncer 同步失败。
+        //
+        // 跟随挂载后，surface 只在视图脱离窗口时销毁：切后台期间原窗口与上一帧都在，
+        // 切回即原样显示，无需重建、无需重画，也不再产生上述平台报错。
+        // 代价是后台期间交换链仍占着显存——渲染本就已在后台暂停（见
+        // TerminalScreen 的 ON_PAUSE 分支），这点显存换来的是零闪烁与零重建。
+        //
+        // 该策略自 API 34 才有；更早的版本保持默认策略（后台拆 surface、回来重建）。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            setSurfaceLifecycle(SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT)
+        }
     }
 
     internal var keyboardRequested = false
