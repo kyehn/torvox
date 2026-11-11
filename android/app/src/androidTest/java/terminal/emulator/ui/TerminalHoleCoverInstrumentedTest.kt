@@ -94,20 +94,23 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
     )
 
     /**
-     * 取一次开孔的样，并**同时**与 [cover] 逐像素比对。
+     * 截一张屏。
      *
      * 只截一次图：截两次会跨过一次转场动画，两张图量的是不同的画面（实测第二张
      * 截到的是桌面而不是终端，比对结果全不相干）。
      */
-    private fun sampleHole(cover: Bridge.CoverFrame): HoleSample? = runCatchingCancellable {
+    private fun captureScreen(): Bitmap? = runCatchingCancellable {
         // 必须确认应用在前台：截屏拿到的是**合成后的画面**，应用不在前台时截到的是
         // 后方应用/桌面（实测截到的是桌面灰 #3C3C3C），量出来的颜色与遮罩毫无关系。
         val packageName = InstrumentationRegistry.getInstrumentation().targetContext.packageName
         check(device.currentPackageName == packageName) {
             "应用不在前台（当前 ${device.currentPackageName}），截屏量到的不是终端画面"
         }
-        val bitmap: Bitmap = UxTestUtils.screenshot(device)
-        dumpForensics(bitmap, cover)
+        UxTestUtils.screenshot(device)
+    }.getOrNull()
+
+    /** 取一次开孔的样，并**同时**与 [cover] 逐像素比对。 */
+    private fun sampleHole(bitmap: Bitmap, cover: Bridge.CoverFrame): HoleSample? = runCatchingCancellable {
         val surface = findTerminalSurface(composeTestRule.activity)
         val location = IntArray(2)
         surface.getLocationOnScreen(location)
@@ -152,10 +155,16 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
         )
     }.getOrNull()
 
-    /** 把截屏与遮罩各自存成 PNG，便于离线比对。 */
+    /**
+     * 把截屏与遮罩各自存成 PNG，便于离线比对。
+     *
+     * 存在**内部** files 目录：`adb shell` 读不到 `/sdcard/Android/data/<包名>`
+     * （Android 11 起的分区存储限制，实测 `ls` 报 No such file or directory），
+     * 内部目录可以 `adb exec-out run-as <包名> cat files/hole/screen.png` 取回。
+     */
     private fun dumpForensics(bitmap: Bitmap, cover: Bridge.CoverFrame) {
         runCatchingCancellable {
-            val dir = java.io.File(composeTestRule.activity.getExternalFilesDir(null), "hole")
+            val dir = java.io.File(composeTestRule.activity.filesDir, "hole")
             dir.mkdirs()
             java.io.FileOutputStream(java.io.File(dir, "screen.png")).use {
                 bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
@@ -180,30 +189,6 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
         awaitShellPrompt(composeTestRule.requireBridge())
         composeTestRule.requireBridge().writeToPty("echo HOLE_COVER_MARK\n".toByteArray(Charsets.UTF_8))
         composeTestRule.pumpedTerminalText()
-
-        // 诊断：原生 surface 的**缓冲本身**（PixelCopy 读回，绕过显示管线）是什么颜色，
-        // 与窗口层截屏同一位置的颜色相比，差值即显示管线的色彩变换。
-        val surface = findTerminalSurface(composeTestRule.activity)
-        val raw = UxTestUtils.captureSurface(surface)
-        if (raw != null) {
-            val screen = UxTestUtils.screenshot(device)
-            val location = IntArray(2)
-            surface.getLocationOnScreen(location)
-            android.util.Log.i(
-                "HOLE_DUMP",
-                "raw(0,0)=#%08X raw(40,40)=#%08X screen(0,0)=#%08X screen(40,40)=#%08X at %d,%d".format(
-                    raw.getPixel(0, 0),
-                    raw.getPixel(40, 40),
-                    screen.getPixel(location[0], location[1]),
-                    screen.getPixel(location[0] + 40, location[1] + 40),
-                    location[0],
-                    location[1],
-                ),
-            )
-        } else {
-            android.util.Log.i("HOLE_DUMP", "PixelCopy failed")
-        }
-
         // 持续注入 surface 级失败：取纹理失败，宿主会换新的 SurfaceView，开孔稳定地
         // 没有新帧——「无缓冲区」成为稳定态，才量得到遮罩在开孔里的样子。
         assertTrue(
@@ -230,23 +215,29 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
         )
         val cover = checkNotNull(runtime.coverFrame.value) { "切回前台后遮罩帧必须还在" }
         // 开孔里画出来的那一帧必须**就是**遮罩帧。
-        val sample = checkNotNull(sampleHole(cover)) { "开孔区必须取到样（截图或定位失败）" }
+        val bitmap = checkNotNull(captureScreen()) { "开孔区必须截到屏（应用不在前台或截图失败）" }
+        val sample = checkNotNull(sampleHole(bitmap, cover)) { "开孔区必须取到样（截图或定位失败）" }
         UxTestUtils.metric("hole_cover_match_ratio", (sample.matchRatio * 100).toLong())
         UxTestUtils.metric("hole_distinct_colors", sample.distinct.toLong())
         UxTestUtils.metric("hole_dominant_share", (sample.dominantShare * 100).toLong())
-        // 开孔里画出来的那一帧必须**就是**遮罩帧。
+        val ratioOk = sample.matchRatio >= MIN_COVER_MATCH_RATIO
+        // 颜色种数：单靠「与遮罩吻合的比例」放不住平底色——终端画面绝大部分是底色，
+        // 平底色与遮罩的底色那一部分照样吻合，比例可能很高。故另钉一条：开孔里必须
+        // 有多种颜色（遮罩帧里有文字，文字各有各的色）。
+        val colorsOk = sample.distinct >= MIN_DISTINCT_COLORS
+        if (!ratioOk || !colorsOk) {
+            // 断言要挂之前先把现场存下来：开孔里画的是什么，离线比对 PNG 比读日志快。
+            dumpForensics(bitmap, cover)
+        }
         assertTrue(
             "开孔里画出来的那一帧必须就是遮罩帧，实测只有 ${sample.matchRatio * 100}% 的采样点" +
                 "与遮罩一致（要求 ${MIN_COVER_MATCH_RATIO * 100}%；开孔 dominant=${sample.dominant} " +
                 "占比 ${sample.dominantShare * 100}% 颜色种数 ${sample.distinct} 采样点 ${sample.sampled}）",
-            sample.matchRatio >= MIN_COVER_MATCH_RATIO,
+            ratioOk,
         )
-        // 颜色种数：单靠「与遮罩吻合的比例」放不住平底色——终端画面绝大部分是底色，
-        // 平底色与遮罩的底色那一部分照样吻合，比例可能很高。故另钉一条：开孔里必须
-        // 有多种颜色（遮罩帧里有文字，文字各有各的色）。
         assertTrue(
             "开孔里必须画的是画面而不是一块平底色（实测只有 ${sample.distinct} 种颜色）",
-            sample.distinct >= MIN_DISTINCT_COLORS,
+            colorsOk,
         )
 
         // 收尾：撤掉注入让帧恢复，遮罩随之撤下（否则后面的用例会带着遮罩跑）。
