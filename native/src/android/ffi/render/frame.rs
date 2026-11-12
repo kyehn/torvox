@@ -386,11 +386,13 @@ pub(super) fn render_inner(session_id: u64) -> jint {
     {
         let milliseconds = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
         log::warn!(
-            "SLOW_RENDER_INNER phase1={:.3}ms receive={:.3}ms lock={:.3}ms lock2={:.3}ms prepare={:.3}ms draw={:.3}ms render={:.3}ms total={:.3}ms count={count} slow_frames={slow_frames}",
+            "SLOW_RENDER_INNER phase1={:.3}ms receive={:.3}ms lock={:.3}ms keys={:.3}ms query={:.3}ms lock2={:.3}ms prepare={:.3}ms draw={:.3}ms render={:.3}ms total={:.3}ms count={count} slow_frames={slow_frames}",
             milliseconds(phase1_done.duration_since(render_start)),
             milliseconds(phase2_done.duration_since(phase1_done)),
             milliseconds(timing.lock_done.duration_since(phase2_done)),
-            milliseconds(timing.lock2_done.duration_since(timing.lock_done)),
+            milliseconds(timing.keys_done.duration_since(timing.lock_done)),
+            milliseconds(timing.query_done.duration_since(timing.keys_done)),
+            milliseconds(timing.lock2_done.duration_since(timing.query_done)),
             milliseconds(timing.prepare_done.duration_since(timing.lock2_done)),
             milliseconds(timing.render_done.duration_since(timing.prepare_done)),
             milliseconds(timing.render_done.duration_since(timing.lock_done)),
@@ -400,12 +402,16 @@ pub(super) fn render_inner(session_id: u64) -> jint {
     count
 }
 
-/// 阶段 3 的时间点：`lock_done` 是首次取渲染状态锁成功的时刻，`lock2_done` 是
-/// 查询后重取锁的时刻（空闲路径没有第二次取锁，两者相等），`prepare_done` 是
-/// 绘制前的最后一刻，`render_done` 是呈现完成。`render` 段 = `lock2 + prepare
-/// + draw`，四段之和恒等于 `total`。
+/// 阶段 3 的时间点：`lock_done` 是首次取渲染状态锁成功的时刻，`keys_done` 是
+/// 放下该锁的时刻（锁内只算了放置键与失效判据），`query_done` 是锁外 VT 查询
+/// 结束的时刻，`lock2_done` 是查询后重取锁的时刻（空闲路径没有查询也没有第二
+/// 次取锁，四者相等），`prepare_done` 是绘制前的最后一刻，`render_done` 是呈现
+/// 完成。`render` 段 = `keys + query + lock2 + prepare + draw`，各段之和恒等于
+/// `total`。
 pub(super) struct RenderTiming {
     lock_done: std::time::Instant,
+    keys_done: std::time::Instant,
+    query_done: std::time::Instant,
     lock2_done: std::time::Instant,
     prepare_done: std::time::Instant,
     render_done: std::time::Instant,
@@ -459,6 +465,8 @@ pub(super) fn render_new_frame(
             0,
             RenderTiming {
                 lock_done,
+                keys_done: lock_done,
+                query_done: lock_done,
                 lock2_done: lock_done,
                 prepare_done: std::time::Instant::now(),
                 render_done: std::time::Instant::now(),
@@ -498,6 +506,7 @@ pub(super) fn render_new_frame(
     let sync_cell_width = grid_cell_width.max(1.0) as u32;
     let sync_cell_height = grid_cell_height.max(1.0) as u32;
     drop(locked);
+    let keys_done = std::time::Instant::now();
     if need_cell_sync {
         let registry = rlock_session_registry();
         if let Some(entry) = registry.get(&session_id) {
@@ -518,6 +527,7 @@ pub(super) fn render_new_frame(
     } else {
         Vec::new()
     };
+    let query_done = std::time::Instant::now();
     let mut locked = lock_render_state();
     let lock2_done = locked.lock_done;
     let render_state = locked.get()?;
@@ -655,6 +665,8 @@ pub(super) fn render_new_frame(
                 1,
                 RenderTiming {
                     lock_done,
+                    keys_done,
+                    query_done,
                     lock2_done,
                     prepare_done,
                     render_done,
@@ -673,6 +685,8 @@ pub(super) fn render_new_frame(
                 -1,
                 RenderTiming {
                     lock_done,
+                    keys_done,
+                    query_done,
                     lock2_done,
                     prepare_done,
                     render_done,
@@ -792,6 +806,8 @@ pub(super) fn render_idle_frame(session_id: u64) -> Result<(jint, RenderTiming),
             1,
             RenderTiming {
                 lock_done,
+                keys_done: lock_done,
+                query_done: lock_done,
                 lock2_done: lock_done,
                 prepare_done,
                 render_done,
@@ -808,6 +824,8 @@ pub(super) fn render_idle_frame(session_id: u64) -> Result<(jint, RenderTiming),
                 -1,
                 RenderTiming {
                     lock_done,
+                    keys_done: lock_done,
+                    query_done: lock_done,
                     lock2_done: lock_done,
                     prepare_done,
                     render_done,

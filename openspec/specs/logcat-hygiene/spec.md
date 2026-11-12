@@ -362,18 +362,6 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 数十毫秒。它 MUST 单列成段，否则这段时间在诊断行里既不属于「构建」也不属于「GPU」，
 排障时只剩两个对不上的数字。
 
-帧内慢渲染诊断（`SLOW_RENDER_INNER`）的渲染段 MUST 再把查询后的链路拆开：`lock2`
-（查询后重取渲染状态锁）→ `prepare`（绘制前准备）→ `draw`（绘制与呈现）。首帧路径
-在查询前还会先取一次锁，该段由 `lock` 单列；空闲路径没有第二次取锁，`lock2` 为 0。
-各行 MUST 满足：`lock2 + prepare + draw = render`，且
-`phase1 + receive + lock + render = total`。
-
-#### Scenario: 帧内慢渲染诊断的各段自洽
-
-- **WHEN** `SLOW_RENDER_INNER` 被记出
-- **THEN** 行内 `lock2`、`prepare`、`draw` 三段之和 MUST 等于 `render`，
-      `phase1`、`receive`、`lock`、`render` 四段之和 MUST 等于 `total`
-
 #### Scenario: 各段自洽
 
 - **WHEN** 单元构建诊断被记出
@@ -383,6 +371,21 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 
 - **WHEN** 本帧有新光栅化的字形需要上传图集
 - **THEN** 上传耗时 MUST 以独立字段给出，MUST NOT 被并入构建段或 GPU 段
+
+### Requirement: 帧内慢渲染诊断必须分出锁外查询与重取锁
+
+帧内慢渲染诊断（`SLOW_RENDER_INNER`）的渲染段 MUST 再把查询后的链路拆开：`keys`
+（持锁期间算放置键与失效判据）→ `query`（锁外的 VT 往返查询）→ `lock2`（查询后
+重取渲染状态锁）→ `prepare`（绘制前准备）→ `draw`（绘制与呈现）。首帧路径在
+查询前还会先取一次锁，该段由 `lock` 单列；空闲路径既不查询也不重取锁，`keys`、
+`query` 与 `lock2` 均为 0。查询 MUST 单列成段：它是一次 VT 线程往返（忙时可等到
+查询超时），与「等锁」是两回事，混在一段里则慢帧既看不出是查询慢也看不出是锁忙。
+
+#### Scenario: 帧内慢渲染诊断的各段自洽
+
+- **WHEN** `SLOW_RENDER_INNER` 被记出
+- **THEN** 行内 `keys`、`query`、`lock2`、`prepare`、`draw` 五段之和 MUST 等于
+      `render`，`phase1`、`receive`、`lock`、`render` 四段之和 MUST 等于 `total`
 
 ### Requirement: 平台与驱动侧条目必须给出可复核的上游事实
 
