@@ -3,6 +3,8 @@ package terminal.emulator.ui
 import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.Context
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -44,7 +46,21 @@ class Osc52ClipboardInstrumentedTest : ComposeTerminalLogcatTest() {
         val clipboard =
             activity.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         // Clear first so the assertion cannot pass on stale content.
-        activity.runOnUiThread { clipboard.setPrimaryClip(ClipData.newPlainText("test", "")) }
+        //
+        // 必须同步完成：Activity.runOnUiThread 在测试线程上投递即返回，随后紧跟的
+        // OSC52 写入会在渲染线程上落剪贴板——投递出去的清空若排在写入之后，就把
+        // marker 抹回空串，断言读到空值（CI 实测失败信息正是「got: 」空串）。
+        // runOnMainSync 保证清空执行完再往下走，写入必定发生在清空之后。
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            clipboard.setPrimaryClip(ClipData.newPlainText("test", ""))
+        }
+        // 清空必须已经生效（读回空串）：否则它可能排在 OSC52 写入之后，把 marker
+        // 抹回空串，断言读到空值（CI 实测失败信息正是「got: 」空串）。
+        assertEquals(
+            "剪贴板清空必须先于 OSC52 写入生效",
+            "",
+            clipboard.primaryClip?.getItemAt(0)?.text?.toString(),
+        )
 
         val marker = "OSC52_ALIVE_${System.currentTimeMillis() % 100000}"
         val encoded =
