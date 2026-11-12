@@ -349,6 +349,18 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 数十毫秒。它 MUST 单列成段，否则这段时间在诊断行里既不属于「构建」也不属于「GPU」，
 排障时只剩两个对不上的数字。
 
+帧内慢渲染诊断（`SLOW_RENDER_INNER`）的渲染段 MUST 再把查询后的链路拆开：`lock2`
+（查询后重取渲染状态锁）→ `prepare`（绘制前准备）→ `draw`（绘制与呈现）。首帧路径
+在查询前还会先取一次锁，该段由 `lock` 单列；空闲路径没有第二次取锁，`lock2` 为 0。
+各行 MUST 满足：`lock2 + prepare + draw = render`，且
+`phase1 + receive + lock + render = total`。
+
+#### Scenario: 帧内慢渲染诊断的各段自洽
+
+- **WHEN** `SLOW_RENDER_INNER` 被记出
+- **THEN** 行内 `lock2`、`prepare`、`draw` 三段之和 MUST 等于 `render`，
+      `phase1`、`receive`、`lock`、`render` 四段之和 MUST 等于 `total`
+
 #### Scenario: 各段自洽
 
 - **WHEN** 单元构建诊断被记出

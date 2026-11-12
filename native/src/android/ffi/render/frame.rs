@@ -372,11 +372,11 @@ pub(super) fn render_inner(session_id: u64) -> jint {
         FrameData::New(new_frame) => render_new_frame(session_id, new_frame),
         FrameData::Idle => render_idle_frame(session_id),
     };
-    let (count, lock_done, render_done) = match outcome {
+    let (count, timing) = match outcome {
         Ok(outcome) => outcome,
         Err(exit_code) => return exit_code,
     };
-    let total = render_done.duration_since(render_start);
+    let total = timing.render_done.duration_since(render_start);
     // 限频：持续慢时逐帧都会命中，逐帧记会把 logcat 刷成慢帧洪水
     //（实测软件 Vulkan 上一轮采集里此类条目占应用侧 W 级绝大多数）。
     // 规范要求两次输出间隔不小于 500ms，且行内带上窗口内的慢帧数；本类诊断独占
@@ -386,25 +386,39 @@ pub(super) fn render_inner(session_id: u64) -> jint {
     {
         let milliseconds = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
         log::warn!(
-            "SLOW_RENDER_INNER phase1={:.3}ms receive={:.3}ms lock={:.3}ms render={:.3}ms total={:.3}ms count={count} slow_frames={slow_frames}",
+            "SLOW_RENDER_INNER phase1={:.3}ms receive={:.3}ms lock={:.3}ms lock2={:.3}ms prepare={:.3}ms draw={:.3}ms render={:.3}ms total={:.3}ms count={count} slow_frames={slow_frames}",
             milliseconds(phase1_done.duration_since(render_start)),
             milliseconds(phase2_done.duration_since(phase1_done)),
-            milliseconds(lock_done.duration_since(phase2_done)),
-            milliseconds(render_done.duration_since(lock_done)),
+            milliseconds(timing.lock_done.duration_since(phase2_done)),
+            milliseconds(timing.lock2_done.duration_since(timing.lock_done)),
+            milliseconds(timing.prepare_done.duration_since(timing.lock2_done)),
+            milliseconds(timing.render_done.duration_since(timing.prepare_done)),
+            milliseconds(timing.render_done.duration_since(timing.lock_done)),
             milliseconds(total),
         );
     }
     count
 }
 
+/// 阶段 3 的时间点：`lock_done` 是首次取渲染状态锁成功的时刻，`lock2_done` 是
+/// 查询后重取锁的时刻（空闲路径没有第二次取锁，两者相等），`prepare_done` 是
+/// 绘制前的最后一刻，`render_done` 是呈现完成。`render` 段 = `lock2 + prepare
+/// + draw`，四段之和恒等于 `total`。
+pub(super) struct RenderTiming {
+    lock_done: std::time::Instant,
+    lock2_done: std::time::Instant,
+    prepare_done: std::time::Instant,
+    render_done: std::time::Instant,
+}
+
 /// 阶段 3 的新帧路径：绘制本帧单元数据。
 ///
-/// 返回 `(渲染计数, 渲染状态锁获取时刻, 呈现完成时刻)`；中途放弃渲染时返回
-/// `Err(退出码)`，此时不进入慢帧诊断。
+/// 返回 `(渲染计数, 各段时间点)`；中途放弃渲染时返回 `Err(退出码)`，此时不进入
+/// 慢帧诊断。
 pub(super) fn render_new_frame(
     session_id: u64,
     frame: NewFrame,
-) -> Result<(jint, std::time::Instant, std::time::Instant), jint> {
+) -> Result<(jint, RenderTiming), jint> {
     let NewFrame {
         cells,
         cursor_info,
@@ -441,7 +455,15 @@ pub(super) fn render_new_frame(
             render_state.scroll_frame_pending = false;
             render_state.scroll_pending_since = None;
         }
-        return Ok((0, lock_done, std::time::Instant::now()));
+        return Ok((
+            0,
+            RenderTiming {
+                lock_done,
+                lock2_done: lock_done,
+                prepare_done: std::time::Instant::now(),
+                render_done: std::time::Instant::now(),
+            },
+        ));
     }
     // Kitty 同步：生成戳为 0 且无缓存时跳过查询（纯文本零开销）；
     // 会话/生成戳/滚动/网格任一变化才重查放置；图集仅在生成戳变化时
@@ -497,6 +519,7 @@ pub(super) fn render_new_frame(
         Vec::new()
     };
     let mut locked = lock_render_state();
+    let lock2_done = locked.lock_done;
     let render_state = locked.get()?;
     if render_state.renderer.surface.is_none() {
         // collect 之后 surface 才被拆走：本帧数据已被 VT 破坏性取出，丢弃就再没有
@@ -615,6 +638,7 @@ pub(super) fn render_new_frame(
     // 本帧先入缓存再绘制：新帧与空闲帧都从缓存取单元数据，绘制参数序列
     // 只有一处。绘制失败时缓存里已是本帧，下一次重试直接重画它。
     render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
+    let prepare_done = std::time::Instant::now();
     let result = draw_cached_frame(render_state, cursor);
     let render_done = std::time::Instant::now();
     // 新帧已就位（成功呈现，或留待空闲重绘重试）：滚动在途状态解除。
@@ -627,7 +651,15 @@ pub(super) fn render_new_frame(
             render_state.kitty_overlay_dirty = false;
             render_state.search_highlights.drawn = render_state.search_highlights.current.clone();
             render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
-            Ok((1, lock_done, render_done))
+            Ok((
+                1,
+                RenderTiming {
+                    lock_done,
+                    lock2_done,
+                    prepare_done,
+                    render_done,
+                },
+            ))
         }
         Err(error) => {
             log_frame_failure(&error);
@@ -637,18 +669,24 @@ pub(super) fn render_new_frame(
             // 全量标记同样归还，重试才能覆盖失败帧可能只画了一半的区域。
             render_state.dirty.store(true, Ordering::Release);
             render_state.full_repaint = true;
-            Ok((-1, lock_done, render_done))
+            Ok((
+                -1,
+                RenderTiming {
+                    lock_done,
+                    lock2_done,
+                    prepare_done,
+                    render_done,
+                },
+            ))
         }
     }
 }
 
 /// 阶段 3 的空闲路径：复用上一帧的单元数据，按门控决定是否重绘。
 ///
-/// 返回 `(渲染计数, 渲染状态锁获取时刻, 呈现完成时刻)`；中途放弃渲染时返回
-/// `Err(退出码)`，此时不进入慢帧诊断。
-pub(super) fn render_idle_frame(
-    session_id: u64,
-) -> Result<(jint, std::time::Instant, std::time::Instant), jint> {
+/// 返回 `(渲染计数, 各段时间点)`；中途放弃渲染时返回 `Err(退出码)`，此时不进入
+/// 慢帧诊断。
+pub(super) fn render_idle_frame(session_id: u64) -> Result<(jint, RenderTiming), jint> {
     let mut locked = lock_render_state();
     let lock_done = locked.lock_done;
     let render_state = locked.get()?;
@@ -740,6 +778,7 @@ pub(super) fn render_idle_frame(
             render_state.kitty_cell_height = idle_cell_height;
         }
     }
+    let prepare_done = std::time::Instant::now();
     let result = draw_cached_frame(render_state, cursor);
     let render_done = std::time::Instant::now();
     if result.is_ok() {
@@ -749,7 +788,15 @@ pub(super) fn render_idle_frame(
         // 注意：空闲时**不**更新 `last_frame`——单元未变。
     }
     match result {
-        Ok(()) => Ok((1, lock_done, render_done)),
+        Ok(()) => Ok((
+            1,
+            RenderTiming {
+                lock_done,
+                lock2_done: lock_done,
+                prepare_done,
+                render_done,
+            },
+        )),
         Err(error) => {
             log_frame_failure(&error);
             // 空闲路径是字体/主题等「只置 dirty、无新帧」改动的唯一送达通道：
@@ -757,7 +804,15 @@ pub(super) fn render_idle_frame(
             // 全量标记同理——失败帧可能只画了部分区域，重试必须整幅覆盖。
             render_state.dirty.store(true, Ordering::Release);
             render_state.full_repaint = true;
-            Ok((-1, lock_done, render_done))
+            Ok((
+                -1,
+                RenderTiming {
+                    lock_done,
+                    lock2_done: lock_done,
+                    prepare_done,
+                    render_done,
+                },
+            ))
         }
     }
 }
