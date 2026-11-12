@@ -483,7 +483,8 @@ constructor(
     init {
         // 日志等级：设置流到达即生效（Kotlin 与原生两边同时改）。
         // 首次启动也走这条路径：缺省等级由 `LogLevel.DEFAULT` 给出，
-        // 原生侧的等级初值与之一致（见 `native/src/android/logging.rs`）。
+        // 原生侧的等级初值与之对应（见 `native/src/android/mod.rs` 的
+        // `level_filter`：同一组 Android 优先级）。
         viewModelScope.launch {
             settingsRepository.logLevel.collect { ordinal ->
                 applyLogLevel(LogLevel.fromOrdinal(ordinal))
@@ -723,6 +724,9 @@ constructor(
     /** 把等级应用到 Kotlin 与原生两侧。 */
     private fun applyLogLevel(level: LogLevel) {
         LogUtil.setLevel(level)
+        // 库未装载时跳过原生侧：宿主 JVM 的测试环境（如 Robolectric）没有
+        // native 库，此时调用会抛 `UnsatisfiedLinkError`——Kotlin 侧的等级照样生效。
+        if (!NativeBridge.isNativeLoaded()) return
         NativeBridge.setLogLevel(level.androidPriority)
     }
 

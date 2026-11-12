@@ -117,11 +117,6 @@
 原生日志的等级 MUST 经 `log::set_max_level` 生效，MUST NOT 只过滤 `logcat` 写入：
 上游 VT 的日志经同一门面进同一个 sink，故等级改一次即对上游同样生效。
 
-Release 构建 MUST 剥离调试级日志代码（调用点连同其消息构造一起移除）。
-MUST NOT 剥离信息、警告与错误级：它们是排障时真正需要的信息。
-Debug 与 Release 的可选等级列表 MUST 不同：Release 里被剥离的档位 MUST NOT 出现在
-设置页——列出它只会让用户选中一个不生效的档位。
-
 #### Scenario: 关闭日志
 
 - **WHEN** 用户把日志等级设为「关闭」
@@ -131,6 +126,25 @@ Debug 与 Release 的可选等级列表 MUST 不同：Release 里被剥离的档
 
 - **WHEN** 用户把日志等级设为「警告及以上」
 - **THEN** 错误与警告级日志 MUST 照常写入，信息、调试与详细级 MUST NOT 写入
+
+#### Scenario: 未知等级取值不得退化为最宽松的一级
+
+- **WHEN** 宿主传来一个未知的等级取值
+- **THEN** 原生侧 MUST 退回信息级并出声，MUST NOT 退化为「详细」级——
+      那会让一次笔误直接变成满屏日志
+
+### Requirement: Release 构建必须剥离调试级日志代码
+
+Release 构建 MUST 剥离调试级日志代码（调用点连同其消息构造一起移除）。
+MUST NOT 剥离信息、警告与错误级：它们是排障时真正需要的信息。
+Debug 与 Release 的可选等级列表 MUST 不同：Release 里被剥离的档位 MUST NOT 出现在
+设置页——列出它只会让用户选中一个不生效的档位。
+
+剥离的适用范围 MUST 如实记录，不得把运行时门控说成编译期剥离。Kotlin 侧的调试级
+调用点由 R8 的 `assumenosideeffects` 在 Release 构建中真正移除。原生侧（Rust）的
+调试级调用点当前由运行时等级门控跳过——消息构造不执行，但调用点仍在二进制里：
+两个 APK 变体共用同一份按 release profile 构建的原生库，编译期剥离需要为它们
+分别构建原生库（改 `Cargo.toml` 的 `log` 特性并调整构建流水线）。
 
 #### Scenario: Release 的可选等级不含被剥离的档位
 

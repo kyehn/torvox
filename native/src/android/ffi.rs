@@ -651,11 +651,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPowerPrefer
     preference: jint,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
-        let preference = match preference {
-            1 => crate::render::wgpu_backend::PowerPreference::LowPower,
-            2 => crate::render::wgpu_backend::PowerPreference::HighPerformance,
-            _ => crate::render::wgpu_backend::PowerPreference::None,
-        };
+        let preference = crate::render::wgpu_backend::PowerPreference::from_host(preference);
         crate::render::wgpu_backend::set_power_preference(preference);
         log::info!("power preference set to {preference:?}");
     });

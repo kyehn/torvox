@@ -24,9 +24,6 @@ object LogUtil {
         level = newLevel
     }
 
-    /** 当前等级。 */
-    fun currentLevel(): LogLevel = level
-
     fun debug(tag: String, message: String, throwable: Throwable? = null) {
         if (level.allows(Log.DEBUG)) {
             log(Log.DEBUG, tag, message, throwable)

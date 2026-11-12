@@ -23,8 +23,8 @@ import terminal.emulator.runtime.LogLevel
  * 日志等级分区。
  *
  * 等级列表按构建类型区分（DESIGN 日志节：「Release 和 Debug 的列表应该不同」）：
- * Release 构建的调试级与详细级日志代码已被 R8 剥离（见 `proguard-rules.pro`），
- * 列出它们只会让用户选中一个**不生效**的档位。
+ * Release 构建里 Kotlin 侧的调试级调用点已被 R8 剥离（见 `proguard-rules.pro`），
+ * 选中「调试」不会有任何调试日志出现——列出它只会让用户选中一个**不生效**的档位。
  */
 @Composable
 internal fun LogLevelSection(

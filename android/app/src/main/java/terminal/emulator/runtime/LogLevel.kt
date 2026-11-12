@@ -30,8 +30,10 @@ enum class LogLevel(val androidPriority: Int) {
             if (terminal.emulator.BuildConfig.DEBUG) DEBUG else WARN
 
         /**
-         * Release 构建可选的等级：调试级与详细级的调用点已被 R8 剥离，
-         * 选中它们不会多出任何日志（见 `proguard-rules.pro`）。
+         * Release 构建可选的等级：调试级与详细级不在其中。
+         *
+         * Release 里 Kotlin 侧的调试级调用点已被 R8 剥离（见 `proguard-rules.pro`），
+         * 选中「调试」不会多出任何调试日志；详细级则根本没有 Kotlin 侧的调用点。
          */
         val releaseLevels: List<LogLevel> = listOf(OFF, ERROR, WARN, INFO)
 

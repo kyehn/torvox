@@ -16,11 +16,11 @@ use crate::render::GpuError;
 pub(crate) enum PowerPreference {
     /// 不排序：按驱动枚举顺序取第一个可用适配器。
     #[default]
-    None,
+    None = 0,
     /// 省电：偏好集成显卡（移动端 SoC 集成显卡通常也是唯一选项）。
-    LowPower,
+    LowPower = 1,
     /// 高性能：偏好独立显卡（桌面/高端设备）。
-    HighPerformance,
+    HighPerformance = 2,
 }
 
 impl PowerPreference {
@@ -30,6 +30,27 @@ impl PowerPreference {
             PowerPreference::None => wgpu::PowerPreference::None,
             PowerPreference::LowPower => wgpu::PowerPreference::LowPower,
             PowerPreference::HighPerformance => wgpu::PowerPreference::HighPerformance,
+        }
+    }
+
+    /// 由宿主传来的数值还原：与判别值一一对应，未知值退回「不排序」。
+    ///
+    /// 判别值显式写死：隐含的判别值随变体声明顺序而来，顺序一改就与宿主
+    /// 约定的数值静默错位（省电模式选到独显）。
+    pub(crate) fn from_host(value: i32) -> Self {
+        match value {
+            1 => PowerPreference::LowPower,
+            2 => PowerPreference::HighPerformance,
+            _ => PowerPreference::None,
+        }
+    }
+
+    /// 写入原子量用的编码：与 `from_host` 共用同一组数值。
+    fn code(self) -> u8 {
+        match self {
+            PowerPreference::None => 0,
+            PowerPreference::LowPower => 1,
+            PowerPreference::HighPerformance => 2,
         }
     }
 }
@@ -42,7 +63,7 @@ static POWER_PREFERENCE: std::sync::atomic::AtomicU8 = std::sync::atomic::Atomic
 
 /// 记录宿主告知的功耗偏好。
 pub(crate) fn set_power_preference(preference: PowerPreference) {
-    POWER_PREFERENCE.store(preference as u8, std::sync::atomic::Ordering::Release);
+    POWER_PREFERENCE.store(preference.code(), std::sync::atomic::Ordering::Release);
 }
 
 /// 当前生效的功耗偏好。
@@ -187,5 +208,31 @@ mod tests {
             assert_eq!(power_preference(), preference);
         }
         set_power_preference(original);
+    }
+
+    /// 宿主的数值与判别值一一对应：错位会让省电模式选到独显（耗电）。
+    ///
+    /// 判别力：编码与解码各写一份时，改动只落在其中一处，另一处仍按旧值解释。
+    #[test]
+    fn host_values_match_discriminants() {
+        assert_eq!(PowerPreference::from_host(0), PowerPreference::None);
+        assert_eq!(PowerPreference::from_host(1), PowerPreference::LowPower);
+        assert_eq!(
+            PowerPreference::from_host(2),
+            PowerPreference::HighPerformance
+        );
+        // 未知值退回「不排序」：它不选错显卡，只是不排序。
+        assert_eq!(PowerPreference::from_host(99), PowerPreference::None);
+        // 编码与解码必须互逆，否则写进去读出来会变味。
+        for preference in [
+            PowerPreference::None,
+            PowerPreference::LowPower,
+            PowerPreference::HighPerformance,
+        ] {
+            assert_eq!(
+                PowerPreference::from_host(preference.code() as i32),
+                preference
+            );
+        }
     }
 }

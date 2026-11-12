@@ -13,6 +13,16 @@ import java.util.concurrent.CountDownLatch
 internal val nativeClassInitStarted = CountDownLatch(1)
 
 /**
+ * 宿主告知的适配器功耗偏好：`0` = 不排序、`1` = 省电、`2` = 高性能。
+ *
+ * 它 MUST 在原生库装载**之前**写入：[NativeBridge] 的类初始化在装载成功后立即
+ * 把它交给原生侧，故由 JVM 的类初始化顺序保证「偏好先于任何 native 调用」。
+ * 若改在装载之后由别的线程上报，就与「首个 native 调用可能已经初始化了 GPU」
+ * 形成竞态——适配器只在初始化时选一次，那时偏好还没到就再也改不了。
+ */
+@Volatile internal var hostPowerPreference: Int = 0
+
+/**
  * 到原生 Rust 终端引擎（`native.so`）的 JNI 桥接，全部为直接 `external fun` 导出，无 JNA、无线路编码。
  *
  * 会话流程：[initSession] 创建 → [feedPty]/[encodeKeyText] 送输入 → 每帧 [pollEvent] 排空事件 → [destroySession] 销毁。
@@ -44,6 +54,9 @@ object NativeBridge {
             System.loadLibrary("native")
             nativeLoaded = true
             LogUtil.info(TAG, "Native library loaded: native on $loaderThreadName")
+            // 偏好紧接装载之后交给原生侧：适配器只在 GPU 初始化时选一次，那时
+            // 偏好必须已经就位（见 hostPowerPreference 的说明）。
+            setPowerPreference(hostPowerPreference)
         } catch (exception: UnsatisfiedLinkError) {
             LogUtil.error(TAG, "Failed to load native library: ${exception.message}")
         }
