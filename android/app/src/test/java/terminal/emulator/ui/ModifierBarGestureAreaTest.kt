@@ -1,6 +1,7 @@
 package terminal.emulator.ui
 
 import androidx.compose.ui.geometry.Rect
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -142,6 +143,40 @@ class ModifierBarGestureAreaTest {
         assertTrue(
             "静止按住的反馈阈值必须为正，否则退化成按下即亮（等于上滑会触发动画）",
             PRESS_FEEDBACK_HOLD_MS > 0,
+        )
+    }
+
+    @Test
+    fun `the jitter radius is half of the system touch slop`() {
+        // 抖动半径取系统 touchSlop 的一半：足够大到容得下生理抖动，又足够小到
+        // 慢速上滑（每步只挪一两像素）也会越过它。
+        assertEquals(4f, stillHoldJitterRadiusPx(8f), 0.01f)
+        assertEquals(0f, stillHoldJitterRadiusPx(0f), 0.01f)
+    }
+
+    @Test
+    fun `jitter around the press point is not a significant movement`() {
+        // 生理抖动只在按下点附近振荡，累计距离不会越过半径：它 MUST NOT 推迟反馈
+        // （被计成移动的话，抖动的用户永远看不到按下反馈）。
+        val radius = stillHoldJitterRadiusPx(8f)
+        assertFalse(
+            "按下点未动不得算作有效移动",
+            isSignificantMovement(distanceFromDown = 0f, jitterRadiusPx = radius),
+        )
+        assertFalse(
+            "抖动半径内的累计距离不得算作有效移动",
+            isSignificantMovement(distanceFromDown = radius, jitterRadiusPx = radius),
+        )
+    }
+
+    @Test
+    fun `moving away from the press point is a significant movement`() {
+        // 上滑一路远离按下点，累计距离很快越过半径：计时随之重算，慢速上滑因此
+        // 全程等不到反馈亮起。
+        val radius = stillHoldJitterRadiusPx(8f)
+        assertTrue(
+            "越过抖动半径的累计距离必须算作有效移动",
+            isSignificantMovement(distanceFromDown = radius + 0.5f, jitterRadiusPx = radius),
         )
     }
 }

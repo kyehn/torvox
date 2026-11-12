@@ -338,6 +338,30 @@ internal const val PRESS_FEEDBACK_HOLD_MS = 250
 internal fun pressFeedbackStartsImmediately(insideSystemGestureArea: Boolean): Boolean = !insideSystemGestureArea
 
 /**
+ * 静止按住的抖动半径（像素）：离按下点的累计距离越过它才算「有效移动」。
+ *
+ * 取系统 touchSlop 的一半：足够大到容得下手指按住时的生理抖动（抖动在按下点附近
+ * 振荡，累计距离不会越过），又足够小到慢速上滑（每步只挪一两像素）也会越过它——
+ * 上滑正是要屏蔽的手势。
+ *
+ * @param touchSlop 系统的 touch slop（像素）。
+ */
+internal fun stillHoldJitterRadiusPx(touchSlop: Float): Float = touchSlop / 2f
+
+/**
+ * 这次移动是否算「有效移动」（据此重算静止按住的计时）。
+ *
+ * 以**离按下点的累计距离**判定，而非本次事件的位移：生理抖动在按下点附近振荡，
+ * 累计距离不会越过半径，故 MUST NOT 推迟反馈；上滑则一路远离按下点，累计距离很快
+ * 越过半径。
+ *
+ * @param distanceFromDown 离按下点的累计距离（像素）。
+ * @param jitterRadiusPx 抖动半径（像素）。
+ */
+internal fun isSignificantMovement(distanceFromDown: Float, jitterRadiusPx: Float): Boolean =
+    distanceFromDown > jitterRadiusPx
+
+/**
  * 系统手势区（像素）：系统手势在此区域内优先，应用随时可能被补发 `ACTION_CANCEL`。
  *
  * 四条边的厚度由系统给出：左右两侧是 back 手势区，底部是 home 手势区（Android 14
@@ -841,6 +865,13 @@ private fun RowScope.ExtraKeyButton(
                 // 不会让长按误判，测试的虚拟时钟也推进同一条时间线。
                 val downEventTime = down.uptimeMillis
                 val touchSlop = viewConfiguration.touchSlop
+                // 抖动半径：手指按住时的生理抖动只在按下点附近振荡，累计距离不会
+                // 越过它，故不推迟反馈；上滑则持续远离按下点，累计距离很快越过。
+                // 取系统 touchSlop 的一半：足够大到容得下抖动，又足够小到慢速上滑
+                // （每步只挪一两像素）也会越过——上滑正是要屏蔽的手势。
+                val stillHoldJitterPx = stillHoldJitterRadiusPx(touchSlop)
+                // 静止按住的计时基准：手指不动时按按下时刻起算，有效移动后重新起算。
+                var stillHoldBaseUptimeMs = downEventTime
                 val longPressMs = modifierLongPressMillis(viewConfiguration.longPressTimeoutMillis)
                 // ACTION_CANCEL 会被 MotionEventAdapter 直接丢弃，改由 processCancel 合成
                 // 无 MotionEvent 的全释放事件送达；真实抬手/移动始终携带原始 MotionEvent。
@@ -880,16 +911,26 @@ private fun RowScope.ExtraKeyButton(
                 // 移动快慢，没有上界，按下即亮会被慢速起滑穿过。
                 //
                 // 计时走指针事件自身的等待超时：手指一动就有事件、等待随之结束，
-                // 手指不动则超时到点。期限以按下时刻为基准（绝对期限），手指的
-                // 细微抖动不会把计时无限往后推。
+                // 手指不动则超时到点。
                 suspend fun AwaitPointerEventScope.awaitStillHold(): PointerEvent? {
                     if (!feedbackVisible) {
                         val remaining =
-                            PRESS_FEEDBACK_HOLD_MS - (SystemClock.uptimeMillis() - downEventTime)
+                            PRESS_FEEDBACK_HOLD_MS - (SystemClock.uptimeMillis() - stillHoldBaseUptimeMs)
                         if (remaining > 0L) {
                             val event = withTimeoutOrNull(remaining) { awaitPointerEvent() }
                             if (event == null) {
                                 showFeedbackNow()
+                            } else {
+                                // 手指已远离按下点（累计位移越过抖动半径）即是在拖动：
+                                // 计时随之重算，于是慢速上滑全程等不到反馈亮起。
+                                // 以**离按下点的累计距离**判定，而非本次事件的位移：
+                                // 生理抖动在按下点附近振荡，距离不累积，故不会推迟反馈；
+                                // 上滑则持续远离，累计距离很快越过半径。
+                                val distanceFromDown =
+                                    event.changes.firstOrNull()?.let { (it.position - downPos).getDistance() } ?: 0f
+                                if (isSignificantMovement(distanceFromDown, stillHoldJitterPx)) {
+                                    stillHoldBaseUptimeMs = SystemClock.uptimeMillis()
+                                }
                             }
                             return event
                         }
