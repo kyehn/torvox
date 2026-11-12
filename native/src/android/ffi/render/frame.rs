@@ -403,11 +403,11 @@ pub(super) fn render_inner(session_id: u64) -> jint {
 }
 
 /// 阶段 3 的时间点：`lock_done` 是首次取渲染状态锁成功的时刻，`keys_done` 是
-/// 放下该锁的时刻（锁内只算了放置键与失效判据），`query_done` 是锁外 VT 查询
-/// 结束的时刻，`lock2_done` 是查询后重取锁的时刻（空闲路径没有查询也没有第二
-/// 次取锁，四者相等），`prepare_done` 是绘制前的最后一刻，`render_done` 是呈现
-/// 完成。`render` 段 = `keys + query + lock2 + prepare + draw`，各段之和恒等于
-/// `total`。
+/// 放置键与失效判据算完的时刻（锁内工作到此为止），`query_done` 是锁外 VT 查询
+/// 结束的时刻，`lock2_done` 是查询后重取锁的时刻，`prepare_done` 是绘制前的
+/// 最后一刻，`render_done` 是呈现完成。锁外没有工作时既不查询也不重取锁，
+/// 此时 `keys_done`、`query_done` 与 `lock2_done` 相等。`render` 段 =
+/// `keys + query + lock2 + prepare + draw`，各段之和恒等于 `total`。
 pub(super) struct RenderTiming {
     lock_done: std::time::Instant,
     keys_done: std::time::Instant,
@@ -419,8 +419,9 @@ pub(super) struct RenderTiming {
 
 /// 阶段 3 的新帧路径：绘制本帧单元数据。
 ///
-/// 返回 `(渲染计数, 各段时间点)`；中途放弃渲染时返回 `Err(退出码)`，此时不进入
-/// 慢帧诊断。
+/// 返回 `(渲染计数, 各段时间点)`；计数 0 表示本帧没有呈现（滚动在途，或取锁期间
+/// surface 已被拆走），各段时间点照常给出，慢帧诊断据此归因；无法继续的情形返回
+/// `Err(退出码)`，此时不进入慢帧诊断。
 pub(super) fn render_new_frame(
     session_id: u64,
     frame: NewFrame,
@@ -505,31 +506,50 @@ pub(super) fn render_new_frame(
     let need_kitty_fetch = invalidation.refetch_placements;
     let sync_cell_width = grid_cell_width.max(1.0) as u32;
     let sync_cell_height = grid_cell_height.max(1.0) as u32;
-    drop(locked);
-    let keys_done = std::time::Instant::now();
-    if need_cell_sync {
-        let registry = rlock_session_registry();
-        if let Some(entry) = registry.get(&session_id) {
-            entry
-                .session
-                .lock()
-                .terminal()
-                .set_cell_pixel_size(sync_cell_width, sync_cell_height);
-        }
-    }
-    // 渲染状态锁与会话锁之外查询：仅放置键变化时触发；刚推送帧时通常
-    // 毫秒级返回（卡住时由 500 毫秒超时兜底），期间其他渲染状态消费者
-    // 不再排队，按帧取会话锁的写入路径也不再排队。
-    let fetched_kitty_frames = if need_kitty_fetch {
-        session_query_channel(session_id)
-            .map(|query_tx| GhosttyTerminal::take_kitty_placements_on(&query_tx))
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-    let query_done = std::time::Instant::now();
-    let mut locked = lock_render_state();
-    let lock2_done = locked.lock_done;
+    // 锁外工作只在真有工作时才放锁：单元格尺寸同步要按全局锁序先放开渲染
+    // 状态锁（否则 RENDER_STATE → 注册表 → 会话构成反向嵌套），放置查询也
+    // 不能在锁内等 VT 回复（最长 500 毫秒）。两件事都不做时（纯文本稳态）
+    // 保持锁不放手：放锁再重取只给旁路线程开一个抢锁窗口——UI 线程的滚动
+    // 回调每帧都要这把锁，渲染线程在窗口里被挤到队尾，一帧可空等数十毫秒
+    // （真机实测 39 毫秒慢帧，落在重取锁的等待里）。
+    let (mut locked, fetched_kitty_frames, keys_done, query_done, lock2_done) =
+        if need_cell_sync || need_kitty_fetch {
+            drop(locked);
+            let keys_done = std::time::Instant::now();
+            if need_cell_sync {
+                let registry = rlock_session_registry();
+                if let Some(entry) = registry.get(&session_id) {
+                    entry
+                        .session
+                        .lock()
+                        .terminal()
+                        .set_cell_pixel_size(sync_cell_width, sync_cell_height);
+                }
+            }
+            // 渲染状态锁与会话锁之外查询：仅放置键变化时触发；刚推送帧时通常
+            // 毫秒级返回（卡住时由 500 毫秒超时兜底），期间其他渲染状态消费者
+            // 不再排队，按帧取会话锁的写入路径也不再排队。
+            let fetched_kitty_frames = if need_kitty_fetch {
+                session_query_channel(session_id)
+                    .map(|query_tx| GhosttyTerminal::take_kitty_placements_on(&query_tx))
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let query_done = std::time::Instant::now();
+            let locked = lock_render_state();
+            let lock2_done = locked.lock_done;
+            (
+                locked,
+                fetched_kitty_frames,
+                keys_done,
+                query_done,
+                lock2_done,
+            )
+        } else {
+            let now = std::time::Instant::now();
+            (locked, Vec::new(), now, now, now)
+        };
     let render_state = locked.get()?;
     if render_state.renderer.surface.is_none() {
         // collect 之后 surface 才被拆走：本帧数据已被 VT 破坏性取出，丢弃就再没有
@@ -538,7 +558,20 @@ pub(super) fn render_new_frame(
         render_state.last_frame = Some((cells, cursor_info, rows, cols, session_id));
         render_state.scroll_frame_pending = false;
         render_state.scroll_pending_since = None;
-        return Err(0);
+        // 放弃渲染也带着各段时间点：取锁与锁外查询的等待是真实开销，丢掉它
+        // 就只剩一个「本帧没画」的事实，看不出这一帧是被锁拖住还是被查询拖住。
+        let now = std::time::Instant::now();
+        return Ok((
+            0,
+            RenderTiming {
+                lock_done,
+                keys_done,
+                query_done,
+                lock2_done,
+                prepare_done: now,
+                render_done: now,
+            },
+        ));
     }
     // 强制重查：旧帧像素尺寸按旧几何解算，必须按新几何重算。
     if invalidation.overlay_dirty {
@@ -832,5 +865,56 @@ pub(super) fn render_idle_frame(session_id: u64) -> Result<(jint, RenderTiming),
                 },
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NewFrame, render_new_frame};
+    use crate::terminal::ghostty_terminal::{CursorInfo, CursorStyle};
+
+    /// 纯文本稳态的新帧路径不得放开渲染状态锁。
+    ///
+    /// 放开再取回只给旁路线程开一个抢锁窗口：UI 线程的滚动回调每帧都要这把锁，
+    /// 渲染线程在窗口里被挤到队尾，一帧可空等数十毫秒（真机实测 39 毫秒慢帧）。
+    /// 纯文本会话没有锁外工作（不查放置、不同步单元格尺寸），故整段只有一个
+    /// 取锁：`keys`、`query` 与 `lock2` 三个时间点必然是同一时刻。
+    ///
+    /// 判别力：把取锁改成「无条件放开再取回」时 `lock2_done` 必然晚于
+    /// `keys_done`（中间隔着一次互斥量往返），断言立刻判红。
+    #[test]
+    fn plain_text_frame_never_releases_the_render_state_lock() {
+        let frame = NewFrame {
+            cells: Vec::new(),
+            cursor_info: CursorInfo {
+                row: 0,
+                col: 0,
+                at_wide_tail: false,
+                visible: true,
+                style: CursorStyle::Block,
+                scrollback_length: 0,
+                viewport_row: 0,
+                scroll_request_id: 0,
+                rows: 1,
+                cols: 1,
+                // 生成戳 0 即纯文本会话：无放置可查。
+                kitty_generation: 0,
+                kitty_placement_generation: 0,
+            },
+            rows: 1,
+            cols: 1,
+            latest_scroll_request_id: 0,
+        };
+        let (count, timing) = render_new_frame(4242, frame).expect("纯文本帧不得报错");
+        // 无 surface 的宿主单测环境：本帧不呈现，但各段时间点照常给出。
+        assert_eq!(count, 0, "无 surface 时本帧不得呈现");
+        assert_eq!(
+            timing.keys_done, timing.query_done,
+            "纯文本帧没有锁外查询，查询段必须与放置键段同一时刻"
+        );
+        assert_eq!(
+            timing.keys_done, timing.lock2_done,
+            "纯文本帧没有锁外工作，不得放开再取回渲染状态锁"
+        );
     }
 }
