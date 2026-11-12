@@ -504,4 +504,32 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
             device.hasObject(By.text("复制"))
         }
+
+    /**
+     * 首帧提交只把缓冲排入队列，SurfaceFlinger 要到下一次 vsync 才锁存上屏。
+     *
+     * 若在同一拍就撤掉开孔遮罩，回前台会有一拍「既无旧画面、也无新画面」的底色
+     * ——就是用户看到的闪烁。故 true 的发布必须延后一个显示帧；false（surface
+     * 被拆）必须立即生效，遮罩马上回来。
+     */
+    @Test
+    fun bufferPresentIsPublishedOneDisplayFrameLate() {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
+        composeTestRule.activity.runOnUiThread {
+            runtime.publishSurfaceBufferPresent(false)
+            assertTrue("surface 被拆时必须立即报「无缓冲区」", !runtime.surfaceBufferPresent.value)
+            runtime.publishSurfaceBufferPresent(true)
+            // 同一主线程任务内帧回调还没机会执行：遮罩必须仍然在。
+            assertTrue(
+                "首帧提交后同一拍不得撤遮罩，否则开孔会露出一拍底色",
+                !runtime.surfaceBufferPresent.value,
+            )
+        }
+        assertNotNull(
+            "下一个显示帧后必须发布「已有缓冲区」",
+            UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 16) {
+                runtime.surfaceBufferPresent.value
+            },
+        )
+    }
 }

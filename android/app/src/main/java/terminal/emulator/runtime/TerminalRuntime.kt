@@ -222,11 +222,59 @@ constructor(
     private val surfaceBufferPresentFlow = MutableStateFlow(false)
     val surfaceBufferPresent: StateFlow<Boolean> = surfaceBufferPresentFlow.asStateFlow()
 
+    /**
+     * 首帧提交后到「真正能看见」之间的门闸状态。
+     *
+     * `present` 只把缓冲**排入** surface 的队列，SurfaceFlinger 要到下一次 vsync
+     * 才把它锁存上屏。若此时立刻撤掉遮罩，开孔在那一个 vsync 里既没有旧画面也没有
+     * 新画面，只剩窗口底色——就是「切后台返回闪一下」。故 true 的发布延后到下一个
+     * 显示帧；false（surface 被拆）仍然立即生效，遮罩必须马上回来。
+     */
+    private val surfacePresentLock = Any()
+    private var surfacePresentPending = false
+    private var surfacePresentToken = 0L
+    private var surfacePresentFrameCallback: Choreographer.FrameCallback? = null
+
     internal fun publishSurfaceBufferPresent(present: Boolean) {
-        if (surfaceBufferPresentFlow.value == present) return
-        surfaceBufferPresentFlow.value = present
-        // 新帧已上屏：开孔遮罩使命完成，撤掉并释放像素（见 [coverFrame]）。
-        if (present) clearCoverFrame()
+        if (!present) {
+            synchronized(surfacePresentLock) {
+                // 令牌一变，已排队的帧回调即使稍后执行也不会再置 true。
+                surfacePresentToken++
+                surfacePresentPending = false
+                surfaceBufferPresentFlow.value = false
+            }
+            mainHandler.post {
+                surfacePresentFrameCallback?.let { Choreographer.getInstance().removeFrameCallback(it) }
+                surfacePresentFrameCallback = null
+            }
+            return
+        }
+        synchronized(surfacePresentLock) {
+            if (surfaceBufferPresentFlow.value || surfacePresentPending) return
+            surfacePresentPending = true
+        }
+        val token = synchronized(surfacePresentLock) { surfacePresentToken }
+        mainHandler.post {
+            val callback =
+                object : Choreographer.FrameCallback {
+                    override fun doFrame(frameTimeNanos: Long) {
+                        synchronized(surfacePresentLock) {
+                            if (token != surfacePresentToken || !surfacePresentPending) return
+                            surfacePresentPending = false
+                            surfacePresentFrameCallback = null
+                            if (surfaceBufferPresentFlow.value) return
+                            surfaceBufferPresentFlow.value = true
+                        }
+                        // 新帧已上屏：开孔遮罩使命完成，撤掉并释放像素（见 [coverFrame]）。
+                        clearCoverFrame()
+                    }
+                }
+            synchronized(surfacePresentLock) {
+                if (token != surfacePresentToken || !surfacePresentPending) return@post
+                surfacePresentFrameCallback = callback
+            }
+            Choreographer.getInstance().postFrameCallback(callback)
+        }
     }
 
     /**

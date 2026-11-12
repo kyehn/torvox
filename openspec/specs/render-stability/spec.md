@@ -165,6 +165,11 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
 
 - **WHEN** 新 surface 提交了首帧
 - **THEN** 遮罩 MUST 被撤下并释放像素
+- **AND** 撤下 MUST 延后到**下一个显示帧**：`present` 只把缓冲排入 surface 的队列，
+      SurfaceFlinger 要到下一次 vsync 才把它锁存上屏。同一拍就撤遮罩，开孔在那一个
+      vsync 里既无旧画面也无新画面，只剩窗口底色——就是「切回前台闪一下」
+- **AND** 「无缓冲区」（surface 被拆）MUST 立即生效，遮罩 MUST 马上回来：那条路上
+      延迟一帧等于让已经消亡的 surface 再裸一帧
 
 #### Scenario: 没有可回读的内容时不遮
 
