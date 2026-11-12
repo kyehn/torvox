@@ -2,6 +2,7 @@
 use super::frame::store_attachment;
 use crate::render::GpuError;
 use crate::render::Renderer;
+use crate::render::context::{PollOutcome, poll_device_wait};
 use crate::render::pipeline::QUAD_VERTEX_COUNT;
 
 /// 设备轮询超时：仅测试回读脚手架使用（`render_to_buffer` 内），生产零引用。
@@ -173,11 +174,10 @@ impl Renderer {
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
-        if let Err(error) = self.device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: Some(GPU_POLL_TIMEOUT),
-        }) {
-            log::warn!("render_to_buffer: device poll error: {error}");
+        // 设备轮询的失败形态不止 `Err`：wgpu 内部会在设备真出错时直接 panic。
+        // 走统一封装，失败带原因上来，别让测试死于一道看不懂的 panic。
+        if let PollOutcome::Failed(reason) = poll_device_wait(&self.device, GPU_POLL_TIMEOUT) {
+            return Err(GpuError::Readback(format!("device poll failed: {reason}")));
         }
 
         let slice = destination.slice(..);
@@ -189,11 +189,8 @@ impl Renderer {
         // 反复轮询直到 map 完成或超时。
         let poll_start = std::time::Instant::now();
         let mapped: Result<(), GpuError> = loop {
-            if let Err(error) = self.device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: Some(MAP_POLL_STEP),
-            }) {
-                log::warn!("render_to_buffer (map wait): device poll error: {error}");
+            if let PollOutcome::Failed(reason) = poll_device_wait(&self.device, MAP_POLL_STEP) {
+                break Err(GpuError::Readback(format!("device poll failed: {reason}")));
             }
             match map_rx.try_recv() {
                 // 向上传递 map_async 错误（如缓冲过大、设备丢失）。

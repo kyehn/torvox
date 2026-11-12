@@ -4,6 +4,8 @@ mod atlas;
 #[cfg(any(target_os = "android", test))]
 mod cover;
 mod gpu;
+#[cfg(any(target_os = "android", test))]
+mod poll;
 mod renderer;
 mod surface;
 
@@ -14,6 +16,8 @@ pub(crate) use gpu::{
     gpu_error_is_surface_lost, surface_loss_transition,
 };
 pub(crate) use gpu::{log_gpu_error, try_global_gpu};
+#[cfg(any(target_os = "android", test))]
+pub(crate) use poll::{PollOutcome, poll_device_wait};
 #[cfg(test)]
 pub(crate) use renderer::{rebuild_blocked_by_in_flight_surface, reuse_attached_surface};
 #[cfg(test)]

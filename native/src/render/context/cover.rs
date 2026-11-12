@@ -9,6 +9,7 @@
 //! （不引用 surface），故回读与窗口是否已死无关。
 
 use crate::render::context::Renderer;
+use crate::render::context::poll::{PollOutcome, poll_device_wait};
 
 /// 回读超时：遮罩是一次性补救，超时即放弃（终端照常恢复）。
 const READBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
@@ -85,11 +86,15 @@ impl Renderer {
         });
         let deadline = std::time::Instant::now() + READBACK_TIMEOUT;
         loop {
-            if let Err(error) = self.device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: Some(POLL_STEP),
-            }) {
-                log::warn!("read_cover_frame: device poll error: {error}");
+            // 设备轮询的失败形态不止 `Err`：wgpu 内部会在设备真出错时直接 panic，
+            // 那道 panic 穿出 JNI 边界就是整进程退出（2026-11-12 真机日志）。
+            // 故走统一封装：常态继续，真错误带原因退出，panic 也归成「失败」。
+            match poll_device_wait(&self.device, POLL_STEP) {
+                PollOutcome::Proceed => {}
+                PollOutcome::Failed(reason) => {
+                    log::error!("read_cover_frame: 设备轮询失败，放弃遮罩: {reason}");
+                    return None;
+                }
             }
             match map_rx.try_recv() {
                 Ok(Ok(())) => break,

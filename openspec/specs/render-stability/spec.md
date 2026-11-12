@@ -176,6 +176,29 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
 - **WHEN** 回读失败、没有保留的帧或帧格式不是 RGBA8
 - **THEN** 宿主 MUST 沿用平底色遮罩，MUST NOT 以空遮罩代替（空遮罩等于一块黑）
 
+### Requirement: 设备轮询的失败形态必须归一
+
+wgpu 的 `Device::poll` 有三种失败形态，调用方的 `Result` 只接得住常态那一种：
+`PollError::Timeout` 是分步轮询的常态（这一步等满还没排空），`WrongSubmissionIndex`
+是提交序号对不上，而设备真出错时 wgpu 内部直接 `panic!`（`handle_error_fatal`）。
+那道 panic 发生在 wgpu 内部，会一路穿出 JNI 边界变成未捕获的 Java 异常，直接杀掉
+整个进程（2026-11-12 真机日志：切后台时遮罩帧回读撞上设备错误，整进程退出）。
+
+故凡调用 `Device::poll` 的路径 MUST 经统一封装，把结局归一成「继续 / 失败」：
+常态继续；真错误与 panic 都归成「失败」并原样带出原因（MUST NOT 吞掉、MUST NOT
+改写）；panic MUST NOT 越过封装边界向上传播。
+
+#### Scenario: 等满一步仍未排空不算设备错误
+
+- **WHEN** 设备轮询等满一步仍未排空（`PollError::Timeout`）
+- **THEN** MUST 判为「继续」让调用方接着等，MUST NOT 记为设备错误
+
+#### Scenario: 设备轮询内部 panic 不得掀掉进程
+
+- **WHEN** 设备轮询在 wgpu 内部 panic
+- **THEN** MUST 判为「失败」并带出 panic 原文，进程 MUST 存活
+- **AND** 失败原因 MUST 出现在日志里，调用方据此放弃本次补救并如实上报
+
 ### Requirement: 开孔覆盖由两段互补机制承担
 
 开孔的覆盖 MUST 由两段互补的机制承担，MUST NOT 只靠其中一段：
