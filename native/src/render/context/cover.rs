@@ -9,7 +9,7 @@
 //! （不引用 surface），故回读与窗口是否已死无关。
 
 use crate::render::context::Renderer;
-use crate::render::context::poll::{PollOutcome, poll_device_wait};
+use crate::render::context::{PollOutcome, poll_device_wait};
 
 /// 回读超时：遮罩是一次性补救，超时即放弃（终端照常恢复）。
 const READBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
