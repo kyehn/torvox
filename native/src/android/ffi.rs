@@ -623,6 +623,29 @@ impl<T> SessionScoped<T> {
     }
 }
 
+/// 宿主按电源状态告知适配器功耗偏好。
+///
+/// 必须在 GPU 初始化之前调用：适配器只在初始化时选一次，之后改偏好不会换适配器
+/// （`wgpu` 的 `request_adapter` 只在初始化路径上被调用一次）。
+///
+/// 取值：`0` = 不排序（默认）、`1` = 省电（偏好集成显卡）、`2` = 高性能（偏好独显）。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPowerPreference(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
+    preference: jint,
+) {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
+        let preference = match preference {
+            1 => crate::render::wgpu_backend::PowerPreference::LowPower,
+            2 => crate::render::wgpu_backend::PowerPreference::HighPerformance,
+            _ => crate::render::wgpu_backend::PowerPreference::None,
+        };
+        crate::render::wgpu_backend::set_power_preference(preference);
+        log::info!("power preference set to {preference:?}");
+    });
+}
+
 /// 在无 surface 的情况下预热渲染器与字体库；spawn 后在后台线程调用一次。
 ///
 /// 顺序说明：spawn 前算网格的 `getCellSizePacked` 走的也是 `render_state_mut`，正常启动里

@@ -545,4 +545,11 @@ object NativeBridge {
 
     /** 后台预热渲染器与字体库（spawn 后调用，不阻塞）；正常路径上 spawn 前的网格计算已完成初始化，此处是幂等重试。 */
     @JvmStatic external fun prefetchRenderState()
+
+    /**
+     * 告知适配器功耗偏好：`0` = 不排序、`1` = 省电（偏好集成显卡）、`2` = 高性能（偏好独显）。
+     *
+     * 必须在 GPU 初始化之前调用：适配器只在初始化时选一次，之后改偏好不会换适配器。
+     */
+    @JvmStatic external fun setPowerPreference(preference: Int)
 }
