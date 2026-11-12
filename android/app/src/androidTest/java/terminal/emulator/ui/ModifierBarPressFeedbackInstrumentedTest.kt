@@ -54,6 +54,18 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
         /** 按下点离按键底边多远（像素）：取最底下，确保落在底部 home 手势区内。 */
         private const val PRESS_OFFSET_FROM_BOTTOM_PX = 2
 
+        /** 按下点离按键右边多远（像素）：避开左侧 back 手势带（宽 30px）。 */
+        private const val PRESS_OFFSET_FROM_RIGHT_PX = 10
+
+        /** 上滑的位移（像素）：远超 touchSlop，手势随即被判为滑动而非按压。 */
+        private const val SWIPE_DISTANCE_PX = 30
+
+        /**
+         * 上滑后等待的墙钟时长（毫秒）：必须晚于反馈本该出现的时刻
+         * （静止按住阈值 250ms 与长按阈值），否则量到的「无变化」只是「还没到时间」。
+         */
+        private const val SWIPE_SETTLE_MS = 600L
+
         /** 派发触摸后等界面消化的时间（毫秒）。 */
         private const val DISPATCH_SETTLE_MS = 80L
 
@@ -79,6 +91,9 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
          */
         private const val MIN_CHANGED_RATIO = 0.5
     }
+
+    /** 一次按下的像素采样结果。 */
+    private data class FeedbackSample(val changed: Int, val total: Int)
 
     private lateinit var device: UiDevice
 
@@ -176,6 +191,149 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
                     "要求至少 ${(MIN_CHANGED_RATIO * 100).toInt()}%）",
                 changed * 100 >= MIN_CHANGED_RATIO * before.size,
             )
+        } finally {
+            dispatchMotion(downTime, MotionEvent.ACTION_UP, pressX.toFloat(), pressY.toFloat())
+        }
+    }
+
+    /**
+     * 底边那排按键上的上滑 MUST NOT 触发按下反馈（STATUS「修饰键底部列被上滑手势触发动画」）。
+     *
+     * 底边那排按键落在系统底部手势区里，用户从按键上起滑会被系统手势认领并向应用
+     * 补发 `ACTION_CANCEL`。反馈若在认领前亮起，用户看到的就是「上滑触发了按键动画」。
+     *
+     * 判别力：采样发生在**晚于**反馈本该出现的时刻之后。若「越界即取消」这条逻辑
+     * 被删掉，按住不动的路径会在静止按住阈值（250ms）或长按阈值到点时亮起反馈，
+     * 而手指仍在按键上（未抬手），采样必然量到变化——即本用例判红。采样过早
+     * （阈值之前）则量到的「无变化」毫无意义：反馈本来也还没到时间。
+     *
+     * 本用例走 View 派发（不经系统注入）：注入到系统的那一路会被底部 home 手势当场
+     * 认领走，量到的全是桌面像素（按键本身没有毛病）。手势以「越过 touchSlop」的
+     * MOVE 表达，与系统的认领路径同义。
+     */
+    @Test
+    fun bottomRowKeySwipeUpDoesNotTriggerPressFeedback() {
+        // TAB 在底排且非连发键：连发键走的是另一条分支（自动重复），断言不覆盖它。
+        val node = composeTestRule.onNodeWithTag("Key_TAB", useUnmergedTree = true)
+        val bounds = node.fetchSemanticsNode().boundsInRoot
+        val left = bounds.left.toInt() + SAMPLE_INSET_PX
+        val right = bounds.right.toInt() - SAMPLE_INSET_PX
+        val top = bounds.top.toInt() + SAMPLE_INSET_PX
+        val bottom = bounds.bottom.toInt() - SAMPLE_INSET_PX
+        // 按点取按键右侧：避开左侧 back 手势带，只留底部 home 手势带这一条路径。
+        val pressX = bounds.right.toInt() - PRESS_OFFSET_FROM_RIGHT_PX
+        val pressY = bounds.bottom.toInt() - PRESS_OFFSET_FROM_BOTTOM_PX
+
+        val before = sampleBand(UxTestUtils.screenshot(device), left, right, top, bottom)
+        assertTrue("按键底部必须取到样（截图或定位失败）", before.isNotEmpty())
+
+        // 反馈的动画挂在组合时钟上，故推进时钟需要手动驱动。
+        composeTestRule.mainClock.autoAdvance = false
+
+        val downTime = SystemClock.uptimeMillis()
+        dispatchMotion(downTime, MotionEvent.ACTION_DOWN, pressX.toFloat(), pressY.toFloat())
+        try {
+            // 上滑：位移远超 touchSlop，手势随即被判为滑动而非按压。
+            dispatchMotion(downTime, MotionEvent.ACTION_MOVE, pressX.toFloat(), (pressY - SWIPE_DISTANCE_PX).toFloat())
+            // 等过反馈本该出现的时刻：手势若未被取消，此时按住路径已亮起反馈。
+            Thread.sleep(SWIPE_SETTLE_MS)
+            composeTestRule.mainClock.advanceTimeBy(CLOCK_STEP_MS)
+            composeTestRule.waitForIdle()
+            composeTestRule.mainClock.advanceTimeBy(CLOCK_STEP_MS)
+            composeTestRule.waitForIdle()
+            val band = sampleBand(UxTestUtils.screenshot(device), left, right, top, bottom)
+            val changed = before.indices.count { before[it] != band[it] }
+            UxTestUtils.metric("modifier_swipe_changed_ratio", changed * 100 / before.size)
+            assertTrue(
+                "上滑不得触发按键的按下反馈（实测 $changed/${before.size} 个像素变了）",
+                changed == 0,
+            )
+        } finally {
+            dispatchMotion(downTime, MotionEvent.ACTION_UP, pressX.toFloat(), pressY.toFloat())
+        }
+    }
+
+    /**
+     * 按下反馈 MUST 只在手势区**外**立即启动。
+     *
+     * 系统认领手势的时机取决于手指移动快慢，没有上界：手势区内按下即亮会让慢速
+     * 起滑看到「上滑触发了按键动画」；而手势区外系统根本不会认领那里的触摸，
+     * 延后只是白白迟滞（见 modifier-bar-gesture-cancel 规范）。
+     *
+     * 两条断言放在**同一个用例**里：两个按键在同样的时钟推进与同样的采样时机下
+     * 被按住。差异因此只能归因于「是否落在系统手势区内」，而不是两次采样的时序
+     * 差——分开成两个用例时，采样耗时的波动足以让对比失去意义。
+     *
+     * 判别力：把「区内也立即亮」的判据写反（即两处都立即给反馈），带内那条即
+     * 判红；把「区外也延后」的判据写反（即两处都等静止按住阈值），带外那条即
+     * 判红。两条同时成立时，本用例才通过。
+     *
+     * 组合时钟须推进两次：一次只画到动画的起点帧（值仍是旧值），第二次才走完
+     * `tween`。而带内的静止按住走**墙钟**期限（`PRESS_FEEDBACK_HOLD_MS`），
+     * 故采样必须发生在该期限之内——采样越界时本用例量的已不是「按下瞬间」。
+     */
+    @Test
+    fun pressFeedbackStartsImmediatelyOnlyOutsideSystemGestureArea() {
+        composeTestRule.mainClock.autoAdvance = false
+
+        // HOME 在第一排中部：四条手势带（左右各 30px、底部 32px、顶部 0）都不含它。
+        val outside = pressFeedbackSample("Key_HOME", expectFeedback = true)
+        // PGDN 在第二排最右侧，其下沿（y=614）落在底部 home 手势带（y≥608）内。
+        val inside = pressFeedbackSample("Key_PGDN", expectFeedback = false)
+
+        assertTrue(
+            "手势区外的按键必须在按下后立即给出反馈（实测 ${outside.changed}/${outside.total} 个像素变了）",
+            outside.changed > 0,
+        )
+        assertTrue(
+            "手势区内的按键在按下瞬间不得给出反馈（实测 ${inside.changed}/${inside.total} 个像素变了）",
+            inside.changed == 0,
+        )
+    }
+
+    /**
+     * 按住一个按键并采样该按键区域的像素变化。
+     *
+     * @param expectFeedback 期望本次按下是否给出反馈；与实测不符即判红。
+     * @return 变化像素数与采样总数（供断言与指标使用）。
+     */
+    private fun pressFeedbackSample(tag: String, expectFeedback: Boolean): FeedbackSample {
+        val node = composeTestRule.onNodeWithTag(tag, useUnmergedTree = true)
+        val bounds = node.fetchSemanticsNode().boundsInRoot
+        val left = bounds.left.toInt() + SAMPLE_INSET_PX
+        val right = bounds.right.toInt() - SAMPLE_INSET_PX
+        val top = bounds.top.toInt() + SAMPLE_INSET_PX
+        val bottom = bounds.bottom.toInt() - SAMPLE_INSET_PX
+        val pressX = bounds.left.toInt() + PRESS_OFFSET_FROM_LEFT_PX
+        val pressY = bounds.bottom.toInt() - PRESS_OFFSET_FROM_BOTTOM_PX
+
+        val before = sampleBand(UxTestUtils.screenshot(device), left, right, top, bottom)
+        assertTrue("$tag 必须取到样（截图或定位失败）", before.isNotEmpty())
+
+        val downTime = SystemClock.uptimeMillis()
+        dispatchMotion(downTime, MotionEvent.ACTION_DOWN, pressX.toFloat(), pressY.toFloat())
+        try {
+            composeTestRule.mainClock.advanceTimeBy(CLOCK_STEP_MS)
+            composeTestRule.waitForIdle()
+            composeTestRule.mainClock.advanceTimeBy(CLOCK_STEP_MS)
+            composeTestRule.waitForIdle()
+            val band = sampleBand(UxTestUtils.screenshot(device), left, right, top, bottom)
+            val changed = before.indices.count { before[it] != band[it] }
+            // 采样必须发生在带内静止按住的期限之内，否则量的已不是「按下瞬间」。
+            val elapsedWallMs = SystemClock.uptimeMillis() - downTime
+            assertTrue(
+                "$tag 的采样须在静止按住阈值（$PRESS_FEEDBACK_HOLD_MS ms）内完成，" +
+                    "实测耗时 $elapsedWallMs ms（设备太慢，采样已越过阈值）",
+                elapsedWallMs < PRESS_FEEDBACK_HOLD_MS,
+            )
+            UxTestUtils.metric("modifier_press_feedback_${tag}_wall_ms", elapsedWallMs)
+            UxTestUtils.metric("modifier_press_feedback_${tag}_changed_ratio", changed * 100 / before.size)
+            assertTrue(
+                "$tag 的按下反馈与预期不符：期望有反馈=$expectFeedback，" +
+                    "实测 $changed/${before.size} 个像素变了",
+                (changed > 0) == expectFeedback,
+            )
+            return FeedbackSample(changed = changed, total = before.size)
         } finally {
             dispatchMotion(downTime, MotionEvent.ACTION_UP, pressX.toFloat(), pressY.toFloat())
         }
