@@ -89,6 +89,19 @@
 - **THEN** 应用 MUST NOT 主动请求光标锚点回报，MUST NOT 因此产生框架告警；
       平台在连接失活时本就丢弃锚点信息
 
+#### Scenario: 输入法在失活连接上请求光标监视
+
+- **WHEN** 日志出现输入法侧打出的 `requestCursorAnchorInfo on inactive
+      InputConnection`
+- **THEN** 归因 MUST 指出该条目由输入法侧的
+      `RemoteInputConnectionImpl.requestCursorUpdatesInternal`（AOSP
+      android14-release）打出，判据是 `ic == null || !isActive()`，而
+      `isActive()` 要求 `InputMethodManager.isActive()` 为真且连接尚未
+      `closeConnection`
+- **AND** 归因 MUST 写明请求由输入法发起，应用侧无对应调用；应用侧的准入判据
+      （`admitCursorAnchor`）已与平台同口径取 `InputMethodManager.isActive`，
+      MUST NOT 记为应用侧缺陷
+
 #### Scenario: 不得以设备分配器不支持的格式申请缓冲
 
 - **WHEN** 宿主创建交换链
