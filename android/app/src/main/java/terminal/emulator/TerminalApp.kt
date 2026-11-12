@@ -72,8 +72,11 @@ open class TerminalApp : Application() {
         val preference =
             try {
                 val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-                if (powerManager.isPowerSaveMode) POWER_PREFERENCE_LOW_POWER
-                else POWER_PREFERENCE_HIGH_PERFORMANCE
+                if (powerManager.isPowerSaveMode) {
+                    POWER_PREFERENCE_LOW_POWER
+                } else {
+                    POWER_PREFERENCE_HIGH_PERFORMANCE
+                }
             } catch (exception: RuntimeException) {
                 // 电源服务不可用（如某些定制系统）：按「不排序」继续，不因此拒绝启动。
                 LogUtil.warn("App", "power state unavailable", exception)

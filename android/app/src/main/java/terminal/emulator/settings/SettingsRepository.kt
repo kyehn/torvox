@@ -3,6 +3,7 @@ package terminal.emulator.settings
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import terminal.emulator.runtime.LogLevel
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.ui.theme.AppThemeMode
 import terminal.emulator.ui.theme.TerminalThemeMode
@@ -45,6 +47,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
         val SHELL = stringPreferencesKey("shell")
         val APP_THEME_MODE = stringPreferencesKey("app_theme_mode")
         val BOOTSTRAP_URL = stringPreferencesKey("bootstrap_url")
+        val LOG_LEVEL = intPreferencesKey("log_level")
     }
 
     companion object {
@@ -244,6 +247,8 @@ constructor(private val provider: SettingsDataStoreProvider) {
         val themeMode: String = DEFAULT_THEME_MODE,
         val shell: String = DEFAULT_SHELL,
         val bootstrapUrl: String = "",
+        /** 日志等级，见 `terminal.emulator.runtime.LogLevel`。 */
+        val logLevel: Int = LogLevel.DEFAULT.ordinal,
     )
 
     val settings: Flow<SettingsState> =
@@ -259,6 +264,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
                 themeMode = TerminalThemeMode.normalize(prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE),
                 shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
                 bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
+                logLevel = LogLevel.fromOrdinal(prefs[Keys.LOG_LEVEL] ?: LogLevel.DEFAULT.ordinal).ordinal,
             )
         }
 
@@ -287,6 +293,9 @@ constructor(private val provider: SettingsDataStoreProvider) {
     val shell: Flow<String> = settings.map { it.shell }
 
     val bootstrapUrl: Flow<String> = settings.map { it.bootstrapUrl }
+
+    /** 日志等级（`LogLevel` 的序号）。 */
+    val logLevel: Flow<Int> = settings.map { it.logLevel }
 
     suspend fun setFontSize(size: Float) = put(Keys.FONT_SIZE, size)
 
@@ -348,6 +357,9 @@ constructor(private val provider: SettingsDataStoreProvider) {
     suspend fun setAppThemeMode(mode: String) = put(Keys.APP_THEME_MODE, mode)
 
     suspend fun setShell(shell: String) = put(Keys.SHELL, shell)
+
+    /** 设置日志等级（`LogLevel` 的序号）。 */
+    suspend fun setLogLevel(level: Int) = put(Keys.LOG_LEVEL, level)
 
     /**
      * 记录一次引导 URL 编辑，由本单例的防抖写入落盘。

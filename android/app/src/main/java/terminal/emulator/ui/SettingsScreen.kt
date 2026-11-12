@@ -185,6 +185,15 @@ fun SettingsScreen(
                         )
                     }
                     item {
+                        LogLevelSection(
+                            logLevel = settings.logLevel,
+                            onLogLevelSelected = { viewModel.setLogLevel(it) },
+                            textColor = textColor,
+                            cardBackground = cardBackground,
+                            sectionTitleColor = sectionTitleColor,
+                        )
+                    }
+                    item {
                         ClearAppDataSectionItem(
                             onClearAppData = { viewModel.clearAppData() },
                             textColor = textColor,

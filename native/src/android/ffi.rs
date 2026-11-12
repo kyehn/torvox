@@ -623,6 +623,21 @@ impl<T> SessionScoped<T> {
     }
 }
 
+/// 宿主设置原生日志等级（Android 优先级：`2`…`6`，`Int.MAX_VALUE` 表示关闭）。
+///
+/// 与 Kotlin 侧的 `LogUtil` 共用同一个等级值：两边各自过滤，原生日志与
+/// Kotlin 日志才会一致地出现在同一个等级下。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setLogLevel(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
+    priority: jint,
+) {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
+        crate::android::set_log_level(priority);
+    });
+}
+
 /// 宿主按电源状态告知适配器功耗偏好。
 ///
 /// 必须在 GPU 初始化之前调用：适配器只在初始化时选一次，之后改偏好不会换适配器

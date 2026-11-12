@@ -552,4 +552,13 @@ object NativeBridge {
      * 必须在 GPU 初始化之前调用：适配器只在初始化时选一次，之后改偏好不会换适配器。
      */
     @JvmStatic external fun setPowerPreference(preference: Int)
+
+    /**
+     * 设置原生日志等级：Android 优先级（`2` = VERBOSE … `6` = ERROR，
+     * `Int.MAX_VALUE` 表示关闭）。
+     *
+     * 与 `LogUtil` 的等级是同一个值，两边必须同时设置，否则会出现
+     * 「原生日志照刷、Kotlin 日志已静默」的半截状态。
+     */
+    @JvmStatic external fun setLogLevel(priority: Int)
 }

@@ -108,6 +108,36 @@
 - **THEN** 缓冲格式 MUST 与窗口缓冲格式一致（见 `render-stability` 的同款
       Requirement），设备分配器 MUST NOT 因格式不被支持而记 error
 
+### Requirement: 日志等级必须可调且两侧同步
+
+日志等级 MUST 可由宿主调整，MUST 覆盖「关闭」。等级 MUST 同时作用于 Kotlin 日志与
+原生日志：两边各自过滤，只改一边会出现「原生日志照刷、Kotlin 日志已静默」的半截
+状态，排障时反而更难判断。
+
+原生日志的等级 MUST 经 `log::set_max_level` 生效，MUST NOT 只过滤 `logcat` 写入：
+上游 VT 的日志经同一门面进同一个 sink，故等级改一次即对上游同样生效。
+
+Release 构建 MUST 剥离调试级日志代码（调用点连同其消息构造一起移除）。
+MUST NOT 剥离信息、警告与错误级：它们是排障时真正需要的信息。
+Debug 与 Release 的可选等级列表 MUST 不同：Release 里被剥离的档位 MUST NOT 出现在
+设置页——列出它只会让用户选中一个不生效的档位。
+
+#### Scenario: 关闭日志
+
+- **WHEN** 用户把日志等级设为「关闭」
+- **THEN** Kotlin 与原生两侧 MUST 均不再向 logcat 写入任何级别的日志
+
+#### Scenario: 等级只放行警告及以上
+
+- **WHEN** 用户把日志等级设为「警告及以上」
+- **THEN** 错误与警告级日志 MUST 照常写入，信息、调试与详细级 MUST NOT 写入
+
+#### Scenario: Release 的可选等级不含被剥离的档位
+
+- **WHEN** 用户打开设置页的日志等级分区
+- **THEN** Release 构建 MUST 只列出未被剥离的档位（关闭、错误、警告、信息），
+      Debug 构建 MUST 列出全部档位
+
 ### Requirement: 高频诊断日志必须限频
 
 应用为定位性能问题而输出的逐帧诊断（慢帧、慢循环、渲染分段）MUST 限频：

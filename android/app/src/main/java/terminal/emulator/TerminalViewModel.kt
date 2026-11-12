@@ -29,6 +29,7 @@ import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.toggled
 import terminal.emulator.installer.BootstrapProgress
+import terminal.emulator.runtime.LogLevel
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.MacroParser
@@ -480,6 +481,14 @@ constructor(
     val fontInfo: StateFlow<FontInfo?> = fontManager.fontInfo
 
     init {
+        // 日志等级：设置流到达即生效（Kotlin 与原生两边同时改）。
+        // 首次启动也走这条路径：缺省等级由 `LogLevel.DEFAULT` 给出，
+        // 原生侧的等级初值与之一致（见 `native/src/android/logging.rs`）。
+        viewModelScope.launch {
+            settingsRepository.logLevel.collect { ordinal ->
+                applyLogLevel(LogLevel.fromOrdinal(ordinal))
+            }
+        }
         // 首次启动：固定一个按设备自适应的默认字号，使网格在用户触碰字号滑块前即可读。
         viewModelScope.launch {
             // 屏幕宽与字号上界同源（runtime.screenWidthDp → resources.configuration）：
@@ -698,6 +707,24 @@ constructor(
     fun setThemeMode(mode: String) = themeManager.setThemeMode(mode)
 
     fun setAppThemeMode(mode: String) = themeManager.setAppThemeMode(mode)
+
+    /**
+     * 设置日志等级：Kotlin 与原生两边同时改。
+     *
+     * 两边必须同步：原生日志（渲染、VT、PTY）经 Rust 的 `log` 门面进同一个
+     * logcat sink，只改一边会出现「原生日志照刷、Kotlin 日志已静默」这类
+     * 半截状态，排障时反而更难判断。
+     */
+    fun setLogLevel(level: LogLevel) {
+        applyLogLevel(level)
+        viewModelScope.launch { settingsRepository.setLogLevel(level.ordinal) }
+    }
+
+    /** 把等级应用到 Kotlin 与原生两侧。 */
+    private fun applyLogLevel(level: LogLevel) {
+        LogUtil.setLevel(level)
+        NativeBridge.setLogLevel(level.androidPriority)
+    }
 
     /** 死键（组合符）状态：组合键本身不产生输出，等下一次击键合成。 */
     private val deadKeys = terminal.emulator.input.DeadKeyState()
