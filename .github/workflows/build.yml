@@ -96,7 +96,6 @@ jobs:
           files: |
             android/app/build/outputs/apk/release/*.apk
             android/app/build/outputs/apk/nix/*.apk
-      - run: rm -rf native/target ~/.cargo ~/.gradle
       - if: ${{ always() && steps.build_debug_apk.outcome == 'success' }}
         uses: actions/cache/save@main
         with:
