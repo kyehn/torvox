@@ -422,35 +422,39 @@ fn file_medium_verdict(
 ///
 /// 上游的「在临时目录下」口径是 `isPathInTempDir`：`/tmp`、`/dev/shm`、配置的
 /// 临时目录、以及配置目录的规范化形式，任一命中即可（配置目录可能是符号链接：
-/// Android 上 `/data/data` 指向 `/data/user/0`）。本层照抄该口径——命中时上游
-/// 必然也命中，两边对同一条探测给出同一条错误应答；判断不了时交回上游，由上游
-/// 给出它那条更具体的错误。
+/// Android 上 `/data/data` 指向 `/data/user/0`）。上游比的是**打开后文件句柄的
+/// 规范化路径**，名字判据也看那条路径；本层照抄——命中时上游必然也命中，两边对
+/// 同一条探测给出同一条错误应答；判断不了时交回上游，由上游给出它自己的那条错误。
 fn is_serviceable_temp_file(path: &str, capabilities: &MediaCapabilities<'_>) -> bool {
-    if !path.contains("tty-graphics-protocol") {
+    let Ok(canonical_path) = std::fs::canonicalize(path) else {
+        return false;
+    };
+    let Some(canonical_path) = canonical_path.to_str() else {
+        return false;
+    };
+    if !canonical_path.contains("tty-graphics-protocol") {
         return false;
     }
-    if is_path_in_dir("/tmp", path) || is_path_in_dir("/dev/shm", path) {
+    if is_path_in_dir("/tmp", canonical_path) || is_path_in_dir("/dev/shm", canonical_path) {
+        return true;
+    }
+    // macOS 上 `/tmp` 是 `/private/tmp` 的符号链接，规范化路径落在那里。
+    if cfg!(target_os = "macos") && is_path_in_dir("/private/tmp", canonical_path) {
         return true;
     }
     let Some(temp_dir) = capabilities.temp_dir.and_then(|dir| dir.to_str()) else {
         return false;
     };
-    is_path_in_dir(temp_dir, path) || canonical_dir_contains(temp_dir, path)
-}
-
-/// 配置目录规范化后是否仍覆盖该路径（配置目录本身可能是符号链接）。
-fn canonical_dir_contains(dir: &str, path: &str) -> bool {
-    let (Ok(canonical_dir), Ok(canonical_path)) =
-        (std::fs::canonicalize(dir), std::fs::canonicalize(path))
-    else {
+    if is_path_in_dir(temp_dir, canonical_path) {
+        return true;
+    }
+    // 配置的临时目录本身可能是符号链接，再比一次它的规范化形式。
+    let Ok(canonical_dir) = std::fs::canonicalize(temp_dir) else {
         return false;
     };
-    match (canonical_dir.to_str(), canonical_path.to_str()) {
-        (Some(canonical_dir), Some(canonical_path)) => {
-            is_path_in_dir(canonical_dir, canonical_path)
-        }
-        _ => false,
-    }
+    canonical_dir
+        .to_str()
+        .is_some_and(|canonical_dir| is_path_in_dir(canonical_dir, canonical_path))
 }
 
 /// 路径是否位于目录之下（口径与上游 `isPathInDir` 一致）。
@@ -906,7 +910,8 @@ mod tests {
     /// 上游对临时文件另有两判据，不满足时它给的是更具体的错误。
     #[test]
     fn temp_file_probe_inside_the_configured_temp_dir_is_answered_by_this_layer() {
-        let path = outside_system_temp_dir("kitty-tty-graphics-protocol-inside");
+        let dir = probe_dir_outside_system_temp();
+        let path = dir.path().join("kitty-tty-graphics-protocol-inside");
         std::fs::write(&path, [1u8, 2, 3]).expect("create probe file");
         let encoded = BASE64.encode(path.to_str().expect("probe path is UTF-8"));
         let sequence = format!("\x1b_Ga=q,i=9,t=t,S=64;{encoded}\x1b\\");
@@ -914,10 +919,9 @@ mod tests {
             sequence.as_bytes(),
             MediaCapabilities {
                 shared_memory: false,
-                temp_dir: Some(path.parent().expect("probe file has a parent")),
+                temp_dir: Some(dir.path()),
             },
         );
-        let _ = std::fs::remove_file(&path);
         assert!(filtered.payload.is_empty());
         assert_eq!(
             filtered.responses,
@@ -929,14 +933,12 @@ mod tests {
     /// 给出「not in temp dir」那一条——本层不代答它给不出的错误。
     #[test]
     fn temp_file_probe_outside_every_temp_dir_is_left_to_upstream() {
-        let path = outside_system_temp_dir("kitty-tty-graphics-protocol-outside");
+        let dir = probe_dir_outside_system_temp();
+        let path = dir.path().join("kitty-tty-graphics-protocol-outside");
         std::fs::write(&path, [1u8, 2, 3]).expect("create probe file");
         let encoded = BASE64.encode(path.to_str().expect("probe path is UTF-8"));
         let sequence = format!("\x1b_Ga=q,i=10,t=t,S=64;{encoded}\x1b\\");
-        let other_directory = path
-            .parent()
-            .expect("probe file has a parent")
-            .join("another-dir");
+        let other_directory = dir.path().join("another-dir");
         let filtered = filter_input(
             sequence.as_bytes(),
             MediaCapabilities {
@@ -944,7 +946,53 @@ mod tests {
                 temp_dir: Some(&other_directory),
             },
         );
-        let _ = std::fs::remove_file(&path);
+        assert_eq!(filtered.payload, sequence.as_bytes());
+        assert!(filtered.responses.is_empty());
+    }
+
+    /// 临时文件介质：路径是符号链接且指向配置目录之外时，上游按规范化后的路径
+    /// 判「不在临时目录」，本层不得代答。
+    #[cfg(unix)]
+    #[test]
+    fn temp_file_probe_with_symlink_escaping_the_temp_dir_is_left_to_upstream() {
+        let outside = probe_dir_outside_system_temp();
+        let temp_dir = probe_dir_outside_system_temp();
+        let target = outside.path().join("real-target.bin");
+        std::fs::write(&target, [1u8, 2, 3]).expect("create probe file");
+        let link = temp_dir.path().join("kitty-tty-graphics-protocol-link");
+        std::os::unix::fs::symlink(&target, &link).expect("create symlink");
+        let encoded = BASE64.encode(link.to_str().expect("probe path is UTF-8"));
+        let sequence = format!("\x1b_Ga=q,i=12,t=t,S=64;{encoded}\x1b\\");
+        let filtered = filter_input(
+            sequence.as_bytes(),
+            MediaCapabilities {
+                shared_memory: false,
+                temp_dir: Some(temp_dir.path()),
+            },
+        );
+        assert_eq!(filtered.payload, sequence.as_bytes());
+        assert!(filtered.responses.is_empty());
+    }
+
+    /// 临时文件介质：符号链接指向的文件名不含标记时，上游按规范化后的路径判
+    /// 「名字不对」，本层不得代答。
+    #[cfg(unix)]
+    #[test]
+    fn temp_file_probe_with_symlink_renamed_outside_is_left_to_upstream() {
+        let dir = probe_dir_outside_system_temp();
+        let target = dir.path().join("real-target.bin");
+        std::fs::write(&target, [1u8, 2, 3]).expect("create probe file");
+        let link = dir.path().join("kitty-tty-graphics-protocol-link");
+        std::os::unix::fs::symlink(&target, &link).expect("create symlink");
+        let encoded = BASE64.encode(link.to_str().expect("probe path is UTF-8"));
+        let sequence = format!("\x1b_Ga=q,i=13,t=t,S=64;{encoded}\x1b\\");
+        let filtered = filter_input(
+            sequence.as_bytes(),
+            MediaCapabilities {
+                shared_memory: false,
+                temp_dir: Some(dir.path()),
+            },
+        );
         assert_eq!(filtered.payload, sequence.as_bytes());
         assert!(filtered.responses.is_empty());
     }
@@ -967,11 +1015,35 @@ mod tests {
         assert!(responses.is_empty());
     }
 
-    /// 不在 `/tmp`（也不在 `/dev/shm`）下的探测文件路径：上游的临时目录判据把
-    /// 这两个目录无条件算作临时目录，测试要覆盖「配置目录之外的临时文件」，
-    /// 就得把文件放在这两处之外。Cargo 的构建输出目录既存在又不在它们之下。
-    fn outside_system_temp_dir(name: &str) -> std::path::PathBuf {
-        std::path::Path::new(env!("OUT_DIR")).join(name)
+    /// 探测文件所在的目录：上游的临时目录判据把 `/tmp` 与 `/dev/shm` 无条件算作
+    /// 临时目录，「文件在临时目录外」的用例必须避开这两处。构建输出目录、当前
+    /// 目录、用户主目录依次尝试，取第一个规范化后不在临时目录下的可写目录。
+    fn probe_dir_outside_system_temp() -> tempfile::TempDir {
+        let mut bases = vec![std::path::PathBuf::from(env!("OUT_DIR"))];
+        if let Ok(current) = std::env::current_dir() {
+            bases.push(current);
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            bases.push(std::path::PathBuf::from(home));
+        }
+        for base in bases {
+            let Ok(canonical) = std::fs::canonicalize(&base) else {
+                continue;
+            };
+            let Some(canonical) = canonical.to_str() else {
+                continue;
+            };
+            if is_path_in_dir("/tmp", canonical) || is_path_in_dir("/dev/shm", canonical) {
+                continue;
+            }
+            if let Ok(dir) = tempfile::Builder::new()
+                .prefix("kitty-graphics-probe-")
+                .tempdir_in(canonical)
+            {
+                return dir;
+            }
+        }
+        panic!("no writable directory outside /tmp and /dev/shm for the kitty temp-file probe");
     }
 
     #[test]
