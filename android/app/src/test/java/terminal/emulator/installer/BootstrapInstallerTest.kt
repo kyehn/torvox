@@ -11,6 +11,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
+import java.nio.file.Files
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -462,12 +463,23 @@ class BootstrapInstallerTest {
 
 /** Pure-path tests: no Android/Os dependencies, no context needed. */
 class BootstrapInstallerNormalizePathTest {
+    /**
+     * 沙箱根判据要看「引导包是否提供了那个顶层目录」，故给一个真实的临时目录
+     * （用例在其中造出 `nix/` 来模拟 Nix 引导包的顶层目录）。
+     */
+    private val stagingDir: File = Files.createTempDirectory("t-staging").toFile()
+
     private val installer =
         BootstrapInstaller(
             prefixDir = File("/tmp/t-prefix"),
             homeDir = File("/tmp/t-home"),
-            stagingDir = File("/tmp/t-staging"),
+            stagingDir = stagingDir,
         )
+
+    @After
+    fun cleanup() {
+        stagingDir.deleteRecursively()
+    }
 
     @Test
     fun escapesStagingDir_resolves_dot_segments_before_judging() {
@@ -527,6 +539,36 @@ class BootstrapInstallerNormalizePathTest {
             "/opt/other/bin/gawk",
             installer.resolveAbsoluteSymlinkTarget(
                 "/opt/other/bin/gawk",
+                "/data/user/10/com.termux/files/usr",
+            ),
+        )
+    }
+
+    @Test
+    fun sandbox_root_absolute_target_is_re_rooted_into_prefix() {
+        // Nix 引导包（com.termux.nix）的 SYMLINKS.txt 用沙箱根绝对路径：
+        // 引导环境把 prefix 的顶层目录绑成沙箱里的同名路径（见引导包的 bin/login），
+        // 故 `/nix/store/...` 指的是 prefix 下的 nix/store。
+        // 判别力：原样照抄会指向 prefix 之外，规范路径校验直接判安装失败——
+        // 那正是 Nix 变种装不上引导包的原因。
+        File(stagingDir, "nix").mkdirs()
+        assertEquals(
+            "/data/user/10/com.termux/files/usr/nix/store/abc-bash/bin/sh",
+            installer.resolveAbsoluteSymlinkTarget(
+                "/nix/store/abc-bash/bin/sh",
+                "/data/user/10/com.termux/files/usr",
+            ),
+        )
+    }
+
+    @Test
+    fun sandbox_root_target_without_that_directory_is_kept_as_is() {
+        // 引导包没有提供那个顶层目录时不得改写：改写会造出断链，
+        // 而原样保留还能被规范路径校验挡下（安装失败，而不是装出坏链接）。
+        assertEquals(
+            "/etc/hosts",
+            installer.resolveAbsoluteSymlinkTarget(
+                "/etc/hosts",
                 "/data/user/10/com.termux/files/usr",
             ),
         )

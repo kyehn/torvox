@@ -348,12 +348,23 @@ class BootstrapInstaller(
      * 二级用户与多用户设备上本机 prefix 位于 `/data/user/<id>/<pkg>/files/usr`，
      * 归档里的绝对路径并不指向本机 prefix——照抄建链得到的是断链。
      *
-     * 取 `files/usr/` 之后的后缀拼到本机 prefix；不含该分段的绝对路径原样返回，
-     * 由调用方的规范路径校验决定接受与否。
+     * 取 `files/usr/` 之后的后缀拼到本机 prefix；不含该分段的绝对路径再分两种：
+     *
+     * 1. **沙箱根**路径（Nix 引导包的 `/nix/store/...`）：引导环境把 prefix 的
+     *    若干顶层目录绑成沙箱里的同名路径（见引导包自带的 `bin/login`），
+     *    故把根重新落到 prefix。判据是「引导包确实提供了那个顶层目录」——
+     *    绑定清单由引导包自己给出，本仓不另抄一份。
+     * 2. 其余绝对路径不由本函数改写：接受与否由规范路径校验决定。
      */
     internal fun resolveAbsoluteSymlinkTarget(target: String, canonicalPrefix: String): String {
         val relativeSuffix = target.substringAfter(FILES_USR_SEGMENT, "")
-        return if (relativeSuffix.isNotEmpty()) File(canonicalPrefix, relativeSuffix).path else target
+        if (relativeSuffix.isNotEmpty()) return File(canonicalPrefix, relativeSuffix).path
+        val sandboxPath = target.removePrefix("/")
+        val sandboxRoot = sandboxPath.substringBefore("/")
+        if (sandboxRoot.isNotEmpty() && File(stagingDir, sandboxRoot).exists()) {
+            return File(canonicalPrefix, sandboxPath).path
+        }
+        return target
     }
 
     internal fun parseSymlinks(content: String): List<Pair<String, String>> = content
