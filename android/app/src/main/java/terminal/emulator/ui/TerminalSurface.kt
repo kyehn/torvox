@@ -4,7 +4,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -26,6 +29,7 @@ import terminal.emulator.runtime.DEFAULT_GRID_ROWS
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
 import java.nio.ByteBuffer
+import kotlin.math.roundToInt
 
 class TerminalSurface
 @JvmOverloads
@@ -991,6 +995,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private var holeCoverSource: Bridge.CoverFrame? = null
 
     /**
+     * 遮罩的绘制画笔：开滤波，缩放时不出现马赛克。
+     *
+     * 遮罩帧与开孔不同尺寸时要缩放（输入法改高度），最近邻缩放会把字画成方块。
+     */
+    private val coverPaint = Paint().apply { isFilterBitmap = true }
+
+    /**
      * 原生 surface 是否已有缓冲（组合层推来的，仅用于触发重绘）。
      *
      * 画不画遮罩以**运行期的事实**为准（见 [onDraw]），这个字段只负责在事实翻转时
@@ -1022,11 +1033,20 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 盖住）。判据是运行期的事实（谁呈现过帧），不是本视图的猜测。
         if (runtime.surfaceBufferPresent.value) return
         val cover = runtime.coverFrame.value
-        // 遮罩与当前 surface 尺寸不一致时不用：错位的位图比没有遮罩更糟。
-        val bitmap =
-            cover?.takeIf { it.width == width && it.height == height }?.let { coverBitmap(it) }
-        if (bitmap != null) {
-            canvas.drawBitmap(bitmap, 0f, 0f, null)
+        // 遮罩帧与当前开孔的尺寸可以不同：输入法弹出/收起会改开孔高度，而遮罩帧
+        // 是离开画面时的旧尺寸。按宽度等比缩放、顶边对齐地贴上去（见 `coverFit`），
+        // 高出的裁掉、差下的由终端底色补——尺寸必须一致才画的话，输入法收起那一刻
+        // 遮罩整块作废，用户看到的就是「输入法弹出时切后台返回终端闪烁」。
+        val fit = cover?.let { coverFit(it.width, it.height, width, height) }
+        if (cover != null && fit != null) {
+            val bitmap = coverBitmap(cover)
+            canvas.drawColor(holeCoverBackground)
+            canvas.drawBitmap(
+                bitmap,
+                Rect(0, 0, bitmap.width, fit.sourceHeight.roundToInt()),
+                RectF(0f, 0f, width.toFloat(), fit.destHeight),
+                coverPaint,
+            )
             return
         }
         // 没有可用遮罩（或遮罩已撤下）：铺终端底色。顺带释放缓存的位图——遮罩撤下后

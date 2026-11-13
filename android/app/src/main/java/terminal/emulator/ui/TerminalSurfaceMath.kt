@@ -4,6 +4,7 @@ import terminal.emulator.SELECTION_BOUNDS_LENGTH
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.settings.SettingsRepository
 import kotlin.math.exp
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -429,3 +430,39 @@ internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, spToPxScale
  * 不需要容差阈值。
  */
 internal fun zoomSettledOnNewSize(baseFontSizeSp: Float, finalSizeSp: Float): Boolean = finalSizeSp != baseFontSizeSp
+
+/**
+ * 遮罩帧在开孔里的等比贴合参数（开孔遮罩的取放规则）。
+ *
+ * 遮罩帧是**离开画面时**回读的旧尺寸，而开孔尺寸会随后变化：输入法弹出/收起
+ * 都会改 surface 高度。若要求尺寸完全一致才画，输入法收起那一刻遮罩整块作废，
+ * 开孔退回平底色——用户看到的正是「输入法弹出时切后台返回终端闪烁」。
+ *
+ * 故按宽度等比缩放、顶边对齐：顶部是同一段终端内容（等比缩放不拉伸字形），
+ * 高出开孔的部分裁掉，差下的部分由终端底色补。
+ *
+ * @param coverWidth 遮罩帧宽（位图像素）
+ * @param coverHeight 遮罩帧高（位图像素）
+ * @param viewWidth 当前开孔宽（视图像素）
+ * @param viewHeight 当前开孔高（视图像素）
+ * @return 贴合参数；尺寸非法（任一为 0 或负）时返回 null（调用方不画遮罩）
+ */
+internal fun coverFit(coverWidth: Int, coverHeight: Int, viewWidth: Int, viewHeight: Int): CoverFit? {
+    if (coverWidth <= 0 || coverHeight <= 0 || viewWidth <= 0 || viewHeight <= 0) return null
+    val scale = viewWidth.toFloat() / coverWidth.toFloat()
+    val maxSourceHeight = viewHeight / scale
+    val sourceHeight = min(coverHeight.toFloat(), maxSourceHeight)
+    return CoverFit(sourceHeight = sourceHeight, destHeight = sourceHeight * scale)
+}
+
+/**
+ * 遮罩帧的贴合参数：源矩形高度与目标矩形高度（均为像素）。
+ *
+ * 源矩形从位图左上角起、高 [sourceHeight]；目标矩形从视图左上角起、高 [destHeight]。
+ */
+internal data class CoverFit(
+    /** 源矩形高度（位图像素）：等比缩放后仍超出开孔的部分被裁掉。 */
+    val sourceHeight: Float,
+    /** 目标矩形高度（视图像素）。 */
+    val destHeight: Float,
+)
