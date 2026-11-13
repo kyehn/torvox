@@ -480,6 +480,15 @@ constructor(
     /** 原生字体信息；null 表示原生尚未上报（由 FontManager 发布）。 */
     val fontInfo: StateFlow<FontInfo?> = fontManager.fontInfo
 
+    /**
+     * 本进程强制日志等级：仅宏基准经启动 extra 设置，不写回持久化设置。
+     *
+     * 宏基准读原生的呈现汇总（debug 级）与首输出标记（info 级）来量化滚动；
+     * release 构建的等级上限是 info，且缺省 WARN 会连首输出都吞掉。测试入口
+     * 必须能把等级提到 debug，同时不能污染用户设置。
+     */
+    private var forcedLogLevel: LogLevel? = null
+
     init {
         // 日志等级：设置流到达即生效（Kotlin 与原生两边同时改）。
         // 首次启动也走这条路径：缺省等级由 `LogLevel.DEFAULT` 给出，
@@ -487,7 +496,7 @@ constructor(
         // `level_filter`：同一组 Android 优先级）。
         viewModelScope.launch {
             settingsRepository.logLevel.collect { ordinal ->
-                applyLogLevel(LogLevel.fromOrdinal(ordinal))
+                applyLogLevel(forcedLogLevel ?: LogLevel.fromOrdinal(ordinal))
             }
         }
         // 首次启动：固定一个按设备自适应的默认字号，使网格在用户触碰字号滑块前即可读。
@@ -719,6 +728,16 @@ constructor(
     fun setLogLevel(level: LogLevel) {
         applyLogLevel(level)
         viewModelScope.launch { settingsRepository.setLogLevel(level.ordinal) }
+    }
+
+    /**
+     * 本进程强制日志等级，覆盖持久化设置；不写回设置。
+     *
+     * 只供宏基准使用：release 的设置页不提供 debug 级，但原生侧接受任意等级。
+     */
+    fun forceLogLevel(level: LogLevel) {
+        forcedLogLevel = level
+        applyLogLevel(level)
     }
 
     /** 把等级应用到 Kotlin 与原生两侧。 */

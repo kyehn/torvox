@@ -24,8 +24,13 @@ private const val PRESENT_POLL_MILLIS = 300L
 /** 等渲染停摆的上限：超时说明输出或滚动没有真正发生。 */
 private const val PRESENT_SETTLE_TIMEOUT_MILLIS = 30_000L
 
-/** 等 shell 就绪的上限。 */
-private const val SHELL_READY_TIMEOUT_MILLIS = 30_000L
+/**
+ * 等 shell 就绪的上限。
+ *
+ * 模拟器上 shell 首次 PTY 输出实测可达 44s（2026-11-12 logcat：19:28:55 spawn，
+ * 19:29:40 首输出），30s 会在 shell 还没开口时就误判失败；90s 留出 CI 慢宿主余量。
+ */
+private const val SHELL_READY_TIMEOUT_MILLIS = 90_000L
 
 /** 探针的重发间隔：shell 启动时可能冲掉早到的输入，重发即可命中。 */
 private const val SHELL_READY_PROBE_INTERVAL_MILLIS = 3_000L
@@ -79,7 +84,7 @@ class ScrollPerformanceBenchmark {
             },
             measureBlock = {
                 val startedMillis = System.currentTimeMillis()
-                startActivityAndWait()
+                startActivityAndWait(benchmarkLaunchIntent())
                 val terminal =
                     requireElement(device, TERMINAL_SCREEN_RESOURCE_ID, "终端界面")
                 awaitShellReady(device, startedMillis)

@@ -1,13 +1,35 @@
 package terminal.emulator.benchmark
 
+import android.content.Intent
 import android.os.SystemClock
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 
+/** 被测 Activity 的类名：applicationId 是 `com.termux`，类名不在该包下。 */
+internal const val TARGET_ACTIVITY = "terminal.emulator.MainActivity"
+
+/** 与 `MainActivity.EXTRA_LOG_LEVEL` 一致；基准模块不依赖 app 模块，故本地声明。 */
+private const val LOG_LEVEL_EXTRA = "terminal.emulator.log_level"
+
 /** force-stop 后等设备空闲的上限，让软件渲染的图形栈喘口气。 */
 internal const val EMULATOR_IDLE_TIMEOUT_MILLIS = 2_000L
+
+/**
+ * 宏基准启动 Intent：把被测进程的日志等级强制到 DEBUG。
+ *
+ * 原生呈现汇总是 debug 级，release 缺省 WARN 会把首输出标记与呈现汇总一起吞掉，
+ * 基准将永远等不到 shell 就绪、也读不到任何滚动帧。extra 只改本进程等级，
+ * 不写回用户设置（见 `MainActivity.applyLogLevelExtra`）。
+ */
+internal fun benchmarkLaunchIntent(): Intent =
+    Intent(Intent.ACTION_MAIN).apply {
+        setClassName(TARGET_PACKAGE, TARGET_ACTIVITY)
+        addCategory(Intent.CATEGORY_LAUNCHER)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        putExtra(LOG_LEVEL_EXTRA, "DEBUG")
+    }
 
 /** 输入法状态的等待上限：输入法可能在冷启动后过一会儿才弹起，不能立刻下结论。 */
 internal const val IME_STATE_TIMEOUT_MILLIS = 5_000L

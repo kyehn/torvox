@@ -44,6 +44,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.afterVirtualCtrlKey
 import terminal.emulator.installer.BootstrapInstallService
+import terminal.emulator.runtime.LogLevel
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.BackKeyBehaviour
@@ -79,6 +80,14 @@ class MainActivity : ComponentActivity() {
 
         /** 本应用专有 extra：在启动时打开设置页。 */
         const val EXTRA_OPEN_SETTINGS = "terminal.emulator.open_settings"
+
+        /**
+         * 宏基准专用 extra：本次进程强制日志等级（[LogLevel] 名称），不写回设置。
+         *
+         * 基准要读原生 debug 级的呈现汇总，而 release 设置页最高只到 info；
+         * 该 extra 只影响日志等级，不改变任何终端行为。
+         */
+        const val EXTRA_LOG_LEVEL = "terminal.emulator.log_level"
 
         /**
          * 桌面通知点击携带的会话 id：点击后切到该会话。
@@ -135,6 +144,8 @@ class MainActivity : ComponentActivity() {
             )
         }
         super.onCreate(savedInstanceState)
+        // 宏基准入口：在会话启动前把本进程日志等级提到 debug，呈现汇总才可见。
+        applyLogLevelExtra(intent)
         // activity 1.14.0-alpha03 弃用 ComponentActivity.enableEdgeToEdge()，
         // 改用 core 的 WindowCompat.enableEdgeToEdge(window)。
         WindowCompat
@@ -226,6 +237,19 @@ class MainActivity : ComponentActivity() {
      * 布尔值在首次置 true 后不再变化，二次 intent 无法生效。
      */
     private var openSettingsRequests by mutableIntStateOf(0)
+
+    /**
+     * 宏基准经启动 extra 强制本进程日志等级；未知名称明确告警，不静默忽略。
+     */
+    private fun applyLogLevelExtra(intent: Intent?) {
+        val name = intent?.getStringExtra(EXTRA_LOG_LEVEL) ?: return
+        val level = LogLevel.entries.firstOrNull { it.name == name }
+        if (level == null) {
+            LogUtil.warn(TAG, "unknown $EXTRA_LOG_LEVEL extra: $name")
+            return
+        }
+        terminalViewModel.forceLogLevel(level)
+    }
 
     private fun handleLaunchIntent(intent: Intent?, freshIntent: Boolean) {
         if (intent == null) {
