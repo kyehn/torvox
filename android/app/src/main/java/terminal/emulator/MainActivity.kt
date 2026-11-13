@@ -41,9 +41,14 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import terminal.emulator.detectDeviceArchitecture
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.afterVirtualCtrlKey
 import terminal.emulator.installer.BootstrapInstallService
+import terminal.emulator.installer.BootstrapPreset
+import terminal.emulator.installer.NixOnDroidBootstrap
+import terminal.emulator.installer.TermuxBootstrap
+import terminal.emulator.installer.bootstrapPresetFor
 import terminal.emulator.runtime.LogLevel
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
@@ -88,6 +93,14 @@ class MainActivity : ComponentActivity() {
          * 该 extra 只影响日志等级，不改变任何终端行为。
          */
         const val EXTRA_LOG_LEVEL = "terminal.emulator.log_level"
+
+        /**
+         * 按官方引导包地址发起安装的入口（CI 与变种安装用例）。
+         *
+         * 只接受本变种预设里的官方地址（见 [installBootstrapFromPresetUrl]），
+         * 任意地址一律拒绝。
+         */
+        const val EXTRA_INSTALL_BOOTSTRAP_URL = "terminal.emulator.bootstrap_url"
 
         /**
          * 桌面通知点击携带的会话 id：点击后切到该会话。
@@ -144,8 +157,6 @@ class MainActivity : ComponentActivity() {
             )
         }
         super.onCreate(savedInstanceState)
-        // 宏基准入口：在会话启动前把本进程日志等级提到 debug，呈现汇总才可见。
-        applyLogLevelExtra(intent)
         // activity 1.14.0-alpha03 弃用 ComponentActivity.enableEdgeToEdge()，
         // 改用 core 的 WindowCompat.enableEdgeToEdge(window)。
         WindowCompat
@@ -256,6 +267,10 @@ class MainActivity : ComponentActivity() {
             LogUtil.debug("MainActivity", "handleLaunchIntent: null intent")
             return
         }
+        // 宏基准入口：把本进程日志等级提到 debug，原生侧的呈现汇总才可见。
+        // 放在这里（而不是 onCreate）是为了 onNewIntent 同样生效——应用已在前台时
+        // 再来一次带 extra 的启动，测试仍要拿到被强制的等级。
+        applyLogLevelExtra(intent)
         LogUtil.debug(
             "MainActivity",
             "handleLaunchIntent: action=${intent.action} failsafe=${intent.getBooleanExtra(
@@ -291,6 +306,38 @@ class MainActivity : ComponentActivity() {
                 installBootstrapFromPath(zipPath)
             }
         }
+        // 引导包的官方地址入口：Nix 变种的引导包安装用例（CI）用它跑一次真实安装。
+        // 只认本变种的官方引导包地址——任意地址会让任何应用都能借我们下载任意 zip。
+        intent.getStringExtra(EXTRA_INSTALL_BOOTSTRAP_URL)?.let { url ->
+            installBootstrapFromPresetUrl(url)
+        }
+    }
+
+    /**
+     * 按官方引导包地址发起安装（测试与 CI 入口）。
+     *
+     * 只接受本变种预设里的那个官方地址：地址由外部给出，放开任意地址就等于
+     * 让任何应用借我们下载并解压任意 zip（写进应用私有目录、再由用户当 shell 跑）。
+     *
+     * 走的是设置页「安装」按钮同一条路径（[TerminalViewModel.runBootstrap]），
+     * 故安装行为、进度与结果与用户手动安装完全一致。
+     */
+    private fun installBootstrapFromPresetUrl(url: String) {
+        val presetUrl =
+            when (bootstrapPresetFor(BuildConfig.APPLICATION_ID)) {
+                BootstrapPreset.NIX_ON_DROID ->
+                    NixOnDroidBootstrap.downloadUrl(detectDeviceArchitecture())
+
+                BootstrapPreset.TERMUX ->
+                    TermuxBootstrap.downloadUrl(detectDeviceArchitecture())
+            }
+        if (url != presetUrl) {
+            LogUtil.warn(TAG, "拒绝非官方引导包地址的安装请求：$url")
+            return
+        }
+        LogUtil.info(TAG, "按官方地址安装引导包：$url")
+        terminalViewModel.setBootstrapUrl(url)
+        terminalViewModel.runBootstrap()
     }
 
     override fun onNewIntent(intent: Intent) {

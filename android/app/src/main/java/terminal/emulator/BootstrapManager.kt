@@ -132,6 +132,7 @@ internal class BootstrapManager(
                 LogUtil.error("BootstrapManager", "Bootstrap failed", exception)
                 _bootstrapResult.value =
                     context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
+                logOutcome(false)
             } finally {
                 _bootstrapRunning.value = false
             }
@@ -167,6 +168,21 @@ internal class BootstrapManager(
                 }
             val result = orchestrator.ensureBootstrap(url)
             _bootstrapResult.value = bootstrapOutcomeText(result)
+            logOutcome(result.isSuccess)
+        }
+    }
+
+    /**
+     * 记下安装结论。
+     *
+     * 记号（`success`/`failure`）是稳定的：界面文案会随语言与场景变，
+     * 而 CI 与排障要按一个不随文案漂移的记号判定成败。
+     */
+    private fun logOutcome(success: Boolean) {
+        if (success) {
+            LogUtil.info("BootstrapManager", "bootstrap outcome: success")
+        } else {
+            LogUtil.error("BootstrapManager", "bootstrap outcome: failure")
         }
     }
 
@@ -206,10 +222,12 @@ internal class BootstrapManager(
                                 R.string.bootstrap_error,
                                 failureDiagnostics.ifEmpty { "Postinst failed" },
                             )
+                        logOutcome(false)
                     } else {
                         _bootstrapProgress.value = BootstrapProgress.Complete
                         val headline = context.getString(R.string.bootstrap_installed_from_file)
                         _bootstrapResult.value = headline
+                        logOutcome(true)
                     }
                 } else {
                     _bootstrapResult.value =
@@ -217,6 +235,7 @@ internal class BootstrapManager(
                             R.string.bootstrap_error,
                             result.exceptionOrNull()?.javaClass?.simpleName,
                         )
+                    logOutcome(false)
                 }
             } finally {
                 // 中转包无论成败都必须删：留在 cacheDir 的是数百 MB 的引导归档，
