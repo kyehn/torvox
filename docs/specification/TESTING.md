@@ -52,3 +52,4 @@
 - 对中英文字体检查是否模糊 发虚，对比权威软件（如 FreeType 等），也检查斜体、粗体，以及自动生成的斜体、粗体
 - 安装 termux-packages 的 kitty，使用 `kitten icat test.png` 和 `clear` 测试，检查图片是否被正确显示和清除
 - 已打开时添加多个 Failsafe 新建会话和未打开时添加多个 Failsafe 新建会话
+- 对 nix 变种测试 Nix-on-Droid bootstrap 的安装，只需测试安装流程，不需要重启会话，不测试安装之后 Shell 是否可用
