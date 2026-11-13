@@ -228,12 +228,18 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_readCoverFrame
     height: jint,
 ) -> jbyteArray {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let mut state = render_state_mut();
-        let renderer = &mut state
-            .as_mut()
-            .expect("render_state_mut always initializes")
-            .renderer;
-        match renderer.read_cover_frame() {
+        // 快照在锁内取，**回读在锁外做**：回读是一次 GPU 同步等待（实测数十毫秒），
+        // 锁内等待会把所有会话的渲染线程一起卡住（2026-11-12 真机日志：
+        // 另一会话的渲染采样多花 38.98ms，触发 SLOW_FRAME/SLOW_LOOP 告警）。
+        let source = {
+            let state = render_state_mut();
+            state
+                .as_ref()
+                .expect("render_state_mut always initializes")
+                .renderer
+                .cover_readback_source()
+        };
+        match source.and_then(|source| source.read()) {
             None => std::ptr::null_mut(),
             Some(frame) => {
                 if frame.width != width as u32 || frame.height != height as u32 {

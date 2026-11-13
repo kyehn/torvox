@@ -7,6 +7,12 @@
 //! 遮罩的取法：切后台时（渲染线程停下之前）把帧累加器的当前内容回读成
 //! CPU 像素，宿主把它画在开孔里，等新帧到达再撤掉。累加器是纯设备纹理
 //! （不引用 surface），故回读与窗口是否已死无关。
+//!
+//! 回读分两步，且**GPU 等待必须在全局渲染锁之外**：
+//! 累加器句柄的快照（廉价克隆）在锁内取，回读本身（一次 GPU 同步等待，
+//! 实测可达数十毫秒）在锁外做。锁内等待会把**所有**会话的渲染线程一起
+//! 卡住——真机日志 2026-11-12：遮罩回读期间另一会话的渲染采样多花 38.98ms，
+//! 触发 SLOW_FRAME/SLOW_LOOP 告警。
 
 use crate::render::context::Renderer;
 use crate::render::context::{PollOutcome, poll_device_wait};
@@ -24,24 +30,26 @@ pub(crate) struct CoverFrame {
     pub(crate) pixels: Vec<u8>,
 }
 
-impl Renderer {
-    /// 把帧累加器（保留的上一帧）回读成 CPU 像素。
+/// 回读源：累加器纹理的句柄快照。
+///
+/// wgpu 的 `Device`/`Queue`/`Texture` 都是引用计数的句柄，克隆廉价且独立于
+/// 渲染器的所有权：纹理被换掉（resize）时快照仍指向旧纹理，内容照旧可读。
+pub(crate) struct CoverReadbackSource {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    texture: wgpu::Texture,
+    width: u32,
+    height: u32,
+}
+
+impl CoverReadbackSource {
+    /// 把快照里的累加器内容回读成 CPU 像素。
     ///
-    /// 返回 `None` 表示没有可回读的内容（累加器不存在、格式不是 RGBA8、
-    /// 回读失败或超时）：调用方沿用平底色遮罩，不做任何补偿。
-    pub(crate) fn read_cover_frame(&mut self) -> Option<CoverFrame> {
-        let texture = self.frame_texture.as_ref()?;
-        let format = texture.format();
-        if format != wgpu::TextureFormat::Rgba8Unorm {
-            // 通道序不同则宿主的 RGBA 假设不成立：宁可不遮，也不要画错颜色。
-            log::warn!("read_cover_frame: 累加器格式 {format:?} 不是 Rgba8Unorm，放弃遮罩");
-            return None;
-        }
-        let width = texture.width();
-        let height = texture.height();
-        if width == 0 || height == 0 {
-            return None;
-        }
+    /// 返回 `None` 表示回读失败或超时：调用方沿用平底色遮罩，不做任何补偿。
+    /// 本方法**不持有任何全局锁**（见模块头）：GPU 等待期间别的会话照常渲染。
+    pub(crate) fn read(&self) -> Option<CoverFrame> {
+        let width = self.width;
+        let height = self.height;
         let bytes_per_row = width * 4;
         // 回读缓冲的行必须按 `COPY_BYTES_PER_ROW_ALIGNMENT` 对齐，故每行末尾有填充。
         let padded = bytes_per_row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
@@ -59,7 +67,7 @@ impl Renderer {
             });
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture,
+                texture: &self.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -140,6 +148,34 @@ impl Renderer {
             width,
             height,
             pixels,
+        })
+    }
+}
+
+impl Renderer {
+    /// 取累加器纹理的回读快照（锁内只做句柄克隆）。
+    ///
+    /// 返回 `None` 表示没有可回读的内容（累加器不存在、格式不是 RGBA8 或尺寸为零）：
+    /// 调用方沿用平底色遮罩，不做任何补偿。
+    pub(crate) fn cover_readback_source(&self) -> Option<CoverReadbackSource> {
+        let texture = self.frame_texture.as_ref()?;
+        let format = texture.format();
+        if format != wgpu::TextureFormat::Rgba8Unorm {
+            // 通道序不同则宿主的 RGBA 假设不成立：宁可不遮，也不要画错颜色。
+            log::warn!("read_cover_frame: 累加器格式 {format:?} 不是 Rgba8Unorm，放弃遮罩");
+            return None;
+        }
+        let width = texture.width();
+        let height = texture.height();
+        if width == 0 || height == 0 {
+            return None;
+        }
+        Some(CoverReadbackSource {
+            device: self.device.clone(),
+            queue: self.queue.clone(),
+            texture: texture.clone(),
+            width,
+            height,
         })
     }
 }

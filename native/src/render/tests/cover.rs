@@ -50,7 +50,11 @@ fn cover_readback_returns_the_accumulator_pixels() {
         context.queue.submit(Some(encoder.finish()));
     }
 
-    let cover = context.read_cover_frame().expect("遮罩帧");
+    let cover = context
+        .cover_readback_source()
+        .expect("回读源")
+        .read()
+        .expect("遮罩帧");
     assert_eq!((cover.width, cover.height), (4, 4));
     assert_eq!(
         cover.pixels.len(),
@@ -80,9 +84,9 @@ fn cover_readback_without_accumulator_yields_nothing() {
     let Some((_instance, _adapter, device, queue)) = create_test_device() else {
         panic!("requires GPU adapter but none available");
     };
-    let mut context = setup_test_gpu_context(device, queue);
+    let context = setup_test_gpu_context(device, queue);
     assert!(
-        context.read_cover_frame().is_none(),
+        context.cover_readback_source().is_none(),
         "没有累加器时不得返回空遮罩"
     );
     let _ = Renderer::select_surface_format;
