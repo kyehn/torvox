@@ -1002,6 +1002,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     private val coverPaint = Paint().apply { isFilterBitmap = true }
 
     /**
+     * 遮罩的绘制矩形：预先分配并复用，避免在绘制路径上每帧新建对象。
+     */
+    private val coverSourceRect = Rect()
+    private val coverDestRect = RectF()
+
+    /**
      * 原生 surface 是否已有缓冲（组合层推来的，仅用于触发重绘）。
      *
      * 画不画遮罩以**运行期的事实**为准（见 [onDraw]），这个字段只负责在事实翻转时
@@ -1041,12 +1047,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (cover != null && fit != null) {
             val bitmap = coverBitmap(cover)
             canvas.drawColor(holeCoverBackground)
-            canvas.drawBitmap(
-                bitmap,
-                Rect(0, 0, bitmap.width, fit.sourceHeight.roundToInt()),
-                RectF(0f, 0f, width.toFloat(), fit.destHeight),
-                coverPaint,
-            )
+            coverSourceRect.set(0, 0, bitmap.width, fit.sourceHeight.roundToInt())
+            coverDestRect.set(0f, 0f, width.toFloat(), fit.destHeight)
+            canvas.drawBitmap(bitmap, coverSourceRect, coverDestRect, coverPaint)
             return
         }
         // 没有可用遮罩（或遮罩已撤下）：铺终端底色。顺带释放缓存的位图——遮罩撤下后

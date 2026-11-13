@@ -13,6 +13,7 @@ import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.getBridge
+import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
 
 /**
@@ -88,7 +89,7 @@ class Osc52ClipboardInstrumentedTest : ComposeTerminalLogcatTest() {
                 terminal.emulator.bridge.NativeBridge.pumpSessions()
                 while (true) {
                     val json = terminal.emulator.bridge.NativeBridge.pollEvent() ?: break
-                    val event = runCatching {
+                    val event = runCatchingCancellable {
                         terminal.emulator.bridge.pollEventJson
                             .decodeFromString<terminal.emulator.bridge.PollEvent>(json)
                     }.getOrNull() ?: continue
