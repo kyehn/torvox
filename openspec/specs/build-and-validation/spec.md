@@ -43,13 +43,22 @@ Rust 最低版本 MUST 为 1.99，`edition` 最低为 2024。
 
 `nix` build type MUST 与 release 使用相同的构建配置，`applicationId` MUST 为
 `com.termux.nix`，`app_name` MUST 为 `Nix`。MUST 隐藏 Termux 引导预设等不兼容功能；
+MUST 提供 Nix-on-Droid 引导预设（按架构取地址，与 Termux 引导包不兼容，两套不可混用）；
 自定义引导（URL 与离线 zip）MUST 仍然可用。文档提供器 authority 与快捷方式
 `targetPackage` MUST 跟随实际 `applicationId`。
+
+Nix 变种的引导包安装 MUST 有自动化验证：该变种是 release 构建，而仪器测试默认只跑
+debug 变种，没有这条验证时「变种装不上引导包」无人可知。
 
 #### Scenario: 共存包与主包并存
 
 - **WHEN** 同时安装 release 与 nix APK
 - **THEN** 两者 applicationId 不同，各自使用独立数据目录，互不覆盖
+
+#### Scenario: Nix 变种装上自己的引导包
+
+- **WHEN** 对 `com.termux.nix` 变种跑引导包安装用例
+- **THEN** 用例断言装的是 Nix-on-Droid 引导包且安装成功，MUST NOT 静默跳过
 
 ### Requirement: 测试进入既有体系且断言具体结果
 
