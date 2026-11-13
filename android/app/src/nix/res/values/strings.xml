@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Nix 变种的应用名：变种与主包共存（包名 com.termux.nix），桌面上必须能一眼
+    分清哪个是哪个，故名字另起（见 docs/specification/BUILD.md 的变种条款）。
+-->
 <resources>
     <string name="app_name">Nix</string>
-    <!-- Termux 引导按 com.termux 的 prefix 构建，nix 变体不能直接使用，故不展示其 URL 提示。 -->
-    <string name="bootstrap_url_placeholder">https://…/bootstrap.zip</string>
 </resources>

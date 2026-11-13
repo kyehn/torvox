@@ -37,8 +37,11 @@ import androidx.compose.ui.unit.dp
 import terminal.emulator.BuildConfig
 import terminal.emulator.R
 import terminal.emulator.detectDeviceArchitecture
+import terminal.emulator.installer.BootstrapPreset
 import terminal.emulator.installer.BootstrapProgress
+import terminal.emulator.installer.NixOnDroidBootstrap
 import terminal.emulator.installer.TermuxBootstrap
+import terminal.emulator.installer.bootstrapPresetFor
 
 /** Bootstrap 安装分区：URL / 本地文件安装、预设与进度反馈。 */
 @Composable
@@ -132,7 +135,22 @@ private fun BootstrapSection(
             color = secondaryText,
         )
         Spacer(modifier = Modifier.height(8.dp))
-        if (BuildConfig.TERMUX_BOOTSTRAP_PRESET) {
+        // 预设随变种走：Nix 变种装的是 Nix-on-Droid 引导包（Termux 官方包与
+        // nix 的包模型不兼容），Termux 变种才有官方包预设。
+        val presetKind = bootstrapPresetFor(BuildConfig.APPLICATION_ID)
+        val presetUrl =
+            when (presetKind) {
+                BootstrapPreset.NIX_ON_DROID ->
+                    NixOnDroidBootstrap.downloadUrl(detectDeviceArchitecture())
+
+                BootstrapPreset.TERMUX ->
+                    if (BuildConfig.TERMUX_BOOTSTRAP_PRESET) {
+                        TermuxBootstrap.downloadUrl(detectDeviceArchitecture())
+                    } else {
+                        null
+                    }
+            }
+        if (presetUrl != null) {
             Text(
                 text = stringResource(R.string.bootstrap_presets),
                 style = MaterialTheme.typography.bodyMedium,
@@ -140,18 +158,30 @@ private fun BootstrapSection(
             )
             Spacer(modifier = Modifier.height(4.dp))
 
-            val architecture = detectDeviceArchitecture()
-            val termuxUrl = TermuxBootstrap.downloadUrl(architecture)
-            val presetLabel = stringResource(R.string.bootstrap_preset_termux)
-            val presetDescription = stringResource(R.string.bootstrap_preset_termux_desc)
+            val isNixPreset = presetKind == BootstrapPreset.NIX_ON_DROID
+            val presetLabel =
+                stringResource(
+                    if (isNixPreset) R.string.bootstrap_preset_nix else R.string.bootstrap_preset_termux,
+                )
+            val presetDescription =
+                stringResource(
+                    if (isNixPreset) {
+                        R.string.bootstrap_preset_nix_desc
+                    } else {
+                        R.string.bootstrap_preset_termux_desc
+                    },
+                )
             BootstrapPresetItem(
                 label = presetLabel,
                 description = presetDescription,
                 colors = PresetColors(accentColor, textColor, secondaryText),
-                modifier = Modifier.testTag("BootstrapPreset_TermuxDefault"),
+                modifier =
+                Modifier.testTag(
+                    if (isNixPreset) "BootstrapPreset_NixOnDroid" else "BootstrapPreset_TermuxDefault",
+                ),
                 onAction = {
-                    url = termuxUrl
-                    onUrlChanged(termuxUrl)
+                    url = presetUrl
+                    onUrlChanged(presetUrl)
                 },
             )
 
