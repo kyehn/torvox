@@ -2,7 +2,10 @@ package terminal.emulator.ui.theme
 
 import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ThemeRepositoryTest {
@@ -94,5 +97,44 @@ class ThemeRepositoryTest {
         val noDark =
             catalog(catalogEntry(ThemeRepository.FLAG_DEFAULT_LIGHT, "test_theme", colors(0x000000, 0x000000, 0x00)))
         assertThrows(IllegalArgumentException::class.java) { ThemeRepository.parseCatalog(noDark) }
+    }
+
+    /**
+     * 原生库缺失时必须以 `Exception` 家族失败，且**不得**去碰 native 方法。
+     *
+     * 判别力：少了这道守卫时，调用会落到 `NativeBridge.getThemeCatalog()`，抛的是
+     * `UnsatisfiedLinkError`——`Error` 而非 `Exception`，会逃出上层的
+     * `catch (Exception)`，把进程带走（实测：库缺失时启动即崩）。
+     */
+    @Test
+    fun `missing native library fails with an exception without touching native`() {
+        var fetched = false
+        val failure =
+            assertThrows(IllegalStateException::class.java) {
+                ThemeRepository.themeCatalogBytesOrThrow(
+                    isNativeLoaded = false,
+                    fetch = {
+                        fetched = true
+                        ByteArray(0)
+                    },
+                )
+            }
+        assertTrue("失败原因必须点明是原生库缺失", failure.message?.contains("native library not loaded") == true)
+        assertFalse("库缺失时不得调用 native 方法", fetched)
+    }
+
+    /** 原生库在位时按 native 返回的字节取回；返回 null 即失败，不退回空目录。 */
+    @Test
+    fun `loaded native library returns the fetched bytes`() {
+        val packed = catalog(catalogEntry(ThemeRepository.FLAG_DEFAULT_DARK, "night", colors(0, 0, 0)))
+        val fetched =
+            ThemeRepository.themeCatalogBytesOrThrow(
+                isNativeLoaded = true,
+                fetch = { packed },
+            )
+        assertSame(packed, fetched)
+        assertThrows(IllegalStateException::class.java) {
+            ThemeRepository.themeCatalogBytesOrThrow(isNativeLoaded = true, fetch = { null })
+        }
     }
 }

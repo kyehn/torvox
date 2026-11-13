@@ -41,8 +41,39 @@ object ThemeRepository {
      */
     private val catalog: ThemeCatalog by lazy { parseCatalog(requireCatalog()) }
 
-    private fun requireCatalog(): ByteArray =
-        NativeBridge.getThemeCatalog() ?: error("Theme catalog unavailable from native")
+    /**
+     * 取回主题目录字节。
+     *
+     * 原生库缺失时**不能**直接调 native 方法：类初始化只记日志并放行，故
+     * `NativeBridge.getThemeCatalog()` 会抛 `UnsatisfiedLinkError`——那是 `Error`
+     * 不是 `Exception`，会一路逃出调用方的 `catch (Exception)`，把进程带走
+     * （实测：库缺失时启动即崩于本方法，见 `ThemeRepository` 的调用点）。
+     * 故先问 `isNativeLoaded()`：缺失即抛 `IllegalStateException`（`Exception`
+     * 家族），由上层按「本次会话不可用」处理。
+     *
+     * 目录取不到（native 返回 null）同样是失败，不退回空列表——主题清单为空
+     * 时终端渲染不出任何颜色，那比明确报错更难排查。
+     */
+    private fun requireCatalog(): ByteArray = themeCatalogBytesOrThrow(
+        isNativeLoaded = NativeBridge.isNativeLoaded(),
+        fetch = { NativeBridge.getThemeCatalog() },
+    )
+
+    /**
+     * 主题目录字节的取回决策：原生库缺失即抛（`Exception` 家族），否则取回字节。
+     *
+     * 抽成顶层纯函数以便单测覆盖「库缺失」这条路径——它在本进程里无法自然复现
+     * （正常装机总有库），却是「库缺失时启动即崩」那条事故的成因。
+     *
+     * @param isNativeLoaded 原生库是否已装载。
+     * @param fetch 取回目录字节；返回 null 表示 native 侧没有目录。
+     */
+    internal fun themeCatalogBytesOrThrow(isNativeLoaded: Boolean, fetch: () -> ByteArray?): ByteArray {
+        if (!isNativeLoaded) {
+            throw IllegalStateException("native library not loaded: theme catalog unavailable")
+        }
+        return fetch() ?: error("Theme catalog unavailable from native")
+    }
 
     /**
      * 目录字节 → 主题清单与默认标识。纯函数，不碰 JNI，可直接单测。

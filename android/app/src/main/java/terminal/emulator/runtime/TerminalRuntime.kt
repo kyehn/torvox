@@ -324,7 +324,17 @@ constructor(
      * 时什么都不做：开孔继续用平底色遮。
      */
     internal fun captureCoverFrame(bridge: Bridge) {
-        val frame = bridge.readCoverFrame() ?: return
+        val frame =
+            readCoverFrameSafely(
+                read = { bridge.readCoverFrame() },
+                onFailure = { exception ->
+                    LogUtil.warn(
+                        RUNTIME_LOG_TAG,
+                        "captureCoverFrame: 遮罩回读失败，本次退回平底色遮罩",
+                        exception,
+                    )
+                },
+            ) ?: return
         LogUtil.debug(
             RUNTIME_LOG_TAG,
             "captureCoverFrame: 已回读 ${frame.width}x${frame.height} 的开孔遮罩",
