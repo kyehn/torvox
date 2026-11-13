@@ -135,10 +135,4 @@
     <string name="log_level">日志等级</string>
     <string name="log_level_desc">同时作用于应用与原生日志。等级低于所选值的日志不写入 logcat。</string>
     <string name="log_level_selected">已选</string>
-    <string name="log_level_off">关闭</string>
-    <string name="log_level_error">仅错误</string>
-    <string name="log_level_warn">警告及以上</string>
-    <string name="log_level_info">信息及以上</string>
-    <string name="log_level_debug">调试及以上</string>
-    <string name="log_level_verbose">全部（含详细）</string>
 </resources>

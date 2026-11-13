@@ -56,7 +56,7 @@ internal fun LogLevelSection(
             Spacer(modifier = Modifier.height(8.dp))
             SettingsPickerRow(
                 title = null,
-                value = stringResource(logLevelLabelRes(selected)),
+                value = logLevelLabel(selected),
                 rowBackground = backgroundColor,
                 colors = colors,
                 onOpen = { showPicker = true },
@@ -68,7 +68,7 @@ internal fun LogLevelSection(
     if (showPicker) {
         SettingsPickerDialog(
             title = stringResource(R.string.log_level),
-            options = levels.map { it.name to stringResource(logLevelLabelRes(it)) }.toImmutableList(),
+            options = levels.map { it.name to logLevelLabel(it) }.toImmutableList(),
             selectedKey = selected.name,
             colors = colors,
             onSelected = { key ->
@@ -81,12 +81,10 @@ internal fun LogLevelSection(
     }
 }
 
-/** 等级的中文标签资源。 */
-private fun logLevelLabelRes(level: LogLevel): Int = when (level) {
-    LogLevel.OFF -> R.string.log_level_off
-    LogLevel.ERROR -> R.string.log_level_error
-    LogLevel.WARN -> R.string.log_level_warn
-    LogLevel.INFO -> R.string.log_level_info
-    LogLevel.DEBUG -> R.string.log_level_debug
-    LogLevel.VERBOSE -> R.string.log_level_verbose
-}
+/**
+ * 等级的显示名：直接用原始等级名（OFF/ERROR/WARN/INFO/DEBUG/VERBOSE）。
+ *
+ * DESIGN 日志节：「`INFO` 和 `DEBUG` 等无需语言翻译和转换，显示原始信息」——
+ * 等级名是约定俗成的缩写，翻译成「信息及以上」反而对不上 logcat 里看到的级别。
+ */
+private fun logLevelLabel(level: LogLevel): String = level.name
