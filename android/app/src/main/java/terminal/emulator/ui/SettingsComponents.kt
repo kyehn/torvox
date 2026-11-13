@@ -16,11 +16,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
@@ -240,6 +244,129 @@ internal fun SectionHeader(title: String, textColor: Color) {
         color = textColor,
         modifier = Modifier.padding(vertical = 4.dp),
     )
+}
+
+/**
+ * 选择器行（卡片式）：标题 + 当前值 +「更改」，点开选择对话框。
+ *
+ * 字体选择与日志等级共用这一套外观：两者都是「一项多值」的设置，外观不一致
+ * 会让人以为它们不是同一类控件（用户反馈：日志等级应与字体选择同样式）。
+ *
+ * @param title 行标题；为 null 时不画标题（分区标题已经说明这一项是什么）
+ * @param rowBackground 选择器行的底色：分区卡片内的块状选择器用页面底色，
+ *   与卡片底色拉开层次（与字体选择一致）
+ * @param testTag 挂在**可点击的行**上：调用方要按 tag 点它
+ */
+@Composable
+internal fun SettingsPickerRow(
+    title: String?,
+    value: String,
+    rowBackground: Color,
+    colors: SettingsColors,
+    onOpen: () -> Unit,
+    testTag: String? = null,
+) {
+    val (isSmallScreen, labelStyle, _) = rememberSettingsResponsiveStyles()
+    Column {
+        if (title != null) {
+            Text(
+                text = title,
+                style = labelStyle,
+                color = colors.textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+        Row(
+            modifier =
+            Modifier
+                .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(rowBackground)
+                .clickable(onClick = onOpen)
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = value,
+                color = colors.textColor,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = stringResource(R.string.change),
+                color = colors.accentColor,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+/**
+ * 选择对话框：标题 + 一列选项，选中项高亮并加粗。
+ *
+ * 选项是 (键, 标签) 对：键用于回调（字体族名、日志等级名），标签是显示文本。
+ */
+@Composable
+internal fun SettingsPickerDialog(
+    title: String,
+    options: ImmutableList<Pair<String, String>>,
+    selectedKey: String,
+    colors: SettingsColors,
+    onSelected: (String) -> Unit,
+    onDismiss: () -> Unit,
+    testTag: String? = null,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, color = colors.textColor) },
+        text = {
+            LazyColumn(
+                modifier = modifierThenTestTag(testTag),
+            ) {
+                items(options) { (key, label) ->
+                    val isSelected = key == selectedKey
+                    Row(
+                        modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onSelected(key) }
+                            .background(
+                                if (isSelected) {
+                                    colors.accentColor.copy(alpha = 0.2f)
+                                } else {
+                                    Color.Transparent
+                                },
+                            ).padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isSelected) colors.accentColor else colors.textColor,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel), color = colors.textColor) }
+        },
+        containerColor = colors.cardBackground,
+    )
+}
+
+/** 给 Modifier 挂 testTag（tag 为 null 时原样返回）。 */
+private fun modifierThenTestTag(testTag: String?): Modifier = if (testTag !=
+    null
+) {
+    Modifier.testTag(testTag)
+} else {
+    Modifier
 }
 
 /** 字体缺 CJK 回退时的警示橙，与 [CjkFallbackMissingWarning] 配套。 */

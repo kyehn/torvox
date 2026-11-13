@@ -190,6 +190,7 @@ fun SettingsScreen(
                             onLogLevelSelected = { viewModel.setLogLevel(it) },
                             textColor = textColor,
                             cardBackground = cardBackground,
+                            backgroundColor = backgroundColor,
                             sectionTitleColor = sectionTitleColor,
                         )
                     }
