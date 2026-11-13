@@ -83,6 +83,14 @@ internal const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
 
 /**
+ * 文本输入框里输入内容的字号（sp）。
+ *
+ * 按键标签用 10sp 是为了在一屏里排下 14 个键；输入框里的文字是用户刚输入的
+ * 内容，沿用按键字号会细到看不清（用户反馈：输入后显示的文本过小）。
+ */
+private const val TEXT_INPUT_FONT_SIZE_SP = 16
+
+/**
  * 键栏上一个键「按下时做什么」。
  *
  * 四种动作互斥：走原生键编码器的逻辑键、键栏自身的特殊动作、直接写出的字面量文本、
@@ -448,7 +456,9 @@ private fun ModifierBarTextInputPage(
         textStyle =
         TextStyle(
             color = textColor,
-            fontSize = BUTTON_FONT_SIZE_SP.sp,
+            // 输入框里的文字是**用户输入的内容**，不是按键标签：按键用 10sp 排版
+            // （一屏塞下 14 个键），输入框沿用它会让输入的文字细得看不清。
+            fontSize = TEXT_INPUT_FONT_SIZE_SP.sp,
         ),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         keyboardActions =
