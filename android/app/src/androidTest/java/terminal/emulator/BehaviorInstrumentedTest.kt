@@ -7,13 +7,12 @@ import android.graphics.Bitmap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.filterToOne
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onChildren
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -109,10 +108,12 @@ class BehaviorInstrumentedTest : ComposeTerminalLogcatTest() {
         scrollSettingsTo(hasTestTag("FontFamilySelector"))
         // 「更改」在字体行内定位：日志等级行用同一措辞（两者外观一致），
         // 全屏找「更改」会命中多个节点。
+        //
+        // 该行整行可点，且行上的 `clickable` 会把子文本并进同一语义节点，
+        // 故「更改」不是独立节点：按 tag 找行、再断言行内含该文案。
         composeTestRule
             .onNodeWithTag("FontFamilySelector")
-            .onChildren()
-            .filterToOne(hasText("更改"))
+            .assert(hasText("更改"))
             .performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText("选择字体").assertIsDisplayed()

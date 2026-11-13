@@ -1,10 +1,8 @@
 package terminal.emulator.benchmark
 
-import android.content.Intent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -13,7 +11,7 @@ import org.junit.runner.RunWith
  * Nix 变种的引导包安装：装的是 Nix-on-Droid 引导包，不是 Termux 官方包。
  *
  * 两套引导包的包模型不兼容（apt 与 nix），混用即坏。故 Nix 变种必须能装上
- * 自己那套——这条路径此前没有任何验证：Nix 变种是 release 构建，而仪器测试
+ * 自己那套——这条路径此前没有任何验证：Nix 变种是 release 构建，而仪器测试默认
  * 只跑 debug 变种，装不上也无人知道。
  *
  * 跑法：`:benchmark:connectedBenchmarkNixAndroidTest`（被测包 com.termux.nix）。
@@ -21,6 +19,12 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class NixBootstrapTest {
     companion object {
+        /** Nix 变种的包名：与 `android/app/build.gradle.kts` 的 `applicationIdSuffix` 一致。 */
+        private const val NIX_PACKAGE = "com.termux.nix"
+
+        /** 被测 Activity 的类名：applicationId 是 `com.termux.nix`，类名不在该包下。 */
+        private const val NIX_ACTIVITY = "terminal.emulator.MainActivity"
+
         /** 安装超时：模拟器上 39MB 的下载与解压要几分钟。 */
         private const val INSTALL_TIMEOUT_MILLIS = 15 * 60 * 1000L
 
@@ -49,26 +53,21 @@ class NixBootstrapTest {
 
     @Test
     fun nixVariantInstallsNixOnDroidBootstrap() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val context = instrumentation.targetContext
-        assertEquals(
-            "本用例只跑 Nix 变种（被测包名不对）",
-            "com.termux.nix",
-            context.packageName,
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val installed = device.executeShellCommand("pm path $NIX_PACKAGE")
+        assertTrue(
+            "Nix 变种未安装（$NIX_PACKAGE），本用例必须在装了它的设备上跑：$installed",
+            installed.isNotBlank(),
         )
-        val device = UiDevice.getInstance(instrumentation)
         val url = "$NIX_BOOTSTRAP_BASE/bootstrap-${deviceArchitecture()}.zip"
         val sinceMillis = System.currentTimeMillis()
 
         // 启动被测应用并带上两个 extra：日志等级提到 debug（结论行是 info 级），
         // 以及官方引导包地址（应用只认本变种的官方地址）。
-        context.startActivity(
-            Intent(Intent.ACTION_MAIN)
-                .setClassName(context.packageName, TARGET_ACTIVITY)
-                .addCategory(Intent.CATEGORY_LAUNCHER)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                .putExtra(LOG_LEVEL_EXTRA, "DEBUG")
-                .putExtra(BOOTSTRAP_URL_EXTRA, url),
+        device.executeShellCommand(
+            "am start -n $NIX_PACKAGE/$NIX_ACTIVITY" +
+                " --es $LOG_LEVEL_EXTRA DEBUG" +
+                " --es $BOOTSTRAP_URL_EXTRA $url",
         )
 
         val outcomes = awaitOutcome(device, sinceMillis)
