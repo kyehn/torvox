@@ -134,5 +134,4 @@
     <string name="toggle_keyboard">显示/隐藏输入法</string>
     <string name="log_level">日志等级</string>
     <string name="log_level_desc">同时作用于应用与原生日志。等级低于所选值的日志不写入 logcat。</string>
-    <string name="log_level_selected">已选</string>
 </resources>
