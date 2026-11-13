@@ -129,6 +129,10 @@ pub(crate) async fn initialize_wgpu()
     });
 
     let preference = power_preference();
+    // wgpu 会在设备不完全合规时打一条 `Missing downlevel flags` 警告（模拟器的
+    // Mali 适配器缺 SURFACE_VIEW_FORMATS）：那是上游对「非完全合规实现」的提示，
+    // 不是本仓的缺陷，也无法在本仓消掉——能力由适配器决定。本仓用到的那部分
+    // 能力（交换链、拷贝、绘制）都在缺项之外，故照常使用，不做屏蔽。
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: preference.to_wgpu(),
