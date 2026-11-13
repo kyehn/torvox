@@ -686,6 +686,14 @@ rules:
   - id: no-thread-sleep-main
     patterns:
       - pattern: Thread.sleep($MILLIS)
+      # 专用线程体里的休眠不在主线程上：渲染线程的退避休眠要靠线程中断立刻醒来，
+      # 协程 delay 收不到线程中断（runBlocking 只在协程取消时醒来），故不能改写。
+      - pattern-not-inside: |
+          Thread { ... }
+      - pattern-not-inside: |
+          Thread(...) { ... }
+      - pattern-not-inside: |
+          Thread(...)
     message: "`Thread.sleep()` blocks the current thread, potentially causing ANRs. Prefer coroutines `delay()` on the main thread or structured threading."
     severity: ERROR
     languages: [kotlin, java]
@@ -696,3 +704,6 @@ rules:
         - "**/*/test/*"
         - "**/*/tests/*"
         - "**/*/androidTest/*"
+        # 基准模块是仪器测试模块（com.android.test），各源集里都是仪器测试体：
+        # 轮询休眠跑在仪器测试线程上，不在主线程。
+        - "**/android/benchmark/src/**"
