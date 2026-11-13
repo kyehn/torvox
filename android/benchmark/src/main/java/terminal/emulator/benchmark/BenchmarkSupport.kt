@@ -23,13 +23,12 @@ internal const val EMULATOR_IDLE_TIMEOUT_MILLIS = 2_000L
  * 基准将永远等不到 shell 就绪、也读不到任何滚动帧。extra 只改本进程等级，
  * 不写回用户设置（见 `MainActivity.applyLogLevelExtra`）。
  */
-internal fun benchmarkLaunchIntent(): Intent =
-    Intent(Intent.ACTION_MAIN).apply {
-        setClassName(TARGET_PACKAGE, TARGET_ACTIVITY)
-        addCategory(Intent.CATEGORY_LAUNCHER)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        putExtra(LOG_LEVEL_EXTRA, "DEBUG")
-    }
+internal fun benchmarkLaunchIntent(): Intent = Intent(Intent.ACTION_MAIN).apply {
+    setClassName(TARGET_PACKAGE, TARGET_ACTIVITY)
+    addCategory(Intent.CATEGORY_LAUNCHER)
+    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    putExtra(LOG_LEVEL_EXTRA, "DEBUG")
+}
 
 /** 输入法状态的等待上限：输入法可能在冷启动后过一会儿才弹起，不能立刻下结论。 */
 internal const val IME_STATE_TIMEOUT_MILLIS = 5_000L
