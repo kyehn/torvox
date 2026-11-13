@@ -286,9 +286,9 @@ impl super::GhosttyTerminal {
         let result = terminal.on_clipboard_write(move |_terminal, write| {
             // 选择器字母沿用 xterm 约定（Kotlin 侧原样透传）：c=剪贴板、p=主选区、s=次选区。
             let selection = match write.location() {
-                libghostty_vt::terminal::ClipboardLocation::Standard => "c",
-                libghostty_vt::terminal::ClipboardLocation::Primary => "p",
-                libghostty_vt::terminal::ClipboardLocation::Selection => "s",
+                libghostty_vt::effect::ClipboardLocation::Standard => "c",
+                libghostty_vt::effect::ClipboardLocation::Primary => "p",
+                libghostty_vt::effect::ClipboardLocation::Selection => "s",
             }
             .to_string();
             let mut fallback: Option<&[u8]> = None;
@@ -316,10 +316,7 @@ impl super::GhosttyTerminal {
             // 阻塞 VT 线程更糟。丢则记日志并回 `Busy`，不静默。
             if clipboard_tx.try_send((selection, text)).is_err() {
                 warn_clipboard_dropped(&drop_log);
-                write.reply(
-                    Err(libghostty_vt::terminal::ClipboardWriteError::Busy),
-                    false,
-                );
+                write.reply(Err(libghostty_vt::effect::ClipboardWriteError::Busy), false);
             } else {
                 write.reply(Ok(()), false);
             }
@@ -434,7 +431,7 @@ impl super::GhosttyTerminal {
                 let (Ok(rows), Ok(cols)) = (terminal.rows(), terminal.cols()) else {
                     return None;
                 };
-                Some(libghostty_vt::terminal::SizeReportSize {
+                Some(libghostty_vt::report::SizeReportSize {
                     rows,
                     columns: cols,
                     cell_width: cell_size_px.0.load(Ordering::Acquire),
@@ -507,7 +504,7 @@ impl super::GhosttyTerminal {
         }
     }
 
-    pub(crate) fn color_to_float(color: libghostty_vt::style::RgbColor) -> [f32; 4] {
+    pub(crate) fn color_to_float(color: libghostty_vt::color::Rgb) -> [f32; 4] {
         [
             Self::byte_to_float(color.r),
             Self::byte_to_float(color.g),

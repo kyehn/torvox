@@ -38,11 +38,13 @@ android {
 
   defaultConfig {
     applicationId = "com.termux"
-    minSdk = 33
+    minSdk = 31
     targetSdk = 28
     versionCode = 2000
     versionName = "0.1.0"
     signingConfig = signingConfigs.getByName("testkey")
+    // Termux 引导程序按 com.termux 的 prefix 构建，共存包无法直接使用，隐藏其预设入口。
+    buildConfigField("boolean", "TERMUX_BOOTSTRAP_PRESET", "true")
 
     testInstrumentationRunner = "io.cucumber.android.runner.CucumberAndroidJUnitRunner"
     testInstrumentationRunnerArguments["cucumberUseAndroidJUnitRunner"] = "true"
@@ -66,6 +68,13 @@ android {
         getDefaultProguardFile("proguard-android-optimize.txt"),
         "proguard-rules.pro",
       )
+    }
+    // 与 release 同配置但独立包名（.nix），可与主包共存；Termux 引导预设不可用。
+    create("nix") {
+      initWith(getByName("release"))
+      applicationIdSuffix = ".nix"
+      buildConfigField("boolean", "TERMUX_BOOTSTRAP_PRESET", "false")
+      matchingFallbacks += listOf("release")
     }
   }
 
@@ -148,7 +157,7 @@ dependencies {
   testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
-  implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
+  implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.13.0")
 
   releaseImplementation("androidx.profileinstaller:profileinstaller:1.4.1")
   testImplementation("org.robolectric:robolectric:4.17")

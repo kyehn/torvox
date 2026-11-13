@@ -32,7 +32,7 @@ def main [...abis: string] {
     let ndk_args = $abis | each {|a| ["--target", $a] } | flatten
     # `cargo ndk` 不接受 `--manifest-path`（它在当前目录解析清单），故进入包根执行。
     cd $CRATE
-    cargo ndk ...$ndk_args --platform 33 build --package native --profile release
+    cargo ndk ...$ndk_args --platform 31 build --package native --profile release
 
     for abi in $abis {
         let triple = abi-to-target-triple $abi

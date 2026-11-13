@@ -60,6 +60,12 @@ jobs:
           name: debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
           archive: false
+      - run: scripts/build-apk.nu --nix
+      - uses: actions/upload-artifact@main
+        with:
+          name: nix-apk
+          path: android/app/build/outputs/apk/nix/*.apk
+          archive: false
       - run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
@@ -87,7 +93,10 @@ jobs:
         with:
           tag_name: 0.1.0
           generate_release_notes: false
-          files: android/app/build/outputs/apk/release/*.apk
+          files: |
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/nix/*.apk
+      - run: rm -rf native/target ~/.cargo ~/.gradle
       - if: ${{ always() && steps.build_debug_apk.outcome == 'success' }}
         uses: actions/cache/save@main
         with:

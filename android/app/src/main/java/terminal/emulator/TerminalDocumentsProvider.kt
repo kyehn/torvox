@@ -20,7 +20,7 @@ import java.nio.file.Files
 
 class TerminalDocumentsProvider : DocumentsProvider() {
     companion object {
-        const val AUTHORITY = "com.termux.documents"
+        val AUTHORITY = "${BuildConfig.APPLICATION_ID}.documents"
         const val ROOT_ID = "terminal_home"
         private const val TAG = "TerminalDocumentsProvider"
 

@@ -79,7 +79,7 @@ fn session_mode_get_default_false() {
     let (session, _handle) = crate::terminal::mock_pty::mock_session();
     // 模式 2004（bracketed paste）默认应关闭。
     assert!(!session.terminal().mode_get_with_timeout(
-        libghostty_vt::terminal::Mode::BRACKETED_PASTE,
+        libghostty_vt::mode::Mode::BRACKETED_PASTE,
         std::time::Duration::from_millis(crate::terminal::ghostty_terminal::QUERY_TIMEOUT_MS),
     ));
 }

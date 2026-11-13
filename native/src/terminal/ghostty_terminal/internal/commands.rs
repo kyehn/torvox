@@ -189,7 +189,7 @@ impl super::GhosttyTerminal {
     /// shell/编辑器跟随系统明暗靠的正是 2031 模式下的这条**主动**通知。门控在
     /// 模式位上：程序没声明关心明暗时不得往它的输入流里塞未经请求的字节。
     fn report_color_scheme_on_change(terminal: &Terminal<'_, '_>, config: &RunConfig, dark: bool) {
-        use libghostty_vt::terminal::Mode;
+        use libghostty_vt::mode::Mode;
         match terminal.mode(Mode::COLOR_SCHEME_REPORT) {
             Ok(true) => {
                 let report: &[u8] = if dark {

@@ -8,6 +8,7 @@ import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.isElf
 import terminal.emulator.runtime.isSystemShellScript
 import terminal.emulator.util.TerminalDispatchers
+import terminal.emulator.util.readAtMost
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
@@ -257,13 +258,13 @@ class BootstrapInstaller(
             if (name == "SYMLINKS.txt") {
                 // 有界读取：该条目是元数据，必须很小；
                 // 在恶意归档上无界 readBytes() 会让进程 OOM。
-                val bytes = zipInputStream.readNBytes(MAX_METADATA_BYTES)
+                val bytes = zipInputStream.readAtMost(MAX_METADATA_BYTES)
                 if (bytes.size >= MAX_METADATA_BYTES) {
                     throw IOException("SYMLINKS.txt exceeds $MAX_METADATA_BYTES bytes")
                 }
                 symlinks.addAll(parseSymlinks(bytes.decodeToString()))
             } else if (name == "EXECUTABLES.txt") {
-                val bytes = zipInputStream.readNBytes(MAX_METADATA_BYTES)
+                val bytes = zipInputStream.readAtMost(MAX_METADATA_BYTES)
                 if (bytes.size >= MAX_METADATA_BYTES) {
                     throw IOException("EXECUTABLES.txt exceeds $MAX_METADATA_BYTES bytes")
                 }

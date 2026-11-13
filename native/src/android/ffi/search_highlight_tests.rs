@@ -2,23 +2,23 @@ use super::font::build_search_highlights;
 use crate::render::cell_builder::{SEARCH_HIGHLIGHT_CURRENT_ALPHA, SEARCH_HIGHLIGHT_OTHER_ALPHA};
 use crate::terminal::ghostty_terminal::SearchMatch;
 use crate::terminal::theme::Palette;
-use libghostty_vt::style::RgbColor;
+use libghostty_vt::color::Rgb;
 
 fn palette() -> Palette {
     Palette {
-        background: RgbColor { r: 0, g: 0, b: 0 },
-        foreground: RgbColor {
+        background: Rgb { r: 0, g: 0, b: 0 },
+        foreground: Rgb {
             r: 0xEE,
             g: 0xEE,
             b: 0xEE,
         },
-        cursor: RgbColor { r: 0, g: 0, b: 0 },
-        selection_background: RgbColor {
+        cursor: Rgb { r: 0, g: 0, b: 0 },
+        selection_background: Rgb {
             r: 0x33,
             g: 0x44,
             b: 0x55,
         },
-        ansi: [RgbColor { r: 0, g: 0, b: 0 }; 16],
+        ansi: [Rgb { r: 0, g: 0, b: 0 }; 16],
     }
 }
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env -S nix develop --command nu
 
-def main [--release, --debug] {
+def main [--release, --debug, --nix] {
     cd android
     let apk_base = $env.PWD | path join "app" "build" "outputs" "apk"
-    for variant in ["release", "debug"] {
+    for variant in ["release", "debug", "nix"] {
         let dir = $apk_base | path join $variant
         if ($dir | path exists) {
             for apk in (glob $"($dir)/*.apk") {
@@ -13,7 +13,8 @@ def main [--release, --debug] {
     }
     mut build_release = $release
     mut build_debug = $debug
-    if (not $release) and (not $debug) {
+    mut build_nix = $nix
+    if (not $release) and (not $debug) and (not $nix) {
         $build_release = true
         $build_debug = false
     }
@@ -32,6 +33,15 @@ def main [--release, --debug] {
         let apks = (glob $"($apk_base)/debug/*.apk")
         if ($apks | is-empty) {
             print $"ERROR: no APK found in ($apk_base)/debug/ after assembleDebug"
+            exit 1
+        }
+    }
+
+    if $build_nix {
+        ^./gradlew ":app:assembleNix"
+        let apks = (glob $"($apk_base)/nix/*.apk")
+        if ($apks | is-empty) {
+            print $"ERROR: no APK found in ($apk_base)/nix/ after assembleNix"
             exit 1
         }
     }

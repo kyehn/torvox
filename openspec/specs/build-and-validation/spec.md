@@ -22,7 +22,7 @@ MUST NOT 使用 `which` 做运行时路径探测，也 MUST NOT 另行执行 Zig
 
 Android 原生库 MUST 使用 `cargo ndk` 构建，MUST NOT 使用 cargo 的 zig 交叉编译子命令。构建 MUST
 先产出 `.so` 并填充 `jniLibs/`，再构建 APK。Gradle 的 `compileOptions` MUST 使用
-`JavaVersion.VERSION_17`；`minSdkVersion` MUST 为 33、`compileSdkVersion` MUST 为 37、
+`JavaVersion.VERSION_17`；`minSdkVersion` MUST 为 31、`compileSdkVersion` MUST 为 37、
 `targetSdkVersion` MUST 为 28；`versionCode` MUST 为 2000、`versionName` MUST 为 0.1.0。
 Rust 最低版本 MUST 为 1.99，`edition` 最低为 2024。
 
@@ -38,6 +38,18 @@ Rust 最低版本 MUST 为 1.99，`edition` 最低为 2024。
 
 - **WHEN** 审阅 Gradle 与 Rust 的 Android 构建配置
 - **THEN** 目标架构只有 `arm64-v8a` 和 `x86_64`
+
+### Requirement: 共存构建
+
+`nix` build type MUST 与 release 使用相同的构建配置，`applicationId` MUST 为
+`com.termux.nix`，`app_name` MUST 为 `Nix`。MUST 隐藏 Termux 引导预设等不兼容功能；
+自定义引导（URL 与离线 zip）MUST 仍然可用。文档提供器 authority 与快捷方式
+`targetPackage` MUST 跟随实际 `applicationId`。
+
+#### Scenario: 共存包与主包并存
+
+- **WHEN** 同时安装 release 与 nix APK
+- **THEN** 两者 applicationId 不同，各自使用独立数据目录，互不覆盖
 
 ### Requirement: 测试进入既有体系且断言具体结果
 

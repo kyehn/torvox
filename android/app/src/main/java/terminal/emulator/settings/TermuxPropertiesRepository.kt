@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
+import terminal.emulator.util.readAtMost
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
@@ -151,7 +152,7 @@ constructor(@ApplicationContext private val context: Context) {
             // 上限在读时再兜一次：length() 与打开文件之间文件可能被外部改写，
             // 只信 stat 会把一个已经长到几百兆的文件整份读进内存。
             file.inputStream().buffered().use { stream ->
-                val bytes = stream.readNBytes(MAX_BYTES + 1)
+                val bytes = stream.readAtMost(MAX_BYTES + 1)
                 if (bytes.size > MAX_BYTES) {
                     errors += "${file.name}: larger than $MAX_BYTES bytes; skipped"
                     null

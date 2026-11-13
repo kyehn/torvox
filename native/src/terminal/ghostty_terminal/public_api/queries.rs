@@ -45,7 +45,7 @@ impl GhosttyTerminal {
     /// 查询某个终端模式是否开启，自带超时参数。
     pub fn mode_get_with_timeout(
         &self,
-        mode: libghostty_vt::terminal::Mode,
+        mode: libghostty_vt::mode::Mode,
         timeout: std::time::Duration,
     ) -> bool {
         Self::mode_get_on(&self.query_tx, mode, timeout)
@@ -55,7 +55,7 @@ impl GhosttyTerminal {
     /// 本查询自带超时参数（其余走 `query_on` 的统一期限），故不并入 `query_on`。
     pub(crate) fn mode_get_on(
         query_tx: &Sender<Query>,
-        mode: libghostty_vt::terminal::Mode,
+        mode: libghostty_vt::mode::Mode,
         timeout: std::time::Duration,
     ) -> bool {
         let (tx, rx) = bounded(1);

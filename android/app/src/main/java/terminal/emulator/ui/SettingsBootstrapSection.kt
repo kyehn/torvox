@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import terminal.emulator.BuildConfig
 import terminal.emulator.R
 import terminal.emulator.detectDeviceArchitecture
 import terminal.emulator.installer.BootstrapProgress
@@ -131,29 +132,31 @@ private fun BootstrapSection(
             color = secondaryText,
         )
         Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = stringResource(R.string.bootstrap_presets),
-            style = MaterialTheme.typography.bodyMedium,
-            color = textColor,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
+        if (BuildConfig.TERMUX_BOOTSTRAP_PRESET) {
+            Text(
+                text = stringResource(R.string.bootstrap_presets),
+                style = MaterialTheme.typography.bodyMedium,
+                color = textColor,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
 
-        val architecture = detectDeviceArchitecture()
-        val termuxUrl = TermuxBootstrap.downloadUrl(architecture)
-        val presetLabel = stringResource(R.string.bootstrap_preset_termux)
-        val presetDescription = stringResource(R.string.bootstrap_preset_termux_desc)
-        BootstrapPresetItem(
-            label = presetLabel,
-            description = presetDescription,
-            colors = PresetColors(accentColor, textColor, secondaryText),
-            modifier = Modifier.testTag("BootstrapPreset_TermuxDefault"),
-            onAction = {
-                url = termuxUrl
-                onUrlChanged(termuxUrl)
-            },
-        )
+            val architecture = detectDeviceArchitecture()
+            val termuxUrl = TermuxBootstrap.downloadUrl(architecture)
+            val presetLabel = stringResource(R.string.bootstrap_preset_termux)
+            val presetDescription = stringResource(R.string.bootstrap_preset_termux_desc)
+            BootstrapPresetItem(
+                label = presetLabel,
+                description = presetDescription,
+                colors = PresetColors(accentColor, textColor, secondaryText),
+                modifier = Modifier.testTag("BootstrapPreset_TermuxDefault"),
+                onAction = {
+                    url = termuxUrl
+                    onUrlChanged(termuxUrl)
+                },
+            )
 
-        Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+        }
         BootstrapInstallButton(
             onRunBootstrap,
             bootstrapRunning,

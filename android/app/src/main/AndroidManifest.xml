@@ -83,7 +83,7 @@
              MANAGE_DOCUMENTS 只是报错信息的后缀。 -->
         <provider
             android:name=".TerminalDocumentsProvider"
-            android:authorities="com.termux.documents"
+            android:authorities="${applicationId}.documents"
             android:exported="true"
             android:grantUriPermissions="true"
             android:readPermission="android.permission.MANAGE_DOCUMENTS"

@@ -375,7 +375,7 @@ impl Session {
     /// 渲染与事件收割取得（理由同 [`PtyMaster`](super::PtyMaster)）。
     pub fn focus_event_bytes(&mut self, focused: bool) -> Option<&'static [u8]> {
         if !self.terminal.mode_get_with_timeout(
-            libghostty_vt::terminal::Mode::FOCUS_EVENT,
+            libghostty_vt::mode::Mode::FOCUS_EVENT,
             std::time::Duration::from_millis(Self::FOCUS_MODE_QUERY_TIMEOUT_MS),
         ) {
             return None;

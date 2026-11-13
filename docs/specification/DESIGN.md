@@ -2,6 +2,7 @@
 
 - 文中“有 `a` `b` `c` 项”的描述指有且只有，不得增加未声明行为。
 - 未声明的实现细节可参考 [termux-app](https://github.com/termux/termux-app/tree/github-releases/v0.119.0-beta.3) 与 [ghostty-android-terminal](https://github.com/sylirre/ghostty-android-terminal) 以及 [termlib](https://github.com/connectbot/termlib) 同时遵循最佳实践。
+- 文档中出现的如 `/data/data/com.termux/` 等描述是为了清晰地表示路径等信息，代码中不得对此硬编码
 
 ---
 

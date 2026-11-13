@@ -10,7 +10,7 @@ use super::*;
 use libghostty_vt::key::{self, Action, Mods};
 
 /// 模式查询（测试侧统一期限，与内建查询同口径）。
-fn mode_is_set(terminal: &GhosttyTerminal, mode: libghostty_vt::terminal::Mode) -> bool {
+fn mode_is_set(terminal: &GhosttyTerminal, mode: libghostty_vt::mode::Mode) -> bool {
     terminal.mode_get_with_timeout(
         mode,
         std::time::Duration::from_millis(crate::terminal::ghostty_terminal::QUERY_TIMEOUT_MS),
@@ -249,7 +249,7 @@ fn arrows_follow_cursor_key_application_mode() {
     assert!(
         mode_is_set(
             &terminal,
-            libghostty_vt::terminal::Mode::new(1, libghostty_vt::terminal::ModeKind::Dec)
+            libghostty_vt::mode::Mode::new(1, libghostty_vt::mode::Kind::Dec)
         ),
         "DECCKM must be set"
     );
@@ -304,7 +304,7 @@ fn keypad_stays_numerical_while_numlock_ignore_is_on() {
     assert!(
         mode_is_set(
             &terminal,
-            libghostty_vt::terminal::Mode::new(1035, libghostty_vt::terminal::ModeKind::Dec)
+            libghostty_vt::mode::Mode::new(1035, libghostty_vt::mode::Kind::Dec)
         ),
         "mode 1035 defaults on"
     );
@@ -313,7 +313,7 @@ fn keypad_stays_numerical_while_numlock_ignore_is_on() {
     assert!(
         mode_is_set(
             &terminal,
-            libghostty_vt::terminal::Mode::new(66, libghostty_vt::terminal::ModeKind::Dec)
+            libghostty_vt::mode::Mode::new(66, libghostty_vt::mode::Kind::Dec)
         ),
         "DECKPAM must be set"
     );
@@ -331,7 +331,7 @@ fn keypad_stays_numerical_while_numlock_ignore_is_on() {
     assert!(
         !mode_is_set(
             &terminal,
-            libghostty_vt::terminal::Mode::new(1035, libghostty_vt::terminal::ModeKind::Dec)
+            libghostty_vt::mode::Mode::new(1035, libghostty_vt::mode::Kind::Dec)
         ),
         "mode 1035 must be off"
     );
@@ -359,7 +359,7 @@ fn backspace_follows_backarrow_key_mode() {
     assert!(
         mode_is_set(
             &terminal,
-            libghostty_vt::terminal::Mode::new(67, libghostty_vt::terminal::ModeKind::Dec)
+            libghostty_vt::mode::Mode::new(67, libghostty_vt::mode::Kind::Dec)
         ),
         "DECBKM must be set"
     );

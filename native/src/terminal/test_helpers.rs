@@ -302,7 +302,7 @@ impl<'a> TermTestCase<'a> {
     pub(crate) fn assert_mode(self, mode_num: u16, expected: bool) -> Self {
         let actual = mode_is_set(
             self.terminal,
-            libghostty_vt::terminal::Mode::new(mode_num, libghostty_vt::terminal::ModeKind::Dec),
+            libghostty_vt::mode::Mode::new(mode_num, libghostty_vt::mode::Kind::Dec),
         );
         assert_eq!(
             actual, expected,
@@ -402,7 +402,7 @@ pub(crate) fn search_viewport_matches(
 
 #[cfg(test)]
 /// 模式查询（测试侧统一期限，与内建查询同口径）。
-fn mode_is_set(terminal: &GhosttyTerminal, mode: libghostty_vt::terminal::Mode) -> bool {
+fn mode_is_set(terminal: &GhosttyTerminal, mode: libghostty_vt::mode::Mode) -> bool {
     terminal.mode_get_with_timeout(
         mode,
         std::time::Duration::from_millis(crate::terminal::ghostty_terminal::QUERY_TIMEOUT_MS),

@@ -11,7 +11,7 @@ pub(super) fn initial_background_color() -> wgpu::Color {
 }
 
 /// 主题背景转清除色：与终端侧字节转浮点同源，避免两处手写除法。
-pub(super) fn background_clear_color(background: libghostty_vt::style::RgbColor) -> wgpu::Color {
+pub(super) fn background_clear_color(background: libghostty_vt::color::Rgb) -> wgpu::Color {
     let [red, green, blue, _] = GhosttyTerminal::color_to_float(background);
     wgpu::Color {
         r: f64::from(red),

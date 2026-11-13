@@ -12,7 +12,7 @@ pub(crate) fn byte_to_float_scales_255() {
 
 #[test]
 pub(crate) fn byte_color_to_float_includes_opaque_alpha() {
-    let color = GhosttyTerminal::color_to_float(libghostty_vt::style::RgbColor {
+    let color = GhosttyTerminal::color_to_float(libghostty_vt::color::Rgb {
         r: 13,
         g: 188,
         b: 121,
@@ -35,7 +35,7 @@ pub(crate) fn osc4_palette_override_reaches_dumped_grid() {
     assert_eq!(cell.codepoint, 'X' as u32);
     assert_eq!(
         cell.foreground,
-        GhosttyTerminal::color_to_float(libghostty_vt::style::RgbColor { r: 0, g: 255, b: 0 }),
+        GhosttyTerminal::color_to_float(libghostty_vt::color::Rgb { r: 0, g: 255, b: 0 }),
         "OSC 4 override must win over the static palette"
     );
 }
@@ -51,7 +51,7 @@ pub(crate) fn sgr58_underline_color_reaches_dumped_grid() {
     assert!(cell.underline, "SGR 4 must set underline");
     assert_eq!(
         cell.underline_color,
-        GhosttyTerminal::color_to_float(libghostty_vt::style::RgbColor { r: 255, g: 0, b: 0 }),
+        GhosttyTerminal::color_to_float(libghostty_vt::color::Rgb { r: 255, g: 0, b: 0 }),
         "SGR 58 must set the underline color"
     );
 }

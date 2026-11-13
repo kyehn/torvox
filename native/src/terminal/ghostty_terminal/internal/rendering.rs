@@ -693,7 +693,7 @@ impl super::GhosttyTerminal {
     /// 把单元颜色解析为 `[r, g, b, 1.0]` 浮点值；FFI 报错或颜色透明时
     /// 回退到单元默认值。
     pub(crate) fn cell_color(
-        color: Result<Option<libghostty_vt::style::RgbColor>, libghostty_vt::error::Error>,
+        color: Result<Option<libghostty_vt::color::Rgb>, libghostty_vt::error::Error>,
         default: [f32; 4],
     ) -> [f32; 4] {
         match color {

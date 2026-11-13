@@ -626,7 +626,7 @@ impl Renderer {
     /// 设置全量帧的清除色（主题背景）。
     ///
     /// 清除色只在全量帧生效，故本调用会强制下一帧全量重绘。
-    pub fn set_background_color(&mut self, background: libghostty_vt::style::RgbColor) {
+    pub fn set_background_color(&mut self, background: libghostty_vt::color::Rgb) {
         self.background = background_clear_color(background);
         // 清除色只在全量帧上生效（部分帧从不再绘网格四边形之外的边距），
         // 故强制下一帧全量，使主题切换能重绘到每一处。

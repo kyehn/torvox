@@ -6,15 +6,17 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use libghostty_vt::Terminal;
+use libghostty_vt::color::PaletteIndex;
+use libghostty_vt::grid_ref::GridRef;
 use libghostty_vt::key::{self, Mods};
+use libghostty_vt::mode::Mode;
 use libghostty_vt::mouse;
 use libghostty_vt::paste;
+use libghostty_vt::point::{Coordinate as PointCoordinate, Point, Space as PointSpace};
 use libghostty_vt::render::{CellIterator, ImageIterator, RenderState, RowIterator, Snapshot};
-use libghostty_vt::screen::{CellWide, GridRef};
+use libghostty_vt::screen::CellWide;
 use libghostty_vt::search::{MatchBuffer, Scroll, Search};
 use libghostty_vt::selection::{Order, SelectWordOptions, Selection};
-use libghostty_vt::style::PaletteIndex;
-use libghostty_vt::terminal::{Mode, Point, PointCoordinate, PointSpace};
 
 use super::commands::{Command, Query, RunConfig, ViewportTarget};
 use super::frame_mailbox::FrameMailbox;

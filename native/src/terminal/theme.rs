@@ -3,7 +3,7 @@
 //!
 //! 仓库不留颜色副本：TOML 源由 `include_str!` 在编译期嵌入，字段按 alacritty
 //! `config/color.rs` 的结构声明。色值语法与深浅判定都取自上游 ghostty
-//! （`RgbColor::parse` 与 `RgbColor::perceived_luminance`），故本仓不另造颜色算法，
+//! （`Rgb::parse` 与 `Rgb::perceived_luminance`），故本仓不另造颜色算法，
 //! 上游改动也不必在此同步。十六色与主色按上游结构**必填**：缺项即解析失败，
 //! 不回退到任何手写默认色。
 //!
@@ -12,7 +12,7 @@
 
 use std::sync::LazyLock;
 
-use libghostty_vt::style::RgbColor;
+use libghostty_vt::color::Rgb;
 use serde::{Deserialize, Deserializer, de::Error as _};
 
 // 主题目录：alacritty 主题仓库的浅克隆（由 nix shellHook 准备，见 `flake.nix`）。
@@ -66,10 +66,9 @@ const CELL_FOREGROUND: &str = "CellForeground";
 
 /// 按上游 ghostty 颜色语法解析色值。失败信息带上出错文本：上游错误只有
 /// `invalid value`，而 TOML 只给出行列，两者合起来才指得出是哪个色值坏了。
-fn rgb<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RgbColor, D::Error> {
+fn rgb<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Rgb, D::Error> {
     let text = String::deserialize(deserializer)?;
-    RgbColor::parse(&text)
-        .map_err(|_| D::Error::custom(format!("{text:?} 不是 ghostty 颜色语法的色值")))
+    Rgb::parse(&text).map_err(|_| D::Error::custom(format!("{text:?} 不是 ghostty 颜色语法的色值")))
 }
 
 /// 一套主题的全部颜色。
@@ -79,51 +78,51 @@ fn rgb<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RgbColor, D::Error>
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Palette {
     /// 主题背景色。
-    pub background: RgbColor,
+    pub background: Rgb,
     /// 主题前景色。
-    pub foreground: RgbColor,
+    pub foreground: Rgb,
     /// 光标色。
-    pub cursor: RgbColor,
+    pub cursor: Rgb,
     /// 选区底色（与前景互换的选区反白由渲染层处理，此处是选区自身的底色）。
-    pub selection_background: RgbColor,
+    pub selection_background: Rgb,
     /// ANSI 十六色：`colors.normal` 占 0..8、`colors.bright` 占 8..16。
-    pub ansi: [RgbColor; 16],
+    pub ansi: [Rgb; 16],
 }
 
 /// alacritty `Colors::primary`。
 #[derive(Deserialize)]
 struct Primary {
     #[serde(deserialize_with = "rgb")]
-    background: RgbColor,
+    background: Rgb,
     #[serde(deserialize_with = "rgb")]
-    foreground: RgbColor,
+    foreground: Rgb,
 }
 
 /// ANSI 十六色的一个色组（`colors.normal` 或 `colors.bright`）。
 #[derive(Deserialize)]
 struct AnsiGroup {
     #[serde(deserialize_with = "rgb")]
-    black: RgbColor,
+    black: Rgb,
     #[serde(deserialize_with = "rgb")]
-    red: RgbColor,
+    red: Rgb,
     #[serde(deserialize_with = "rgb")]
-    green: RgbColor,
+    green: Rgb,
     #[serde(deserialize_with = "rgb")]
-    yellow: RgbColor,
+    yellow: Rgb,
     #[serde(deserialize_with = "rgb")]
-    blue: RgbColor,
+    blue: Rgb,
     #[serde(deserialize_with = "rgb")]
-    magenta: RgbColor,
+    magenta: Rgb,
     #[serde(deserialize_with = "rgb")]
-    cyan: RgbColor,
+    cyan: Rgb,
     #[serde(deserialize_with = "rgb")]
-    white: RgbColor,
+    white: Rgb,
 }
 
 impl AnsiGroup {
     /// 按 alacritty 的槽位顺序展开：字段顺序即 ANSI 序号（`normal` 在前、
     /// `bright` 在后占 8..16）。
-    fn into_colors(self) -> [RgbColor; 8] {
+    fn into_colors(self) -> [Rgb; 8] {
         [
             self.black,
             self.red,
@@ -177,7 +176,7 @@ impl Palette {
             .map_err(|error| format!("{name}: {error}"))?
             .colors;
         let foreground = primary.foreground;
-        let mut ansi = [RgbColor::default(); 16];
+        let mut ansi = [Rgb::default(); 16];
         ansi[..8].copy_from_slice(&normal.into_colors());
         ansi[8..].copy_from_slice(&bright.into_colors());
         Ok(Self {
@@ -255,13 +254,13 @@ const ANSI_SLOTS: usize = 16;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PaletteOverride {
     /// 背景色覆盖；`None` 表示沿用主题原色。
-    pub background: Option<RgbColor>,
+    pub background: Option<Rgb>,
     /// 前景色覆盖；`None` 表示沿用主题原色。
-    pub foreground: Option<RgbColor>,
+    pub foreground: Option<Rgb>,
     /// 光标色覆盖；`None` 表示沿用主题原色。
-    pub cursor: Option<RgbColor>,
+    pub cursor: Option<Rgb>,
     /// ANSI 十六色槽 0..15 的覆盖值。
-    pub ansi: [Option<RgbColor>; ANSI_SLOTS],
+    pub ansi: [Option<Rgb>; ANSI_SLOTS],
 }
 
 impl PaletteOverride {
@@ -291,7 +290,7 @@ impl PaletteOverride {
 }
 
 /// 槽位值 → 颜色：负值表示不覆盖，沿用主题原色。
-fn slot_color(slots: &[i32], index: usize) -> Result<Option<RgbColor>, String> {
+fn slot_color(slots: &[i32], index: usize) -> Result<Option<Rgb>, String> {
     let value = slots[index];
     if value < 0 {
         return Ok(None);
@@ -299,7 +298,7 @@ fn slot_color(slots: &[i32], index: usize) -> Result<Option<RgbColor>, String> {
     if value > 0x00FF_FFFF {
         return Err(format!("覆盖槽位 {index} 的值 {value} 超出 0xRRGGBB 范围"));
     }
-    Ok(Some(RgbColor {
+    Ok(Some(Rgb {
         r: ((value >> 16) & 0xFF) as u8,
         g: ((value >> 8) & 0xFF) as u8,
         b: (value & 0xFF) as u8,
@@ -308,9 +307,9 @@ fn slot_color(slots: &[i32], index: usize) -> Result<Option<RgbColor>, String> {
 
 /// 上游 termux `TerminalColors.getPerceivedBrightnessOfColor` 的 HSP 感知亮度，值域 0..255。
 ///
-/// 与 ghostty 的 [`RgbColor::perceived_luminance`] 不是同一个公式：光标自适应用的是
+/// 与 ghostty 的 [`Rgb::perceived_luminance`] 不是同一个公式：光标自适应用的是
 /// termux 的口径，故此处按上游公式另算，不借用上游那个。
-fn perceived_brightness(color: RgbColor) -> f64 {
+fn perceived_brightness(color: Rgb) -> f64 {
     let red = f64::from(color.r);
     let green = f64::from(color.g);
     let blue = f64::from(color.b);
@@ -320,15 +319,15 @@ fn perceived_brightness(color: RgbColor) -> f64 {
 /// 背景被覆盖而光标未指定时的光标色：背景暗取白，背景亮取黑。
 ///
 /// 阈值 130 是上游 `TerminalColorScheme.setCursorColorForBackground` 的分界。
-fn cursor_for_background(background: RgbColor) -> RgbColor {
+fn cursor_for_background(background: Rgb) -> Rgb {
     if perceived_brightness(background) < 130.0 {
-        RgbColor {
+        Rgb {
             r: 0xFF,
             g: 0xFF,
             b: 0xFF,
         }
     } else {
-        RgbColor {
+        Rgb {
             r: 0x00,
             g: 0x00,
             b: 0x00,
@@ -340,8 +339,8 @@ fn cursor_for_background(background: RgbColor) -> RgbColor {
 /// `CellForeground` 取前景色，其余按上游颜色语法解析。
 fn inverted_background(
     inverted: Option<InvertedCellColors>,
-    foreground: RgbColor,
-) -> Result<RgbColor, String> {
+    foreground: Rgb,
+) -> Result<Rgb, String> {
     let Some(InvertedCellColors {
         inverted_background: text,
     }) = inverted
@@ -351,7 +350,7 @@ fn inverted_background(
     if text == CELL_FOREGROUND {
         return Ok(foreground);
     }
-    RgbColor::parse(&text).map_err(|error| format!("{text}: {error}"))
+    Rgb::parse(&text).map_err(|error| format!("{text}: {error}"))
 }
 
 /// 一个主题的标识与调色板。

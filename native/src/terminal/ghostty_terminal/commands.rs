@@ -136,7 +136,7 @@ pub enum Query {
     /// 按需拉取即可，不必让 VT 线程为每次写入多推一帧。
     Pwd(Sender<String>),
     /// 查询某个终端模式是否开启。
-    ModeGet(libghostty_vt::terminal::Mode, Sender<bool>),
+    ModeGet(libghostty_vt::mode::Mode, Sender<bool>),
     /// 查询回滚区行数。
     ScrollbackLength(Sender<u32>),
     /// 读取指定行的文本。

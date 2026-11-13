@@ -6,7 +6,7 @@
 
 use super::*;
 
-use libghostty_vt::style::RgbColor;
+use libghostty_vt::color::Rgb;
 
 /// 只给主色与十六色、两个反色段全缺的主题：钉住缺段回退到前景色。
 const INVERTED_SECTIONS_MISSING: &str = r"
@@ -110,7 +110,7 @@ background = '#1a1a2c'
     ));
     assert_eq!(
         palette.cursor,
-        RgbColor {
+        Rgb {
             r: 0x0a,
             g: 0x0a,
             b: 0x0b
@@ -118,7 +118,7 @@ background = '#1a1a2c'
     );
     assert_eq!(
         palette.selection_background,
-        RgbColor {
+        Rgb {
             r: 0x1a,
             g: 0x1a,
             b: 0x2c
@@ -126,7 +126,7 @@ background = '#1a1a2c'
     );
     assert_eq!(
         palette.ansi[0],
-        RgbColor {
+        Rgb {
             r: 0x01,
             g: 0x01,
             b: 0x01
@@ -134,7 +134,7 @@ background = '#1a1a2c'
     );
     assert_eq!(
         palette.ansi[7],
-        RgbColor {
+        Rgb {
             r: 0x08,
             g: 0x08,
             b: 0x08
@@ -142,7 +142,7 @@ background = '#1a1a2c'
     );
     assert_eq!(
         palette.ansi[8],
-        RgbColor {
+        Rgb {
             r: 0x09,
             g: 0x09,
             b: 0x09
@@ -150,7 +150,7 @@ background = '#1a1a2c'
     );
     assert_eq!(
         palette.ansi[15],
-        RgbColor {
+        Rgb {
             r: 0x10,
             g: 0x10,
             b: 0x10
@@ -163,16 +163,16 @@ background = '#1a1a2c'
 #[test]
 fn upstream_color_syntax_expands_hex_shorthand() {
     assert_eq!(
-        RgbColor::parse("#abc").expect("缩写色值"),
-        RgbColor {
+        Rgb::parse("#abc").expect("缩写色值"),
+        Rgb {
             r: 0xaa,
             g: 0xbb,
             b: 0xcc
         }
     );
     assert_eq!(
-        RgbColor::parse("#AABBCC").expect("六位色值"),
-        RgbColor {
+        Rgb::parse("#AABBCC").expect("六位色值"),
+        Rgb {
             r: 0xaa,
             g: 0xbb,
             b: 0xcc
@@ -281,9 +281,9 @@ fn catalog_packs_every_theme_in_source_order() {
         entries
     }
 
-    fn color_at(colors: &[u8], index: usize) -> RgbColor {
+    fn color_at(colors: &[u8], index: usize) -> Rgb {
         let base = index * 3;
-        RgbColor {
+        Rgb {
             r: colors[base],
             g: colors[base + 1],
             b: colors[base + 2],
@@ -350,14 +350,14 @@ fn palette_matches_the_hex_literals_in_the_theme_sources() {
 /// 只认 `[colors.primary]` / `[colors.normal]` / `[colors.bright]` 三段的
 /// `键 = <引号>#RRGGBB` 首处字面量；整行注释（以 `#` 起）与行尾注释自然略过。
 /// 段名或键名对不上即 panic——源结构变了必须判红，不得静默跳过。
-fn literal_colors(name: &str, source: &str) -> (RgbColor, RgbColor, [RgbColor; 16]) {
+fn literal_colors(name: &str, source: &str) -> (Rgb, Rgb, [Rgb; 16]) {
     const ANSI_KEYS: [&str; 8] = [
         "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
     ];
 
-    fn hex(value: &str) -> Option<RgbColor> {
+    fn hex(value: &str) -> Option<Rgb> {
         let digits = value.get(value.find('#')? + 1..)?.get(..6)?;
-        Some(RgbColor {
+        Some(Rgb {
             r: u8::from_str_radix(digits.get(..2)?, 16).ok()?,
             g: u8::from_str_radix(digits.get(2..4)?, 16).ok()?,
             b: u8::from_str_radix(digits.get(4..6)?, 16).ok()?,
@@ -365,8 +365,8 @@ fn literal_colors(name: &str, source: &str) -> (RgbColor, RgbColor, [RgbColor; 1
     }
 
     let mut section = String::new();
-    let mut primary: [Option<RgbColor>; 2] = [None; 2];
-    let mut ansi: [Option<RgbColor>; 16] = [None; 16];
+    let mut primary: [Option<Rgb>; 2] = [None; 2];
+    let mut ansi: [Option<Rgb>; 16] = [None; 16];
     for line in source.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -535,7 +535,7 @@ fn darkness_follows_the_overridden_background() {
     assert!(palette.with_overrides(&dark).is_dark());
 }
 
-/// 构造一个 `RgbColor`，省掉满屏的分量名。
-fn color(r: u8, g: u8, b: u8) -> RgbColor {
-    RgbColor { r, g, b }
+/// 构造一个 `Rgb`，省掉满屏的分量名。
+fn color(r: u8, g: u8, b: u8) -> Rgb {
+    Rgb { r, g, b }
 }
