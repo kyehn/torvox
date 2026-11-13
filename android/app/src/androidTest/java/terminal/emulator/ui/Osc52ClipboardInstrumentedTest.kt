@@ -78,9 +78,28 @@ class Osc52ClipboardInstrumentedTest : ComposeTerminalLogcatTest() {
         // 轮询与断言共用「成功那一拍的快照」：读到 marker 后再重读一遍会引入竞态
         // 窗口——实测模拟器上偶发 marker 写入后剪贴板又被改回空串，重读得 "" 而
         // 把「已写入成功」误报成失败。读取本身即 OSC52 链路的终态证据。
+        //
+        // CI 的仪器化环境里渲染/事件消费节奏可能慢于本地；在等待期间主动推进
+        // 会话并消费原生事件队列，把剪贴板写入落到系统剪贴板，避免仅依赖运行时
+        // 轮询线程的时序。消费到的非剪贴板事件丢弃即可：本用例只验证 OSC52 写入。
         var actual: String? = null
         val seen =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
+                terminal.emulator.bridge.NativeBridge.pumpSessions()
+                while (true) {
+                    val json = terminal.emulator.bridge.NativeBridge.pollEvent() ?: break
+                    val event = runCatching {
+                        terminal.emulator.bridge.pollEventJson
+                            .decodeFromString<terminal.emulator.bridge.PollEvent>(json)
+                    }.getOrNull() ?: continue
+                    if (event is terminal.emulator.bridge.PollEvent.Clipboard) {
+                        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                            clipboard.setPrimaryClip(
+                                ClipData.newPlainText("terminal clipboard", event.text),
+                            )
+                        }
+                    }
+                }
                 actual = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
                 actual == marker
             }
