@@ -584,7 +584,12 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                                         // 判定，也不并进 poll 段——否则平台收走窗口这条正常
                                         // 退化路径会在退避后记出 warn 级慢循环告警。
                                         val backoffStartNanos = System.nanoTime()
-                                        delay(sleepMs)
+                                        try {
+                                            Thread.sleep(sleepMs)
+                                        } catch (_: InterruptedException) {
+                                            Thread.currentThread().interrupt()
+                                            break
+                                        }
                                         loopBackoffNanos = System.nanoTime() - backoffStartNanos
                                     } else {
                                         // 恢复消息同样可能逐帧发生（失败—成功交替），
@@ -863,7 +868,12 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                                         )
                                         break
                                     }
-                                    delay(RENDER_ERROR_SLEEP_MS)
+                                    try {
+                                        Thread.sleep(RENDER_ERROR_SLEEP_MS)
+                                    } catch (_: InterruptedException) {
+                                        Thread.currentThread().interrupt()
+                                        break
+                                    }
                                 }
                             }
                             // 停下之前把保留的上一帧回读成开孔遮罩：平台在切后台后会
@@ -883,6 +893,21 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                         Thread.currentThread().interrupt()
                         entry.markRenderThreadExited()
                         LogUtil.debug("Runtime", "render thread interrupted for session ${entry.sessionId}")
+                    } catch (t: Throwable) {
+                        if (isRenderThreadInterruption(t)) {
+                            Thread.currentThread().interrupt()
+                            LogUtil.debug(
+                                "Runtime",
+                                "session ${entry.sessionId} render thread cancelled by interruption",
+                            )
+                        } else {
+                            LogUtil.error(
+                                "Runtime",
+                                "session ${entry.sessionId} render thread terminated unexpectedly",
+                                t,
+                            )
+                        }
+                        entry.markRenderThreadExited()
                     }
                 },
                 "Render-${entry.sessionId}",
