@@ -105,7 +105,12 @@ impl CoverReadbackSource {
             match poll_device_wait(&self.device, POLL_STEP) {
                 PollOutcome::Proceed => {}
                 PollOutcome::Failed(reason) => {
-                    log::error!("read_cover_frame: 设备轮询失败，放弃遮罩: {reason}");
+                    // 设备丢失是**一次**事件：由标记点记一条并停止渲染，余波不再逐帧记 error。
+                    if crate::render::context::is_device_loss_text(&reason) {
+                        crate::render::context::mark_device_lost(&reason);
+                    } else {
+                        log::error!("read_cover_frame: 设备轮询失败，放弃遮罩: {reason}");
+                    }
                     return None;
                 }
             }

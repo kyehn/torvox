@@ -51,7 +51,7 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setDevi
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
         if injected {
-            crate::render::context::record_device_lost();
+            crate::render::context::mark_device_lost("injected by NativeBridge test hook");
         } else {
             crate::render::context::clear_device_lost();
         }

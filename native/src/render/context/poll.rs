@@ -13,6 +13,7 @@
 //! （不吞、不掩盖），只是不再让它掀桌子。取纹理的 `get_current_texture` 早先已按
 //! 同一思路兜住（见 `pass::acquire`），此处是同一规范的另一半。
 
+use super::gpu::one_line;
 use std::time::Duration;
 
 /// 一次设备轮询的原始结局：wgpu 返回的结果，或 wgpu 内部 panic 的载荷。
@@ -60,19 +61,10 @@ fn classify(polled: PollAttempt) -> PollOutcome {
     }
 }
 
-/// 把原因压成单行：wgpu 的错误文本自带缩进与换行树，压平后仍能一眼读出
-/// 「哪一步、什么错」，也不会在按行采集的日志里断成半截。
-fn one_line(text: &str) -> String {
-    text.lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join(" | ")
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{PollOutcome, classify, one_line, poll_outcome};
+    use super::super::gpu::one_line;
+    use super::{PollOutcome, classify, poll_outcome};
 
     /// 轮询成功的两种形态都算「继续」。
     #[test]

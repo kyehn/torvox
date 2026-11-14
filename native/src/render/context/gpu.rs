@@ -66,8 +66,14 @@ pub(crate) fn gpu_error_is_surface_lost(error: &wgpu::Error) -> bool {
 pub(crate) fn log_gpu_error(error: &wgpu::Error) {
     if gpu_error_is_surface_lost(error) {
         log::debug!("GPU_UNCAPTURED_ERROR (surface lost after window reclaim): {error:#?}");
+        return;
+    }
+    let detail = format!("{error:#?}");
+    // 设备丢失本身只在第一次记：余波阶段的每条错误都是同一次丢失。
+    if is_device_loss_text(&detail) {
+        mark_device_lost(&one_line(&detail));
     } else {
-        log::error!("GPU_UNCAPTURED_ERROR: {error:#?}");
+        log::error!("GPU_UNCAPTURED_ERROR: {detail}");
     }
 }
 
@@ -151,10 +157,41 @@ pub(crate) fn clear_device_lost() {
     DEVICE_LOST.store(false, std::sync::atomic::Ordering::Release);
 }
 
-/// 注入设备丢失（仅仪器化用例）：模拟器上的设备不会被真的判死，宿主自愈路径
-/// 就只能靠这条注入覆盖。生产路径的置位点是 [`register_device_lost_callback`]。
-pub(crate) fn record_device_lost() {
-    DEVICE_LOST.store(true, std::sync::atomic::Ordering::Release);
+/// 置位丢失位，并且只在本进程**第一次**记账时记一条 error。
+///
+/// 丢失之后每个 GPU 调用都会失败，逐条记只是同一次丢失的余波；调用方因此只需把
+/// 「发现丢失」这件事交给这里，不必各自决定日志级别。置位点是丢失回调
+/// （[`register_device_lost_callback`]），以及回调覆盖不到的文本判据路径
+/// （[`is_device_loss_text`]）；仪器化用例也经这里注入。
+pub(crate) fn mark_device_lost(detail: &str) {
+    if !DEVICE_LOST.swap(true, std::sync::atomic::Ordering::Release) {
+        log::error!(
+            "GPU device lost ({detail}); rendering stops until a new surface attach rebuilds the device"
+        );
+    }
+}
+
+/// 把原因压成单行：wgpu 的错误文本自带缩进与换行树，压平后仍能一眼读出
+/// 「哪一步、什么错」，也不会在按行采集的日志里断成半截。
+pub(crate) fn one_line(text: &str) -> String {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// 设备丢失的文本判据。
+///
+/// wgpu 有若干路径不经过丢失回调、只在错误文字里给出设备已判死：`DeviceError::Lost`
+/// 的 Display 是 "Parent device is lost"，`SurfaceError::DeviceLost` 是 "Device Lost"。
+/// panic 载荷与轮询错误都是这种文字（真机日志：`Error in Device::poll: Validation Error
+/// | Caused by: | Parent device is lost`），故在**第一次**认出时同样置位——否则逐帧
+/// 调用会逐条复现同一条 panic（该次日志 207 条）。
+pub(crate) fn is_device_loss_text(text: &str) -> bool {
+    ["Parent device is lost", "Device Lost", "device is lost"]
+        .iter()
+        .any(|marker| text.contains(marker))
 }
 
 /// 设备丢失回调：wgpu 判决设备不可用时调用（Vulkan `VK_ERROR_DEVICE_LOST`、
@@ -164,10 +201,7 @@ pub(crate) fn record_device_lost() {
 /// 标志即停，不再逐条重复报同一件事，也不再碰到死设备。
 fn register_device_lost_callback(device: &wgpu::Device) {
     device.set_device_lost_callback(|reason, message| {
-        DEVICE_LOST.store(true, std::sync::atomic::Ordering::Release);
-        log::error!(
-            "GPU device lost ({reason:?}): {message}; rendering stops until a new surface attach rebuilds the device"
-        );
+        mark_device_lost(&format!("{reason:?}: {message}"));
     });
 }
 

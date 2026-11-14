@@ -18,7 +18,8 @@ pub(crate) use gpu::{
     gpu_error_is_surface_lost, surface_loss_transition,
 };
 pub(crate) use gpu::{
-    clear_device_lost, device_lost, log_gpu_error, record_device_lost, try_global_gpu,
+    clear_device_lost, device_lost, is_device_loss_text, log_gpu_error, mark_device_lost, one_line,
+    try_global_gpu,
 };
 #[cfg(any(target_os = "android", test))]
 pub(crate) use poll::{PollOutcome, poll_device_wait};

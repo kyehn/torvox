@@ -250,8 +250,14 @@ impl Renderer {
                 }
                 _ => AcquireOutcome::Skipped,
             },
-            Ok(Err(_)) => {
-                if ACQUIRE_PANIC_THROTTLE.should_log() {
+            Ok(Err(payload)) => {
+                let text = crate::panic_text(payload.as_ref());
+                if crate::render::context::is_device_loss_text(&text) {
+                    // 丢失不必由这里报第二遍：标记点只记一条，渲染随即停在下一帧入口。
+                    crate::render::context::mark_device_lost(&crate::render::context::one_line(
+                        &text,
+                    ));
+                } else if ACQUIRE_PANIC_THROTTLE.should_log() {
                     log::warn!("acquire_texture: get_current_texture panicked");
                 }
                 AcquireOutcome::Skipped

@@ -913,3 +913,19 @@ fn blend_highlight_zero_alpha() {
     let blended = blend_highlight(base, transparent);
     assert!(f32_arrays_equal(&blended, &base));
 }
+
+/// 真机 panic 载荷（2026-11-14）：设备丢失只出现在文字里，判据必须认得出，
+/// 否则又要逐帧复现同一条 panic。反例确保判据不把 `Outdated` 之类瞬态误报销。
+#[test]
+fn device_loss_text_is_recognized_in_real_panic_payloads() {
+    assert!(crate::render::context::is_device_loss_text(
+        "Error in Device::poll: Validation Error | Caused by: | Parent device is lost"
+    ));
+    assert!(crate::render::context::is_device_loss_text(
+        "Error in Surface::get_current_texture_view: Device Lost"
+    ));
+    assert!(!crate::render::context::is_device_loss_text(
+        "Error in Surface::get_current_texture_view: Outdated"
+    ));
+    assert!(!crate::render::context::is_device_loss_text(""));
+}
