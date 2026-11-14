@@ -556,7 +556,11 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
             try {
                 url.trim().toUri()
             } catch (urlError: IllegalArgumentException) {
-                LogUtil.warn(TerminalSurface.TAG, "openLinkAt: bad URI", urlError)
+                // URI 可能来自终端输出（含凭据/token），消息里可能原样回显；只记异常类。
+                LogUtil.warn(
+                    TerminalSurface.TAG,
+                    "openLinkAt: bad URI (${urlError.javaClass.simpleName})",
+                )
                 return false
             }
         // 协议白名单：终端输出不可信，故只允许打开 http(s)
@@ -573,10 +577,17 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
             surface.context.startActivity(intent)
             true
         } catch (missingHandler: ActivityNotFoundException) {
-            LogUtil.warn(TerminalSurface.TAG, "openLinkAt: no handler for $uri", missingHandler)
+            // 异常消息内含 Intent（即完整 URI），日志会原样带出；只记类名与 scheme。
+            LogUtil.warn(
+                TerminalSurface.TAG,
+                "openLinkAt: no handler (${missingHandler.javaClass.simpleName}, scheme=$scheme)",
+            )
             false
         } catch (blockedError: SecurityException) {
-            LogUtil.warn(TerminalSurface.TAG, "openLinkAt: blocked for $uri", blockedError)
+            LogUtil.warn(
+                TerminalSurface.TAG,
+                "openLinkAt: blocked (${blockedError.javaClass.simpleName}, scheme=$scheme)",
+            )
             false
         }
     }
