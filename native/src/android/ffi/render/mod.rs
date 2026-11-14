@@ -1,6 +1,7 @@
 //! 渲染路径的 JNI 导出：会话推进、帧呈现、表面挂载、剪贴板应答与会话标题查询。
 
 mod clipboard;
+mod control;
 mod diagnostics;
 mod frame;
 mod overlay;
