@@ -635,6 +635,19 @@ dex 元数据缺失、厂商私有属性读取被拒）MUST 指出条目由厂�
       角落、每个虚拟机只打一次，MUST 写明应用侧不创建软引用/弱引用/幻引用（仓库内无
       对应 API 调用）、引用由平台与 libcore 内部创建，应用侧无开关
 
+#### Scenario: 运行时 GC 计数直方图的跳窗告警
+
+- **WHEN** 日志出现 ART 打出的
+      `Reducing the number of considered missed Gc histogram windows from N to 100`
+      （真机 tag 为进程名）
+- **THEN** 归因 MUST 给出 AOSP ART 的判据位置：`runtime/gc/heap.cc` 的
+      `Heap::UpdateGcCountRateHistograms` 用 `NanoTime()` 差值除以 10s 窗口得到的
+      窗口数超过 `kGcCountRateHistogramMaxNumMissedWindows`（100）时打这条 W 并
+      截断，`kGcCountRateHistogramWindowDuration` 与上限都在 `runtime/gc/heap.h`
+- **AND** MUST 说明它是平台对「距上次 GC 直方图更新已过多个窗口」的统计保护
+      （防 `NanoTime()` 非单调时 CPU 空转），每个虚拟机只打一次，与应用分配量、
+      内存泄漏无关，应用侧无开关
+
 ### Requirement: 命令入队失败的告警必须限频并保留次数
 
 命令通道有界，VT 线程繁忙时命令入队会失败。该状况属**一种**异常（通道满），
