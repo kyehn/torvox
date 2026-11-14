@@ -245,16 +245,6 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 应用快捷方式/第三方 intent 处理（兼容 termux）：`ACTION_RUN` +
-     * EXTRA_FAILSAFE_SESSION 新建一个应急系统 shell 会话；
-     * EXTRA_OPEN_SETTINGS 打开设置面板。对应 termux-app TermuxActivity.java:401-425
-     * （快捷方式 intent 在重建时会重新投递，故应急请求必须在 onNewIntent 中
-     * 重新应用，而不只是 onCreate）。
-     *
-     * @param freshIntent 本次 Intent 是否为新投递。Activity 重建会再次走 onCreate
-     *   并带上同一个启动 Intent；据此再建会话会让每次配置变更（密度、语言）都
-     *   多出一个应急会话。onNewIntent 到达的 Intent 恒为新投递。
-     *
      * 打开设置请求计数：每次带 `EXTRA_OPEN_SETTINGS` 的 intent 到达即递增。
      * 用计数而不用布尔值——设置关闭后计数保持，再次到达仍能触发重组；
      * 布尔值在首次置 true 后不再变化，二次 intent 无法生效。
@@ -276,6 +266,19 @@ class MainActivity : ComponentActivity() {
         terminalViewModel.forceLogLevel(level)
     }
 
+    /**
+     * 应用快捷方式/第三方 intent 处理（兼容 termux）：`ACTION_RUN` +
+     * EXTRA_FAILSAFE_SESSION 新建一个应急系统 shell 会话；
+     * EXTRA_OPEN_SETTINGS 请求打开设置面板（由打开设置请求计数转交组合层）。
+     * 对应 termux-app TermuxActivity.java:401-425
+     * （快捷方式 intent 在重建时会重新投递，故应急请求必须在 onNewIntent 中
+     * 重新应用，而不只是 onCreate）。
+     *
+     * @param intent 本次到达的 Intent；null 表示没有启动 Intent。
+     * @param freshIntent 本次 Intent 是否为新投递。Activity 重建会再次走 onCreate
+     *   并带上同一个启动 Intent；据此再建会话会让每次配置变更（密度、语言）都
+     *   多出一个应急会话。onNewIntent 到达的 Intent 恒为新投递。
+     */
     private fun handleLaunchIntent(intent: Intent?, freshIntent: Boolean) {
         if (intent == null) {
             LogUtil.debug("MainActivity", "handleLaunchIntent: null intent")

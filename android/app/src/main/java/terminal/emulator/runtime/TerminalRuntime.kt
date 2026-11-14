@@ -779,7 +779,7 @@ constructor(
      * 下个会话以系统 shell 启动且不做 prefix 引导，避免引导损坏导致终端不可用。
      *
      * 由**成功建出会话**的入口（[start] / [createSession]）消费一次，不是在
-     * [buildConfig] 里：后者也被配置变化路径 [applySettings] 调用，而那条路径并不建
+     * [SessionConfigBuilder.buildConfig] 里：后者也被配置变化路径 [applySettings] 调用，而那条路径并不建
      * 会话——在那里消费会让一次主题或配置变化把应急请求静默吞掉，随后建出来的仍是
      * 普通 prefix-shell 会话，正是 failsafe 要防的结果。已有会话时重复点击为空操作
      * （见 start() 的 `sessions.isNotEmpty()` 守卫）。

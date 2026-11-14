@@ -43,7 +43,7 @@ private const val DRAWER_EDGE_GESTURE_DP = 32
 internal class SurfaceInput(private val surface: TerminalSurface) {
     /**
      * 惯性滚动物理：由本视图按 vsync 自驱的指数衰减（[flingOffsetPx]），
-     * 不再交给 [android.widget.OverScroller]。[postOnAnimation] 把各步对齐到 vsync。
+     * 不再交给 [android.widget.OverScroller]。`postOnAnimation` 把各步对齐到 vsync。
      *
      * 为什么不用平台 scroller：厂商 ROM 会改写它的样条。真机日志（厂商 ROM）里
      * `fling, after Optimize, velocityY=-14061 … adjust Duration, min to mFinal`
@@ -51,7 +51,7 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
      * 并戛然而止，用户看到的就是「上下滑动异常并且卡顿」。自建模型是纯函数：
      * 跨设备一致、可单测、没有平台隐藏状态。
      *
-     * 行程单位是**像素**：逐帧增量交给拖动同一条管道（[applyScrollStep]），
+     * 行程单位是**像素**：逐帧增量交给拖动同一条管道（[TerminalSurface.applyScrollStep]），
      * 整行与亚行余量一起算，内容才能按像素跟随惯性；按行驱动时每帧落点被截成
      * 整行，表现为逐行跳动（STATUS ⑩）。上界含键盘位移的显出量容量，
      * 猛甩也能走到「显出被位移裁掉的网格顶部」的行程末端（STATUS ⑧）。

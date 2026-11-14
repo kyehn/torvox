@@ -591,7 +591,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * [terminal.emulator.runtime.TerminalRuntime.claimStartupKeyboardRequest]）：
      * 宿主在原生 surface 判死时会换掉
      * 整个 `SurfaceView`，新实例若把「已请求」当成没请求过，键盘便会在换视图后再次弹出
-     * ——弹出的键盘顺带清掉选区与选区菜单（见 [installImeInsetListener] 的
+     * ——弹出的键盘顺带清掉选区与选区菜单（见 [ImeShiftController.installImeInsetListener] 的
      * `imeVisibilityChanged` 分支），用户看到的是「选中的文字突然没了菜单」。
      *
      * 认领留在调用方而非本函数，是为了让「视图从此愿意接收文本输入」这件事可以在没有

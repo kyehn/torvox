@@ -281,13 +281,13 @@ internal fun shouldCloseDeadRender(restartAttempts: Int, maxAttempts: Int): Bool
  *
  * 监视器据此把条目分成「待重启」与「健康」两组，两组 MUST 互斥。此前「健康」只要求
  * `!renderThreadExited`，而线程刚死时该标志尚未置位——同一条目因此同时落入两组，
- * [TerminalRuntime.RenderSupervisor.decayRestartCounts] 随即把它的
+ * [RenderSupervisor.decayRestartCounts] 随即把它的
  * [SessionEntry.restartAttempts] 清零，
  * 重启预算永不耗尽（每 500ms 重启一轮，`RENDER_MAX_RESTART_ATTEMPTS` 形同虚设，
  * 最终表现为渲染循环反复重建而会话永不关闭）。
  *
  * 线程引用缺失（null）**不算死**：条目插入映射到
- * [TerminalRuntime.RenderSupervisor.startRenderThread]
+ * [RenderSupervisor.startRenderThread]
  * 真正把线程写入之间，`running` 已为真而引用仍为空。把这段正常的启动窗口判成死亡
  * 会让监视器抢先重启，与即将启动的线程争同一会话（两条线程消费唯一事件队列）。
  * 真正的孤儿条目由失败回滚按 bridge 身份移除。

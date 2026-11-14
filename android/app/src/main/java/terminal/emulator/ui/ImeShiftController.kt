@@ -23,8 +23,8 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
      * （字号与捏合缩放改行高）、备用屏状态（平移恒 0 且需要一次网格重排）。
      * 前两者由渲染线程逐帧发布，故平移量随内容增长即时跟进。
      *
-     * 必须在每次 attach 时重建（见 [onAttachedToWindow]）：detach 会停掉它们，
-     * 而视图复用不重走 [attachViewModel]。
+     * 必须在每次 attach 时重建（见 [TerminalSurface.onAttachedToWindow]）：detach 会停掉它们，
+     * 而视图复用不重走 [TerminalSurface.attachViewModel]。
      */
     internal fun observeInputs(host: TerminalViewModel) {
         imeShiftJob?.cancel()
@@ -259,9 +259,9 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
      *
      * 位移量仍是 [computeImeSurfaceShift] 的判定结果（按内容下沿裁剪、备用屏恒 0），
      * 口径与单测一致。六个触发点各自覆盖它的一个输入：输入法遮挡（insets 派发）、
-     * 内容下沿、单元格度量、备用屏状态（后三者由 [observeImeShiftInputs] 订阅）、
-     * 视口尺寸（[onSizeChanged]，旋转时 Activity 不重建）、滚动位置
-     * （[applyScrollOffset]，见 [imeShiftRevealPx]）。
+     * 内容下沿、单元格度量、备用屏状态（后三者由 [observeInputs] 订阅）、
+     * 视口尺寸（[TerminalSurface.onSizeChanged]，旋转时 Activity 不重建）、滚动位置
+     * （[TerminalSurface.applyScrollOffset]，见 [imeShiftRevealPx]）。
      */
     internal fun applyImeShift() {
         val runtime = surface.viewModel?.runtime ?: return

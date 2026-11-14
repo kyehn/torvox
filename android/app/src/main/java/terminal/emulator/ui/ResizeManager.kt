@@ -42,7 +42,7 @@ internal class ResizeManager(private val surface: TerminalSurface) {
      * 单一网格公式，与 `recomputeGridFromFontMetrics` 共用：
      * rows = (surface − ModifierBar − 备用屏输入法遮挡) / cell，cols = surface / cell。
      *
-     * 输入法遮挡**只在备用屏扣除**（见 [imeInsetPx]）：主屏靠纯平移跟随键盘
+     * 输入法遮挡**只在备用屏扣除**（见 [ImeShiftController.imeInsetPx]）：主屏靠纯平移跟随键盘
      * （TESTING.md 要求上移后底部像素与上移前完全相同），其显示/隐藏绝不能改变
      * rows/cols，否则会有重排闪烁、换行错乱、底部行丢失。
      */

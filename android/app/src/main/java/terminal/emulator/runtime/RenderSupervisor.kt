@@ -993,7 +993,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
     /**
      * 摘除并停止该会话的存活看门狗。
      *
-     * 在 [runtime.sessionLock] 内完成：处置回调（[handleSessionHang]）以「本实例仍是
+     * 在 [TerminalRuntime.sessionLock] 内完成：处置回调（[handleSessionHang]）以「本实例仍是
      * 当前看门狗」为生效前提，摘除与该复核必须互斥，否则陈旧看门狗会在新
      * 看门狗就位后仍被判为当前，把已经恢复的会话关掉。
      *
@@ -1012,13 +1012,13 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
      * 按挂起层级处置：渲染层重启线程，VT 层与输出投递阻塞关闭会话，生命周期层
      * 只记录。
      *
-     * 关闭会话走 [runtime.closeDeadSession]：VT 状态在原生侧持有，无法安全热重建，
+     * 关闭会话走 [TerminalRuntime.closeDeadSession]：VT 状态在原生侧持有，无法安全热重建，
      * 且静默重建会丢掉用户的 shell 状态（工作目录、后台任务、已输入内容）。
      *
      * 身份复核：只有仍是本会话当前看门狗的判定才处置。渲染线程重启会换上一个
      * 新看门狗，陈旧看门狗的迟到判定不得作用于新线程——否则把健康的渲染线程
      * 标记为死亡，或关闭一个已经恢复的会话。复核与状态变更在同一次
-     * [runtime.sessionLock] 获取内完成，故两者不会交错。
+     * [TerminalRuntime.sessionLock] 获取内完成，故两者不会交错。
      */
     internal fun handleSessionHang(
         entry: SessionEntry,
