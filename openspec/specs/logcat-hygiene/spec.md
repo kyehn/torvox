@@ -140,6 +140,9 @@
       输入接收器，随后的 `finishInputEvent` 便无处可去
 - **AND** 重锚与重显 MUST 推到下一帧（`View.post`），MUST NOT 在投递内同步拆装窗口；
       手柄吸附差一帧（约 16ms）不可感知
+- **AND** 承载本次按压的覆盖层弹窗自身的延迟 reap（`onStreamEnded`）同样 MUST
+      推到下一轮 UI 循环再 `dismiss()`：转发的触摸流结束时若同步拆掉自己的窗口，
+      本事件仍在派发，告警与上一条同源。窗口拆除与事件投递 MUST NOT 重叠
 - **AND** 同窗口期 `WindowManagerGlobal` 的 `Add to mViews ... PopupDecorView` 多次出现
       属选区会话的既有行为（覆盖层每次选区会话重建一次、菜单窗口复用），
       MUST NOT 记为泄漏；判据是 `mViews.size()` 峰值与回落，不是单次添加
