@@ -14,7 +14,6 @@ type_complexity = "allow"
 [lib]
 crate-type = ["cdylib", "lib"]
 [dependencies]
-snmalloc-rs = "0.7"
 base64 = "0.23"
 bytemuck = { version = "1", features = ["derive"] }
 cosmic-text = "0.19"

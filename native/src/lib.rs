@@ -4,9 +4,6 @@
 //! 字形渲染；`android/` 为 JNI FFI 导出、NDK 桥接与日志。单元测试就近存放于
 //! `#[cfg(test)]`，并发不变量由 `tests/concurrency.rs`（shuttle）承载。
 
-#[global_allocator]
-static GLOBAL_ALLOCATOR: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
-
 pub mod event;
 
 // 跨层共用的诊断限频闸门：渲染侧慢帧诊断、终端侧帧丢弃告警、事件队列溢出告警
