@@ -256,7 +256,11 @@ internal class SelectionMenu(private val surface: TerminalSurface) {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             surface.context.startActivity(intent)
         } catch (exception: Exception) {
-            LogUtil.warn(TerminalSurface.TAG, "openSelectionAsLink: no handler", exception)
+            // 异常消息内含 Intent（即完整 URI），日志会原样带出；只记类名。
+            LogUtil.warn(
+                TerminalSurface.TAG,
+                "openSelectionAsLink: no handler (${exception.javaClass.simpleName})",
+            )
         }
     }
 
