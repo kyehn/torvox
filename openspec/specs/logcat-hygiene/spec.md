@@ -385,19 +385,27 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
        的口径——框架捕获该异常后回的同样是 null 游标，故缺失文档回 null 游标即消掉该
        告警；MUST NOT 以过滤该日志作为处置
 
-#### Scenario: 2026-11-14 运行日志的聚合归因
+#### Scenario: 2026-11-14 两份运行日志的聚合归因
 
-- **WHEN** 审计该日运行日志（应用进程 W/E 共 76 条）
-- **THEN** 逐类计数与处置 MUST 为：
-      - 应用自身 13 条：`WindowOnBackDispatcher` 返回回调未启用；已启用清单属性并复验；
-      - 厂商分配器 48 条：Mali/Unisoc `mali_gralloc` 的 R8/FBC 元数据分配尝试，
-        平台侧无应用开关（见同文件的分配器场景）；
-      - 平台/框架 15 条：`Typeface` 字体路径、`ziparchive` 厂商 dm 缺失、`libc`
-        厂商属性 sepolicy、`FeatureOpt` 折叠屏能力、`Parcel` binder 空值、
-        `wgpu_core` downlevel 汇报、debug 构建 jdwp 提示；均无应用栈
+- **WHEN** 审计 `logcat_2026-11-14_14-00-06.txt`（主进程 18495／渲染 18735）与
+      `logcat_2026-11-14_14-52-46.txt`（主进程 28278）
+- **THEN** 应用进程 W/E 的计数与处置 MUST 为（前一份 106 条，后一份 61 条）：
+      - `mali_gralloc` 72 + 32 条：R8 格式探测与格式拒绝各半，按表面重建成组
+        （8 条/次），见同文件的分配器场景；
+      - `Parcel` 2 + 23 条：系统窗口事务的空 Binder 返回，见同文件场景；
+      - `InputEventReceiver` 5 条（仅后一份）：覆盖层弹窗在事件投递途中被拆除，
+        已修复，见同文件场景；
+      - `ziparchive` 8、`libc` 8、`FeatureOpt` 4、`Typeface` 2、
+        `wgpu_core::instance` 4、`com.termux` 2（debug 构建 jdwp 未启动）、
+        `com.termux` 1（ART GC 直方图跳窗）：厂商框架与平台路径，均无应用栈；
+      - 慢帧 4 条（仅前一份：`SLOW_CELL_BUILD`／`SLOW_RENDER_INNER`／
+        `SLOW_FRAME`／`SLOW_LOOP` 各一条）：同一帧的 CJK 冷字形逐字符重映射，
+        已由系统字体面共享映射修掉（见 `cjk-rendering`）；两份日志都没有
+        `FONT_LOAD: shared` 行，即运行的是修复前的库
+- **AND** 同 UID 子进程的 72 + 33 条 MUST 全部归为 `avc: granted { execute }`
+      审计行（见同文件的内核 AVC 场景）；唯一的 `F` 是 2026-11-12 另一进程
+      （PID 12237）的历史 `Device::poll` 崩溃，已被 `poll_device_wait` 接住
 - **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
-- **AND** 设备丢失相关 panic 在该轮已归零；历史 `Device::poll` 致命 panic 由
-      `poll_device_wait` 接住，不再穿出 JNI
 
 #### Scenario: 上游未实现的矩形区域属性动作
 
