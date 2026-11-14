@@ -1,16 +1,14 @@
 package terminal.emulator.ui
 
 // 设置界面的共享构件。收敛了此前各设置项重复的行骨架
-// （3 个滑块行、2 个开关行、3 个选择器行——每处都有相同的
+// （滑块行、选择器行与分区卡片——每处都有相同的
 // isSmallScreen/labelStyle/valueStyle/color 逻辑）。参照 ghostty-android 的声明式 Setting 模式。
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -91,14 +89,11 @@ fun SettingsSliderRow(
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
     valueFormatter: (Float) -> String = { "%.0f".format(Locale.US, it) },
-    testTag: String? = null,
     enabled: Boolean = true,
     onValueChangeFinished: () -> Unit = {},
 ) {
     val (_, labelStyle, valueStyle) = rememberSettingsResponsiveStyles()
-    // testTag 必须真的挂上：本函数声明了该参数却直接把 modifier 传下去，
-    // 调用方给的标签会被静默吞掉，按 tag 找不到节点（同文件 SettingsSelectorRow 是对的）。
-    Column(modifier = modifier.then(if (testTag != null) Modifier.testTag(testTag) else Modifier)) {
+    Column(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -127,87 +122,6 @@ fun SettingsSliderRow(
             valueRange = valueRange,
             steps = steps,
             colors = SliderDefaults.colors(thumbColor = colors.accentColor, activeTrackColor = colors.accentColor),
-        )
-    }
-}
-
-/** 选择器行：标题 + 一排药丸按钮，其中一项被选中。[enabled] 为假时药丸暗淡 50% 且忽略点击。 */
-@Composable
-fun SettingsSelectorRow(
-    title: String,
-    selectedKey: String,
-    options: ImmutableList<Pair<String, String>>,
-    colors: SettingsColors,
-    onOptionSelected: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    testTag: String? = null,
-    optionTestTagPrefix: String? = null,
-    enabled: Boolean = true,
-) {
-    val (isSmallScreen, labelStyle, _) = rememberSettingsResponsiveStyles()
-    Column(modifier = modifier.then(if (testTag != null) Modifier.testTag(testTag) else Modifier)) {
-        Text(
-            text = title,
-            style = labelStyle,
-            color = colors.textColor,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            options.forEach { (key, label) ->
-                SettingsSelectorPill(
-                    key = key,
-                    label = label,
-                    isSelected = selectedKey == key,
-                    enabled = enabled,
-                    colors = colors,
-                    onOptionSelected = onOptionSelected,
-                    optionTestTagPrefix = optionTestTagPrefix,
-                    isSmallScreen = isSmallScreen,
-                )
-            }
-        }
-    }
-}
-
-/** [SettingsSelectorRow] 内的单个药丸。 */
-@Composable
-private fun RowScope.SettingsSelectorPill(
-    key: String,
-    label: String,
-    isSelected: Boolean,
-    enabled: Boolean,
-    colors: SettingsColors,
-    onOptionSelected: (String) -> Unit,
-    optionTestTagPrefix: String?,
-    isSmallScreen: Boolean,
-) {
-    Box(
-        modifier =
-        Modifier
-            .then(
-                if (optionTestTagPrefix != null) {
-                    Modifier.testTag("${optionTestTagPrefix}_$key")
-                } else {
-                    Modifier
-                },
-            ).weight(1f)
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                (if (isSelected) colors.accentColor else colors.cardBackground)
-                    .copy(alpha = if (enabled) 1f else 0.5f),
-            ).clickable(enabled = enabled) { onOptionSelected(key) }
-            .padding(vertical = 10.dp, horizontal = 4.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            color =
-            (if (isSelected) Color.White else colors.textColor).copy(alpha = if (enabled) 1f else 0.5f),
-            style =
-            if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
         )
     }
 }
