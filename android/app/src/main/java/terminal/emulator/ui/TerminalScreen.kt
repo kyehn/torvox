@@ -5,7 +5,6 @@ package terminal.emulator.ui
 
 import android.app.Activity
 import android.content.Context
-import android.graphics.drawable.ColorDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.WindowInsets.Type
@@ -64,6 +63,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.drawable.toDrawable
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -263,7 +263,7 @@ fun TerminalScreen(
         val window = (view.context as? Activity)?.window
         val terminalBackgroundArgb = terminalBackground.toArgb()
         if (window != null && appliedWindowBackground.get() != terminalBackgroundArgb) {
-            window.setBackgroundDrawable(ColorDrawable(terminalBackgroundArgb))
+            window.setBackgroundDrawable(terminalBackgroundArgb.toDrawable())
             appliedWindowBackground.set(terminalBackgroundArgb)
         }
     }

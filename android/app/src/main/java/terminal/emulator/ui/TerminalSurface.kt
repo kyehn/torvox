@@ -19,6 +19,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.Magnifier
+import androidx.core.graphics.createBitmap
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.input.KeyModifiers
@@ -1089,7 +1090,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * 故一次原始拷贝即可，不必逐像素换通道。
      */
     private fun Bridge.CoverFrame.toBitmap(): Bitmap {
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val bitmap = createBitmap(width, height)
         bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(pixels))
         return bitmap
     }
