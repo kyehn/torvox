@@ -249,6 +249,10 @@ fn register_device_lost_callback(device: &wgpu::Device) -> Arc<std::sync::atomic
 fn init_gpu() -> Result<GlobalGpu, GpuError> {
     match pollster::block_on(crate::render::wgpu_backend::initialize_wgpu()) {
         Ok((_inst, _adapt, device, queue)) => {
+            // 计数放在**这里**而不是调用方：首次初始化与丢失后重建都经 `init_gpu`，
+            // 计数必须如实反映「建成功几个设备」，否则重建后的那次不计数。
+            #[cfg(test)]
+            INITIALIZATION_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             // 每个新设备（首次初始化与丢失后重建）都必须注册：wgpu 的回调随设备
             // 生灭，旧设备上的回调不会跟到新设备来。
             let lost = register_device_lost_callback(&device);
@@ -391,8 +395,6 @@ fn initialize_global_gpu() -> Result<Arc<GlobalGpu>, GpuError> {
         return Ok(initialized);
     }
     let global = Arc::new(init_gpu()?);
-    #[cfg(test)]
-    INITIALIZATION_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     *gpu_slot().write() = Some(Arc::clone(&global));
     Ok(global)
 }
