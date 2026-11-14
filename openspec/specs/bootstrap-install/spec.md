@@ -43,7 +43,7 @@ bootstrap 经 staging 目录的原子安装行为：解压防护、清单建链�
 #### Scenario: 缺清单失败
 
 - **WHEN** 归档无 `SYMLINKS.txt`
-- **THEN** 安装失败
+- **THEN** 安装失败并清理 staging 区（残留的 staging 会让后续安装一律拒绝）
 
 #### Scenario: 链接逃逸被拒
 

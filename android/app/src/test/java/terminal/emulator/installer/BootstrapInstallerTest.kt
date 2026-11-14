@@ -177,6 +177,14 @@ class BootstrapInstallerTest {
 
         assertTrue("install must fail when SYMLINKS.txt is absent", result.isFailure)
         assertFalse("prefix must not be reported installed on failure", installer.isInstalled())
+        // 缺清单曾以 Result.failure 直接返回，跳过失败清理：staging 区留在原地，
+        // 而 install 见 staging 已存在即拒绝——一次坏包就把引导永久堵死。
+        assertFalse("staging must be cleaned on failure", stagingDir.exists())
+        val retry = runBlocking { installer.install(buildFakeBootstrapZip(withSymlinks = true)) }
+        assertTrue(
+            "retry after a missing SYMLINKS.txt must succeed: ${retry.exceptionOrNull()?.message}",
+            retry.isSuccess,
+        )
     }
 
     @Test

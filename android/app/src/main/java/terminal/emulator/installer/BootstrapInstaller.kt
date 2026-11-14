@@ -166,7 +166,9 @@ class BootstrapInstaller(
             onProgress?.onProgress(BootstrapProgress.Extracting(0, 0))
             val symlinks = extractZip(zipFile)
             if (symlinks.isEmpty()) {
-                return@withContext Result.failure(Exception("No SYMLINKS.txt found in bootstrap ZIP"))
+                // 抛异常而非直接返回：直接返回会跳过下面的 catch，staging 区留在原地，
+                // 而下次安装见 staging 已存在即拒绝——一次坏包就把引导彻底堵死。
+                throw IOException("No SYMLINKS.txt found in bootstrap ZIP")
             }
             onProgress?.onProgress(BootstrapProgress.CreatingSymlinks)
             createSymlinks(symlinks)
