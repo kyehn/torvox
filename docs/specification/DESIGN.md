@@ -94,7 +94,7 @@
   - 主题效果支持预览，主题名称不在预览框内，而是在其下方，长主题名称可以被正常显示。
 - **Shell 启动入口路径及参数设置框**。提供保存按钮，支持保存和显示设置的文本，未设置时为空。保存时不检查文本，不检查路径是否存在，不检查参数是否合法。
   - 支持如 `/data/data/com.termux/files/usr/bin/sh` `/system/bin/sh /data/data/com.termux/files/usr/bin/login.sh` `/data/data/com.termux/files/usr/bin/bash -l` 等写法。
-  - 不支持相对路径如 `login.sh`（须为绝对路径），不支持无解释器直接执行脚本路径如 `/data/data/com.termux/files/usr/bin/login.sh`（须经 `/system/bin/sh` 间接执行）
+  - 不支持相对路径如 `login.sh`（须为绝对路径），不支持无解释器直接执行脚本路径如 `/data/data/com.termux/files/usr/bin/login.sh`（须经 `/system/bin/sh` 间接执行），支持具有 Shebang 的可执行文件
   - 启动入口应该是二进制文件且是绝对路径。
   - 启动目录为 `/data/data/com.termux/files/home`
 - **Bootstrap**：支持 URL 与本地文件安装。
