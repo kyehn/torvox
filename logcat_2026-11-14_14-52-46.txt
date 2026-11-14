@@ -1,0 +1,1668 @@
+[2026-11-14 14:47:03.887 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:47:03.965 Uid(value=10327):28278:28278 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:47:03.976 Uid(value=10327):28278:28278 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x76876b8310 472x819
+
+[2026-11-14 14:47:03.976 Uid(value=10327):28278:28278 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-14 14:47:03.976 Uid(value=10327):28278:28278 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-14 14:47:03.984 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004dcdd, base=0x0, importpid=28278
+
+[2026-11-14 14:47:03.984 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004dcde, base=0x0, importpid=28278
+
+[2026-11-14 14:47:03.984 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004dcdf, base=0x0, importpid=28278
+
+[2026-11-14 14:47:03.985 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004dce0, base=0x0, importpid=28278
+
+[2026-11-14 14:47:03.990 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:47:03.990 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:47:03.990 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:47:03.990 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:47:03.991 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:47:03.991 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:47:03.991 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:47:03.991 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:47:03.992 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e0f1, importpid=-1
+
+[2026-11-14 14:47:03.993 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e0f2, importpid=-1
+
+[2026-11-14 14:47:03.994 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e0f3, importpid=-1
+
+[2026-11-14 14:47:03.995 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e0f4, importpid=-1
+
+[2026-11-14 14:47:03.995 Uid(value=10327):28278:28278 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 14:47:03.996 Uid(value=10327):28278:28278 I/native::render::pass::frame]
+warmup: presenting the retained last frame (472x819)
+
+[2026-11-14 14:47:04.001 Uid(value=10327):28278:28278 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 14:47:04.001 Uid(value=10327):28278:28278 I/native::android::ffi::render::control]
+setRenderPaused: paused=false
+
+[2026-11-14 14:47:04.025 Uid(value=10327):28278:1730 I/Runtime]
+session 1 first output received
+
+[2026-11-14 14:47:04.033 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e0f5, importpid=-1
+
+[2026-11-14 14:47:04.044 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e0f6, importpid=-1
+
+[2026-11-14 14:47:04.055 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e0f7, importpid=-1
+
+[2026-11-14 14:47:04.099 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:47:04.135 Uid(value=10327):28278:28278 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 14:47:04.934 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.507279ms p95=17.508539ms max=22.419115ms pre_max=0.034654ms pre_p95=0.016808ms ≈64fps vsync=16.7ms avg=17.1ms p95=16.7ms max=33.4ms
+
+[2026-11-14 14:47:04.935 Uid(value=10327):28278:28307 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.4048ms p95=0.069115ms max=22.075307ms scrollback=15 rows
+
+[2026-11-14 14:47:05.937 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.703172ms p95=17.412ms max=17.569385ms pre_max=0.106154ms pre_p95=0.022346ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:47:05.938 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.047887ms p95=0.098961ms max=0.325231ms scrollback=15 rows
+
+[2026-11-14 14:47:06.939 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.67346ms p95=17.106423ms max=17.304923ms pre_max=0.030346ms pre_p95=0.022884ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:47:06.939 Uid(value=10327):28278:28308 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.06901ms p95=0.090077ms max=0.106654ms scrollback=15 rows
+
+[2026-11-14 14:47:07.941 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.688507ms p95=17.141ms max=18.664654ms pre_max=0.086192ms pre_p95=0.013231ms ≈59fps vsync=16.6ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:47:07.941 Uid(value=10327):28278:28305 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.071581ms p95=0.066423ms max=2.176346ms scrollback=15 rows
+
+[2026-11-14 14:47:08.697 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774639): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:08.810 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.475707ms p95=17.213ms max=17.881115ms pre_max=0.128385ms pre_p95=0.098923ms ≈69fps vsync=16.6ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 14:47:08.810 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.209057ms p95=0.100961ms max=4.956962ms scrollback=15 rows
+
+[2026-11-14 14:47:09.149 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774640): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:09.437 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774641): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:09.611 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.349278ms p95=17.299846ms max=17.577039ms pre_max=0.111461ms pre_p95=0.039423ms ≈74fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:47:09.612 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.353566ms p95=2.419962ms max=5.437807ms scrollback=15 rows
+
+[2026-11-14 14:47:09.969 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774642): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:09.973 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774643): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:10.253 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774644): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:10.447 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.919626ms p95=17.547269ms max=17.762654ms pre_max=0.074731ms pre_p95=0.020231ms ≈71fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:47:10.448 Uid(value=10327):28278:28307 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.237935ms p95=1.956192ms max=4.693615ms scrollback=15 rows
+
+[2026-11-14 14:47:10.553 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774645): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:10.553 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774646): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:10.737 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774647): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:11.307 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.335519ms p95=17.293462ms max=17.632846ms pre_max=0.113385ms pre_p95=0.102539ms ≈69fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:47:11.308 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.242244ms p95=0.111962ms max=7.077269ms scrollback=16 rows
+
+[2026-11-14 14:47:11.305 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774649): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:11.305 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774648): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:11.777 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774650): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:11.801 Uid(value=10327):1776:1776 W/git]
+type=1400 audit(0.0:3774651): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libdl.so.2" dev="dm-38" ino=6821998 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:11.801 Uid(value=10327):1776:1776 W/git]
+type=1400 audit(0.0:3774652): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/3g2mlwyf1wkiwkjcv86hi9j9d73r9xz9-pcre2-10.49/lib/libpcre2-8.so.0.16.1" dev="dm-38" ino=7082608 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:11.805 Uid(value=10327):1776:1776 W/git]
+type=1400 audit(0.0:3774653): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/wl3d2qbnjm8h45hi56613zgb1yjd2j0g-zlib-ng-2.3.3/lib/libz-ng.so.2.3.3" dev="dm-38" ino=7094944 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:12.117 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.494183ms p95=17.569384ms max=18.271346ms pre_max=0.012192ms pre_p95=0.009ms ≈74fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:47:12.118 Uid(value=10327):28278:28307 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.138821ms p95=0.065654ms max=2.606884ms scrollback=17 rows
+
+[2026-11-14 14:47:12.990 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.532435ms p95=17.3545ms max=21.697807ms pre_max=0.12323ms pre_p95=0.106461ms ≈68fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:47:12.990 Uid(value=10327):28278:28307 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.379155ms p95=2.493961ms max=5.81427ms scrollback=17 rows
+
+[2026-11-14 14:47:13.923 Uid(value=10327):28278:28305 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.482004ms p95=2.546385ms max=5.451924ms scrollback=17 rows
+
+[2026-11-14 14:47:13.923 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.53315ms p95=17.286038ms max=18.227577ms pre_max=0.118307ms pre_p95=0.046807ms ≈64fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 14:47:13.949 Uid(value=10327):1814:1814 W/git]
+type=1400 audit(0.0:3774729): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libdl.so.2" dev="dm-38" ino=6821998 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:13.949 Uid(value=10327):1814:1814 W/git]
+type=1400 audit(0.0:3774730): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/3g2mlwyf1wkiwkjcv86hi9j9d73r9xz9-pcre2-10.49/lib/libpcre2-8.so.0.16.1" dev="dm-38" ino=7082608 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:13.953 Uid(value=10327):1814:1814 W/git]
+type=1400 audit(0.0:3774731): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/wl3d2qbnjm8h45hi56613zgb1yjd2j0g-zlib-ng-2.3.3/lib/libz-ng.so.2.3.3" dev="dm-38" ino=7094944 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:13.953 Uid(value=10327):1814:1814 W/git]
+type=1400 audit(0.0:3774732): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/c1h1q4h9bfmb5d0w342qwjmhw8cxkxzc-gcc-16.2.0-libgcc/lib/libgcc_s.so.1" dev="dm-38" ino=6819978 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:13.953 Uid(value=10327):1814:1814 W/git]
+type=1400 audit(0.0:3774733): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libc.so.6" dev="dm-38" ino=6821988 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:47:14.488 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=9.416377ms p95=17.1805ms max=17.692615ms pre_max=0.096038ms pre_p95=0.028231ms ≈106fps vsync=16.6ms avg=16.7ms p95=16.7ms max=17.0ms
+
+[2026-11-14 14:47:14.489 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.726705ms p95=4.772077ms max=9.622653ms scrollback=48 rows
+
+[2026-11-14 14:47:15.491 Uid(value=10327):28278:1730 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.698464ms p95=17.647808ms max=22.142769ms pre_max=0.011ms pre_p95=0.008846ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:47:15.491 Uid(value=10327):28278:28307 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.029926ms p95=0.041308ms max=0.183424ms scrollback=48 rows
+
+[2026-11-14 14:47:15.898 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:47:15.923 Uid(value=10327):28278:28278 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 14:47:15.940 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-14 14:47:15.945 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e0f6, base=0x0, importpid=28278
+
+[2026-11-14 14:47:15.945 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e0f7, base=0x0, importpid=28278
+
+[2026-11-14 14:47:15.946 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e0f5, base=0x0, importpid=28278
+
+[2026-11-14 14:47:15.950 Uid(value=10327):28278:28278 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 14:47:15.963 Uid(value=10327):28278:1730 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 14:49:41.490 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:49:41.539 Uid(value=10327):28278:28278 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:49:41.541 Uid(value=10327):28278:28278 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x7687694000 472x819
+
+[2026-11-14 14:49:41.541 Uid(value=10327):28278:28278 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-14 14:49:41.541 Uid(value=10327):28278:28278 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-14 14:49:41.541 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e0f1, base=0x0, importpid=28278
+
+[2026-11-14 14:49:41.541 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e0f2, base=0x0, importpid=28278
+
+[2026-11-14 14:49:41.542 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e0f3, base=0x0, importpid=28278
+
+[2026-11-14 14:49:41.542 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e0f4, base=0x0, importpid=28278
+
+[2026-11-14 14:49:41.545 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:49:41.545 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:49:41.547 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:49:41.547 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:49:41.548 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:49:41.548 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:49:41.548 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:49:41.548 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:49:41.549 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e17d, importpid=-1
+
+[2026-11-14 14:49:41.550 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e17e, importpid=-1
+
+[2026-11-14 14:49:41.550 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e17f, importpid=-1
+
+[2026-11-14 14:49:41.551 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e180, importpid=-1
+
+[2026-11-14 14:49:41.551 Uid(value=10327):28278:28278 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 14:49:41.551 Uid(value=10327):28278:28278 I/native::render::pass::frame]
+warmup: presenting the retained last frame (472x819)
+
+[2026-11-14 14:49:41.552 Uid(value=10327):28278:28278 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 14:49:41.552 Uid(value=10327):28278:28278 I/native::android::ffi::render::control]
+setRenderPaused: paused=false
+
+[2026-11-14 14:49:41.563 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e181, importpid=-1
+
+[2026-11-14 14:49:41.578 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e182, importpid=-1
+
+[2026-11-14 14:49:41.597 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e183, importpid=-1
+
+[2026-11-14 14:49:41.677 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:49:42.337 Uid(value=10327):28278:28278 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-14 14:49:42.337 Uid(value=10327):28278:28278 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{9457ffa VFED..... .F...... 0,0-472,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-11-14 14:49:42.385 Uid(value=10327):28278:28278 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 14:49:42.428 Uid(value=10327):28278:2517 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.582596ms p95=17.273923ms max=17.898615ms pre_max=0.065423ms pre_p95=0.014038ms ≈68fps vsync=16.7ms avg=17.0ms p95=16.7ms max=33.4ms
+
+[2026-11-14 14:49:42.429 Uid(value=10327):28278:28307 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.087014ms p95=0.048616ms max=3.224807ms scrollback=48 rows
+
+[2026-11-14 14:49:43.193 Uid(value=10327):28278:2517 I/Runtime]
+session 1 first output received
+
+[2026-11-14 14:49:43.189 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774784): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:43.297 Uid(value=10327):28278:2517 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.463726ms p95=17.423615ms max=17.694077ms pre_max=0.099077ms pre_p95=0.017654ms ≈69fps vsync=16.6ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 14:49:43.298 Uid(value=10327):28278:28307 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.12978ms p95=0.106885ms max=3.437346ms scrollback=49 rows
+
+[2026-11-14 14:49:43.721 Uid(value=10327):28336:28336 W/fish]
+type=1400 audit(0.0:3774785): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:43.729 Uid(value=10327):2535:2535 W/git]
+type=1400 audit(0.0:3774786): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libdl.so.2" dev="dm-38" ino=6821998 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:43.729 Uid(value=10327):2535:2535 W/git]
+type=1400 audit(0.0:3774787): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/3g2mlwyf1wkiwkjcv86hi9j9d73r9xz9-pcre2-10.49/lib/libpcre2-8.so.0.16.1" dev="dm-38" ino=7082608 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:43.729 Uid(value=10327):2535:2535 W/git]
+type=1400 audit(0.0:3774788): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/wl3d2qbnjm8h45hi56613zgb1yjd2j0g-zlib-ng-2.3.3/lib/libz-ng.so.2.3.3" dev="dm-38" ino=7094944 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:43.729 Uid(value=10327):2535:2535 W/git]
+type=1400 audit(0.0:3774789): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/c1h1q4h9bfmb5d0w342qwjmhw8cxkxzc-gcc-16.2.0-libgcc/lib/libgcc_s.so.1" dev="dm-38" ino=6819978 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:43.729 Uid(value=10327):2535:2535 W/git]
+type=1400 audit(0.0:3774790): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libc.so.6" dev="dm-38" ino=6821988 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:43.729 Uid(value=10327):2535:2535 W/git]
+type=1400 audit(0.0:3774791): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libpthread.so.0" dev="dm-38" ino=6822016 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:44.217 Uid(value=10327):28278:2517 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.329774ms p95=17.399616ms max=17.58773ms pre_max=0.038769ms pre_p95=0.0165ms ≈65fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:49:44.217 Uid(value=10327):28278:28350 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.097139ms p95=0.071576ms max=3.923423ms scrollback=50 rows
+
+[2026-11-14 14:49:45.218 Uid(value=10327):28278:2517 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.678645ms p95=17.2325ms max=19.871769ms pre_max=0.021923ms pre_p95=0.019116ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:49:45.220 Uid(value=10327):28278:28350 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.057426ms p95=0.070769ms max=0.253962ms scrollback=50 rows
+
+[2026-11-14 14:49:45.893 Uid(value=10327):2545:2545 W/git]
+type=1400 audit(0.0:3774846): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libdl.so.2" dev="dm-38" ino=6821998 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:45.893 Uid(value=10327):2545:2545 W/git]
+type=1400 audit(0.0:3774847): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/3g2mlwyf1wkiwkjcv86hi9j9d73r9xz9-pcre2-10.49/lib/libpcre2-8.so.0.16.1" dev="dm-38" ino=7082608 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:45.897 Uid(value=10327):2545:2545 W/git]
+type=1400 audit(0.0:3774848): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/wl3d2qbnjm8h45hi56613zgb1yjd2j0g-zlib-ng-2.3.3/lib/libz-ng.so.2.3.3" dev="dm-38" ino=7094944 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:45.897 Uid(value=10327):2545:2545 W/git]
+type=1400 audit(0.0:3774849): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/c1h1q4h9bfmb5d0w342qwjmhw8cxkxzc-gcc-16.2.0-libgcc/lib/libgcc_s.so.1" dev="dm-38" ino=6819978 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:45.897 Uid(value=10327):2545:2545 W/git]
+type=1400 audit(0.0:3774850): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libc.so.6" dev="dm-38" ino=6821988 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 14:49:45.971 Uid(value=10327):28278:2517 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.525873ms p95=17.348769ms max=17.716462ms pre_max=0.158269ms pre_p95=0.022846ms ≈79fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:49:45.971 Uid(value=10327):28278:28350 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.702199ms p95=5.341692ms max=10.258115ms scrollback=62 rows
+
+[2026-11-14 14:49:46.821 Uid(value=10327):28278:2517 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.159205ms p95=17.459769ms max=17.620885ms pre_max=0.076307ms pre_p95=0.02423ms ≈70fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:49:46.822 Uid(value=10327):28278:28350 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.46644ms p95=4.361615ms max=8.670923ms scrollback=69 rows
+
+[2026-11-14 14:49:47.395 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:49:47.437 Uid(value=10327):28278:28278 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 14:49:47.449 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-14 14:49:47.458 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e182, base=0x0, importpid=28278
+
+[2026-11-14 14:49:47.459 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e183, base=0x0, importpid=28278
+
+[2026-11-14 14:49:47.460 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e181, base=0x0, importpid=28278
+
+[2026-11-14 14:49:47.466 Uid(value=10327):28278:28278 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 14:49:47.493 Uid(value=10327):28278:2517 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 14:50:12.326 Uid(value=10327):28278:28292 I/TerminalDocumentsProvider]
+createDocument 'mmexport1664587031414.jpg' ok (5ms)
+
+[2026-11-14 14:50:19.496 Uid(value=10327):28278:28292 I/TerminalDocumentsProvider]
+deleteDocument 'bio-doc/age/profile.jpg' ok (4ms)
+
+[2026-11-14 14:50:26.750 Uid(value=10327):28278:28292 I/TerminalDocumentsProvider]
+renameDocument 'bio-doc/age/mmexport1664587031414.jpg' -> 'profile.jpg' ok (7ms)
+
+[2026-11-14 14:50:29.092 Uid(value=10327):28278:28520 I/TerminalDocumentsProvider]
+deleteDocument 'bio-doc/age/profile.jpg' ok (6ms)
+
+[2026-11-14 14:50:36.514 Uid(value=10327):28278:28520 I/TerminalDocumentsProvider]
+deleteDocument 'bio-doc/age/doc.typ' ok (3ms)
+
+[2026-11-14 14:50:36.515 Uid(value=10327):28278:1692 I/TerminalDocumentsProvider]
+deleteDocument 'bio-doc/age/doc-en.typ' ok (3ms)
+
+[2026-11-14 14:50:39.527 Uid(value=10327):28278:1692 I/TerminalDocumentsProvider]
+deleteDocument 'bio-doc/age' ok (4ms)
+
+[2026-11-14 14:50:43.506 Uid(value=10327):28278:1692 I/TerminalDocumentsProvider]
+createDocument 'doc-en.typ' ok (5ms)
+
+[2026-11-14 14:50:43.529 Uid(value=10327):28278:1692 I/TerminalDocumentsProvider]
+createDocument 'doc.typ' ok (3ms)
+
+[2026-11-14 14:50:43.552 Uid(value=10327):28278:1692 I/TerminalDocumentsProvider]
+createDocument 'profile.jpg' ok (3ms)
+
+[2026-11-14 14:51:35.359 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:51:35.384 Uid(value=10327):28278:28278 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:51:35.391 Uid(value=10327):28278:28278 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x76876a94a0 472x819
+
+[2026-11-14 14:51:35.391 Uid(value=10327):28278:28278 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-14 14:51:35.391 Uid(value=10327):28278:28278 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-14 14:51:35.391 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e17d, base=0x0, importpid=28278
+
+[2026-11-14 14:51:35.391 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e17e, base=0x0, importpid=28278
+
+[2026-11-14 14:51:35.391 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e17f, base=0x0, importpid=28278
+
+[2026-11-14 14:51:35.391 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e180, base=0x0, importpid=28278
+
+[2026-11-14 14:51:35.392 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:51:35.392 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:51:35.393 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:51:35.393 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:51:35.393 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:51:35.393 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:51:35.394 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:51:35.394 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:51:35.394 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e291, importpid=-1
+
+[2026-11-14 14:51:35.395 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e292, importpid=-1
+
+[2026-11-14 14:51:35.396 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e293, importpid=-1
+
+[2026-11-14 14:51:35.396 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e294, importpid=-1
+
+[2026-11-14 14:51:35.396 Uid(value=10327):28278:28278 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 14:51:35.396 Uid(value=10327):28278:28278 I/native::render::pass::frame]
+warmup: presenting the retained last frame (472x819)
+
+[2026-11-14 14:51:35.397 Uid(value=10327):28278:28278 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 14:51:35.397 Uid(value=10327):28278:28278 I/native::android::ffi::render::control]
+setRenderPaused: paused=false
+
+[2026-11-14 14:51:35.411 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e295, importpid=-1
+
+[2026-11-14 14:51:35.418 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e296, importpid=-1
+
+[2026-11-14 14:51:35.428 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e297, importpid=-1
+
+[2026-11-14 14:51:35.516 Uid(value=10327):28278:28278 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 14:51:35.542 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:51:36.306 Uid(value=10327):28278:2990 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.126162ms p95=17.422ms max=17.9945ms pre_max=0.099154ms pre_p95=0.093654ms ≈66fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:51:36.306 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.095509ms p95=0.142846ms max=2.947769ms scrollback=69 rows
+
+[2026-11-14 14:51:36.646 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:51:36.688 Uid(value=10327):28278:28278 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 14:51:36.707 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-14 14:51:36.709 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e295, base=0x0, importpid=28278
+
+[2026-11-14 14:51:36.709 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e297, base=0x0, importpid=28278
+
+[2026-11-14 14:51:36.709 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e296, base=0x0, importpid=28278
+
+[2026-11-14 14:51:36.718 Uid(value=10327):28278:28278 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 14:51:36.727 Uid(value=10327):28278:2990 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 14:52:17.105 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:52:17.130 Uid(value=10327):28278:28278 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:17.134 Uid(value=10327):28278:28278 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x768767eb60 472x819
+
+[2026-11-14 14:52:17.134 Uid(value=10327):28278:28278 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-14 14:52:17.134 Uid(value=10327):28278:28278 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-14 14:52:17.134 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e291, base=0x0, importpid=28278
+
+[2026-11-14 14:52:17.134 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e292, base=0x0, importpid=28278
+
+[2026-11-14 14:52:17.134 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e293, base=0x0, importpid=28278
+
+[2026-11-14 14:52:17.135 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e294, base=0x0, importpid=28278
+
+[2026-11-14 14:52:17.137 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:52:17.137 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:52:17.137 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:52:17.137 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:52:17.137 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:52:17.137 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:52:17.138 Uid(value=10327):28278:28278 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 14:52:17.138 Uid(value=10327):28278:28278 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 14:52:17.139 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e2e0, importpid=-1
+
+[2026-11-14 14:52:17.139 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e2e1, importpid=-1
+
+[2026-11-14 14:52:17.140 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e2e2, importpid=-1
+
+[2026-11-14 14:52:17.140 Uid(value=10327):28278:28278 I/mali_gralloc]
+register: id=0x2930004e2e3, importpid=-1
+
+[2026-11-14 14:52:17.140 Uid(value=10327):28278:28278 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 14:52:17.141 Uid(value=10327):28278:28278 I/native::render::pass::frame]
+warmup: presenting the retained last frame (472x819)
+
+[2026-11-14 14:52:17.141 Uid(value=10327):28278:28278 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 14:52:17.141 Uid(value=10327):28278:28278 I/native::android::ffi::render::control]
+setRenderPaused: paused=false
+
+[2026-11-14 14:52:17.153 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e2e4, importpid=-1
+
+[2026-11-14 14:52:17.160 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e2e5, importpid=-1
+
+[2026-11-14 14:52:17.173 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e2e6, importpid=-1
+
+[2026-11-14 14:52:17.267 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:52:17.301 Uid(value=10327):28278:28278 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 14:52:18.053 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.159553ms p95=17.45723ms max=18.106346ms pre_max=0.069ms pre_p95=0.047269ms ≈65fps vsync=16.7ms avg=16.7ms p95=16.8ms max=16.8ms
+
+[2026-11-14 14:52:18.053 Uid(value=10327):28278:28306 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.099035ms p95=0.052692ms max=4.010615ms scrollback=69 rows
+
+[2026-11-14 14:52:19.055 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.688789ms p95=17.632885ms max=17.765308ms pre_max=0.024ms pre_p95=0.006808ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:52:19.055 Uid(value=10327):28278:28306 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.024594ms p95=0.033231ms max=0.043115ms scrollback=69 rows
+
+[2026-11-14 14:52:20.057 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.696799ms p95=17.780923ms max=17.883538ms pre_max=0.040769ms pre_p95=0.00923ms ≈59fps vsync=16.6ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:52:20.057 Uid(value=10327):28278:28350 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.025936ms p95=0.039654ms max=0.050731ms scrollback=69 rows
+
+[2026-11-14 14:52:21.059 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.694896ms p95=17.569308ms max=34.402961ms pre_max=0.023577ms pre_p95=0.009269ms ≈59fps vsync=16.7ms avg=17.0ms p95=16.7ms max=33.4ms
+
+[2026-11-14 14:52:21.059 Uid(value=10327):28278:28305 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.035425ms p95=0.053577ms max=0.156885ms scrollback=69 rows
+
+[2026-11-14 14:52:22.062 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.701148ms p95=17.501423ms max=17.808461ms pre_max=0.087192ms pre_p95=0.014384ms ≈59fps vsync=16.6ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 14:52:22.062 Uid(value=10327):28278:28305 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.039687ms p95=0.061ms max=0.128615ms scrollback=69 rows
+
+[2026-11-14 14:52:23.983 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.051694ms p95=0.13323ms max=0.238615ms scrollback=69 rows
+
+[2026-11-14 14:52:23.983 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=32.011146ms p95=19.906153ms max=500.587769ms pre_max=0.078077ms pre_p95=0.073038ms ≈31fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:52:24.987 Uid(value=10327):28278:28305 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.053509ms p95=0.077769ms max=0.194807ms scrollback=69 rows
+
+[2026-11-14 14:52:24.987 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.707629ms p95=17.3495ms max=17.560346ms pre_max=0.103077ms pre_p95=0.015308ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=17.0ms
+
+[2026-11-14 14:52:25.663 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{9bb3fe0 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=2
+
+[2026-11-14 14:52:25.663 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:25.676 Uid(value=10327):28278:28278 D/VRI[PopupWindow:fda79e3]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:25.678 Uid(value=10327):28278:3399 I/mali_gralloc]
+register: id=0x2930004e2f2, importpid=-1
+
+[2026-11-14 14:52:25.679 Uid(value=10327):28278:3399 I/mali_gralloc]
+register: id=0x2930004e2f3, importpid=-1
+
+[2026-11-14 14:52:25.680 Uid(value=10327):28278:3399 I/mali_gralloc]
+register: id=0x2930004e2f4, importpid=-1
+
+[2026-11-14 14:52:25.690 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:25.691 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e2f4, base=0x0, importpid=28278
+
+[2026-11-14 14:52:25.691 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e2f3, base=0x0, importpid=28278
+
+[2026-11-14 14:52:25.697 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{54da1d3 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=2
+
+[2026-11-14 14:52:25.697 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:25.707 Uid(value=10327):28278:28291 I/mali_gralloc]
+unregister: id=0x2930004e2f2, base=0x0, importpid=28278
+
+[2026-11-14 14:52:25.712 Uid(value=10327):28278:28278 D/CompatibilityChangeReporter]
+Compat change id reported: 210923482; UID 10327; state: DISABLED
+
+[2026-11-14 14:52:25.713 Uid(value=10327):28278:28278 D/CompatibilityChangeReporter]
+Compat change id reported: 37756858; UID 10327; state: ENABLED
+
+[2026-11-14 14:52:25.715 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{c3d784b V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:25.715 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:25.724 Uid(value=10327):28278:28278 D/VRI[PopupWindow:3202fc2]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:25.727 Uid(value=10327):28278:3405 I/mali_gralloc]
+register: id=0x2930004e2f5, importpid=-1
+
+[2026-11-14 14:52:25.729 Uid(value=10327):28278:3405 I/mali_gralloc]
+register: id=0x2930004e2f6, importpid=-1
+
+[2026-11-14 14:52:25.730 Uid(value=10327):28278:3405 I/mali_gralloc]
+register: id=0x2930004e2f7, importpid=-1
+
+[2026-11-14 14:52:25.731 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:25.739 Uid(value=10327):28278:28278 D/VRI[PopupWindow:657f51a]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:25.741 Uid(value=10327):28278:3406 I/mali_gralloc]
+register: id=0x2930004e2f8, importpid=-1
+
+[2026-11-14 14:52:25.741 Uid(value=10327):28278:3406 I/mali_gralloc]
+register: id=0x2930004e2f9, importpid=-1
+
+[2026-11-14 14:52:25.742 Uid(value=10327):28278:3406 I/mali_gralloc]
+register: id=0x2930004e2fa, importpid=-1
+
+[2026-11-14 14:52:25.744 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:25.844 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e2f9, base=0x0, importpid=28278
+
+[2026-11-14 14:52:25.844 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e2f8, base=0x0, importpid=28278
+
+[2026-11-14 14:52:25.844 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e2fa, base=0x0, importpid=28278
+
+[2026-11-14 14:52:25.849 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e2f5, base=0x0, importpid=28278
+
+[2026-11-14 14:52:25.858 Uid(value=10327):28278:30766 I/mali_gralloc]
+unregister: id=0x2930004e2f7, base=0x0, importpid=28278
+
+[2026-11-14 14:52:25.858 Uid(value=10327):28278:30766 I/mali_gralloc]
+unregister: id=0x2930004e2f6, base=0x0, importpid=28278
+
+[2026-11-14 14:52:25.859 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{df18558 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=2
+
+[2026-11-14 14:52:25.859 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:25.874 Uid(value=10327):28278:28278 D/VRI[PopupWindow:ec10a3b]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:25.876 Uid(value=10327):28278:3407 I/mali_gralloc]
+register: id=0x2930004e2fb, importpid=-1
+
+[2026-11-14 14:52:25.877 Uid(value=10327):28278:3407 I/mali_gralloc]
+register: id=0x2930004e2fc, importpid=-1
+
+[2026-11-14 14:52:25.878 Uid(value=10327):28278:3407 I/mali_gralloc]
+register: id=0x2930004e2fd, importpid=-1
+
+[2026-11-14 14:52:25.878 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:25.938 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.840182ms p95=20.051077ms max=34.188846ms pre_max=0.299192ms pre_p95=0.063461ms ≈63fps vsync=16.6ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:52:25.939 Uid(value=10327):28278:28306 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.320845ms p95=2.253269ms max=6.077731ms scrollback=69 rows
+
+[2026-11-14 14:52:26.413 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e2fb, base=0x0, importpid=28278
+
+[2026-11-14 14:52:26.420 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{7e2d993 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=2
+
+[2026-11-14 14:52:26.420 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:26.425 Uid(value=10327):28278:3124 I/mali_gralloc]
+unregister: id=0x2930004e2fd, base=0x0, importpid=28278
+
+[2026-11-14 14:52:26.426 Uid(value=10327):28278:3124 I/mali_gralloc]
+unregister: id=0x2930004e2fc, base=0x0, importpid=28278
+
+[2026-11-14 14:52:26.430 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{25cc6fc V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:26.430 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:26.443 Uid(value=10327):28278:28278 D/VRI[PopupWindow:bec6e82]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:26.444 Uid(value=10327):28278:3412 I/mali_gralloc]
+register: id=0x2930004e2fe, importpid=-1
+
+[2026-11-14 14:52:26.446 Uid(value=10327):28278:3412 I/mali_gralloc]
+register: id=0x2930004e2ff, importpid=-1
+
+[2026-11-14 14:52:26.446 Uid(value=10327):28278:3412 I/mali_gralloc]
+register: id=0x2930004e300, importpid=-1
+
+[2026-11-14 14:52:26.447 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:26.452 Uid(value=10327):28278:28278 D/VRI[PopupWindow:9d77bef]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:26.454 Uid(value=10327):28278:3413 I/mali_gralloc]
+register: id=0x2930004e301, importpid=-1
+
+[2026-11-14 14:52:26.455 Uid(value=10327):28278:3413 I/mali_gralloc]
+register: id=0x2930004e302, importpid=-1
+
+[2026-11-14 14:52:26.455 Uid(value=10327):28278:3413 I/mali_gralloc]
+register: id=0x2930004e303, importpid=-1
+
+[2026-11-14 14:52:26.456 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:26.457 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e300, base=0x0, importpid=28278
+
+[2026-11-14 14:52:26.457 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e2ff, base=0x0, importpid=28278
+
+[2026-11-14 14:52:26.458 Uid(value=10327):28278:3124 I/mali_gralloc]
+unregister: id=0x2930004e2fe, base=0x0, importpid=28278
+
+[2026-11-14 14:52:26.465 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{b053edf V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:26.465 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:26.481 Uid(value=10327):28278:28278 D/VRI[PopupWindow:9d77bef]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=0
+
+[2026-11-14 14:52:26.486 Uid(value=10327):28278:28278 D/VRI[PopupWindow:767297e]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:26.488 Uid(value=10327):28278:3417 I/mali_gralloc]
+register: id=0x2930004e304, importpid=-1
+
+[2026-11-14 14:52:26.489 Uid(value=10327):28278:3417 I/mali_gralloc]
+register: id=0x2930004e305, importpid=-1
+
+[2026-11-14 14:52:26.490 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:26.491 Uid(value=10327):28278:3417 I/mali_gralloc]
+register: id=0x2930004e306, importpid=-1
+
+[2026-11-14 14:52:26.924 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.418023ms p95=17.520077ms max=34.189769ms pre_max=0.035808ms pre_p95=0.012385ms ≈60fps vsync=16.7ms avg=17.5ms p95=16.7ms max=49.7ms
+
+[2026-11-14 14:52:26.924 Uid(value=10327):28278:28306 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.109232ms p95=0.058769ms max=2.632385ms scrollback=69 rows
+
+[2026-11-14 14:52:27.385 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e302, base=0x0, importpid=28278
+
+[2026-11-14 14:52:27.385 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e301, base=0x0, importpid=28278
+
+[2026-11-14 14:52:27.386 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e303, base=0x0, importpid=28278
+
+[2026-11-14 14:52:27.611 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=11.447137ms p95=18.553616ms max=22.061385ms pre_max=0.156116ms pre_p95=0.061885ms ≈87fps vsync=16.6ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:52:27.611 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.761733ms p95=2.871577ms max=5.083154ms scrollback=69 rows
+
+[2026-11-14 14:52:28.125 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=7.199793ms p95=18.562116ms max=19.265307ms pre_max=0.111115ms pre_p95=0.038038ms ≈138fps vsync=16.6ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:52:28.125 Uid(value=10327):28278:28306 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.467072ms p95=2.112654ms max=2.694307ms scrollback=69 rows
+
+[2026-11-14 14:52:28.628 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=6.952325ms p95=18.429038ms max=18.861077ms pre_max=0.217577ms pre_p95=0.049076ms ≈143fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.9ms
+
+[2026-11-14 14:52:28.629 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.805796ms p95=2.290962ms max=2.7835ms scrollback=69 rows
+
+[2026-11-14 14:52:28.970 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{6424430 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:28.970 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:28.983 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{d25665 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=4
+
+[2026-11-14 14:52:28.983 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:28.987 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e304, base=0x0, importpid=28278
+
+[2026-11-14 14:52:28.987 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e306, base=0x0, importpid=28278
+
+[2026-11-14 14:52:28.987 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e305, base=0x0, importpid=28278
+
+[2026-11-14 14:52:29.000 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{49a9506 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:29.000 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:29.016 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{b2fc963 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:29.016 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:29.019 Uid(value=10327):28278:28278 W/InputEventReceiver]
+Attempted to finish an input event but the input event receiver has already been disposed.
+
+[2026-11-14 14:52:29.027 Uid(value=10327):28278:28278 D/VRI[PopupWindow:996f3e1]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:29.029 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e307, importpid=-1
+
+[2026-11-14 14:52:29.032 Uid(value=10327):28278:3426 I/mali_gralloc]
+register: id=0x2930004e308, importpid=-1
+
+[2026-11-14 14:52:29.034 Uid(value=10327):28278:3426 I/mali_gralloc]
+register: id=0x2930004e309, importpid=-1
+
+[2026-11-14 14:52:29.034 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:29.041 Uid(value=10327):28278:28278 D/VRI[PopupWindow:6bafb92]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:29.043 Uid(value=10327):28278:3427 I/mali_gralloc]
+register: id=0x2930004e30a, importpid=-1
+
+[2026-11-14 14:52:29.044 Uid(value=10327):28278:3427 I/mali_gralloc]
+register: id=0x2930004e30b, importpid=-1
+
+[2026-11-14 14:52:29.044 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:29.045 Uid(value=10327):28278:3427 I/mali_gralloc]
+register: id=0x2930004e30c, importpid=-1
+
+[2026-11-14 14:52:29.046 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e309, base=0x0, importpid=28278
+
+[2026-11-14 14:52:29.046 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e308, base=0x0, importpid=28278
+
+[2026-11-14 14:52:29.048 Uid(value=10327):28278:3124 I/mali_gralloc]
+unregister: id=0x2930004e307, base=0x0, importpid=28278
+
+[2026-11-14 14:52:29.056 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{22aa024 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:29.056 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:29.067 Uid(value=10327):28278:28278 D/VRI[PopupWindow:a4de0b7]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:29.070 Uid(value=10327):28278:3428 I/mali_gralloc]
+register: id=0x2930004e30d, importpid=-1
+
+[2026-11-14 14:52:29.071 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:29.071 Uid(value=10327):28278:3428 I/mali_gralloc]
+register: id=0x2930004e30e, importpid=-1
+
+[2026-11-14 14:52:29.073 Uid(value=10327):28278:3428 I/mali_gralloc]
+register: id=0x2930004e30f, importpid=-1
+
+[2026-11-14 14:52:29.090 Uid(value=10327):28278:28286 W/com.termux]
+Reducing the number of considered missed Gc histogram windows from 120 to 100
+
+[2026-11-14 14:52:29.194 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=9.416855ms p95=18.770539ms max=34.187653ms pre_max=0.237077ms pre_p95=0.042461ms ≈106fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.9ms
+
+[2026-11-14 14:52:29.194 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.553937ms p95=2.152692ms max=2.961346ms scrollback=69 rows
+
+[2026-11-14 14:52:29.576 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e30b, base=0x0, importpid=28278
+
+[2026-11-14 14:52:29.577 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e30a, base=0x0, importpid=28278
+
+[2026-11-14 14:52:29.578 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e30c, base=0x0, importpid=28278
+
+[2026-11-14 14:52:29.687 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e30e, base=0x0, importpid=28278
+
+[2026-11-14 14:52:29.688 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e30d, base=0x0, importpid=28278
+
+[2026-11-14 14:52:29.688 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e30f, base=0x0, importpid=28278
+
+[2026-11-14 14:52:29.694 Uid(value=10327):28278:28278 W/InputEventReceiver]
+Attempted to finish an input event but the input event receiver has already been disposed.
+
+[2026-11-14 14:52:29.694 Uid(value=10327):28278:28278 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-14 14:52:29.694 Uid(value=10327):28278:28278 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{9457ffa VFED..... .F...... 0,0-472,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-11-14 14:52:29.737 Uid(value=10327):28278:28278 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 14:52:30.097 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.037367ms p95=17.548423ms max=17.777077ms pre_max=0.054885ms pre_p95=0.013654ms ≈66fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:52:30.097 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.176554ms p95=0.05827ms max=6.308154ms scrollback=69 rows
+
+[2026-11-14 14:52:31.082 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.415235ms p95=17.340308ms max=17.5625ms pre_max=0.186ms pre_p95=0.08427ms ≈60fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 14:52:31.083 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.07187ms p95=0.174961ms max=0.2635ms scrollback=69 rows
+
+[2026-11-14 14:52:31.680 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{fae7533 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=2
+
+[2026-11-14 14:52:31.680 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:31.694 Uid(value=10327):28278:28278 D/VRI[PopupWindow:dbcb4a2]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:31.696 Uid(value=10327):28278:3435 I/mali_gralloc]
+register: id=0x2930004e31b, importpid=-1
+
+[2026-11-14 14:52:31.697 Uid(value=10327):28278:3435 I/mali_gralloc]
+register: id=0x2930004e31c, importpid=-1
+
+[2026-11-14 14:52:31.698 Uid(value=10327):28278:3435 I/mali_gralloc]
+register: id=0x2930004e31d, importpid=-1
+
+[2026-11-14 14:52:31.699 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:31.701 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e31d, base=0x0, importpid=28278
+
+[2026-11-14 14:52:31.701 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e31c, base=0x0, importpid=28278
+
+[2026-11-14 14:52:31.708 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{d1f8a52 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=2
+
+[2026-11-14 14:52:31.708 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:31.720 Uid(value=10327):28278:2861 I/mali_gralloc]
+unregister: id=0x2930004e31b, base=0x0, importpid=28278
+
+[2026-11-14 14:52:31.722 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{31dac95 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:31.722 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:31.731 Uid(value=10327):28278:28278 D/VRI[PopupWindow:f247edd]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:31.733 Uid(value=10327):28278:3439 I/mali_gralloc]
+register: id=0x2930004e31e, importpid=-1
+
+[2026-11-14 14:52:31.734 Uid(value=10327):28278:3439 I/mali_gralloc]
+register: id=0x2930004e31f, importpid=-1
+
+[2026-11-14 14:52:31.735 Uid(value=10327):28278:3439 I/mali_gralloc]
+register: id=0x2930004e320, importpid=-1
+
+[2026-11-14 14:52:31.738 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:31.744 Uid(value=10327):28278:28278 D/VRI[PopupWindow:246844c]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:31.747 Uid(value=10327):28278:3440 I/mali_gralloc]
+register: id=0x2930004e321, importpid=-1
+
+[2026-11-14 14:52:31.748 Uid(value=10327):28278:3440 I/mali_gralloc]
+register: id=0x2930004e322, importpid=-1
+
+[2026-11-14 14:52:31.749 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:31.751 Uid(value=10327):28278:3440 I/mali_gralloc]
+register: id=0x2930004e323, importpid=-1
+
+[2026-11-14 14:52:31.791 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e322, base=0x0, importpid=28278
+
+[2026-11-14 14:52:31.791 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e321, base=0x0, importpid=28278
+
+[2026-11-14 14:52:31.792 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e323, base=0x0, importpid=28278
+
+[2026-11-14 14:52:31.796 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e31e, base=0x0, importpid=28278
+
+[2026-11-14 14:52:31.802 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{d0e395a V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=2
+
+[2026-11-14 14:52:31.802 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:31.805 Uid(value=10327):28278:3124 I/mali_gralloc]
+unregister: id=0x2930004e320, base=0x0, importpid=28278
+
+[2026-11-14 14:52:31.805 Uid(value=10327):28278:3124 I/mali_gralloc]
+unregister: id=0x2930004e31f, base=0x0, importpid=28278
+
+[2026-11-14 14:52:31.816 Uid(value=10327):28278:28278 D/VRI[PopupWindow:fc3e505]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:31.818 Uid(value=10327):28278:3441 I/mali_gralloc]
+register: id=0x2930004e324, importpid=-1
+
+[2026-11-14 14:52:31.819 Uid(value=10327):28278:3441 I/mali_gralloc]
+register: id=0x2930004e325, importpid=-1
+
+[2026-11-14 14:52:31.820 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:31.820 Uid(value=10327):28278:3441 I/mali_gralloc]
+register: id=0x2930004e326, importpid=-1
+
+[2026-11-14 14:52:32.018 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.590643ms p95=19.089499ms max=34.168808ms pre_max=0.089654ms pre_p95=0.052577ms ≈64fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:52:32.018 Uid(value=10327):28278:28306 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.26668ms p95=1.822846ms max=5.206693ms scrollback=69 rows
+
+[2026-11-14 14:52:32.378 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e324, base=0x0, importpid=28278
+
+[2026-11-14 14:52:32.387 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{93c18e3 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=2
+
+[2026-11-14 14:52:32.387 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:32.389 Uid(value=10327):28278:28291 I/mali_gralloc]
+unregister: id=0x2930004e326, base=0x0, importpid=28278
+
+[2026-11-14 14:52:32.389 Uid(value=10327):28278:28291 I/mali_gralloc]
+unregister: id=0x2930004e325, base=0x0, importpid=28278
+
+[2026-11-14 14:52:32.398 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{fbf5d0c V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:32.398 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:32.409 Uid(value=10327):28278:28278 D/VRI[PopupWindow:210d912]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:32.412 Uid(value=10327):28278:3446 I/mali_gralloc]
+register: id=0x2930004e327, importpid=-1
+
+[2026-11-14 14:52:32.413 Uid(value=10327):28278:3446 I/mali_gralloc]
+register: id=0x2930004e328, importpid=-1
+
+[2026-11-14 14:52:32.414 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:32.414 Uid(value=10327):28278:3446 I/mali_gralloc]
+register: id=0x2930004e329, importpid=-1
+
+[2026-11-14 14:52:32.419 Uid(value=10327):28278:28278 D/VRI[PopupWindow:30d603f]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:32.421 Uid(value=10327):28278:3447 I/mali_gralloc]
+register: id=0x2930004e32a, importpid=-1
+
+[2026-11-14 14:52:32.422 Uid(value=10327):28278:3447 I/mali_gralloc]
+register: id=0x2930004e32b, importpid=-1
+
+[2026-11-14 14:52:32.422 Uid(value=10327):28278:3447 I/mali_gralloc]
+register: id=0x2930004e32c, importpid=-1
+
+[2026-11-14 14:52:32.423 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:32.424 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e329, base=0x0, importpid=28278
+
+[2026-11-14 14:52:32.424 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e328, base=0x0, importpid=28278
+
+[2026-11-14 14:52:32.424 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e327, base=0x0, importpid=28278
+
+[2026-11-14 14:52:32.432 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{3e4d72f V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:32.432 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:32.446 Uid(value=10327):28278:28278 D/VRI[PopupWindow:30d603f]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=0
+
+[2026-11-14 14:52:32.451 Uid(value=10327):28278:28278 D/VRI[PopupWindow:a3fb10e]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:32.454 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e32d, importpid=-1
+
+[2026-11-14 14:52:32.456 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:32.457 Uid(value=10327):28278:3451 I/mali_gralloc]
+register: id=0x2930004e32e, importpid=-1
+
+[2026-11-14 14:52:32.459 Uid(value=10327):28278:3451 I/mali_gralloc]
+register: id=0x2930004e32f, importpid=-1
+
+[2026-11-14 14:52:33.004 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.41456ms p95=17.522269ms max=34.189577ms pre_max=0.078115ms pre_p95=0.024653ms ≈60fps vsync=16.7ms avg=17.8ms p95=33.3ms max=33.4ms
+
+[2026-11-14 14:52:33.004 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.115381ms p95=0.24477ms max=2.503923ms scrollback=69 rows
+
+[2026-11-14 14:52:33.315 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e32b, base=0x0, importpid=28278
+
+[2026-11-14 14:52:33.315 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e32a, base=0x0, importpid=28278
+
+[2026-11-14 14:52:33.315 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e32c, base=0x0, importpid=28278
+
+[2026-11-14 14:52:33.605 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=10.003325ms p95=18.816731ms max=23.058038ms pre_max=0.066846ms pre_p95=0.036692ms ≈99fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 14:52:33.605 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.724351ms p95=2.645ms max=5.444077ms scrollback=69 rows
+
+[2026-11-14 14:52:33.833 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{f1c6140 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:33.833 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:33.848 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{c07c335 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=4
+
+[2026-11-14 14:52:33.848 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:33.852 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e32e, base=0x0, importpid=28278
+
+[2026-11-14 14:52:33.852 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e32f, base=0x0, importpid=28278
+
+[2026-11-14 14:52:33.853 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e32d, base=0x0, importpid=28278
+
+[2026-11-14 14:52:33.866 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{5c00296 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:33.866 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:33.882 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{f7b64b3 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:33.882 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:33.885 Uid(value=10327):28278:28278 W/InputEventReceiver]
+Attempted to finish an input event but the input event receiver has already been disposed.
+
+[2026-11-14 14:52:33.892 Uid(value=10327):28278:28278 D/VRI[PopupWindow:5fe5db1]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:33.894 Uid(value=10327):28278:3460 I/mali_gralloc]
+register: id=0x2930004e330, importpid=-1
+
+[2026-11-14 14:52:33.895 Uid(value=10327):28278:3460 I/mali_gralloc]
+register: id=0x2930004e331, importpid=-1
+
+[2026-11-14 14:52:33.896 Uid(value=10327):28278:3460 I/mali_gralloc]
+register: id=0x2930004e332, importpid=-1
+
+[2026-11-14 14:52:33.899 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:33.904 Uid(value=10327):28278:28278 D/VRI[PopupWindow:cf1b222]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:33.907 Uid(value=10327):28278:3461 I/mali_gralloc]
+register: id=0x2930004e333, importpid=-1
+
+[2026-11-14 14:52:33.907 Uid(value=10327):28278:3461 I/mali_gralloc]
+register: id=0x2930004e334, importpid=-1
+
+[2026-11-14 14:52:33.908 Uid(value=10327):28278:3461 I/mali_gralloc]
+register: id=0x2930004e335, importpid=-1
+
+[2026-11-14 14:52:33.908 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:33.909 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e332, base=0x0, importpid=28278
+
+[2026-11-14 14:52:33.909 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e331, base=0x0, importpid=28278
+
+[2026-11-14 14:52:33.910 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e330, base=0x0, importpid=28278
+
+[2026-11-14 14:52:33.916 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{995434 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:33.916 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:33.925 Uid(value=10327):28278:28278 D/VRI[PopupWindow:ad59b07]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:33.928 Uid(value=10327):28278:3462 I/mali_gralloc]
+register: id=0x2930004e336, importpid=-1
+
+[2026-11-14 14:52:33.929 Uid(value=10327):28278:3462 I/mali_gralloc]
+register: id=0x2930004e337, importpid=-1
+
+[2026-11-14 14:52:33.929 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:33.929 Uid(value=10327):28278:3462 I/mali_gralloc]
+register: id=0x2930004e338, importpid=-1
+
+[2026-11-14 14:52:34.289 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=11.401885ms p95=18.840923ms max=34.201577ms pre_max=0.041654ms pre_p95=0.028423ms ≈87fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 14:52:34.289 Uid(value=10327):28278:28350 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.286193ms p95=2.147961ms max=2.355576ms scrollback=69 rows
+
+[2026-11-14 14:52:34.401 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e334, base=0x0, importpid=28278
+
+[2026-11-14 14:52:34.401 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e333, base=0x0, importpid=28278
+
+[2026-11-14 14:52:34.401 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e335, base=0x0, importpid=28278
+
+[2026-11-14 14:52:34.790 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=6.956025ms p95=19.10777ms max=21.345115ms pre_max=0.093346ms pre_p95=0.059461ms ≈143fps vsync=16.7ms avg=17.0ms p95=16.7ms max=33.4ms
+
+[2026-11-14 14:52:34.790 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.085269ms p95=2.570538ms max=4.612923ms scrollback=69 rows
+
+[2026-11-14 14:52:35.100 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{9788891 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:35.100 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:35.112 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{3fce982 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=4
+
+[2026-11-14 14:52:35.112 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:35.116 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e336, base=0x0, importpid=28278
+
+[2026-11-14 14:52:35.117 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e337, base=0x0, importpid=28278
+
+[2026-11-14 14:52:35.117 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e338, base=0x0, importpid=28278
+
+[2026-11-14 14:52:35.129 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{35ccaef V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:35.129 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:35.143 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{92929e8 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:35.143 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:35.147 Uid(value=10327):28278:28278 W/InputEventReceiver]
+Attempted to finish an input event but the input event receiver has already been disposed.
+
+[2026-11-14 14:52:35.155 Uid(value=10327):28278:28278 D/VRI[PopupWindow:7141bce]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:35.157 Uid(value=10327):28278:28300 I/mali_gralloc]
+register: id=0x2930004e339, importpid=-1
+
+[2026-11-14 14:52:35.159 Uid(value=10327):28278:3470 I/mali_gralloc]
+register: id=0x2930004e33a, importpid=-1
+
+[2026-11-14 14:52:35.160 Uid(value=10327):28278:3470 I/mali_gralloc]
+register: id=0x2930004e33b, importpid=-1
+
+[2026-11-14 14:52:35.161 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:35.167 Uid(value=10327):28278:28278 D/VRI[PopupWindow:bd5270b]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:35.169 Uid(value=10327):28278:3471 I/mali_gralloc]
+register: id=0x2930004e33c, importpid=-1
+
+[2026-11-14 14:52:35.169 Uid(value=10327):28278:3471 I/mali_gralloc]
+register: id=0x2930004e33d, importpid=-1
+
+[2026-11-14 14:52:35.170 Uid(value=10327):28278:3471 I/mali_gralloc]
+register: id=0x2930004e33e, importpid=-1
+
+[2026-11-14 14:52:35.170 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:35.171 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e33b, base=0x0, importpid=28278
+
+[2026-11-14 14:52:35.171 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e33a, base=0x0, importpid=28278
+
+[2026-11-14 14:52:35.178 Uid(value=10327):28278:3124 I/mali_gralloc]
+unregister: id=0x2930004e339, base=0x0, importpid=28278
+
+[2026-11-14 14:52:35.181 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews: android.widget.PopupWindow$PopupDecorView{24e2cf5 V.E...... R.....I. 0,0-0,0}, this = android.view.WindowManagerGlobal@cd5779emViews.size()=3
+
+[2026-11-14 14:52:35.181 Uid(value=10327):28278:28278 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 14:52:35.189 Uid(value=10327):28278:28278 D/VRI[PopupWindow:ba14a2c]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 14:52:35.191 Uid(value=10327):28278:3472 I/mali_gralloc]
+register: id=0x2930004e33f, importpid=-1
+
+[2026-11-14 14:52:35.192 Uid(value=10327):28278:3472 I/mali_gralloc]
+register: id=0x2930004e340, importpid=-1
+
+[2026-11-14 14:52:35.193 Uid(value=10327):28278:28300 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 14:52:35.194 Uid(value=10327):28278:3472 I/mali_gralloc]
+register: id=0x2930004e341, importpid=-1
+
+[2026-11-14 14:52:35.610 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.652358ms p95=17.344308ms max=34.586154ms pre_max=0.2035ms pre_p95=0.078346ms ≈73fps vsync=16.7ms avg=17.0ms p95=16.7ms max=33.4ms
+
+[2026-11-14 14:52:35.610 Uid(value=10327):28278:28349 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.114093ms p95=0.200885ms max=2.419846ms scrollback=69 rows
+
+[2026-11-14 14:52:36.543 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e33d, base=0x0, importpid=28278
+
+[2026-11-14 14:52:36.543 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e33c, base=0x0, importpid=28278
+
+[2026-11-14 14:52:36.544 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e33e, base=0x0, importpid=28278
+
+[2026-11-14 14:52:36.579 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.129864ms p95=17.310308ms max=18.027885ms pre_max=0.275269ms pre_p95=0.018769ms ≈61fps vsync=16.6ms avg=17.0ms p95=16.7ms max=33.4ms
+
+[2026-11-14 14:52:36.579 Uid(value=10327):28278:28350 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.178383ms p95=0.198346ms max=4.870616ms scrollback=69 rows
+
+[2026-11-14 14:52:36.603 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e340, base=0x0, importpid=28278
+
+[2026-11-14 14:52:36.603 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e33f, base=0x0, importpid=28278
+
+[2026-11-14 14:52:36.603 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e341, base=0x0, importpid=28278
+
+[2026-11-14 14:52:36.607 Uid(value=10327):28278:28278 W/InputEventReceiver]
+Attempted to finish an input event but the input event receiver has already been disposed.
+
+[2026-11-14 14:52:37.204 Uid(value=10327):28278:28278 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-14 14:52:37.204 Uid(value=10327):28278:28278 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{9457ffa VFED..... .F...... 0,0-472,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-11-14 14:52:37.250 Uid(value=10327):28278:28278 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 14:52:37.547 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.131391ms p95=17.365154ms max=17.443846ms pre_max=0.118461ms pre_p95=0.014807ms ≈61fps vsync=16.6ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 14:52:37.547 Uid(value=10327):28278:28350 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.037395ms p95=0.070347ms max=0.237885ms scrollback=69 rows
+
+[2026-11-14 14:52:38.549 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.692183ms p95=17.340807ms max=18.278846ms pre_max=0.076692ms pre_p95=0.012462ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:52:38.550 Uid(value=10327):28278:28350 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.042781ms p95=0.052576ms max=0.2525ms scrollback=69 rows
+
+[2026-11-14 14:52:39.156 Uid(value=10327):28278:3339 I/Runtime]
+session 1 first output received
+
+[2026-11-14 14:52:39.467 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.300366ms p95=17.396ms max=17.72ms pre_max=0.063538ms pre_p95=0.007769ms ≈65fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 14:52:39.468 Uid(value=10327):28278:28350 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.098385ms p95=0.086539ms max=2.410923ms scrollback=69 rows
+
+[2026-11-14 14:52:40.403 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.586876ms p95=17.241077ms max=17.544462ms pre_max=0.093384ms pre_p95=0.049538ms ≈64fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:52:40.404 Uid(value=10327):28278:28350 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.092238ms p95=0.19427ms max=2.816577ms scrollback=69 rows
+
+[2026-11-14 14:52:41.407 Uid(value=10327):28278:3339 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.703599ms p95=17.315846ms max=17.651461ms pre_max=0.097962ms pre_p95=0.017269ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 14:52:41.407 Uid(value=10327):28278:28350 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.051685ms p95=0.091924ms max=0.275423ms scrollback=69 rows
+
+[2026-11-14 14:52:41.584 Uid(value=10327):28278:28338 I/native::terminal::session::spawn]
+reader thread: PTY EOF (slave closed, EIO)
+
+[2026-11-14 14:52:41.584 Uid(value=10327):28278:28339 I/native::terminal::session::spawn]
+wait thread: child exited: Ok(Exited(Pid(28336), 0))
+
+[2026-11-14 14:52:41.597 Uid(value=10327):28278:3339 I/Runtime]
+session 1 exited with code 0
+
+[2026-11-14 14:52:41.597 Uid(value=10327):28278:3339 I/native::android::ffi::session]
+FFI: destroySession id=1
+
+[2026-11-14 14:52:41.651 Uid(value=10327):28278:3339 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 14:52:41.680 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:52:41.682 Uid(value=10327):28278:28278 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 14:52:41.961 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e2e4, base=0x0, importpid=28278
+
+[2026-11-14 14:52:41.964 Uid(value=10327):28278:28300 I/mali_gralloc]
+unregister: id=0x2930004e2e6, base=0x0, importpid=28278
+
+[2026-11-14 14:52:41.973 Uid(value=10327):28278:28278 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 14:52:41.974 Uid(value=10327):28278:28278 I/mali_gralloc]
+unregister: id=0x2930004e2e5, base=0x0, importpid=28278
+
+[2026-11-14 14:52:41.988 Uid(value=10327):28278:28278 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
