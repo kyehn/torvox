@@ -36,6 +36,16 @@ internal class SelectionMenu(private val surface: TerminalSurface) {
     private var selectionMenuBar: LinearLayout? = null
 
     /**
+     * 菜单窗口的存活追踪（见 [PopupWindowLiveness]）。
+     *
+     * 输入路径与 Compose 副作用在同一帧里各调一次 [showSelectionMenu]：第二次调用时
+     * 窗口已 `showAtLocation`、但 `contentView.isAttachedToWindow` 仍为 false。只看
+     * 后者会 dismiss 后立即重建，丢掉的那个窗口留下未在 InputManager 注册的输入
+     * 通道，GC 时打出 `InputManager-JNI: ... disposed without first being removed`。
+     */
+    private var menuLiveness: PopupWindowLiveness? = null
+
+    /**
      * 菜单窗口里已建好的条目文案。条目集不变就什么都不动；变了（例如剪贴板由空变
      * 非空、PASTE 因此出现）也只原地换条目——窗口本身一次选区会话只创建一次。
      *
@@ -97,10 +107,12 @@ internal class SelectionMenu(private val surface: TerminalSurface) {
         surface.getLocationInWindow(windowLocation)
         val existing = selectionMenuPopup
         val existingBar = selectionMenuBar
+        val existingLiveness = menuLiveness
         if (existing != null &&
             existingBar != null &&
+            existingLiveness != null &&
             existing.isShowing &&
-            existing.contentView.isAttachedToWindow
+            existingLiveness.alive
         ) {
             val labels = actions.map { it.first }
             if (labels != shownMenuLabels) fillMenuBar(existingBar, actions)
@@ -126,6 +138,8 @@ internal class SelectionMenu(private val surface: TerminalSurface) {
             return
         }
         val menuBar = buildMenuBar(actions)
+        val liveness = PopupWindowLiveness()
+        menuBar.bindPopupWindowLiveness(liveness)
         val popup =
             PopupWindow(
                 menuBar,
@@ -141,6 +155,7 @@ internal class SelectionMenu(private val surface: TerminalSurface) {
                         WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL,
                     )
                 }
+        liveness.markShown()
         try {
             // 本回调只在**我们**调用 dismiss() 时触发。平台直接移除弹窗窗口
             // （父视图窗口令牌变化/销毁）不会走到这里——两者是否成对出现，
@@ -163,10 +178,12 @@ internal class SelectionMenu(private val surface: TerminalSurface) {
             // Activity 在检查与显示之间被 detach——与选区手柄同一守卫；
             // 弹窗从未变为可见。
             LogUtil.warn(TerminalSurface.TAG, "showSelectionMenu: popup show failed", exception)
+            liveness.markDetached()
             return
         }
         selectionMenuPopup = popup
         selectionMenuBar = menuBar
+        menuLiveness = liveness
         shownMenuLabels = actions.map { it.first }
     }
 
@@ -378,6 +395,7 @@ internal class SelectionMenu(private val surface: TerminalSurface) {
         val popup = selectionMenuPopup
         selectionMenuPopup = null
         selectionMenuBar = null
+        menuLiveness = null
         shownMenuLabels = null
         if (popup == null) return
         // 记下消失瞬间的选区状态：菜单的关闭完全由选区状态流驱动，

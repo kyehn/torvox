@@ -40,6 +40,21 @@ internal class SelectionHandles(private val surface: TerminalSurface) {
     private val startHandleRect = Rect()
     private val endHandleRect = Rect()
 
+    /**
+     * 覆盖层窗口的存活追踪（见 [PopupWindowLiveness]）。
+     *
+     * 判定窗口存活不能只看 `contentView.isAttachedToWindow`：同一次选区的输入路径与
+     * Compose 副作用会在同一帧里各调一次 [showSelectionHandles]，第二次调用时窗口
+     * 已 `showAtLocation`、但还没走完首帧遍历，`isAttachedToWindow` 仍为 false。
+     * 若据此拆窗重建，一帧内会创建并丢弃多个 PopupWindow——每个被丢弃的窗口都留下
+     * 一个从未在 InputManager 注册的输入通道，GC 时打出
+     * `InputManager-JNI: Input channel object 'PopupWindow:...' was disposed without
+     * first being removed with the input manager!`。
+     */
+    private var overlayLiveness: PopupWindowLiveness? = null
+    private var overlayWindowX = 0
+    private var overlayWindowY = 0
+
     /** 手柄固有宽度（px），由平台主题 drawable 量出；命中矩形按它计算。 */
     private var selectionHandleWidth = 0
 
@@ -66,26 +81,42 @@ internal class SelectionHandles(private val surface: TerminalSurface) {
     }
 
     fun showSelectionHandles(startRow: Int, startCol: Int, endRow: Int, endCol: Int, themeFgColor: Int) {
-        val existingContent = overlayContent
-        val existingPopup = overlayPopup
-        if (existingContent != null && existingContent.streamForwarding) {
-            existingContent.dismissOnStreamEnd(existingPopup)
-            existingContent.onStreamEnded = {
-                // 事件仍在投递中：同步 dismiss 会把承载本次按压的输入接收器一起拆掉，
-                // 平台随后的 finishInputEvent 无处可去，打出
-                // `InputEventReceiver: ... already been disposed.`。推到下一轮 UI 循环
-                // 再拆，事件投递与窗口拆除不再重叠。
-                val pending = existingContent.consumeDeferredDismiss()
-                surface.post { dismissPopupQuietly(pending) }
-            }
-            overlayContent = null
-            overlayPopup = null
-            startHandleRect.setEmpty()
-            endHandleRect.setEmpty()
-        } else {
-            hideSelectionHandlesNow()
+        if (startRow < 0 || startCol < 0 || endRow < 0 || endCol < 0) {
+            hideSelectionHandles()
+            return
         }
-        if (startRow < 0 || startCol < 0 || endRow < 0 || endCol < 0) return
+        val existingPopup = overlayPopup
+        val existingContent = overlayContent
+        val existingLiveness = overlayLiveness
+        // 已有覆盖层存活：原地重定位。输入路径（ACTION_UP）与 Compose 副作用会在同一帧
+        // 各调一次，事件流还在转发时也一样——绝不能拆窗重建（见 [PopupWindowLiveness]）。
+        // 只有平台确实把窗口收走了（detach 且不再 pending）才拆掉重来。
+        if (existingPopup != null &&
+            existingContent != null &&
+            existingLiveness != null &&
+            existingPopup.isShowing &&
+            existingLiveness.alive
+        ) {
+            // 复用同一窗口时必须撤销待拆请求：hide 在事件流转发中只登记延迟拆除，
+            // 若新选区在流结束前又需要手柄，撤销后窗口才能继续服务。
+            existingContent.consumeDeferredDismiss()
+            val windowLocation = IntArray(2)
+            surface.getLocationInWindow(windowLocation)
+            val moved = overlayWindowX != windowLocation[0] || overlayWindowY != windowLocation[1]
+            if (moved || existingPopup.width != surface.width || existingPopup.height != surface.height) {
+                overlayWindowX = windowLocation[0]
+                overlayWindowY = windowLocation[1]
+                existingPopup.update(
+                    windowLocation[0],
+                    windowLocation[1],
+                    surface.width,
+                    surface.height,
+                )
+            }
+            positionAllHandles(startRow, startCol, endRow, endCol)
+            return
+        }
+        hideSelectionHandlesNow()
         // showAtLocation 需要窗口 token；在 Activity 结束过渡的帧中
         // 视图可能已 detach，调用会抛 BadTokenException。
         // `isAttachedToWindow` 在拆除回调内部仍为 true（见 [surface.viewDetached]），
@@ -108,13 +139,28 @@ internal class SelectionHandles(private val surface: TerminalSurface) {
             )
         overlayContent = content
         content.onStreamEnded = {
-            // 同上：投递内拆窗会让本窗口的输入接收器先于 finishInputEvent 消失。
-            val pending = content.consumeDeferredDismiss()
-            surface.post { dismissPopupQuietly(pending) }
+            // 投递内拆窗会让本窗口的输入接收器先于 finishInputEvent 消失，
+            // 平台随后的 finishInputEvent 无处可去，打出
+            // `InputEventReceiver: ... already been disposed.`。推到下一轮 UI 循环
+            // 再拆，事件投递与窗口拆除不再重叠。
+            // 待拆请求在真正执行时才取：期间若新选区复用了同一窗口，它会撤销
+            // 待拆请求，此时不得再拆。
+            surface.post {
+                // 新一轮触摸已经接管这扇窗口：等它结束时再拆，拆窗不得与事件投递重叠。
+                if (content.streamForwarding) return@post
+                val pending = content.consumeDeferredDismiss() ?: return@post
+                dismissPopupQuietly(pending)
+                if (overlayContent === content) clearOverlayState()
+            }
         }
+        val liveness = PopupWindowLiveness()
+        overlayLiveness = liveness
+        content.bindPopupWindowLiveness(liveness)
 
         val windowLocation = IntArray(2)
         surface.getLocationInWindow(windowLocation)
+        overlayWindowX = windowLocation[0]
+        overlayWindowY = windowLocation[1]
         val popup =
             PopupWindow(content, surface.width, surface.height).apply {
                 isClippingEnabled = false
@@ -133,13 +179,15 @@ internal class SelectionHandles(private val surface: TerminalSurface) {
                 isFocusable = false
                 isOutsideTouchable = false
             }
+        liveness.markShown()
         try {
             popup.showAtLocation(surface, 0, windowLocation[0], windowLocation[1])
         } catch (exception: Exception) {
             // WindowManager.BadTokenException：Activity 在 isAttachedToWindow
             // 检查与 showAtLocation 之间被 detach。
             LogUtil.warn(TerminalSurface.TAG, "showSelectionHandles: overlay show failed", exception)
-            overlayContent = null
+            liveness.markDetached()
+            clearOverlayState()
             return
         }
         overlayPopup = popup
@@ -225,11 +273,17 @@ internal class SelectionHandles(private val surface: TerminalSurface) {
 
     private fun hideSelectionHandlesNow() {
         val popup = overlayPopup
+        clearOverlayState()
+        dismissPopupQuietly(popup)
+    }
+
+    /** 清空覆盖层的视图/窗口引用与存活位（窗口本身的拆除由调用方负责）。 */
+    private fun clearOverlayState() {
         overlayPopup = null
         overlayContent = null
+        overlayLiveness = null
         startHandleRect.setEmpty()
         endHandleRect.setEmpty()
-        dismissPopupQuietly(popup)
     }
 
     private fun dismissPopupQuietly(popup: PopupWindow?) {
