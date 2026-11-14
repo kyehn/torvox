@@ -794,6 +794,12 @@ pub(super) fn render_idle_frame(session_id: u64) -> Result<(jint, RenderTiming),
     render_state.full_repaint = false;
     // Idle Kitty 同步：字体/缩放变化不经过 VT（无 New 帧），缓存实例
     // 会按旧单元格尺寸错位。纯本地经布局重建（无 RPC，图集未变不重传）。
+    //
+    // 刻意**不**推进 `kitty_cell_width/height`：上游按下单时的单元格像素算
+    // `pixel_width/height`，本地重建只换了几何、没有重查放置，缓存的显示尺寸仍是
+    // 旧口径。推进键会让下一新帧的 `cell_geometry_changed` 恒假，于是既不
+    // `set_cell_pixel_size` 也不重查放置，图像就此停在旧尺寸上。留在旧键上，
+    // 下一次有输出的帧会走完整的同步+重查（各一次），本帧则先按新几何近似呈现。
     if !render_state.kitty_frames.is_empty() {
         let (idle_font_width, idle_font_height) = render_state.font_pipeline.cell_metrics();
         let idle_scale = render_state.font_pipeline.get_raster_scale();
@@ -821,8 +827,6 @@ pub(super) fn render_idle_frame(session_id: u64) -> Result<(jint, RenderTiming),
             if let Some(instances) = rebuilt {
                 render_state.kitty_instances = instances;
             }
-            render_state.kitty_cell_width = idle_cell_width;
-            render_state.kitty_cell_height = idle_cell_height;
         }
     }
     let prepare_done = std::time::Instant::now();
