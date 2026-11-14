@@ -34,6 +34,13 @@ class BootstrapInstallService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
+        if (!isInsideAppPrivateDir(File(zipPath), listOf(filesDir, cacheDir))) {
+            // 归档内容会被写进 files/usr 并以 shell 身份执行：路径放开即等于让任何应用
+            // 借本应用装进自己的二进制。判据失败即拒绝，不落回宽松路径；路径本身不入日志。
+            LogUtil.warn(TAG, "拒绝安装应用私有目录之外的引导包")
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         Thread {
             // 用 runCatchingCancellable 而非 try/catch(Exception)：detekt
             // TooGenericExceptionCaught；安装路径返回 Result。
@@ -68,3 +75,17 @@ class BootstrapInstallService : Service() {
         }
     }
 }
+
+/**
+ * 引导归档的来源路径是否落在应用私有目录内。
+ *
+ * 判据取规范路径的包含性：`..` 段与指向站外的符号链接都归一到真实目标，
+ * 故两者都判为站外；规范解析失败即拒绝——检查失败不得落回宽松路径。
+ */
+internal fun isInsideAppPrivateDir(candidate: File, roots: List<File>): Boolean = runCatchingCancellable {
+    val canonical = candidate.canonicalFile
+    roots.any { root ->
+        val canonicalRoot = root.canonicalFile
+        canonical == canonicalRoot || canonical.path.startsWith(canonicalRoot.path + File.separator)
+    }
+}.getOrDefault(false)
