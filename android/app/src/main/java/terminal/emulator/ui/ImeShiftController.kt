@@ -191,6 +191,14 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
     private fun scheduleImeGridResize() {
         if (surface.surfaceWidthPixels <= 0 || surface.surfaceHeightPixels <= 0) return
         val runtime = surface.viewModel?.runtime ?: return
+        // 切后台期间输入法显隐会异步触发 insets 回调：此时不应排队网格重排或持有
+        // 备用屏的渲染暂停凭证，否则防抖可能在后台/恢复窗口期执行并干扰前后台切换。
+        // 返回前台后 insets 会按真实状态再次派发，自然触发需要的重排。
+        if (runtime.isBackgroundPaused) {
+            cancelGridResize()
+            releaseGridResizePause()
+            return
+        }
         // 主屏 MUST NOT 暂停渲染：那里的遮挡计为 0，`applyGridResize` 算出的行数与
         // 当前相同，是个 no-op——而键盘动画期间平台逐帧派发 insets，每次都重新起算
         // 防抖，暂停会一直挂到动画结束，终端停止上帧（TESTING.md 要求弹/收键盘不卡顿
@@ -211,10 +219,16 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
         pendingImeGridResize =
             Runnable {
                 pendingImeGridResize = null
+                // 保险：防抖触发时若已切后台，丢弃本次重排并释放凭证，避免恢复窗口期干扰。
+                if (runtime.isBackgroundPaused) {
+                    token?.let { runtime.releaseRenderPause(it) }
+                    if (pendingImeGridResizeToken == token) pendingImeGridResizeToken = null
+                    return@Runnable
+                }
                 surface.resizeManager.applyGridResize(surface.surfaceWidthPixels, surface.surfaceHeightPixels)
                 // 凭证已陈旧时（视图 detach 后的 `mRunQueue` 延迟派发）ledger 会把它当
                 // 空操作，故这里只清仍属于本次的那一个。
-                token?.let { surface.viewModel?.runtime?.releaseRenderPause(it) }
+                token?.let { runtime.releaseRenderPause(it) }
                 if (pendingImeGridResizeToken == token) pendingImeGridResizeToken = null
             }.also { surface.postDelayed(it, TerminalSurface.IME_RESIZE_DEBOUNCE_MS) }
     }
