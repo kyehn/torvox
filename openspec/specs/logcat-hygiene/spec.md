@@ -460,11 +460,16 @@ dex 元数据缺失、厂商私有属性读取被拒）MUST 指出条目由厂�
 
 - **WHEN** 日志出现设备图形分配器对格式的探测告警（真机为 `mali_gralloc` 报告 R8
       格式不被支持）
-- **THEN** 归因 MUST 说明探测由表面重建触发、由驱动在创建交换链时枚举格式引起，
-      MUST 指出被拒的是驱动自己的格式试分配而非应用的呈现缓冲（试分配失败后交换链
-      仍以 8 位 RGBA 族建立、帧照常呈现），MUST 给出应用实际请求的交换链格式与上游
-      判据位置，MUST 说明应用侧无开关，MUST NOT 记为应用选错格式；MUST 同时记明
-      该组条数与表面重建次数的倍数关系，以及应用侧减少重建的手段
+- **THEN** 归因 MUST 给出上游判据位置：AOSP `vulkan/libvulkan/swapchain.cpp` 的
+      `GetPhysicalDeviceSurfaceFormatsKHR` 在枚举表面格式时无条件对 R8 调
+      `AHardwareBuffer_isSupported`，Mali 的 gralloc 在该探测里逐次打出
+      「Requested R8 format…」与「Unrecognized…0x38/usage 0xb00」；探测由表面重建
+      触发，每次重建固定 4 对（8 行）
+- **THEN** MUST 指出被拒的是平台格式枚举的支持性探测，不是应用申请的呈现缓冲；应用
+      实际请求 `Rgba8Unorm`（与窗口缓冲 `RGBA_8888` 同格式），交换链照常建立、帧
+      照常呈现，MUST 说明应用侧无开关（除非放弃 Vulkan 表面），MUST NOT 记为应用
+      选错格式；MUST 同时记明该组条数与表面重建次数的倍数关系（8 行/次），以及
+      应用侧减少重建的手段
 
 #### Scenario: 系统窗口事务的空 Binder 返回
 
@@ -474,9 +479,18 @@ dex 元数据缺失、厂商私有属性读取被拒）MUST 指出条目由厂�
 
 #### Scenario: 平台帧时间线的同步组查询告警
 
-- **WHEN** 日志出现平台帧时间线机制在同步组查询失败时打出的告警
-- **THEN** 归因 MUST 说明该告警由平台的帧时间线机制产生、应用无对应调用，MUST 写明
-      它按表面重建成组出现（序号随已建立的同步组递增），MUST NOT 记为应用侧缺陷
+- **WHEN** 日志出现平台帧时间线机制在同步组查询失败时打出的告警（真机为 Android 13
+      的 `SurfaceSyncer` 报告 `Failed to find sync for id=N`）
+- **THEN** 归因 MUST 给出判据：Android 13 `SurfaceView.handleSyncNoBuffer` 在
+      `mSyncIds.add(syncId)` **之前**调用重绘回调，而移除只在完成回调里；完成回调
+      同步执行时 syncId 在入账前就随同步组完成被移除，之后 `surfaceSyncStarted`
+      遍历 `mSyncIds` 的每个陈旧 id 都经 `SurfaceSyncer.merge` →
+      `getAndValidateSyncSet` 查组失败并逐条打 E
+- **THEN** 应用侧 MUST 实现 `SurfaceHolder.Callback2`，把 `drawingFinished` 投递到
+      下一轮 UI 循环执行，MUST NOT 在 `surfaceRedrawNeededAsync` 内同步完成；MUST NOT
+      用反射清 `mSyncIds`、降低日志级别或过滤 tag 掩盖
+- **THEN** 归因 MUST 说明 Android 14 重写了该路径并删除 `mSyncIds`，故告警只在 13
+      出现；序号按表面重建逐个累加，是同一泄漏的重复暴露，不是独立缺陷
 
 #### Scenario: 厂商改写的默认字体条目
 
