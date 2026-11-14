@@ -528,6 +528,17 @@ dex 元数据缺失、厂商私有属性读取被拒）MUST 指出条目由厂�
       binder 时打这条 W 并返回 `UNEXPECTED_NULL`，调用方在平台一侧，应用无对应
       调用，MUST NOT 记为应用侧缺陷
 
+#### Scenario: 运行时 GC 引用的 finalizer 可达性告警
+
+- **WHEN** 日志出现运行时引用处理打出的「清理的引用仅能从 finalizer 到达」告警
+      （真机 tag 为进程名，行内自带 `(only reported once)`）
+- **THEN** 归因 MUST 给出 AOSP ART 的判据位置（`runtime/gc/reference_queue.cc` 的
+      `ReferenceQueue::ClearWhiteReferences` 形参 `report_cleared`，由
+      `reference_processor.cc` 在软引用与弱引用的引用处理路径打开），MUST 说明该告警针对
+      「引用所指对象只被 pending finalizer 的 `this` 引用持有」这一语言规范未覆盖的
+      角落、每个虚拟机只打一次，MUST 写明应用侧不创建软引用/弱引用/幻引用（仓库内无
+      对应 API 调用）、引用由平台与 libcore 内部创建，应用侧无开关
+
 ### Requirement: 命令入队失败的告警必须限频并保留次数
 
 命令通道有界，VT 线程繁忙时命令入队会失败。该状况属**一种**异常（通道满），
