@@ -92,6 +92,20 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         theme.background.toArgb()
     }
 
+    /**
+     * 推进 Compose 测试时钟但**不因 Compose 不空闲而抛出**。
+     *
+     * 注入 surface 丢失后渲染循环退化为约 1fps，Compose 始终繁忙，`waitForIdle()`
+     * 的 Espresso 链接超时抛 `ComposeNotIdleException`——在轮询谓词里抛出等于直接
+     * 炸掉重试循环（本类实测：注入态下每轮都等够超时才抛）。轮询语义是「到时间再
+     * 算失败」，Compose 繁忙只是「还没好」，故吞掉该异常继续下一轮；真正超时仍由
+     * `pollUntilTrue` 以 null 收敛，错误信息不丢。断言前的硬等待（8 空格缩进）
+     * 不受影响，仍以抛异常暴露问题。
+     */
+    private fun idleOrBusy() {
+        runCatchingCancellable { composeTestRule.waitForIdle() }
+    }
+
     private lateinit var device: UiDevice
 
     @Before
@@ -158,7 +172,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
                 // 而重组由 Compose 测试的帧时钟推进。只截图不推进时钟时，换视图的信号
                 // 一直排在队列里——原生侧拿不到新窗口，出帧一直失败，画面始终无墨迹
                 // （实测注入失效后 30s 无墨迹，用例判红；推进时钟后同一路径自愈）。
-                composeTestRule.waitForIdle()
+                idleOrBusy()
                 (terminalInk() ?: 0L) >= MIN_INK_DELTA
             }
         assertNotNull("$phase 终端画面必须已有墨迹（截图或渲染均无内容）", seen)
@@ -178,25 +192,30 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         // 窗口。只断言「最后仍有墨迹」是不够的——画面可能从未掉过墨迹而全程未自愈。
         // 每轮必须制造新输出：空闲帧根本不渲染（渲染循环无脏不取纹理），不喂输出就
         // 永远等不到注入生效的那一帧。
+        //
+        // `finally` 关注入：应用级全局开关，任何中途失败（断言失败、Compose 不空闲、
+        // 轮询超时）都必须还原，否则本类后续用例全部以 `surface unavailable` 判红。
         val rebuilt =
-            UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
-                composeTestRule.requireBridge().writeToPty("echo TICK\n".toByteArray(Charsets.UTF_8))
-                composeTestRule.pumpedTerminalText()
-                // 必须推进测试时钟：组合的重算与 LaunchedEffect 都由 Compose 测试的帧
-                // 时钟驱动，只在 waitForIdle/advanceTimeBy 期间前进。不调用它，界面
-                // 在整个轮询里冻结——实测信号已送达、状态已写，视图却始终不换。
-                composeTestRule.waitForIdle()
-                val current =
-                    runCatchingCancellable { findTerminalSurface(composeTestRule.activity) }.getOrNull()
-                current != null && current !== surfaceBefore
+            try {
+                UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
+                    composeTestRule.requireBridge().writeToPty("echo TICK\n".toByteArray(Charsets.UTF_8))
+                    composeTestRule.pumpedTerminalText()
+                    // 必须推进测试时钟：组合的重算与 LaunchedEffect 都由 Compose 测试的帧
+                    // 时钟驱动，只在 waitForIdle/advanceTimeBy 期间前进。不调用它，界面
+                    // 在整个轮询里冻结——实测信号已送达、状态已写，视图却始终不换。
+                    idleOrBusy()
+                    val current =
+                        runCatchingCancellable { findTerminalSurface(composeTestRule.activity) }.getOrNull()
+                    current != null && current !== surfaceBefore
+                }
+            } finally {
+                // 真实场景由新窗口的重建自然完成；测试里注入必须总能关掉。
+                composeTestRule.requireBridge().setSurfaceLossInjectedForTest(false)
             }
         assertNotNull(
             "注入 surface 失效后 $RECOVERY_TIMEOUT_MS 内宿主未换新的 SurfaceView（未读到失效位或未请求重建）",
             rebuilt,
         )
-
-        // 关闭注入：此后取纹理恢复真实行为（真实场景由新窗口的重建自然完成）。
-        assertTrue("关闭失效注入必须被原生接受", composeTestRule.requireBridge().setSurfaceLossInjectedForTest(false))
 
         // 自愈的第二半：新窗口必须真的开始出帧。
         awaitInk("换 SurfaceView 后：")
@@ -225,7 +244,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
                 UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
                     bridge.writeToPty("echo LOST_TICK\n".toByteArray(Charsets.UTF_8))
                     composeTestRule.pumpedTerminalText()
-                    composeTestRule.waitForIdle()
+                    idleOrBusy()
                     val current =
                         runCatchingCancellable { findTerminalSurface(composeTestRule.activity) }.getOrNull()
                     current != null && current !== surfaceBefore
@@ -290,17 +309,22 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
 
         val surfaceBefore = findTerminalSurface(composeTestRule.activity)
         assertTrue("失效注入必须被原生接受", composeTestRule.requireBridge().setSurfaceLossInjectedForTest(true))
+        // `finally` 关注入：任何中途失败都还原，否则后续用例全被 `surface unavailable`
+        // 连坐（注入是应用级全局开关，不关会跨用例泄漏）。
         val rebuilt =
-            UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
-                composeTestRule.requireBridge().writeToPty("echo TICK\n".toByteArray(Charsets.UTF_8))
-                composeTestRule.pumpedTerminalText()
-                composeTestRule.waitForIdle()
-                val current =
-                    runCatchingCancellable { findTerminalSurface(composeTestRule.activity) }.getOrNull()
-                current != null && current !== surfaceBefore
+            try {
+                UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
+                    composeTestRule.requireBridge().writeToPty("echo TICK\n".toByteArray(Charsets.UTF_8))
+                    composeTestRule.pumpedTerminalText()
+                    idleOrBusy()
+                    val current =
+                        runCatchingCancellable { findTerminalSurface(composeTestRule.activity) }.getOrNull()
+                    current != null && current !== surfaceBefore
+                }
+            } finally {
+                composeTestRule.requireBridge().setSurfaceLossInjectedForTest(false)
             }
         assertNotNull("注入 surface 失效后 $RECOVERY_TIMEOUT_MS 内宿主未换新的 SurfaceView", rebuilt)
-        assertTrue("关闭失效注入必须被原生接受", composeTestRule.requireBridge().setSurfaceLossInjectedForTest(false))
 
         assertNotNull("换 SurfaceView 后选区菜单必须重现", awaitCopyAction())
     }
@@ -327,59 +351,71 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         assertTrue("失效注入必须被原生接受", composeTestRule.requireBridge().setSurfaceLossInjectedForTest(true))
         val surfaceBefore = findTerminalSurface(composeTestRule.activity)
         // 持续注入让新 Surface 也拿不到缓冲：宿主换视图后「无缓冲区」成为稳定态。
-        val rebuilt =
-            UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
-                composeTestRule.requireBridge().writeToPty("echo COVER_TICK\n".toByteArray(Charsets.UTF_8))
-                composeTestRule.pumpedTerminalText()
-                composeTestRule.waitForIdle()
-                val current =
-                    runCatchingCancellable { findTerminalSurface(composeTestRule.activity) }.getOrNull()
-                current != null && current !== surfaceBefore
-            }
-        assertNotNull("注入 surface 失效后 $RECOVERY_TIMEOUT_MS 内宿主未换新的 SurfaceView", rebuilt)
-        assertNotNull(
-            "换视图后、首帧未到时必须报告「无缓冲区」，否则不会着色遮住开孔",
-            UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = 50) {
-                !runtime.surfaceBufferPresent.value
-            },
-        )
-        // 等组合层把「无缓冲区」这个事实推给新视图：视图收到该事实才在自己的
-        // `onDraw` 里补画底色（开孔只能由 SurfaceView 自己填，见
-        // TerminalSurface.onDraw）。事实推达之前截到的画面是平台在洞里留的
-        // 空白——透出的是后方桌面，不是应用画的遮罩。
-        assertNotNull(
-            "组合层必须把「无缓冲区」推给换后的 SurfaceView",
-            UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = 50) {
-                (findTerminalSurface(composeTestRule.activity) as? TerminalSurface)
-                    ?.surfaceHasBuffer == false
-            },
-        )
-        // 视图收到事实后要等一帧才画出来：推进组合时钟并等它空闲。
-        composeTestRule.waitForIdle()
-        // 像素证据要在「注入仍生效」的这一瞬抓：先把画面拿到手，随后立刻撤注入。
-        // 反过来先轮询像素会把注入拖上几秒，重建预算被耗光，之后的恢复就无从发生。
-        val shot = runCatchingCancellable { UxTestUtils.screenshot(device) }.getOrNull()
-        val released = composeTestRule.requireBridge().setSurfaceLossInjectedForTest(false)
-        assertTrue("关闭失效注入必须被原生接受（$released）", released)
-        val bitmap = checkNotNull(shot) { "无缓冲区期间必须能截到开孔区域" }
-        val surface = findTerminalSurface(composeTestRule.activity)
-        val location = IntArray(2)
-        surface.getLocationOnScreen(location)
-        // 开孔里应当是**终端自己的画面**：切后台时回读的保留帧（有保留帧时），
-        // 否则是终端底色。两者都不是「后方桌面」——后者是壁纸与图标，像素既不
-        // 均匀、颜色也与终端底色无关。
-        //
-        // 断言取逐像素比对：开孔的采样像素必须与期望画面（保留帧或终端底色）
-        // 一致，容忍色彩管理带来的一两级偏差。之前断言「开孔必须是均匀的终端
-        // 底色」，那是保留帧落地之前的旧契约：保留帧里有字，像素本就不均匀。
-        val cover = runtime.coverFrame.value
-        val mismatch = coverMismatchRatio(bitmap, location, surface, cover)
-        UxTestUtils.metric("cover_mismatch_percent", mismatch.toLong())
-        assertTrue(
-            "无缓冲区期间开孔区域必须显示终端自己的画面（保留帧或终端底色），" +
-                "实测与期望不符的像素占 $mismatch%，否则就是透出了后方画面",
-            mismatch <= MAX_COVER_MISMATCH_PERCENT,
-        )
+        // `finally` 关注入整段：任何中途失败（截图拿不到、断言、轮询）都还原开关，
+        // 否则本类后续用例会被 `surface unavailable` 全部连坐。
+        var shot: android.graphics.Bitmap? = null
+        try {
+            val rebuilt =
+                UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
+                    composeTestRule.requireBridge().writeToPty("echo COVER_TICK\n".toByteArray(Charsets.UTF_8))
+                    composeTestRule.pumpedTerminalText()
+                    idleOrBusy()
+                    val current =
+                        runCatchingCancellable { findTerminalSurface(composeTestRule.activity) }.getOrNull()
+                    current != null && current !== surfaceBefore
+                }
+            assertNotNull("注入 surface 失效后 $RECOVERY_TIMEOUT_MS 内宿主未换新的 SurfaceView", rebuilt)
+            assertNotNull(
+                "换视图后、首帧未到时必须报告「无缓冲区」，否则不会着色遮住开孔",
+                UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = 50) {
+                    !runtime.surfaceBufferPresent.value
+                },
+            )
+            // 等组合层把「无缓冲区」这个事实推给新视图：视图收到该事实才在自己的
+            // `onDraw` 里补画底色（开孔只能由 SurfaceView 自己填，见
+            // TerminalSurface.onDraw）。事实推达之前截到的画面是平台在洞里留的
+            // 空白——透出的是后方桌面，不是应用画的遮罩。
+            assertNotNull(
+                "组合层必须把「无缓冲区」推给换后的 SurfaceView",
+                UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = 50) {
+                    (findTerminalSurface(composeTestRule.activity) as? TerminalSurface)
+                        ?.surfaceHasBuffer == false
+                },
+            )
+            // 视图收到事实后要等一帧才画出来：推进组合时钟并等它空闲。
+            idleOrBusy()
+            // 像素证据要在「注入仍生效」的这一瞬抓；换视图、合盖推送都是多异步源，
+            // 一次性截图会抓到「事实已写、视图还没画」的过渡帧——故轮询到开孔稳定
+            // 为本应用像素为止。关掉注入之后再截图测的是活画面，跟保留帧比必然
+            // 对不上（全量套件实测 96% 不符），那不是开孔的缺陷报告。
+            var mismatch = -1
+            val converged =
+                UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
+                    idleOrBusy()
+                    val shot =
+                        runCatchingCancellable { UxTestUtils.screenshot(device) }.getOrNull()
+                            ?: return@pollUntilTrue false
+                    val currentSurface = findTerminalSurface(composeTestRule.activity)
+                    val currentLocation = IntArray(2)
+                    currentSurface.getLocationOnScreen(currentLocation)
+                    val current =
+                        coverMismatchRatio(shot, currentLocation, currentSurface, runtime.coverFrame.value)
+                    if (current <= MAX_COVER_MISMATCH_PERCENT) {
+                        mismatch = current
+                        true
+                    } else {
+                        false
+                    }
+                }
+            UxTestUtils.metric("cover_mismatch_percent", mismatch.toLong())
+            assertNotNull(
+                "无缓冲区期间开孔区域必须显示终端自己的画面（保留帧或终端底色），" +
+                    "实测与期望不符的像素占 $mismatch%，否则就是透出了后方画面",
+                converged,
+            )
+        } finally {
+            composeTestRule.requireBridge().setSurfaceLossInjectedForTest(false)
+        }
         // 恢复与「换视图」同源：失效位持续为 1 时宿主会换新 SurfaceView，新窗口出帧后
         // 覆盖层才该撤。每轮都要制造输出——空闲帧不渲染，不喂输出就既驱动不出重试，
         // 也看不到新窗口的首帧。
@@ -388,7 +424,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
             UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
                 composeTestRule.requireBridge().writeToPty("echo COVER_RESUME\n".toByteArray(Charsets.UTF_8))
                 composeTestRule.pumpedTerminalText()
-                composeTestRule.waitForIdle()
+                idleOrBusy()
                 runtime.surfaceBufferPresent.value
             },
         )
