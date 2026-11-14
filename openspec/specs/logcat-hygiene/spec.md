@@ -108,6 +108,26 @@
 - **THEN** 缓冲格式 MUST 与窗口缓冲格式一致（见 `render-stability` 的同款
       Requirement），设备分配器 MUST NOT 因格式不被支持而记 error
 
+### Requirement: 日志 tag 必须与事件语义一致
+
+日志 tag 取自 `log` 宏的模块路径（`native/src/android/logging.rs` 用 `record.target()`
+作 tag），故 tag 反映的是「这段代码落在哪个模块」。导出类日志的调用点 MUST 落在与
+事件语义相符的模块：渲染开关不得记成字体事件、主题应用不得记成字体事件、选区变更
+不得记成字体事件。
+
+归位 MUST 通过把导出移进语义相符的模块实现，MUST NOT 靠过滤 tag、给日志改级别、
+统一前缀或给行内文案加前缀来「对齐」——那类做法只改外观，不改归因。
+
+#### Scenario: 渲染开关的 tag 与语义一致
+
+- **WHEN** 宿主暂停或恢复渲染器
+- **THEN** 该行的 tag MUST 落在渲染模块路径下，MUST NOT 落在字体等其他域的路径下
+
+#### Scenario: 外观设置的 tag 与语义一致
+
+- **WHEN** 宿主应用主题或设置光标样式
+- **THEN** 该行的 tag MUST 落在外观模块路径下，MUST NOT 落在字体路径下
+
 ### Requirement: 日志等级必须可调且两侧同步
 
 日志等级 MUST 可由宿主调整，MUST 覆盖「关闭」。等级 MUST 同时作用于 Kotlin 日志与
