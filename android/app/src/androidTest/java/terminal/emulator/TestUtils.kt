@@ -1,7 +1,6 @@
 package terminal.emulator
 
 import android.app.Activity
-import android.graphics.Bitmap
 import android.os.Looper
 import android.os.SystemClock
 import android.view.MotionEvent
@@ -681,29 +680,6 @@ fun firstColumnBeyondDrawerEdge(activity: Activity, bridge: Bridge): Int {
         column++
     }
     return column
-}
-
-// ── GPU frame helpers ───────────────────────────────
-
-fun getDisplayWidth(): Int {
-    val context = InstrumentationRegistry.getInstrumentation().targetContext
-    val windowManager = context.getSystemService(android.view.WindowManager::class.java)
-    return windowManager.currentWindowMetrics.bounds.width()
-}
-
-fun analyzeNonBlackRatio(bitmap: Bitmap): Double {
-    val width = bitmap.width
-    val height = bitmap.height
-    val pixels = IntArray(width * height)
-    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-    var nonBlack = 0L
-    for (pixel in pixels) {
-        val red = (pixel shr 16) and 0xFF
-        val green = (pixel shr 8) and 0xFF
-        val blue = pixel and 0xFF
-        if (red > 15 || green > 15 || blue > 15) nonBlack++
-    }
-    return nonBlack.toDouble() / pixels.size.toDouble()
 }
 
 fun injectLongPress(view: View, pointerX: Float, pointerY: Float) {
