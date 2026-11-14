@@ -197,7 +197,7 @@ mod gpu_init_race_tests {
                 .expect("GPU lookup thread must not panic")
                 .expect("GPU must be available");
             // 取到的正是同一个全局实例（引用为 'static），故其地址唯一标识它。
-            instances.insert(std::ptr::from_ref(gpu) as usize);
+            instances.insert(std::ptr::from_ref(&*gpu) as usize);
         }
 
         assert_eq!(

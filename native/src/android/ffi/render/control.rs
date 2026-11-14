@@ -1,6 +1,6 @@
-//! 渲染控制类 JNI 导出：暂停/恢复渲染器与测试用的 surface 失效注入。
+//! 渲染控制类 JNI 导出：暂停/恢复渲染器，以及测试用的 surface 失效与设备丢失注入。
 //!
-//! 这两个导出此前寄居在字体模块里，于是 logcat 的 tag 是
+//! 这些导出此前寄居在字体模块里，于是 logcat 的 tag 是
 //! `native::android::ffi::font`——把渲染开关记成字体事件，排障时按 tag 过滤必然漏掉。
 //! 日志 tag 取自 `log` 宏的模块路径（`native/src/android/logging.rs` 用
 //! `record.target()` 作 tag），故归位到渲染模块即可让 tag 与语义一致，无需任何
@@ -36,6 +36,27 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSurf
             None => false,
         }
     })
+}
+
+/// 注入设备丢失（仅仪器化用例）：模拟器上的设备不会被真的判死，而丢失后的重建
+/// 又必须经真实 attach 路径验证，故只能靠这条注入覆盖「丢失 → 宿主换窗口 → attach
+/// 重建 → 画面恢复」整条链（见 `render/context/gpu.rs` 的 `record_device_lost`）。
+///
+/// `injected=false` 是测试收尾：丢失并未真实发生，直接清标志即可回到原设备。
+#[unsafe(no_mangle)]
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setDeviceLostInjected(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
+    injected: jboolean,
+) {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
+        if injected {
+            crate::render::context::record_device_lost();
+        } else {
+            crate::render::context::clear_device_lost();
+        }
+        log::info!("setDeviceLostInjected: injected={injected}");
+    });
 }
 
 /// 暂停/恢复渲染器（如设置界面打开期间或 surface 已销毁时）。Rust 渲染器已在

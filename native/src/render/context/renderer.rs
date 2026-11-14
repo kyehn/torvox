@@ -278,8 +278,11 @@ impl Renderer {
     /// 创建共享全局 wgpu instance/adapter/device 的 `Renderer`，适用于无窗口上下文。
     pub fn new_with_no_surface() -> Self {
         let gpu = global_gpu();
-        let device = gpu.device.clone();
-        let queue = gpu.queue.clone();
+        Self::new_with_device(gpu.device.clone(), gpu.queue.clone())
+    }
+
+    /// 用给定设备/队列建 `Renderer`（首次初始化与设备丢失后重建共用）。
+    fn new_with_device(device: wgpu::Device, queue: wgpu::Queue) -> Self {
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Quad Vertex Buffer"),
             contents: bytemuck::cast_slice(QUAD_CORNERS),
@@ -287,6 +290,25 @@ impl Renderer {
         });
 
         Self::new_inner(device, queue, quad_vertex_buffer)
+    }
+
+    /// 设备丢失后换到新设备上重建渲染资源（仅 `attachWindow` 的恢复路径调用）。
+    ///
+    /// `*self = ...` 丢弃旧 surface、纹理与管线：旧设备已判死，它们全都不可再用。
+    /// 只搬运与设备无关的会话状态（暂停位、背景色、滚动偏移），否则恢复后会出现
+    /// 背景变黑、滚动跳回顶部二次闪烁。
+    ///
+    /// 新 surface 由调用方随后经 [`Self::attach_surface`] 挂载——`wgpu::Surface`
+    /// 绑定 instance，旧实例上的 surface 不能配到新设备。
+    #[cfg(target_os = "android")]
+    pub(crate) fn rebuild_after_device_loss(&mut self, gpu: &super::gpu::GlobalGpu) {
+        let paused = self.render_paused;
+        let background = self.background;
+        let viewport_scroll_px = self.viewport_scroll_px;
+        *self = Self::new_with_device(gpu.device.clone(), gpu.queue.clone());
+        self.render_paused = paused;
+        self.background = background;
+        self.viewport_scroll_px = viewport_scroll_px;
     }
 
     /// 把 Android `ANativeWindow` 挂载为渲染 surface：据原生窗口句柄建 wgpu surface
@@ -586,8 +608,12 @@ impl Renderer {
     }
 
     /// 当前缓存的 surface 是否已判死（见 [`Self::surface_invalidated`]）。
+    ///
+    /// 设备丢失也算「本窗口已不可用」：宿主据此走同一条换新窗口的自愈路径，
+    /// 新窗口的 `attachWindow` 才会重建设备（见 `render/context/gpu.rs` 的
+    /// [`device_lost`]）。不合并这一位，丢失后宿主永远等不到换窗口信号。
     pub fn surface_invalidated(&self) -> bool {
-        self.surface_invalidated
+        self.surface_invalidated || super::gpu::device_lost()
     }
 
     /// 测试钩子：让此后每帧取纹理都按 surface 级失败处理（见 `surface_loss_injected` 字段），

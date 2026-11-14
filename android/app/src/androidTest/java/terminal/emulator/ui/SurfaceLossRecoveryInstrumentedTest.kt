@@ -207,6 +207,48 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
     }
 
     @Test
+    fun deviceLossRebuildsGpuOnFreshSurfaceAndKeepsRendering() {
+        // 真机由 Mali 在切后台时制造（2026-11-14 日志：`Parent device is lost` 之后
+        // 207 条 panic，宿主反复换窗口却都挂在同一个死设备上，终端永久黑屏）。
+        // 模拟器不会真的丢设备，不注入就没有回归护栏。
+        printAndAwait("echo PRE_DEVICE_LOSS", "PRE_DEVICE_LOSS")
+        awaitInk("设备丢失前：")
+
+        val surfaceBefore = findTerminalSurface(composeTestRule.activity)
+        val bridge = composeTestRule.requireBridge()
+        try {
+            bridge.setDeviceLostInjectedForTest(true)
+
+            // 前半段与 surface 失效同源：每轮喂输出，渲染循环才会取帧并读到失效位；
+            // 必须推进组合时钟，宿主换 SurfaceView 的重组才会发生。
+            val rebuilt =
+                UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {
+                    bridge.writeToPty("echo LOST_TICK\n".toByteArray(Charsets.UTF_8))
+                    composeTestRule.pumpedTerminalText()
+                    composeTestRule.waitForIdle()
+                    val current =
+                        runCatchingCancellable { findTerminalSurface(composeTestRule.activity) }.getOrNull()
+                    current != null && current !== surfaceBefore
+                }
+            assertNotNull(
+                "注入设备丢失后 $RECOVERY_TIMEOUT_MS 内宿主未换新的 SurfaceView（未读到失效位或未请求重建）",
+                rebuilt,
+            )
+
+            // 后半段是设备丢失独有的：新窗口 attach 必须重建 VkInstance/Device 与
+            // Renderer 才可能出帧。只换视图而仍在死设备上取帧的话，这里永远零墨迹。
+            awaitInk("设备丢失重建后：")
+        } finally {
+            // 正常路径已由 attach 重建清除标志；用例中途失败时也必须清，否则后续
+            // 用例的渲染循环会一直被跳过。
+            bridge.setDeviceLostInjectedForTest(false)
+        }
+
+        printAndAwait("echo POST_DEVICE_LOSS", "POST_DEVICE_LOSS")
+        awaitInk("重建后再输出：")
+    }
+
+    @Test
     fun selectionMenuSurvivesSurfaceRebuild() {
         // 选区菜单是**独立系统窗口**，由当前那一个 Surface 定位。宿主换 SurfaceView 后
         // 旧 Surface 已脱离窗口，若菜单不随新 Surface 重显，用户看到的是

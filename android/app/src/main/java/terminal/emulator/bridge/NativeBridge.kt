@@ -521,6 +521,10 @@ object NativeBridge {
     @JvmStatic
     external fun setSurfaceLossInjected(sessionId: Long, injected: Boolean): Boolean
 
+    /** 测试钩子：注入/清除设备丢失（见 `Bridge.setDeviceLostInjectedForTest`）。 */
+    @JvmStatic
+    external fun setDeviceLostInjected(injected: Boolean)
+
     @JvmStatic
     external fun setFontFamily(sessionId: Long, family: String): Boolean
 

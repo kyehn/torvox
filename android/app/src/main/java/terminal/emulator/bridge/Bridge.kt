@@ -326,6 +326,12 @@ class Bridge(private val config: TerminalConfig) {
     fun setSurfaceLossInjectedForTest(injected: Boolean): Boolean =
         onSession("setSurfaceLossInjected", false) { NativeBridge.setSurfaceLossInjected(it, injected) }
 
+    /**
+     * 测试钩子：注入设备丢失（模拟器上设备不会真的被判死），驱动「宿主换窗口 →
+     * attach 重建 → 画面恢复」自愈链。仅供仪器化用例，无生产调用方。
+     */
+    fun setDeviceLostInjectedForTest(injected: Boolean) = NativeBridge.setDeviceLostInjected(injected)
+
     // ── 事件 ──
     data class PollResult(
         val clipboard: String? = null,

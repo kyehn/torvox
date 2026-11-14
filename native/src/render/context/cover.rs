@@ -48,6 +48,11 @@ impl CoverReadbackSource {
     /// 返回 `None` 表示回读失败或超时：调用方沿用平底色遮罩，不做任何补偿。
     /// 本方法**不持有任何全局锁**（见模块头）：GPU 等待期间别的会话照常渲染。
     pub(crate) fn read(&self) -> Option<CoverFrame> {
+        // 快照在锁内取、回读在锁外做，两者之间设备可能恰好丢失：死设备上的 poll
+        // 同样在 wgpu 内部 panic。放弃遮罩即可（恢复全程走 attach 重建）。
+        if crate::render::context::device_lost() {
+            return None;
+        }
         let width = self.width;
         let height = self.height;
         let bytes_per_row = width * 4;
@@ -158,6 +163,13 @@ impl Renderer {
     /// 返回 `None` 表示没有可回读的内容（累加器不存在、格式不是 RGBA8 或尺寸为零）：
     /// 调用方沿用平底色遮罩，不做任何补偿。
     pub(crate) fn cover_readback_source(&self) -> Option<CoverReadbackSource> {
+        // 设备丢失后遮罩回读是第一个撞上 `Parent device is lost` 的调用（2026-11-14
+        // 真机日志：切后台时先报这条，随后才是渲染循环的同类 panic）。遮罩只是一次性
+        // 补救：放弃它，等宿主换新窗口、attach 重建后再恢复，绝不在死设备上创建
+        // 缓冲或提交命令。
+        if crate::render::context::device_lost() {
+            return None;
+        }
         let texture = self.frame_texture.as_ref()?;
         let format = texture.format();
         if format != wgpu::TextureFormat::Rgba8Unorm {

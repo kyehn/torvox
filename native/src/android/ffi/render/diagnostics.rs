@@ -130,9 +130,12 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderW
             None => LAST_CONTENT_ROW_NONE_BITS,
         };
         let surface_invalidated = i64::from(
-            render_state
-                .as_ref()
-                .is_some_and(|render_state| render_state.renderer.surface_invalidated()),
+            // 设备丢失与「surface 判死」对宿主是同一个动作：换新窗口重新挂载。
+            // 合并到这一位，宿主只认一个信号源（否则丢失后它等不到任何换窗口触发）。
+            crate::render::context::device_lost()
+                || render_state
+                    .as_ref()
+                    .is_some_and(|render_state| render_state.renderer.surface_invalidated()),
         ) * SURFACE_INVALIDATED_BIT;
         // 原生 render 本身未达 30ms（SLOW_RENDER_INNER 不触发）而整个 JNI 穿越
         // 超过 30ms：差额只可能落在渲染后的采样段（注册表/会话锁或 RENDER_STATE）。

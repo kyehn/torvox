@@ -21,6 +21,10 @@ use super::session_ops::ATLAS_SIZE;
 static UNKNOWN_SESSION_THROTTLE: crate::slow_log::CountedLogThrottle =
     crate::slow_log::CountedLogThrottle::new();
 
+/// 设备丢失后跳过渲染的告警限频闸门（带计数：行内给出丢失后跳过的调用数）。
+static DEVICE_LOST_RENDER_THROTTLE: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::new();
+
 // ── 帧准备与呈现 ────────────────────────────────────────────────────
 /// 为活跃会话渲染一帧。返回：1 = 有输出且已呈现帧；0 = 会话无待处理单元数据（空闲）；
 /// -1 = 出错（surface 缺失、GPU 失败、会话未知）。
@@ -352,6 +356,17 @@ pub(super) fn collect_frame_data(session_id: u64) -> Result<FrameData, jint> {
 
 pub(super) fn render_inner(session_id: u64) -> jint {
     let render_start = std::time::Instant::now();
+    // 设备丢失后不再进渲染：发现丢失的那次调用正是 wgpu 在 HAL 错误上 panic 的那次
+    // （丢失回调在 panic 之前置位），此后逐帧再调只会逐帧复现同一条 panic。
+    // 宿主经 `surface_invalidated()` 收到同一信号并换新窗口，重建发生在 attach 路径。
+    if crate::render::context::device_lost() {
+        if let Some(skipped_calls) = DEVICE_LOST_RENDER_THROTTLE.record() {
+            log::error!(
+                "render skipped: GPU device is lost; waiting for a fresh surface attach to rebuild it (skipped_calls={skipped_calls})"
+            );
+        }
+        return 0;
+    }
     if !prepare_render(session_id) {
         return 0;
     }

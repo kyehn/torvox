@@ -52,6 +52,34 @@ unsafe fn attach_window_inner(
 
     log::info!("FFI: attachWindow ptr={:p} {}x{}", ptr, width, height);
 
+    // 设备丢失（Mali 在切后台时实测发生）后，旧 instance 上的 surface 配不到新设备：
+    // 必须先建新的 VkInstance/Device，再把 Renderer 换到新设备上，之后才挂载本窗口。
+    // 重建失败时保持丢失标志、释放窗口并返回：宿主看到失效位后换窗口再试，绝不在
+    // 死设备上继续建 surface。重建放在 `ANativeWindow_setBuffersGeometry` 之前，
+    // 使下方几何失败路径取渲染状态时也不会落在死设备上。
+    if crate::render::context::device_lost() {
+        match crate::render::context::rebuild_global_gpu() {
+            Ok(gpu) => {
+                let mut state = render_state_mut();
+                if let Some(render_state) = state.as_mut() {
+                    render_state.renderer.rebuild_after_device_loss(&gpu);
+                }
+                // 状态被 detach 拆除时无需搬运：下一次 `render_state_mut` 会直接在新
+                // 设备上新建。放下锁之前新渲染状态已可用。
+                drop(state);
+                // 新设备与使用它的渲染状态都已就位，此后 GPU 入口才放行。
+                crate::render::context::clear_device_lost();
+            }
+            Err(error) => {
+                log::error!("FFI: attachWindow — GPU device rebuild failed: {error}");
+                ATTACHED_SESSION_ID.store(0, std::sync::atomic::Ordering::Release);
+                // SAFETY: `ptr` 是上面取得、尚无 surface 接管的 `ANativeWindow*`。
+                unsafe { ANativeWindow_release(ptr) };
+                return;
+            }
+        }
+    }
+
     // 把 ANativeWindow 交给渲染器：wgpu 在创建 surface 时自行取得引用，故此处释放
     // `ANativeWindow_fromSurface` 返回的调用方自有引用（wgpu surface 会保持窗口存活
     // 直至 `detachWindow` 丢弃它）。
