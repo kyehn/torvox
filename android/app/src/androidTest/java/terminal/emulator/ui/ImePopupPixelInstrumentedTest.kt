@@ -548,7 +548,16 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         tapAndAwaitIme()
         val before = surfaceShiftPx()
         assertTrue("输入法弹出后位移必须为正，否则本用例前提不成立 (位移=$before)", before > 0)
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
         composeTestRule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+        // 离开前必须把最后一帧回读成开孔遮罩：回前台在新 surface 出帧前只靠它遮住
+        // 透明开孔，否则开孔透出桌面/上一个应用——与位移错位叠加就是用户看到的闪烁。
+        assertNotNull(
+            "切后台后必须回读出开孔遮罩",
+            UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
+                runtime.coverFrame.value != null
+            },
+        )
         // 派发是异步的：留足窗口让「输入法已隐藏」到达主线程。
         Thread.sleep(1_000)
         assertTrue(
@@ -556,6 +565,13 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
             before == surfaceShiftPx(),
         )
         composeTestRule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+        // 新 surface 提交首帧后遮罩才允许撤下：撤早了那一拍开孔既无旧画面也无新画面。
+        assertNotNull(
+            "回前台首帧上屏后遮罩必须撤下",
+            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
+                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
+            },
+        )
         composeTestRule.waitForIdle()
         Thread.sleep(SETTLE_MILLIS)
         assertTrue(
