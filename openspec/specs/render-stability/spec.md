@@ -465,6 +465,13 @@ wgpu 在致命 HAL 错误上先调设备丢失回调、再 panic，逐帧调用�
 - **THEN** 丢失位 MUST 保持，窗口引用 MUST 释放，失效位 MUST 继续上报，
       宿主按重建预算继续换窗口
 
+#### Scenario: 恢复后新建会话照常出帧
+
+- **WHEN** 设备丢失恢复后宿主新建会话
+- **THEN** 新会话 MUST 复用已重建的 instance/device 并照常出帧，
+      MUST NOT 挂到丢失前的死设备上（`SurfaceLossRecoveryInstrumentedTest`
+      在恢复后新建会话并断言墨迹）
+
 ### Requirement: 不得以日志手段掩盖设备丢失
 
 MUST NOT 以反射清平台同步组、降级日志等级、过滤 tag 或缩短日志来掩盖设备丢失；丢失的

@@ -106,7 +106,16 @@
 
 - **WHEN** 宿主创建交换链
 - **THEN** 缓冲格式 MUST 与窗口缓冲格式一致（见 `render-stability` 的同款
-      Requirement），设备分配器 MUST NOT 因格式不被支持而记 error
+      Requirement），应用 MUST NOT 主动申请单通道格式
+
+真机（Mali/Unisoc，2026-11-14）在 `attach_surface` 内仍会由 `mali_gralloc` 打出
+`Requested R8 format is not supported ...` 与 `Unrecognized ... format 0x38`。
+归因证据：同一次调用紧接着记录 `configured ... format=Rgba8Unorm`，窗口几何为
+`WINDOW_FORMAT_RGBA_8888`，且生产代码没有任何 `R8Unorm` 纹理/缓冲请求；4 次
+尝试与 4 张交换链图像一一对应，位于旧交换链图像 `unregister` 与新图像 `register`
+之间，即发生在厂商 `vkCreateSwapchainKHR` 内部。该条属于平台分配器噪声，
+MUST NOT 通过过滤 tag、降级日志或改窗口格式来掩盖；应用侧只要保持
+「窗口格式 = 交换链格式 = 多通道」即可。
 
 ### Requirement: 日志 tag 必须与事件语义一致
 
