@@ -466,13 +466,13 @@ class Bridge(private val config: TerminalConfig) {
     }
 
     // 字体设置的应用会从 IO 协程与设置流程并发到达，去重状态用原子引用整体替换：
-    // 普通可变字段的读-改-写会竞态，最坏结果是去重失效 → 原生重建字体管线
-    // 并重新分配图集。
+    // 普通可变字段的读-改-写会竞态，最坏结果是去重失效、重复下发同一份路径列表。
     private val lastExtraFontPaths = AtomicReference<List<String>>(emptyList())
 
     fun setExtraFontPaths(paths: List<String>) {
         LogUtil.debug(TAG, "setExtraFontPaths($paths)")
-        // 原生调用会重建字体管线（重新分配图集），因此跳过重复调用，目录内容在重建时自行拾取。
+        // 原生只把路径列表登记给字体枚举（不重建管线、不重分配图集）；列表未变时
+        // 跳过重复的 JNI 调用与日志。
         if (lastExtraFontPaths.getAndSet(paths) == paths) return
         onSession("setExtraFontPaths", Unit) { NativeBridge.setExtraFontPaths(it, paths.toTypedArray()) }
     }

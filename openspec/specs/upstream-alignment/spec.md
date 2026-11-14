@@ -468,7 +468,7 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 
 | 上游能力 | 结论 | 可复核依据 |
 | --- | --- | --- |
-| `terminal.rs`：`on_clipboard_write` 必须 `reply` | 采用（已修） | 上游文档「返回前必须 `reply`，否则拒绝写入」；本仓 `internal.rs` 回调此前零 `reply`。现满通道回 `Busy` 否则 `Ok` |
+| `terminal.rs`：`on_clipboard_write` 必须 `reply` | 采用（已修） | 上游文档「返回前必须 `reply`，否则拒绝写入」；本仓 `internal/run.rs` 的 `on_clipboard_write` 回调此前零 `reply`。现满通道回 `Busy` 否则 `Ok` |
 | `style::Underline` 五形状判定 | 采用（已修） | 三处 `matches!` 收敛为 `has_visible_underline`/`is_double_underline` 同源函数 |
 | `Terminal::vt_write` 二进制安全 | 采用（已修） | `pty_write` 曾把 `>0xF7` 改空格，破坏 Kitty 直接 RGB 等二进制载荷；现仅剔除 NUL，与 `vt_write` 同策略 |
 | 调色板与字节转浮点 | 采用（已修） | 渲染侧 `CATPPUCCIN_MOCHA_BACKGROUND` 与手写除法已删，以 `theme` 单源（构建期 alacritty-theme）为唯一入口，按标识取用（`theme::default_dark`／`theme::by_name`）；中间 epoch 用过的 `GhosttyTerminal::default_palette` 已随「主题改按标识在原生单点解析」删除 |
@@ -724,13 +724,13 @@ JVM 侧读到待决异常后，MUST NOT 再调用任何 JNI 函数（JNI 规范�
 
 | OSC 段 | 本仓行为 | 依据 |
 | --- | --- | --- |
-| 0 / 2（图标名 / 窗口标题） | 上游解析；标题经 `Query::Title` 与快照 `title` 观察 | `internal.rs` 标题查询与快照 title；`tests.rs` 的 OSC 0/2 标题可读用例（含跨分块重组） |
+| 0 / 2（图标名 / 窗口标题） | 上游解析；标题经 `Query::Title` 与快照 `title` 观察 | `internal/dispatch.rs` 的 `Query::Title` 与快照 `title`；`tests/grid_text.rs`、`tests/osc_notification.rs`、`tests/selection_search.rs` 的 OSC 0/2 标题可读用例（含跨分块重组） |
 | 1（图标名查询） | 上游解析；本仓无消费者，不另设查询 | 标题查询已承载用途；`on_title_changed` 类回调不采用见「上游 API 取用判定登记」 |
-| 4（调色板覆盖） | 上游处理且有测试钉住生效路径 | `internal.rs` 初始主题注释；`osc4_palette_override_reaches_dumped_grid` |
+| 4（调色板覆盖） | 上游处理且有测试钉住生效路径 | `internal/run.rs` 初始主题注释；`internal/tests.rs` 的 `osc4_palette_override_reaches_dumped_grid` |
 | 7（工作目录） | 上游解析，本仓不消费；透传行为有测试 | `output_processor.rs` 模块文档与 `osc7_and_osc8_pass_through`；`on_pwd_changed` 不采用见「上游 API 取用判定登记」 |
-| 8（超链接） | 上游解析；本仓经 `hyperlink_at` 查询网格单元 URI | `internal.rs` `hyperlink_at_impl`（4KiB 内联缓冲 + 越界精确重读） |
+| 8（超链接） | 上游解析；本仓经 `hyperlink_at` 查询网格单元 URI | `internal/selection.rs` 的 `hyperlink_at_impl`（4KiB 内联缓冲 + 越界精确重读） |
 | 9（iTerm2 通知） | 上游解析并观察：本仓注册 `on_desktop_notification` 回调，通知按会话归属投递 | `DESIGN.md` 软件节要求处理 OSC 9 通知（前台 Toast、后台系统通知、点击切换会话）；回调注册见 `ghostty_terminal/internal/run.rs`，分派见 `runtime/DesktopNotificationPlayer.kt`，规约见 `desktop-notification` |
-| 10 / 11 / 12（默认前背景色 / 光标色查询与设置） | 上游不处理，默认值归内嵌方；本仓经原生主题 setter 置默认色 | `internal.rs` 初始主题段落三处注释（默认色归内嵌方、OSC 4 覆盖归上游、故走原生 setter 而非手写 OSC 序列） |
+| 10 / 11 / 12（默认前背景色 / 光标色查询与设置） | 上游不处理，默认值归内嵌方；本仓经原生主题 setter 置默认色 | `internal/run.rs` 初始主题段落三处注释（默认色归内嵌方、OSC 4 覆盖归上游、故走原生 setter 而非手写 OSC 序列） |
 | 52（剪贴板读写） | 写走上游回调；读取请求由本仓扫描器收割并拼帧应答 | `upstream-alignment`「OSC 52 读取请求的收割与应答须对每个会话有界」；`output_processor.rs` `ReadScan` 状态机 |
 | 104 / 110 / 111 / 112（色重置） | 上游处理；跨分块重组有测试 | `tests.rs` OSC color reset 跨分块用例 |
 | 133（shell 集成标记） | 上游解析（若支持）；本仓不消费 | DESIGN 未声明 prompt 标记语义；`upstream-alignment` 预测线条目判「未声明，需先补 DESIGN」 |
@@ -1425,11 +1425,11 @@ MUST NOT 攒批后一次补写。整批研究收敛为 105 个键、187 行，�
 | `25-reapercanuk39-termux-kotlin-app.md` | P2「Kotlin 迁移文档的问题清单组织（仅文档思路）」「宽字符表体量作为不自研的佐证」 | 已有去向：文档组织归「迁移文档的问题清单组织」行（仅参照，本仓文档面为 `openspec/` 与 `docs/specification/`）；宽表佐证并入「宽度表归上游」口径（本仓不自研宽字符表，见 mintty 行与 `cjk-rendering`） |
 | `25-reapercanuk39-termux-kotlin-app.md` | 禁止项「整套代理运行时、MCP、LLM 调用、JNI 错位、自研宽表」 | 逐项判死：MCP 撞 `PROHIBITED.md` 终端节「Model Context Protocol」明禁（`docs/specification/PROHIBITED.md` 唯一相关条目）；代理运行时与 LLM 调用在 `PROHIBITED.md`／`DESIGN.md` 中均无条目，按上方「AI 助手集成与 ACP/crash 分诊」行口径作**未声明，不立项**——口径更正：本行原写「外部服务与 AI 集成明禁」，该条目并不存在，以本行为准；JNI 错位归「JNI 字符串释放错对象」反面行；自研宽表同「宽度表归上游」；Kotlin 化本身无参考价值（本仓 Kotlin 仅 Compose 薄层，会话归 Rust） |
 | `27-改进点收敛与openspec落点.md` | §2「已覆盖或在途」21 行落点表 | 已实现：落点能力均在 `openspec/specs/` 现存（`text-search`／`settings-propagation`／`text-selection`／`pty-lifecycle`／`shell-entry`／`key-input-encoding` 与 `upstream-alignment` 按键表／`cjk-rendering`／`render-stability`／`terminal-state-regression`／`session-list`／`modifier-bar-*`／`shell-env`／`documents-provider`／`bootstrap-install`／`theme-configuration`／`font-selection`／`host-linkage`／`grid-extraction-incremental`；「在途 IME 变更」已归档为 `ime-editor-contract` 等能力），本台账不再逐行重复 |
-| `27-改进点收敛与openspec落点.md` | §3「允许但无新能力」6 条（PTY fork 核对、UTF-8 粘包跨块、读线程合并投递与按帧上限、长按重复时序、纯函数可单测与文档清单结构、OSC133／预测线／补全／通知音） | 前两条已有去向：PTY fork 核对清单本次随 `21-Adhi-hub07-on3-terminal.md` 立入 `pty-lifecycle` 增量「子进程侧的 fork/exec 不变量」，粘包跨块归「PTY 输出合并投递与 UTF-8 粘包保留解码」行；读线程合并投递与按帧上限、长按重复时序归既有实现（`session.rs` 按帧上限、`ModifierBar` 的 400/80ms）；纯函数可单测与文档清单结构为方法类，按 `TESTING.md` 既有体系执行；OSC133／预测线／补全／通知音未声明，不立项（同 OSC 表 133 行与预测线行） |
+| `27-改进点收敛与openspec落点.md` | §3「允许但无新能力」6 条（PTY fork 核对、UTF-8 粘包跨块、读线程合并投递与按帧上限、长按重复时序、纯函数可单测与文档清单结构、OSC133／预测线／补全／通知音） | 前两条已有去向：PTY fork 核对清单本次随 `21-Adhi-hub07-on3-terminal.md` 立入 `pty-lifecycle` 增量「子进程侧的 fork/exec 不变量」，粘包跨块归「PTY 输出合并投递与 UTF-8 粘包保留解码」行；读线程合并投递与按帧上限、长按重复时序归既有实现（`session/output.rs` 的 `MAX_PTY_WRITES_PER_FRAME` 按帧上限、`ModifierBar` 的 400/80ms）；纯函数可单测与文档清单结构为方法类，按 `TESTING.md` 既有体系执行；OSC133／预测线／补全／通知音未声明，不立项（同 OSC 表 133 行与预测线行） |
 | `27-改进点收敛与openspec落点.md` | §1「新增能力 1 项 `grid-extraction-incremental`」与三处残留（振铃注释失真、手势不采用依据不足、回归口径失实引用）、两处声明冲突 | 已闭合：`grid-extraction-incremental` 能力现存；三处残留与两处冲突的逐条处置见 `28-复审循环与残留问题收敛.md` 行，不在本行预判 |
 | `27-改进点收敛与openspec落点.md` | §4「明确拒绝」16 类（自定义主题、会话持久化、proot／预装／X11、哈希校验与回滚、自研 VT、选择交互扩展、键栏编辑器与粘贴确认、光标样式与回滚可调与提权、环境变量与外部服务、改 home 与共享存储、语料金标自验证、正则搜索、JSON 配置导入导出、快捷磁贴等） | 已登记为不采纳：逐类依据在 `PROHIBITED.md`、`DESIGN.md` 与 `upstream-alignment` 既有行内可读，本台账不重复；§5「须先补 DESIGN 再立项、不得复活 §4 禁止项」照此执行 |
 | `28-复审循环与残留问题收敛.md` | §1 循环记录、§2 过度复杂特性、§3 与 §3.1 长按十二项、§4 基础功能五项 | 已落地并已登记：§1 各轮新增项与 §3.1 十二项的现状在代码中可验（`resolveWordSelectionBounds`、`SELECTION_RECTANGLE`、`cursor_in_viewport`、`SelectionState.pasteOnly` 等），不新增简化立项；§2 的过度清单按原文「仅记录，不立即简化」维持；§4 五项裁定（振铃保持静默并清理注释、连字收窄、滚动条措辞、裸链接不实现、权限字面差距）与 `terminal-state-regression`／`text-selection` 现状一致 |
-| `28-复审循环与残留问题收敛.md` | §5 至 §13 各轮（含四线深审、`attach_surface` 失效位清零、CI 逐次归因） | 已落地：列出的修复在实现中可验（`partial_frame_bands`、`SurfaceOwnership`、`installPtyWriteQueue`、`render_cursor_on`、`face_covers`、`used_faces`、`narrow_jint`、`pgid > 1` 组杀下界、`VT_IDLE_TICK_MS` 与 `Session::FOCUS_MODE_QUERY_TIMEOUT_MS = 4 × VT_IDLE_TICK_MS`（`native/src/terminal/session/mod.rs`，即「四倍 tick」窗口）等）；`docs/libghostty.md` 已移入 `docs/persistence/libghostty.md`（100% rename），其接口取用登记并入 `upstream-alignment`「上游 API 取用判定登记」（上游位置以 `Cargo.toml` 所钉 rev 为准）；`attach_surface` 修复保留而「无 seam 用例」据实登记，不冒充已覆盖 |
+| `28-复审循环与残留问题收敛.md` | §5 至 §13 各轮（含四线深审、`attach_surface` 失效位清零、CI 逐次归因） | 已落地：列出的修复在实现中可验（`partial_frame_bands`、`SurfaceOwnership`、`Bridge.ptyWriteQueue` 与 `TerminalSurface.bindActivePtyWriteQueue`、`render_cursor_on`、`face_covers`、`used_faces`、`narrow_jint`、`pgid > 1` 组杀下界、`VT_IDLE_TICK_MS` 与 `Session::FOCUS_MODE_QUERY_TIMEOUT_MS = 4 × VT_IDLE_TICK_MS`（`native/src/terminal/session/mod.rs`，即「四倍 tick」窗口）等）；`docs/libghostty.md` 已移入 `docs/persistence/libghostty.md`（100% rename），其接口取用登记并入 `upstream-alignment`「上游 API 取用判定登记」（上游位置以 `Cargo.toml` 所钉 rev 为准）；`attach_surface` 修复保留而「无 seam 用例」据实登记，不冒充已覆盖 |
 | `28-复审循环与残留问题收敛.md` | §15.4 与 §18.6「仍未修」三项（IME 组字光标锚点、批量即时性无单测与 `focus_event` 半边覆盖缺口、依赖哈希与禁止哈希的字面张力） | 逐项现状：光标锚点已闭合——`ime-editor-contract` 改走公开 `InputMethodManager.updateCursorAnchorInfo` 并明禁反射 `@hide` 同名方法，实现见 `ImeCursorContract.kt` 与 `TerminalSurface.kt`，宿主单测 `ImeCursorContractTest`；批量即时性与 `focus_event` 另一半据实登记为覆盖缺口（结构保证，不以重试或放宽断言冒充）；哈希张力以措辞化解——规范只写「以 `Cargo.toml` 所钉 rev 为准」，规范与非归档文档中 hash 字面量为 0 处（实测：`docs/`、`openspec/specs/`、`openspec/changes/` 非归档部分均无 40 位或 7–8 位 hash 命中），仅 `openspec/changes/archive/**` 存有历史追加信息里的提交号——那是「当时做了这件事」的证据，semgrep 哈希规则按设计排除归档目录，改写等于伪造记录；`STYLE.md` 禁改区不动 |
 | `28-复审循环与残留问题收敛.md` | §16.4「符号族不进入 `FontInfo`」、§17.3 登记备查、§17.4 设计已拟未实施、§19.3 评估后不改、以及本机无模拟器导致的 connected 用例缺口 | 已落地或据实登记：符号族上报已按 §17.4 拟案落地（`other_families` ＋设置页「其他字体」＋`font-selection` 规约）；`ModifierBar` 重建登记备查不再动；§19.3 两项（`load_font_file` 身份缓存、设置页关闭时无条件恢复渲染）评估后不改，依据在原文；模拟器 `get_capabilities` 失败与仪器化断言缺口属环境受限，据实登记，不凭猜测加重试 |
 | `29-减码杠杆与libghostty家族结论收敛.md` | §一 血缘与性能结论、§二 减码 L1–L6 分级与红线、§三 libghostty-vt 与完整 libghostty、§四 与 librio／sugaloaf 对比 | 已登记：结论落在既有行——L2–L6 为「有界重构建议（P1/P2），不扩大为变更」且 L1 批量合并已执行，`sugaloaf`／`libsugaloaf` spike「维持不做」，红线（不减测试与覆盖、不弱化断言、不删 `DESIGN.md` 功能）与禁止项三条（不 vendor 第三方 VT 代码、不换 VT 核、不等完整 libghostty 支持 Android）原样保留 |

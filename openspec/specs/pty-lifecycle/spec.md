@@ -109,7 +109,7 @@ VT 引擎的应答缓冲（DECRPM/DSR/DA 等 `on_pty_write` 回调产物）无�
 
 - **WHEN** PTY 从端关闭使 `read(2)` 返回 `EIO`
 - **THEN** 读取线程停止并退出循环，而不是持续重试
-      （判定纯函数为 `session.rs` 的 `read_error_action`，用例
+      （判定纯函数为 `native/src/terminal/session/spawn.rs` 的 `read_error_action`，用例
       `read_error_action_classifies_errno`）
 
 #### Scenario: 拆卸不被阻塞的写路径拖住
@@ -121,9 +121,9 @@ VT 引擎的应答缓冲（DECRPM/DSR/DA 等 `on_pty_write` 回调产物）无�
 
 - **WHEN** 子进程在 `setsid` 前仍与本进程同组
 - **THEN** 本次收尾退化为直杀子进程，MUST NOT 以该组为信号目标
-      （目标选择纯函数为 `session.rs` 的 `exit_signal_target`，用例
-      `exit_signal_target_declines_group_kill_when_unsafe`：同组、组号 ≤ 1、
-      本进程组号取不到三种退化都直杀子进程）
+      （目标选择纯函数为 `native/src/terminal/session/lifecycle.rs` 的
+      `exit_signal_target`，用例 `exit_signal_target_declines_group_kill_when_unsafe`：
+      同组、组号 ≤ 1、本进程组号取不到三种退化都直杀子进程）
 
 ### Requirement: 网格 resize 被丢弃时不得把旧尺寸当权威
 
