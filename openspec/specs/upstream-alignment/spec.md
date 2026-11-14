@@ -976,7 +976,8 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   该工具归类为 style-policy 的项 MUST NOT 阻断构建，
   只有 error 级或 `confirmed-defect` 才阻断。
 - **jscpd**：`jscpd --min-lines 8 --min-tokens 60` 对 `native/src` 与
-  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，涉 254 个文件。
+  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，涉 256 个文件
+  （2026-11-14 重测：克隆数、重复行数与重复率与上一列基线同值，文件数随新增源文件而变）。
   测量取自已提交的树快照，不取工作区状态（工作区可能同时存在他人进行中的改动）。
   前一列基线为 2 处克隆 / 26 行重复 / 0.04% / 115 个文件：其第二处
   `native/src/terminal/ghostty_terminal/internal/mod.rs` 内 `process_query` 与
@@ -1007,6 +1008,90 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 - **CI 产物哈希比对** 与 **16KB 页对齐**：本轮未实测（MUST NOT 以推定数字入表）。
   前者实施判据以产物 `sha256` 记录步骤存在且随每次构建产出为准；
   后者须以 AGP 官方指南与实际打包产物校验为准，MUST NOT 以本仓既有配置反推。
+
+`code-health` 要求的审计留档（静态形状扫描与依赖活跃度）同记在本节，事实与判定如下。
+
+**静态形状扫描**（`footgun-scan` 的 32 个模式，覆盖 Kotlin/Compose 源码；Rust 侧由
+`cargo clippy --all-targets -- --deny warnings` 与 `aislop` 覆盖，本工具不适用）：
+
+- 参数：`python3 <footgun-scan>/scripts/scan.py --all <目录>`，逐行扫描受版本控制的文件；
+  目录取 `android/app/src/main`、`android/app/src/test` 与 `android/app/src/androidTest`。
+- 当日实测（2026-11-14）：主源码集 117 个文件 / 9 处命中，单测源码集 134 个文件 /
+  1 处命中，仪器测试源码集 87 个文件 / 0 处命中；全仓 363 个文件 / 10 处命中，全部为
+  `look` 级形状提示，无 `likely` 级命中。
+
+| 位置 | 命中形状 | 判定 | 依据 |
+| --- | --- | --- | --- |
+| `FontManager.kt` 的 `refreshFontList` | `job-relaunched-without-cancel` | 驳回 | 陷阱指认的形态是「赋值前不取消仍在跑的旧作业」。此处的启动点在同一条语句序列上带并发闩 `fontListLoaded \|\| fontLoadJob?.isActive == true`：旧作业仍活跃时根本不启动第二个；`fontListLoaded` 是 `@Volatile`，跨 IO 线程与主线程可见；字段只有一个赋值点，唯一调用方在主线程（设置页打开字体选择框那一刻）。旧作业已结束时无「仍在跑的旧作业」可取消 |
+| `NativeBridge.kt` 的类初始化块（`System.loadLibrary("native")`） | `native-load` | 驳回 | 陷阱讲的是 JNA：同名库可能被系统副本抢先加载，故须打印实际打开的路径。本仓走 Android 的 JNI `System.loadLibrary`，装载路径由应用自身的 native 库目录决定，不存在同名系统副本兜底装载；失败路径把平台链接器给出的 `UnsatisfiedLinkError` 消息全文记入日志；构建侧保证 `.so` 打进 APK 的 `jniLibs`（`BUILD.md` 明确不设计运行时兜底） |
+| `NativeBridgeSmokeTest.kt` 的 `loadNativeLibrary` | `native-load` | 驳回 | 走 `System.load(绝对路径)`：路径是常量（宿主编译产物），不经名字解析，缺失时 `System.load` 自身抛错，不存在「同名副本被抢先加载」的场景 |
+| `BootstrapInstallService.kt` 的 `install` | `run-blocking` | 驳回 | `runBlocking` 在 `install()` 内，而 `install()` 由 `onStartCommand` 里显式 `Thread { … }.start()` 调用，全程在后台线程，不在主线程 |
+| `RenderSupervisor.kt` 的 `startRenderThread` | `run-blocking` | 驳回 | `runBlocking` 在渲染线程的 `Thread { … }` 体（专用渲染线程）内，不在主线程 |
+| `RenderWatchDog.kt` 的 `start` | `job-relaunched-without-cancel` | 驳回 | 「检查是否活跃」与「启动」在同一个 `synchronized(fireLock)` 临界区，两个并发调用者不会各跑一个 2s 轮询循环；`stop()` 推进代次并取消后清空字段；代次单调递增使陈旧循环无权回调 |
+| `ModifierBar.kt` 的按键手势 `pointerInput(Unit)` | `pointer-input-unit` | 驳回 | 陷阱指认的是「以 Unit 为键时块内捕获的普通值不再更新」。此处块内读到的可变值全部经 `rememberUpdatedState`（按键几何、手势区、点击、重复、次要动作），没有裸捕获；以 Unit 为键是刻意选择：改用 lambda 实例作键会在长按期间的任何重组上取消并重启手势协程，静默杀死自动重复 |
+| `SettingsAppearanceSection.kt` 的 `FontSizeSlider` | `slider-value-range` | 驳回 | 传入滑块的值是 `sliderFontSize`，初值经 `SettingsRepository.clampFontSize` 收敛，区间收紧时由 `LaunchedEffect(fontSizeUpperBound)` 再次收敛；区间上界与收敛入口同源（`SettingsRepository.fontSizeMaxSp`），故值恒在区间内 |
+| `SettingsComponents.kt` 的 `SettingsSliderRow` | `slider-value-range` | 驳回 | 通用滑块行只透传调用方给的区间与值，唯一调用方即上条，值已在区间内 |
+| `SettingsScreen.kt` 的设置页遮罩层 `pointerInput(Unit)` | `pointer-input-unit` | 驳回 | 块体是 `detectTapGestures(onTap = {})`，不读任何状态，无可失效的捕获值 |
+
+**依赖活跃度**（直接依赖的下载量与最近发布）：
+
+- crates.io 侧（口径同 `code-health`：累计下载量 ≥ 100 万、近 90 天下载量 ≥ 10 万、
+  最近发布在 12 个月内；事实取 crates.io crate 元数据接口的 `downloads`、
+  `recent_downloads` 与最新非撤回版本的 `created_at`），采样于 2026-11-14：
+
+| crate | 累计下载 | 近 90 天 | 最近发布 | 判定 |
+| --- | --- | --- | --- | --- |
+| base64 | 1,966,914,514 | 525,319,336 | 2026-08-04 | 保留 |
+| bytemuck | 475,531,146 | 142,627,622 | 2026-07-19 | 保留 |
+| cosmic-text | 12,311,205 | 5,040,766 | 2026-04-22 | 保留（上游阻断：需 fontdb 0.23） |
+| flume | 292,039,169 | 81,786,289 | 2025-12-08 | 保留 |
+| foldhash | 826,077,404 | 340,488,435 | 2025-08-23 | 保留 |
+| fontdb | 46,003,933 | 17,173,480 | 2026-07-29 | 保留（与 cosmic-text 同版本要求） |
+| pollster | 48,575,613 | 21,836,244 | 2026-07-10 | 保留 |
+| etagere | 10,167,806 | 4,450,841 | 2026-03-18 | 保留 |
+| jni | 246,541,292 | 85,150,843 | 2026-03-16 | 保留 |
+| libc | 1,976,289,422 | 486,586,000 | 2026-10-16 | 保留 |
+| log | 1,531,065,096 | 392,713,342 | 2026-10-30 | 保留 |
+| lru | 442,790,173 | 131,595,588 | 2026-10-18 | 保留 |
+| nix | 978,529,563 | 250,044,617 | 2026-05-11 | 保留 |
+| parking_lot | 1,276,525,387 | 283,846,814 | 2026-10-21 | 保留 |
+| raw-window-handle | 135,190,490 | 44,606,428 | 2024-05-17 | 保留（生态基线类型，见下） |
+| roxmltree | 105,796,268 | 40,792,343 | 2026-10-24 | 保留 |
+| serde | 1,705,161,054 | 430,394,306 | 2026-07-18 | 保留 |
+| serde_json | 1,611,830,375 | 432,551,167 | 2026-10-11 | 保留 |
+| swash | 18,893,111 | 7,889,958 | 2026-07-17 | 保留 |
+| thiserror | 1,849,817,042 | 528,582,996 | 2026-09-23 | 保留 |
+| toml | 1,138,979,644 | 317,041,580 | 2026-11-06 | 保留 |
+| unicode-script | 63,172,017 | 23,214,424 | 2026-11-02 | 保留 |
+| wgpu | 50,340,268 | 18,915,738 | 2026-11-12 | 保留 |
+| wgpu-types | 52,488,031 | 19,846,342 | 2026-11-12 | 保留 |
+| criterion | 339,537,495 | 80,151,633 | 2026-02-04 | 保留（dev） |
+| proptest | 245,654,555 | 76,495,907 | 2026-10-10 | 保留（dev） |
+| shuttle | 7,517,082 | 2,498,430 | 2026-11-05 | 保留（dev） |
+| tempfile | 995,301,049 | 254,563,200 | 2026-03-11 | 保留（dev） |
+
+- 结论：28 个 crates.io 直接依赖全部通过门槛（最低者为 `shuttle` 累计 751 万、近 90 天
+  249 万）。唯一的豁免是 `raw-window-handle`：最近发布停在 2024-05-17，它只出现在类型
+  边界上（0.6.x 是 wgpu/窗口句柄的事实标准），按「生态基线类型」豁免「最近发布」一项。
+- 上游 git 依赖 `libghostty-vt`（`Uzaaft/libghostty-rs`，钉 rev）不在 crates.io，按本规范
+  首条 Requirement 的「跟踪上游 master rev」口径核对。
+- Maven 侧（Google Maven 与 Maven Central）：两仓库的公开接口只发布版本与时间戳，不发布
+  下载量（`repo1.maven.org` 与 `dl.google.com` 的 `maven-metadata.xml` 只含 `lastUpdated`；
+  `search.maven.org` 的 solr 接口在本环境不可达，Central Portal 站点受 Cloudflare 拦截），
+  故采信口径的「累计下载量」「近 90 天下载量」两项对 Maven 侧不可测，MUST NOT 以估算或
+  记忆补写。Maven 侧以「最近发布」核对，事实取各构件 POM 响应头的 `Last-Modified`：
+  47 个直接依赖中 40 个落在 12 个月内；落在 12 个月之外的 7 个按「生态基线类型」豁免
+  「最近发布」一项，理由如下：
+
+| 构件 | 最近发布 | 豁免理由 |
+| --- | --- | --- |
+| `junit:junit:4.13.2` | 2021-02-13 | 生态基线类型：JUnit 4 是事实标准，仓内只用它的断言与运行器接口 |
+| `androidx.profileinstaller:profileinstaller:1.4.1` | 2024-10-02 | 生态基线类型：Android Gradle 插件配套的安装期产物，不承担运行期逻辑 |
+| `androidx.compose.material:material-icons-extended:1.7.8` | 2025-02-12 | 生态基线类型：图标资源包，版本由 Compose BOM 统一管理，不由本仓直接选型 |
+| `androidx.concurrent:concurrent-futures:1.3.0` | 2025-07-16 | 生态基线类型：为对齐 AGP 传递依赖而由 Gradle 强制固定的版本 |
+| `app.cash.turbine:turbine:1.2.1` | 2025-06-11 | 生态基线类型：仅测试用的流断言夹具 |
+| `com.slack.lint:slack-lint-checks:0.11.1` | 2025-10-10 | 生态基线类型：仅 lint 工具链 |
+| `androidx.core:core-splashscreen:1.2.0` | 2025-11-05 | 生态基线类型：启动屏 API 的稳定版，接口面已冻结 |
 
 #### Scenario: 禁改区项不被静默实施
 
