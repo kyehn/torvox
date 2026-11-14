@@ -15,8 +15,8 @@ import java.nio.file.attribute.PosixFilePermission
 /**
  * 文件变更操作：创建、重命名、删除、复制、移动。
  *
- * 从 [TerminalDocumentsProvider] 拆分出来，使提供者主体只剩查询与打开通道， 函数数回到 detekt TooManyFunctions
- * 阈值内。所有变更落盘后广播通知， 外部文件客户端才能即时刷新（否则复制进入、重命名看起来“没反应”）。
+ * 从 [TerminalDocumentsProvider] 拆分出来，使提供者主体只剩查询与打开通道，函数数回到 detekt TooManyFunctions
+ * 阈值内。所有变更落盘后广播通知，外部文件客户端才能即时刷新（否则复制进入、重命名看起来“没反应”）。
  */
 internal class DocumentMutations(
     private val context: Context,
