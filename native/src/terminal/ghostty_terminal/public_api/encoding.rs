@@ -11,8 +11,8 @@ impl GhosttyTerminal {
     /// `cell_width`/`cell_height` 取渲染器的实时单元格尺寸，使像素→单元映射与实际显示一致。
     /// `modifiers` 是上游 `key.Mods` 原始位（Shift/Ctrl/Alt/Super）。
     ///
-    /// 鼠标上报未启用（无 DECSET 1000/1002/1003）或编码失败时返回 `Some(空)`，
-    /// 由调用方丢弃该事件；仅查询通道卡死时返回 `None`。
+    /// 鼠标上报未启用（无 DECSET 1000/1002/1003）或编码失败时返回空字节数组，
+    /// 由调用方丢弃该事件；查询通道卡死时同样返回空字节数组（并由 `query_on` 记警告）。
     pub fn encode_mouse_event(
         &self,
         position: (f32, f32),
@@ -122,8 +122,8 @@ impl GhosttyTerminal {
     ///
     /// `text` 是平台按当前布局与修饰生成的文本（Shift+A 的 `A`），无文本的键传
     /// `None`；`unshifted` 是该键无修饰时的码点，kitty 键盘协议据此区分档位。
-    /// 单独的修饰键等不产生序列的键返回 `Some(空)`，由调用方丢弃。
-    /// 仅查询通道卡死时返回 `None`。
+    /// 单独的修饰键等不产生序列的键返回空字节数组，由调用方丢弃；
+    /// 查询通道卡死时同样返回空字节数组（并由 `query_on` 记警告）。
     pub fn encode_key_event(
         &self,
         key: key::Key,
@@ -168,8 +168,8 @@ impl GhosttyTerminal {
     /// 未启用时换行转回车；控制字节由上游中化。不取 `Terminal::paste`
     /// （其拒绝流程要求确认对话框，PROHIBITED 明禁）。
     ///
-    /// 编码失败返回 `Some(空)`，由调用方丢弃本次粘贴；
-    /// 仅查询通道卡死时返回 `None`。
+    /// 编码失败返回空字节数组，由调用方丢弃本次粘贴；
+    /// 查询通道卡死时同样返回空字节数组（并由 `query_on` 记警告）。
     pub fn encode_paste(&self, data: &[u8]) -> Option<Vec<u8>> {
         Self::encode_paste_on(&self.query_tx, data)
     }
