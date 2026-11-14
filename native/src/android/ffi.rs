@@ -951,6 +951,7 @@ fn flood_shed_warn_throttled(
     );
     Some(shed_reads)
 }
+mod appearance;
 mod font;
 mod input;
 mod query;

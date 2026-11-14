@@ -1,5 +1,10 @@
 use super::super::query::session_handle;
-use super::super::{GpuError, RenderState, SearchHighlight};
+use super::super::query::session_query_channel;
+use super::super::{
+    EnvUnowned, GpuError, JClass, Ordering, RenderState, SEARCH_HIGHLIGHT_CURRENT_ALPHA,
+    SEARCH_HIGHLIGHT_OTHER_ALPHA, SearchHighlight, ThrowRuntimeExAndFailure, jint, jlong,
+    render_state_mut, rendered_viewport_row,
+};
 
 // ── 叠加层与脏区 ────────────────────────────────────────────────────
 /// 由 `CursorInfo` 快照构建光标，光标色取当前主题。
@@ -159,4 +164,129 @@ pub(super) fn mark_dirty_rows(
     if full_repaint {
         dirty_mask[..rows].fill(true);
     }
+}
+
+// ── 搜索高亮 ──────────────────────────────────────────────────────
+/// 清除渲染器下一帧的搜索高亮区间。
+#[unsafe(no_mangle)]
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHighlights(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
+    _session_id: jlong,
+) {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.search_highlights.current.clear();
+            // 不动 `session`：清空 `current` 已足以让本会话不再有高亮，而改键会让下一帧
+            // 走进 `enter_session` 的换会话分支——那里保留 `drawn` 正是为了把旧高亮行
+            // 再标脏一次，键一改这条补救路径就白走一趟。
+            // 置脏标志：高亮清除必须送达屏幕，即便终端处于空闲
+            // （否则陈旧高亮会一直残留到下次 PTY 输出——正是 #5 这类回归）。
+            render_state.dirty.store(true, Ordering::Relaxed);
+        }
+    });
+}
+
+/// 把视口命中折算成可绘制的高亮区间。
+///
+/// 折算口径 `gridRow = 绝对行 - viewport_top`，`viewport_top` 是视口顶行的绝对行号
+/// （回滚区顶部 = 0）。落在视口外的命中两侧都裁掉：上游 `viewport_matches` 按页读取，
+/// 会连带返回与视口同页、实际在视口外的命中（上游文档明确要求调用方裁剪）。
+///
+/// 当前选中命中的 alpha MUST 与其余命中不同（255 vs 160）：两者同色系时，
+/// 「当前在哪」不可区分——用户报障「当前匹配与其他匹配高亮应不同」。
+///
+/// 抽成纯函数以便表驱动测试：颜色分配与折算裁剪是两组独立不变式，混在 JNI 导出
+/// 里就只能靠像素级仪器化测试间接覆盖。
+pub(crate) fn build_search_highlights(
+    matches: &[crate::terminal::ghostty_terminal::SearchMatch],
+    selected: &[crate::terminal::ghostty_terminal::SearchMatch],
+    viewport_top: i32,
+    grid_rows: i32,
+    palette: &crate::terminal::theme::Palette,
+) -> Vec<SearchHighlight> {
+    matches
+        .iter()
+        .filter_map(|matched| {
+            let row = matched.row as i32 - viewport_top;
+            if row < 0 || row >= grid_rows {
+                return None;
+            }
+            let color = if selected.contains(matched) {
+                let current = palette.foreground;
+                [
+                    current.r,
+                    current.g,
+                    current.b,
+                    SEARCH_HIGHLIGHT_CURRENT_ALPHA,
+                ]
+            } else {
+                let other = palette.selection_background;
+                [other.r, other.g, other.b, SEARCH_HIGHLIGHT_OTHER_ALPHA]
+            };
+            Some(SearchHighlight {
+                row,
+                start_col: matched.start_col as i32,
+                end_col_exclusive: matched.end_col as i32,
+                color,
+            })
+        })
+        .collect()
+}
+
+/// 把当前搜索的视口命中写入渲染态，供下一帧绘制。
+///
+/// 命中与选中态取自上游 `search::Search`（VT 线程内），Kotlin 只提供视口滚动偏移与
+/// 两个主题色：视口折算口径 `gridRow = 绝对行 - (回滚长度 - 滚动偏移)`，`scrollOffset`
+/// 为 0 表示贴底。落在视口外的命中不写入——高亮只画在可见格上。
+#[unsafe(no_mangle)]
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_applySearchHighlights(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
+    session_id: jlong,
+    scroll_offset: jint,
+) {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
+        let Some(query_tx) = session_query_channel(session_id as u64) else {
+            log::error!("applySearchHighlights: session {session_id} not found");
+            return Ok(());
+        };
+        let highlights =
+            crate::terminal::ghostty_terminal::GhosttyTerminal::search_viewport_highlights_on(
+                &query_tx,
+            );
+        // 视口顶行的绝对行号：以 VT 真值（`rendered_viewport_row`）为准——锚在内容上，
+        // 浏览期间新输出不移动它，不会随宿主滚动偏移漂移。首帧未发布时回退到
+        // `scrollback_lines - scroll_offset`（宿主旧口径），保证首帧也有高亮。
+        let viewport_top = match rendered_viewport_row(session_id as u64) {
+            Some(row) if row >= 0 => row,
+            _ => highlights.scrollback_lines as i32 - scroll_offset,
+        };
+        let mut state = render_state_mut();
+        let Some(render_state) = state.as_mut() else {
+            return Ok(());
+        };
+        // 上游 `viewport_matches` 会按页多给一些视口外的命中（文档明确说明），
+        // 折算后必须两侧都裁：只裁负行会让视口下方的命中进入高亮列表，
+        // 一旦偏移换算有误差就画到无关行上。
+        let grid_rows = render_state
+            .last_frame
+            .as_ref()
+            .map_or(i32::MAX, |(_, _, rows, _, _)| *rows as i32);
+        // 当前选中命中用主题前景色，其余用主题选区色：颜色真源是渲染态持有的
+        // 当前主题（见 `setTheme`），Kotlin 不参与。
+        let palette = &render_state.palette;
+        render_state.search_highlights.current = build_search_highlights(
+            &highlights.matches,
+            &highlights.selected,
+            viewport_top,
+            grid_rows,
+            palette,
+        );
+        render_state.search_highlights.session = session_id as u64;
+        // 置脏标志：无 PTY 流量时新高亮也必须绘制到下一帧
+        //（#5 空闲屏回归）。
+        render_state.dirty.store(true, Ordering::Relaxed);
+    });
 }

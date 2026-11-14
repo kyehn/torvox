@@ -300,3 +300,56 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getPtyS
         .unwrap_or(0)
     })
 }
+
+// ── 文本选区 ──────────────────────────────────────────────────────
+/// 设置下一渲染帧的活动文本选区。
+///
+/// 终端持有选区安装口：坐标为绝对网格行（row 0 = 回滚顶部），与控制柄逻辑一致。
+/// 设置当前文本选区（绝对网格行列，0 = 回滚顶部）；高亮颜色由终端侧按主题调色板烘焙，本通道不传颜色参数。
+/// 选区经 `GhosttyTerminal::set_selection` 安装为终端状态（跟踪引用，随滚动/
+/// 输出/重排跟随文本），高亮由 VT 线程按行级选区反白直接烘焙进 `CellData`；
+/// 本层不再存储单元格位置，仅透传。`hasSelection=false` 清除选区。
+/// 选区恒为线性（块选通道已随 mode 一并移除）。
+///
+/// 返回 true 表示本次写入已生效（或无需写入）。会话锁被 PTY 写入按住时返回 false 且
+/// **不阻塞**：调用方（渲染循环）保留上一次已提交的值，下一帧重试。拖动选区时每帧都会
+/// 调用本函数，阻塞在这里等于把每帧拖到 PTY 输出的时长（真机实测单帧 100ms+）。
+#[unsafe(no_mangle)]
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
+    session_id: jlong,
+    start_row: jint,
+    start_col: jint,
+    end_row: jint,
+    end_col: jint,
+    has_selection: jboolean,
+) -> jboolean {
+    jni_export_guard!(&mut unowned_env, JNI_TRUE, |_env| {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            return Ok(JNI_TRUE);
+        };
+        let Some(session) = entry.session.try_lock() else {
+            return Ok(JNI_FALSE);
+        };
+        if has_selection == jni::sys::JNI_TRUE {
+            session.terminal().set_selection(
+                (start_row.max(0) as u32, start_col.max(0) as u32),
+                (end_row.max(0) as u32, end_col.max(0) as u32),
+            );
+        } else {
+            session.terminal().clear_selection();
+        }
+        drop(session);
+        drop(registry);
+        // 置脏标志：选区变化必须重绘，即便终端空闲（VT 线程也会重推 CellData，
+        // 此处只是唤醒渲染门控而不必等待它）。
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.dirty.store(true, Ordering::Relaxed);
+        }
+        JNI_TRUE
+    })
+}

@@ -19,8 +19,8 @@ pub(super) use diagnostics::{
 pub(super) use frame::scroll_bookkeeping_offset;
 #[cfg(test)]
 pub(super) use overlay::{
-    build_cursor, frame_reflects_scroll, highlight_rows_to_mark, mark_overlay_dirty_rows,
-    should_repaint_idle,
+    build_cursor, build_search_highlights, frame_reflects_scroll, highlight_rows_to_mark,
+    mark_overlay_dirty_rows, should_repaint_idle,
 };
 pub(super) use pump::pump_sessions;
 pub(super) use session_ops::{ATLAS_SIZE, DEFAULT_FONT_CELL_SIZE, string_to_jstring};

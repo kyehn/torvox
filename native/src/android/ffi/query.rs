@@ -444,3 +444,17 @@ pub(super) fn session_query_channel(
             .query_channel(),
     )
 }
+
+// ── 搜索 ──────────────────────────────────────────────────────────
+/// 搜索查询串长度上限（原生为唯一真源，UI 侧据此截断输入）。
+#[unsafe(no_mangle)]
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchQueryMaxChars<
+    'local,
+>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jint {
+    jni_export_guard!(unowned_env, -1, |_env| {
+        GhosttyTerminal::MAX_SEARCH_QUERY_CHARS as jint
+    })
+}
