@@ -130,6 +130,29 @@
 - **AND** MUST NOT 通过过滤 `OnBackInvokedCallback` tag、降级日志或移除返回回调来消除；
       AndroidX 的 `OnBackPressedDispatcher` 注册回调是本告警的触发点
 
+#### Scenario: 选区窗口在投递中途拆装导致的输入接收器告警
+
+- **WHEN** 真机（Mali/Android 13，2026-11-14 14:52）日志出现
+      `InputEventReceiver: Attempted to finish an input event but the input event receiver
+      has already been disposed.`
+- **THEN** 该告警 MUST 归因于「在覆盖层自己的 `dispatchTouchEvent(ACTION_UP)` 里
+      dismiss 承载本次按压的 `PopupWindow`」：平台在同一事件仍在投递时拆掉该窗口的
+      输入接收器，随后的 `finishInputEvent` 便无处可去
+- **AND** 重锚与重显 MUST 推到下一帧（`View.post`），MUST NOT 在投递内同步拆装窗口；
+      手柄吸附差一帧（约 16ms）不可感知
+- **AND** 同窗口期 `WindowManagerGlobal` 的 `Add to mViews ... PopupDecorView` 多次出现
+      属选区会话的既有行为（覆盖层每次选区会话重建一次、菜单窗口复用），
+      MUST NOT 记为泄漏；判据是 `mViews.size()` 峰值与回落，不是单次添加
+
+#### Scenario: 厂商缓冲队列上的 `Expecting binder but got null!`
+
+- **WHEN** 日志以 tag `Parcel` 打出 `Expecting binder but got null!`
+- **THEN** MUST 归因于平台/厂商缓冲路径：真机两次日志（2026-11-14 13:58 与 14:52）中
+      它都出现在**缓冲队列线程**（紧邻 `mali_gralloc` 的 `register: ... importpid=-1`
+      与 `unregister`），不在应用调用的任何 API 上，且与 `attach_surface`/窗口拆装无关
+- **AND** MUST NOT 通过过滤 `Parcel` tag、降级日志或改动窗口/交换链格式来消除；
+      应用侧无对应开关，与 `render-stability` 的 FBC 噪声同类
+
 ### Requirement: 日志 tag 必须与事件语义一致
 
 日志 tag 取自 `log` 宏的模块路径（`native/src/android/logging.rs` 用 `record.target()`
