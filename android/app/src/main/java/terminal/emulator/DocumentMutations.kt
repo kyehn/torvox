@@ -3,6 +3,7 @@ package terminal.emulator
 import android.content.Context
 import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
+import terminal.emulator.util.DirectoryListing
 import terminal.emulator.util.runCatchingCancellable
 import java.io.File
 import java.io.FileNotFoundException
@@ -20,13 +21,7 @@ import java.nio.file.attribute.PosixFilePermission
 internal class DocumentMutations(
     private val context: Context,
     private val rootDir: () -> File,
-    /**
-     * 列出目录内容；返回 null 表示「列举不出来」（I/O 失败），不是「目录为空」。
-     *
-     * 注入点只为在 JVM 单测里构造该前提：靠权限位制造不可列举的目录在 root 或
-     * 特殊挂载下不成立，用例会被静默跳过——等于没测。
-     */
-    private val listDirectoryEntries: (File) -> Array<File>? = { it.listFiles() },
+    private val listDirectoryEntries: DirectoryListing = { it.listFiles() },
 ) {
     private companion object {
         /** 客户端未给名字时的新建占位名，扩展名按 mimeType 追加。 */

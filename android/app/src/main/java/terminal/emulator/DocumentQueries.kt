@@ -5,6 +5,7 @@ import android.database.MatrixCursor
 import android.provider.DocumentsContract.Document
 import android.webkit.MimeTypeMap
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.util.DirectoryListing
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -21,13 +22,7 @@ import java.util.Locale
  */
 internal class DocumentQueries(
     private val context: Context,
-    /**
-     * 列出目录内容；返回 null 表示「列举不出来」（I/O 失败），不是「目录为空」。
-     *
-     * 注入点只为在 JVM 单测里构造该前提：靠权限位制造不可列举的目录在 root 或
-     * 特殊挂载下不成立，用例会被静默跳过——等于没测。
-     */
-    private val listDirectoryEntries: (File) -> Array<File>? = { it.listFiles() },
+    private val listDirectoryEntries: DirectoryListing = { it.listFiles() },
 ) {
     companion object {
         /** 编辑器替换保存流程的让位文件后缀（`deploy.sh` → `15398985.rollback`）。 */

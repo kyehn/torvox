@@ -7,6 +7,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import terminal.emulator.detectDeviceArchitecture
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.util.DirectoryListing
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
 import java.io.ByteArrayOutputStream
@@ -51,13 +52,7 @@ class SecondStageRunner(
     private val prefixDir: File,
     private val homeDir: File,
     private val onProgress: BootstrapProgressCallback? = null,
-    /**
-     * 列出目录内容；返回 null 表示「列举不出来」（I/O 失败），不是「目录为空」。
-     *
-     * 注入点只为在 JVM 单测里构造该前提：靠权限位制造不可列举的目录在 root 或
-     * 特殊挂载下不成立，用例会被静默跳过——等于没测。
-     */
-    private val listDirectoryEntries: (File) -> Array<File>? = { it.listFiles() },
+    private val listDirectoryEntries: DirectoryListing = { it.listFiles() },
 ) {
     companion object {
         /** 进程已退出后等待 stdout 排空线程收尾的上限；超时即放弃剩余输出（daemon 线程不会泄漏）。 */
