@@ -434,10 +434,11 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                                     entry.frameMarks = entry.frameMarks.copy(startNanos = System.nanoTime())
                                     // 渲染与 new_output 消费合并为单次 JNI 穿越（每帧省 ~0.1-0.3ms）。
                                     // 解构超过 3 项被 detekt 禁止，故取对象再逐字段读。
+                                    val surfaceEpoch = runtime.surfacePresentEpoch()
                                     val renderResult = bridge.renderWithNewOutput()
                                     val count = renderResult.count
                                     if (count > 0) {
-                                        runtime.publishSurfaceBufferPresent(true)
+                                        runtime.publishSurfaceBufferPresent(true, surfaceEpoch)
                                         // 按会话记下「已出过帧」：进程级标志在首个会话出帧后
                                         // 恒为真，后建会话是否出过帧只能靠这一位判断。
                                         entry.firstFramePresented = true

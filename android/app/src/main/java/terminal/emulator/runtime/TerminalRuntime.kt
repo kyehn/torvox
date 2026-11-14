@@ -235,7 +235,23 @@ constructor(
     private var surfacePresentToken = 0L
     private var surfacePresentFrameCallback: Choreographer.FrameCallback? = null
 
-    internal fun publishSurfaceBufferPresent(present: Boolean) {
+    /**
+     * 当前开孔的世代：开孔失效（surface 被拆或换了实例）时 +1。
+     *
+     * 渲染线程在进入原生渲染前取一次，提交结果时连同它上报（见
+     * [publishSurfaceBufferPresent] 的 `epoch`）：两者之间开孔若已失效，那一帧提交的
+     * 是被平台废弃的缓冲区，不能据此撤遮罩。
+     */
+    internal fun surfacePresentEpoch(): Long = synchronized(surfacePresentLock) { surfacePresentToken }
+
+    /**
+     * 上报「当前开孔是否已有一帧提交进缓冲区」。
+     *
+     * [epoch] 是渲染开始前取的 [surfacePresentEpoch]：与当前世代不符说明这一帧是
+     * 旧开孔的残余（surface 在渲染途中被平台拆掉），此时上报 true 会把遮罩撤掉、
+     * 让开孔空着——用户看到的就是「输入法弹出/切后台返回时闪一下」。故丢弃。
+     */
+    internal fun publishSurfaceBufferPresent(present: Boolean, epoch: Long = surfacePresentEpoch()) {
         if (!present) {
             synchronized(surfacePresentLock) {
                 // 令牌一变，已排队的帧回调即使稍后执行也不会再置 true。
@@ -250,6 +266,7 @@ constructor(
             return
         }
         synchronized(surfacePresentLock) {
+            if (epoch != surfacePresentToken) return
             if (surfaceBufferPresentFlow.value || surfacePresentPending) return
             surfacePresentPending = true
         }
@@ -2297,6 +2314,7 @@ constructor(
             // 重试梯子只接硬失败（< 0）；`0` 的语义是「本帧没有可画的内容」，切会话后
             // 那正是常态——surface 尚未就绪、目标会话暂无新帧都会返回 0，而原生已按当前
             // 会话请求重推一帧（帧留在通道里，就绪后被取走并呈现），故不在此空转重试。
+            val surfaceEpoch = surfacePresentEpoch()
             var initialRender = target.bridge.render()
             var attempts = 1
             while (initialRenderRetryNeeded(initialRender, attempts, RENDER_INITIAL_RETRY_MAX)) {
@@ -2313,7 +2331,7 @@ constructor(
                 // 「已出过帧」这一事实也成立。漏记会让窗口层在已呈现内容之上继续盖着
                 // 底色（闪一下），并让首帧诊断把已出过帧的会话误判成未出过帧。
                 target.firstFramePresented = true
-                publishSurfaceBufferPresent(true)
+                publishSurfaceBufferPresent(true, surfaceEpoch)
             }
             target.forceRenderRequested = true
             target.notifyRender()
