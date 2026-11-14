@@ -180,6 +180,8 @@ pub(crate) fn load_font_database() -> fontdb::Database {
             "FONT_LOAD: loaded {loaded} font files, {} faces",
             font_database.faces().count()
         );
+        // 建库后立即共享：下一个字符的解析与光栅化就不必再映射整个 CJK 字体文件。
+        share_face_data_under(&mut font_database, FONT_DIRS);
         font_database
     });
     font_database.clone()
@@ -260,7 +262,11 @@ fn widen_to_declared_set(font_database: &mut fontdb::Database, declared_files: &
 /// 是渲染字体库，只能在锁内做。
 #[cfg(target_os = "android")]
 pub(crate) fn load_family_files(font_database: &mut fontdb::Database, files: &[String]) -> bool {
-    load_files(font_database, &resolve_font_files(files)) > 0
+    let loaded = load_files(font_database, &resolve_font_files(files));
+    if loaded > 0 {
+        share_face_data_under(font_database, FONT_DIRS);
+    }
+    loaded > 0
 }
 
 /// 字体族索引项：`display_name` 是展示用原始族名，`files` 是字体文件定位串。
@@ -429,6 +435,31 @@ pub(crate) fn face_source_path(face: &fontdb::FaceInfo) -> Option<&std::path::Pa
     }
 }
 
+/// 把 `dirs` 下的字体面改为同一份共享只读映射。
+///
+/// `Source::File` 的 `with_face_data` 每次调用都会重新 open + mmap 字体文件：CJK
+/// 回退面 32MB，解析字形号与光栅化字形各映射一次，真机实测冷字形集中出现时单帧
+/// 慢到 24ms。共享后同一查询只剩一次 `Arc` 取值，且整库只保留一份映射。
+///
+/// 只处理 `dirs` 下的系统字体：这些分区只读，进程存活期间映射内容不会变化；
+/// 用户投放字体可被 `cp` 覆盖（截断），映射后仍可能变短，故不共享。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn share_face_data_under(font_database: &mut fontdb::Database, dirs: &[&str]) {
+    let ids: Vec<fontdb::ID> = font_database
+        .faces()
+        .filter(|face| {
+            face_source_path(face).is_some_and(|path| dirs.iter().any(|dir| path.starts_with(dir)))
+        })
+        .map(|face| face.id)
+        .collect();
+    for id in ids {
+        // SAFETY: 系统字体目录只读，映射期间文件内容不变。
+        unsafe {
+            font_database.make_shared_face_data(id);
+        }
+    }
+}
+
 /// 库内是否已有该字体文件。装入一个 TTC 即含其全部面，故按文件名判定即可，
 /// 无需逐面比较索引。
 #[cfg(any(target_os = "android", test))]
@@ -501,6 +532,9 @@ pub(crate) fn load_region_fallback_faces(
         loaded.extend(ids);
     }
     if !loaded.is_empty() {
+        // locale 到达晚于建库，补装的区域回退面（真机是 32MB 的 CJK TTC）同样要共享，
+        // 否则「建库时共享」只省了符号层与主字体，最贵的那一面仍是逐字符映射。
+        share_face_data_under(font_database, FONT_DIRS);
         log::debug!(
             "FONT_LOAD: locale='{system_locale}' 补装 {} 个区域回退族面",
             loaded.len()

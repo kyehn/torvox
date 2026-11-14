@@ -589,3 +589,36 @@ fn duplicate_regular_face_is_not_taken_as_the_italic_face() {
         "同族没有斜面时只能合成，重复的常规面不得被当成斜体面"
     );
 }
+
+#[test]
+fn sharing_system_face_data_keeps_glyph_lookup_working() {
+    use crate::render::font::font_db;
+
+    let font_path = find_test_font();
+    let mut font_database = fontdb::Database::new();
+    font_database.load_font_file(&font_path).unwrap();
+    let id = font_database.faces().next().unwrap().id;
+    assert!(font_db::face_covers_latin(&font_database, id));
+
+    // 目录不匹配时来源保持私有映射。
+    font_db::share_face_data_under(&mut font_database, &["/nonexistent-font-dir/"]);
+    assert!(matches!(
+        font_database.face(id).unwrap().source,
+        fontdb::Source::File(..)
+    ));
+
+    font_db::share_face_data_under(&mut font_database, &["/"]);
+    assert!(matches!(
+        font_database.face(id).unwrap().source,
+        fontdb::Source::SharedFile(..)
+    ));
+    assert!(
+        font_db::face_covers_latin(&font_database, id),
+        "共享映射后必须仍能解析字形"
+    );
+    assert_eq!(
+        font_db::face_source_path(font_database.face(id).unwrap()),
+        Some(font_path.as_path()),
+        "共享前后来源路径必须一致"
+    );
+}
