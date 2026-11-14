@@ -1,0 +1,2020 @@
+[2026-11-12 11:57:03.053 Uid(value=10327):12237:12310 E/AndroidRuntime]
+FATAL EXCEPTION: Render-1
+Process: com.termux, PID: 12237
+java.lang.RuntimeException: Rust panic: Error in Device::poll: Validation Error
+
+[2026-11-14 13:58:08.419 Uid(value=10327):18495:18495 I/libc]
+SetHeapTaggingLevel: tag level set to 0
+
+[2026-11-14 13:58:08.425 Uid(value=10327):18495:18495 E/com.termux]
+Not starting debugger since process cannot load the jdwp agent.
+
+[2026-11-14 13:58:08.447 Uid(value=10327):18495:18495 W/ziparchive]
+Unable to open '/system_ext/framework/unisoc-framework.dm': No such file or directory
+
+[2026-11-14 13:58:08.447 Uid(value=10327):18495:18495 W/ziparchive]
+Unable to open '/system_ext/framework/unisoc-framework.dm': No such file or directory
+
+[2026-11-14 13:58:08.453 Uid(value=10327):18495:18495 D/FeatureOpt]
+get all features from system,count=490
+
+[2026-11-14 13:58:08.454 Uid(value=10327):18495:18495 W/FeatureOpt]
+ensureGetRight for getInt, key=zte_foldable,valueType=101,result=0
+
+[2026-11-14 13:58:08.457 Uid(value=10327):18495:18509 W/libc]
+Access denied finding property "vendor.MB.running"
+
+[2026-11-14 13:58:08.464 Uid(value=10327):18495:18495 D/CompatibilityChangeReporter]
+Compat change id reported: 171979766; UID 10327; state: DISABLED
+
+[2026-11-14 13:58:08.465 Uid(value=10327):18495:18495 D/Typeface]
+ZTEZhengYuan Available:true
+
+[2026-11-14 13:58:08.468 Uid(value=10327):18495:18495 D/ApplicationLoaders]
+Returning zygote-cached class loader: /system/framework/android.test.base.jar
+
+[2026-11-14 13:58:08.475 Uid(value=10327):18495:18495 V/GraphicsEnvironment]
+ANGLE Developer option for 'com.termux' set to: 'default'
+
+[2026-11-14 13:58:08.475 Uid(value=10327):18495:18495 V/GraphicsEnvironment]
+ANGLE GameManagerService for com.termux: false
+
+[2026-11-14 13:58:08.475 Uid(value=10327):18495:18495 V/GraphicsEnvironment]
+Neither updatable production driver nor prerelease driver is supported.
+
+[2026-11-14 13:58:08.476 Uid(value=10327):18495:18495 I/LoadedApk]
+No resource references to update in package androidzte
+
+[2026-11-14 13:58:08.477 Uid(value=10327):18495:18495 D/NetworkSecurityConfig]
+No Network Security Config specified, using platform default
+
+[2026-11-14 13:58:08.477 Uid(value=10327):18495:18495 D/NetworkSecurityConfig]
+No Network Security Config specified, using platform default
+
+[2026-11-14 13:58:08.477 Uid(value=10327):18495:18495 I/ZteBinderProxy]
+initLastBindTime: USE_CACHE = true
+
+[2026-11-14 13:58:08.491 Uid(value=10327):18495:18515 I/native::android::ffi]
+power preference set to HighPerformance
+
+[2026-11-14 13:58:08.508 Uid(value=10327):18495:18495 W/FeatureOpt]
+ensureGetRight for getInt, key=zte_foldable,valueType=101,result=0
+
+[2026-11-14 13:58:08.519 Uid(value=10327):18495:18495 E/Typeface]
+updateDefaultTypeface(fontPath: /data/resource-cache/font/default_font_android_id)
+
+[2026-11-14 13:58:08.531 Uid(value=10327):18495:18495 D/WindowClient]
+Add to mViews: DecorView@6abe1d9[MainActivity], this = android.view.WindowManagerGlobal@cd5779emViews.size()=1
+
+[2026-11-14 13:58:08.531 Uid(value=10327):18495:18495 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 13:58:08.555 Uid(value=10327):18495:18495 D/CompatibilityChangeReporter]
+Compat change id reported: 193247900; UID 10327; state: DISABLED
+
+[2026-11-14 13:58:08.703 Uid(value=10327):18495:18495 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 13:58:08.742 Uid(value=10327):18495:18520 D/vulkan]
+searching for layers in '/data/app/~~kiqQsQyPvpfJXYS-9Q9R9w==/com.termux-DistrtcSCfS9SQruAediFQ==/lib/arm64'
+
+[2026-11-14 13:58:08.742 Uid(value=10327):18495:18520 D/vulkan]
+searching for layers in '/data/app/~~kiqQsQyPvpfJXYS-9Q9R9w==/com.termux-DistrtcSCfS9SQruAediFQ==/base.apk!/lib/arm64-v8a'
+
+[2026-11-14 13:58:08.752 Uid(value=10327):18495:18495 I/native::android]
+log level set to INFO
+
+[2026-11-14 13:58:08.753 Uid(value=10327):18495:18495 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:08.772 Uid(value=10327):18495:18520 I/native::render::wgpu_backend]
+GPU adapter: Mali-G57 (backend=Vulkan, type=IntegratedGpu, power_preference=HighPerformance)
+
+[2026-11-14 13:58:08.772 Uid(value=10327):18495:18520 W/wgpu_core::instance]
+Missing downlevel flags: DownlevelFlags(SURFACE_VIEW_FORMATS)
+The underlying API or device in use does not support enough features to be a fully compliant implementation of WebGPU. A subset of the features can still be used. If you are running this program on native and not in a browser and wish to limit the features you use to the supported subset, call Adapter::downlevel_properties or Device::downlevel_properties to get a listing of the features the current platform supports.
+
+[2026-11-14 13:58:08.772 Uid(value=10327):18495:18520 W/wgpu_core::instance]
+DownlevelCapabilities {
+    flags: DownlevelFlags(
+        COMPUTE_SHADERS | FRAGMENT_WRITABLE_STORAGE | INDIRECT_EXECUTION | BASE_VERTEX | READ_ONLY_DEPTH_STENCIL | NON_POWER_OF_TWO_MIPMAPPED_TEXTURES | CUBE_ARRAY_TEXTURES | COMPARISON_SAMPLERS | INDEPENDENT_BLEND | VERTEX_STORAGE | ANISOTROPIC_FILTERING | FRAGMENT_STORAGE | MULTISAMPLED_SHADING | DEPTH_TEXTURE_AND_BUFFER_COPIES | WEBGPU_TEXTURE_FORMAT_SUPPORT | BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED | UNRESTRICTED_INDEX_BUFFER | FULL_DRAW_INDEX_UINT32 | DEPTH_BIAS_CLAMP | VIEW_FORMATS | UNRESTRICTED_EXTERNAL_TEXTURE_COPIES | NONBLOCKING_QUERY_RESOLVE | SHADER_F16_IN_F32 | MSL2_1 | TEXTURE_COMPRESSION,
+    ),
+    limits: DownlevelLimits,
+    shader_model: Sm5,
+}
+
+[2026-11-14 13:58:08.788 Uid(value=10327):18495:18520 I/native::render::wgpu_backend]
+GPU device created, queue ok
+
+[2026-11-14 13:58:08.805 Uid(value=10327):18495:18520 I/native::android::ffi]
+render state initialized (renderer + font pipeline)
+
+[2026-11-14 13:58:08.855 Uid(value=10327):18495:18520 I/native::android::ffi::font]
+loadFontFile: /data/user/0/com.termux/files/home/.termux/font.ttf -> family Maple Mono Normal NF CN
+
+[2026-11-14 13:58:08.864 Uid(value=10327):18495:18520 I/native::terminal::session::spawn]
+Session::spawn: shell='/data/user/0/com.termux/files/usr/bin/login', rows=28, cols=42, cwd=None
+
+[2026-11-14 13:58:08.871 Uid(value=10327):18495:18520 I/native::terminal::pty]
+SPAWN_DIRECT_ET_EXEC: shell=/data/user/0/com.termux/files/usr/bin/login (non-PIE, skip linker)
+
+[2026-11-14 13:58:08.880 Uid(value=10327):18495:18520 I/native::terminal::session::spawn]
+Session::spawn: PtyPair::spawn OK
+
+[2026-11-14 13:58:08.880 Uid(value=10327):18495:18520 I/native::terminal::session::spawn]
+Session::spawn: set_nonblocking OK
+
+[2026-11-14 13:58:08.880 Uid(value=10327):18495:18520 I/native::terminal::session::spawn]
+Session::spawn: cloning master fd for reader
+
+[2026-11-14 13:58:08.880 Uid(value=10327):18495:18520 I/native::terminal::session::spawn]
+Session::spawn_with_pty: creating Arc/Channel
+
+[2026-11-14 13:58:08.881 Uid(value=10327):18495:18520 I/native::terminal::session::spawn]
+Session::spawn: spawning reader thread
+
+[2026-11-14 13:58:08.881 Uid(value=10327):18495:18520 I/native::android::ffi::session]
+FFI: initSession -> id=1
+
+[2026-11-14 13:58:08.881 Uid(value=10327):18495:18557 I/native::terminal::session::spawn]
+wait thread: waiting for child pid=18554
+
+[2026-11-14 13:58:08.882 Uid(value=10327):18495:18521 I/native::android::ffi]
+render state prefetched
+
+[2026-11-14 13:58:08.882 Uid(value=10327):18495:18520 I/native::android::ffi::font]
+setSystemLocale: zh-CN
+
+[2026-11-14 13:58:08.886 Uid(value=10327):18495:18520 I/native::android::ffi::appearance]
+setTheme: session 1 theme=dracula_plus
+
+[2026-11-14 13:58:08.886 Uid(value=10327):18495:18520 I/native::android::ffi::appearance]
+setCursorStyle: session 1 style=Block
+
+[2026-11-14 13:58:08.886 Uid(value=10327):18495:18555 I/native::terminal::ghostty_terminal::internal::commands]
+SetCursorStyle: Block
+
+[2026-11-14 13:58:08.889 Uid(value=10327):18495:18520 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x768764dbf0 472x819
+
+[2026-11-14 13:58:08.885 Uid(value=10327):18554:18554 W/DefaultDispatch]
+type=1400 audit(0.0:3773657): avc: granted { execute } for name="login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:08.885 Uid(value=10327):18554:18554 W/DefaultDispatch]
+type=1400 audit(0.0:3773658): avc: granted { execute_no_trans } for path="/data/user/0/com.termux/files/usr/bin/login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:08.892 Uid(value=10327):18495:18520 W/libc]
+Access denied finding property "persist.vendor.gpu.fbc"
+
+[2026-11-14 13:58:08.892 Uid(value=10327):18495:18520 I/mali_gralloc]
+SPRD: get persist.vendor.gpu.fbc 1
+
+[2026-11-14 13:58:08.892 Uid(value=10327):18495:18520 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:08.892 Uid(value=10327):18495:18520 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:08.893 Uid(value=10327):18495:18520 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:08.893 Uid(value=10327):18495:18520 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:08.893 Uid(value=10327):18495:18520 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:08.893 Uid(value=10327):18495:18520 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:08.893 Uid(value=10327):18495:18520 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:08.893 Uid(value=10327):18495:18520 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:08.895 Uid(value=10327):18495:18520 I/mali_gralloc]
+register: id=0x2930004d61d, importpid=-1
+
+[2026-11-14 13:58:08.897 Uid(value=10327):18495:18520 I/mali_gralloc]
+register: id=0x2930004d61e, importpid=-1
+
+[2026-11-14 13:58:08.898 Uid(value=10327):18495:18520 I/mali_gralloc]
+register: id=0x2930004d61f, importpid=-1
+
+[2026-11-14 13:58:08.899 Uid(value=10327):18495:18520 I/mali_gralloc]
+register: id=0x2930004d620, importpid=-1
+
+[2026-11-14 13:58:08.899 Uid(value=10327):18495:18520 I/native::render::context::renderer]
+ensure_frame_texture: creating accumulator 472x819 (Rgba8Unorm)
+
+[2026-11-14 13:58:08.899 Uid(value=10327):18495:18520 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 13:58:08.900 Uid(value=10327):18495:18520 I/native::render::pass::frame]
+warmup: no retained frame to present (472x819), clearing to the background
+
+[2026-11-14 13:58:08.897 Uid(value=10327):18554:18554 W/login]
+type=1400 audit(0.0:3773659): avc: granted { execute } for path="/data/user/0/com.termux/files/usr/bin/login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:08.932 Uid(value=10327):18495:18520 I/native::render::context::renderer]
+initialize_pipeline_and_bind_group: pipeline=true atlas=2048x2048 surface=472x819 elapsed=27.354ms
+
+[2026-11-14 13:58:08.932 Uid(value=10327):18495:18520 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 13:58:08.937 Uid(value=10327):18554:18554 W/login]
+type=1400 audit(0.0:3773660): avc: denied { getattr } for path="/proc/modules" dev="proc" ino=4026532130 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:proc_modules:s0 tclass=file permissive=0 app=com.termux
+
+[2026-11-14 13:58:08.937 Uid(value=10327):18554:18554 W/login]
+type=1400 audit(0.0:3773661): avc: denied { getattr } for path="/proc/bus/pci/devices" dev="proc" ino=4026532146 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:proc:s0 tclass=file permissive=0 app=com.termux
+
+[2026-11-14 13:58:08.941 Uid(value=10327):18554:18554 W/login]
+type=1400 audit(0.0:3773662): avc: granted { execute } for name="chroot-ng" dev="dm-38" ino=7165871 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:08.941 Uid(value=10327):18554:18554 W/login]
+type=1400 audit(0.0:3773663): avc: granted { execute_no_trans } for path="/data/data/com.termux/files/usr/nix/store/irg6rvvsbbhvd80345yh7gai1hlc5sb2-fake-chroot-ng-static-aarch64-unknown-linux-musl-1.6.0-unstable-2026-10-30/bin/chroot-ng" dev="dm-38" ino=7165871 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:08.945 Uid(value=10327):18554:18554 W/chroot-ng]
+type=1400 audit(0.0:3773664): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/irg6rvvsbbhvd80345yh7gai1hlc5sb2-fake-chroot-ng-static-aarch64-unknown-linux-musl-1.6.0-unstable-2026-10-30/bin/chroot-ng" dev="dm-38" ino=7165871 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:08.948 Uid(value=10327):18495:18564 I/Runtime]
+first frame presented
+
+[2026-11-14 13:58:08.990 Uid(value=10327):18495:18516 I/mali_gralloc]
+register: id=0x2930004d621, importpid=-1
+
+[2026-11-14 13:58:09.016 Uid(value=10327):18495:18516 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 13:58:09.022 Uid(value=10327):18495:18495 D/CompatibilityChangeReporter]
+Compat change id reported: 160794467; UID 10327; state: DISABLED
+
+[2026-11-14 13:58:09.063 Uid(value=10327):18495:18495 W/libc]
+Access denied finding property "persist.unipnp.debug"
+
+[2026-11-14 13:58:09.063 Uid(value=10327):18495:18495 W/libc]
+Access denied finding property "persist.unipnp.debug"
+
+[2026-11-14 13:58:09.063 Uid(value=10327):18495:18495 W/ziparchive]
+Unable to open '/system_ext/framework/unipnp-framework.dm': No such file or directory
+
+[2026-11-14 13:58:09.063 Uid(value=10327):18495:18495 W/ziparchive]
+Unable to open '/system_ext/framework/unipnp-framework.dm': No such file or directory
+
+[2026-11-14 13:58:09.107 Uid(value=10327):18495:18516 I/mali_gralloc]
+register: id=0x2930004d622, importpid=-1
+
+[2026-11-14 13:58:09.148 Uid(value=10327):18495:18564 I/Runtime]
+session 1 first output received
+
+[2026-11-14 13:58:09.162 Uid(value=10327):18495:18495 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-14 13:58:09.162 Uid(value=10327):18495:18495 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{9457ffa VFED..... .F...... 0,0-472,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-11-14 13:58:09.226 Uid(value=10327):18495:18495 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 13:58:09.291 Uid(value=10327):18495:18516 I/mali_gralloc]
+register: id=0x2930004d627, importpid=-1
+
+[2026-11-14 13:58:09.800 Uid(value=10327):18495:18564 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.324144ms p95=17.505654ms max=18.555308ms pre_max=0.094039ms pre_p95=0.071654ms ≈69fps vsync=16.7ms
+
+[2026-11-14 13:58:09.800 Uid(value=10327):18495:18540 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.290877ms p95=0.114846ms max=8.655923ms scrollback=0 rows
+
+[2026-11-14 13:58:10.240 Uid(value=10327):18495:18502 I/com.termux]
+Compiler allocated 4898KB to compile java.lang.Object terminal.emulator.runtime.RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend(java.lang.Object)
+
+[2026-11-14 13:58:10.421 Uid(value=10327):18495:18495 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:10.446 Uid(value=10327):18495:18495 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 13:58:10.459 Uid(value=10327):18495:18495 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-14 13:58:10.469 Uid(value=10327):18495:18516 I/mali_gralloc]
+unregister: id=0x2930004d622, base=0x0, importpid=18495
+
+[2026-11-14 13:58:10.471 Uid(value=10327):18495:18516 I/mali_gralloc]
+unregister: id=0x2930004d627, base=0x0, importpid=18495
+
+[2026-11-14 13:58:10.471 Uid(value=10327):18495:18516 I/mali_gralloc]
+unregister: id=0x2930004d621, base=0x0, importpid=18495
+
+[2026-11-14 13:58:10.482 Uid(value=10327):18495:18495 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 13:58:10.507 Uid(value=10327):18495:18564 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 13:58:13.809 Uid(value=10327):18495:18696 D/ProfileInstaller]
+Installing profile for com.termux
+
+[2026-11-14 13:58:22.860 Uid(value=10327):18735:18735 I/libc]
+SetHeapTaggingLevel: tag level set to 0
+
+[2026-11-14 13:58:22.866 Uid(value=10327):18735:18735 E/com.termux]
+Not starting debugger since process cannot load the jdwp agent.
+
+[2026-11-14 13:58:22.887 Uid(value=10327):18735:18735 W/ziparchive]
+Unable to open '/system_ext/framework/unisoc-framework.dm': No such file or directory
+
+[2026-11-14 13:58:22.887 Uid(value=10327):18735:18735 W/ziparchive]
+Unable to open '/system_ext/framework/unisoc-framework.dm': No such file or directory
+
+[2026-11-14 13:58:22.894 Uid(value=10327):18735:18735 D/FeatureOpt]
+get all features from system,count=490
+
+[2026-11-14 13:58:22.894 Uid(value=10327):18735:18735 W/FeatureOpt]
+ensureGetRight for getInt, key=zte_foldable,valueType=101,result=0
+
+[2026-11-14 13:58:22.899 Uid(value=10327):18735:18749 W/libc]
+Access denied finding property "vendor.MB.running"
+
+[2026-11-14 13:58:22.909 Uid(value=10327):18735:18735 D/CompatibilityChangeReporter]
+Compat change id reported: 171979766; UID 10327; state: DISABLED
+
+[2026-11-14 13:58:22.911 Uid(value=10327):18735:18735 D/Typeface]
+ZTEZhengYuan Available:true
+
+[2026-11-14 13:58:22.912 Uid(value=10327):18735:18735 D/ApplicationLoaders]
+Returning zygote-cached class loader: /system/framework/android.test.base.jar
+
+[2026-11-14 13:58:22.920 Uid(value=10327):18735:18735 V/GraphicsEnvironment]
+ANGLE Developer option for 'com.termux' set to: 'default'
+
+[2026-11-14 13:58:22.920 Uid(value=10327):18735:18735 V/GraphicsEnvironment]
+ANGLE GameManagerService for com.termux: false
+
+[2026-11-14 13:58:22.920 Uid(value=10327):18735:18735 V/GraphicsEnvironment]
+Neither updatable production driver nor prerelease driver is supported.
+
+[2026-11-14 13:58:22.921 Uid(value=10327):18735:18735 I/LoadedApk]
+No resource references to update in package androidzte
+
+[2026-11-14 13:58:22.921 Uid(value=10327):18735:18735 D/NetworkSecurityConfig]
+No Network Security Config specified, using platform default
+
+[2026-11-14 13:58:22.922 Uid(value=10327):18735:18735 D/NetworkSecurityConfig]
+No Network Security Config specified, using platform default
+
+[2026-11-14 13:58:22.922 Uid(value=10327):18735:18735 I/ZteBinderProxy]
+initLastBindTime: USE_CACHE = true
+
+[2026-11-14 13:58:22.936 Uid(value=10327):18735:18756 I/native::android::ffi]
+power preference set to HighPerformance
+
+[2026-11-14 13:58:22.953 Uid(value=10327):18735:18735 W/FeatureOpt]
+ensureGetRight for getInt, key=zte_foldable,valueType=101,result=0
+
+[2026-11-14 13:58:22.964 Uid(value=10327):18735:18735 E/Typeface]
+updateDefaultTypeface(fontPath: /data/resource-cache/font/default_font_android_id)
+
+[2026-11-14 13:58:22.980 Uid(value=10327):18735:18735 D/WindowClient]
+Add to mViews: DecorView@6abe1d9[MainActivity], this = android.view.WindowManagerGlobal@cd5779emViews.size()=1
+
+[2026-11-14 13:58:22.980 Uid(value=10327):18735:18735 D/WindowClient]
+Add to mViews packageName:com.termux
+
+[2026-11-14 13:58:23.006 Uid(value=10327):18735:18735 D/CompatibilityChangeReporter]
+Compat change id reported: 193247900; UID 10327; state: DISABLED
+
+[2026-11-14 13:58:23.150 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 13:58:23.190 Uid(value=10327):18735:18761 D/vulkan]
+searching for layers in '/data/app/~~kiqQsQyPvpfJXYS-9Q9R9w==/com.termux-DistrtcSCfS9SQruAediFQ==/lib/arm64'
+
+[2026-11-14 13:58:23.190 Uid(value=10327):18735:18761 D/vulkan]
+searching for layers in '/data/app/~~kiqQsQyPvpfJXYS-9Q9R9w==/com.termux-DistrtcSCfS9SQruAediFQ==/base.apk!/lib/arm64-v8a'
+
+[2026-11-14 13:58:23.208 Uid(value=10327):18735:18761 I/native::render::wgpu_backend]
+GPU adapter: Mali-G57 (backend=Vulkan, type=IntegratedGpu, power_preference=HighPerformance)
+
+[2026-11-14 13:58:23.208 Uid(value=10327):18735:18761 W/wgpu_core::instance]
+Missing downlevel flags: DownlevelFlags(SURFACE_VIEW_FORMATS)
+The underlying API or device in use does not support enough features to be a fully compliant implementation of WebGPU. A subset of the features can still be used. If you are running this program on native and not in a browser and wish to limit the features you use to the supported subset, call Adapter::downlevel_properties or Device::downlevel_properties to get a listing of the features the current platform supports.
+
+[2026-11-14 13:58:23.208 Uid(value=10327):18735:18761 W/wgpu_core::instance]
+DownlevelCapabilities {
+    flags: DownlevelFlags(
+        COMPUTE_SHADERS | FRAGMENT_WRITABLE_STORAGE | INDIRECT_EXECUTION | BASE_VERTEX | READ_ONLY_DEPTH_STENCIL | NON_POWER_OF_TWO_MIPMAPPED_TEXTURES | CUBE_ARRAY_TEXTURES | COMPARISON_SAMPLERS | INDEPENDENT_BLEND | VERTEX_STORAGE | ANISOTROPIC_FILTERING | FRAGMENT_STORAGE | MULTISAMPLED_SHADING | DEPTH_TEXTURE_AND_BUFFER_COPIES | WEBGPU_TEXTURE_FORMAT_SUPPORT | BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED | UNRESTRICTED_INDEX_BUFFER | FULL_DRAW_INDEX_UINT32 | DEPTH_BIAS_CLAMP | VIEW_FORMATS | UNRESTRICTED_EXTERNAL_TEXTURE_COPIES | NONBLOCKING_QUERY_RESOLVE | SHADER_F16_IN_F32 | MSL2_1 | TEXTURE_COMPRESSION,
+    ),
+    limits: DownlevelLimits,
+    shader_model: Sm5,
+}
+
+[2026-11-14 13:58:23.217 Uid(value=10327):18735:18761 I/native::render::wgpu_backend]
+GPU device created, queue ok
+
+[2026-11-14 13:58:23.218 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:23.218 Uid(value=10327):18735:18735 I/native::android]
+log level set to INFO
+
+[2026-11-14 13:58:23.235 Uid(value=10327):18735:18761 I/native::android::ffi]
+render state initialized (renderer + font pipeline)
+
+[2026-11-14 13:58:23.278 Uid(value=10327):18735:18761 I/native::android::ffi::font]
+loadFontFile: /data/user/0/com.termux/files/home/.termux/font.ttf -> family Maple Mono Normal NF CN
+
+[2026-11-14 13:58:23.288 Uid(value=10327):18735:18761 I/native::terminal::session::spawn]
+Session::spawn: shell='/data/user/0/com.termux/files/usr/bin/login', rows=28, cols=42, cwd=None
+
+[2026-11-14 13:58:23.288 Uid(value=10327):18735:18761 I/native::terminal::pty]
+SPAWN_DIRECT_ET_EXEC: shell=/data/user/0/com.termux/files/usr/bin/login (non-PIE, skip linker)
+
+[2026-11-14 13:58:23.296 Uid(value=10327):18735:18761 I/native::terminal::session::spawn]
+Session::spawn: PtyPair::spawn OK
+
+[2026-11-14 13:58:23.296 Uid(value=10327):18735:18761 I/native::terminal::session::spawn]
+Session::spawn: set_nonblocking OK
+
+[2026-11-14 13:58:23.296 Uid(value=10327):18735:18761 I/native::terminal::session::spawn]
+Session::spawn: cloning master fd for reader
+
+[2026-11-14 13:58:23.296 Uid(value=10327):18735:18761 I/native::terminal::session::spawn]
+Session::spawn_with_pty: creating Arc/Channel
+
+[2026-11-14 13:58:23.297 Uid(value=10327):18735:18761 I/native::terminal::session::spawn]
+Session::spawn: spawning reader thread
+
+[2026-11-14 13:58:23.297 Uid(value=10327):18735:18761 I/native::android::ffi::session]
+FFI: initSession -> id=1
+
+[2026-11-14 13:58:23.297 Uid(value=10327):18735:18798 I/native::terminal::session::spawn]
+wait thread: waiting for child pid=18795
+
+[2026-11-14 13:58:23.298 Uid(value=10327):18735:18779 I/native::android::ffi]
+render state prefetched
+
+[2026-11-14 13:58:23.298 Uid(value=10327):18735:18761 I/native::android::ffi::font]
+setSystemLocale: zh-CN
+
+[2026-11-14 13:58:23.302 Uid(value=10327):18735:18761 I/native::android::ffi::appearance]
+setTheme: session 1 theme=dracula_plus
+
+[2026-11-14 13:58:23.302 Uid(value=10327):18735:18761 I/native::android::ffi::appearance]
+setCursorStyle: session 1 style=Block
+
+[2026-11-14 13:58:23.302 Uid(value=10327):18735:18796 I/native::terminal::ghostty_terminal::internal::commands]
+SetCursorStyle: Block
+
+[2026-11-14 13:58:23.304 Uid(value=10327):18735:18761 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x768764dbf0 472x819
+
+[2026-11-14 13:58:23.301 Uid(value=10327):18795:18795 W/DefaultDispatch]
+type=1400 audit(0.0:3773745): avc: granted { execute } for name="login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:23.301 Uid(value=10327):18795:18795 W/DefaultDispatch]
+type=1400 audit(0.0:3773746): avc: granted { execute_no_trans } for path="/data/user/0/com.termux/files/usr/bin/login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:23.307 Uid(value=10327):18735:18761 W/libc]
+Access denied finding property "persist.vendor.gpu.fbc"
+
+[2026-11-14 13:58:23.307 Uid(value=10327):18735:18761 I/mali_gralloc]
+SPRD: get persist.vendor.gpu.fbc 1
+
+[2026-11-14 13:58:23.307 Uid(value=10327):18735:18761 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:23.307 Uid(value=10327):18735:18761 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:23.307 Uid(value=10327):18735:18761 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:23.307 Uid(value=10327):18735:18761 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:23.307 Uid(value=10327):18735:18761 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:23.307 Uid(value=10327):18735:18761 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:23.308 Uid(value=10327):18735:18761 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:23.308 Uid(value=10327):18735:18761 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:23.309 Uid(value=10327):18735:18761 I/mali_gralloc]
+register: id=0x2930004d652, importpid=-1
+
+[2026-11-14 13:58:23.305 Uid(value=10327):18795:18795 W/login]
+type=1400 audit(0.0:3773747): avc: granted { execute } for path="/data/user/0/com.termux/files/usr/bin/login" dev="dm-38" ino=6829007 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:23.311 Uid(value=10327):18735:18761 I/mali_gralloc]
+register: id=0x2930004d653, importpid=-1
+
+[2026-11-14 13:58:23.312 Uid(value=10327):18735:18761 I/mali_gralloc]
+register: id=0x2930004d654, importpid=-1
+
+[2026-11-14 13:58:23.312 Uid(value=10327):18735:18761 I/mali_gralloc]
+register: id=0x2930004d655, importpid=-1
+
+[2026-11-14 13:58:23.312 Uid(value=10327):18735:18761 I/native::render::context::renderer]
+ensure_frame_texture: creating accumulator 472x819 (Rgba8Unorm)
+
+[2026-11-14 13:58:23.313 Uid(value=10327):18735:18761 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 13:58:23.313 Uid(value=10327):18735:18761 I/native::render::pass::frame]
+warmup: no retained frame to present (472x819), clearing to the background
+
+[2026-11-14 13:58:23.313 Uid(value=10327):18795:18795 W/login]
+type=1400 audit(0.0:3773748): avc: denied { getattr } for path="/proc/modules" dev="proc" ino=4026532130 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:proc_modules:s0 tclass=file permissive=0 app=com.termux
+
+[2026-11-14 13:58:23.313 Uid(value=10327):18795:18795 W/login]
+type=1400 audit(0.0:3773749): avc: denied { getattr } for path="/proc/bus/pci/devices" dev="proc" ino=4026532146 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:proc:s0 tclass=file permissive=0 app=com.termux
+
+[2026-11-14 13:58:23.337 Uid(value=10327):18735:18761 I/native::render::context::renderer]
+initialize_pipeline_and_bind_group: pipeline=true atlas=2048x2048 surface=472x819 elapsed=18.757ms
+
+[2026-11-14 13:58:23.337 Uid(value=10327):18735:18761 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 13:58:23.352 Uid(value=10327):18735:18735 D/CompatibilityChangeReporter]
+Compat change id reported: 160794467; UID 10327; state: DISABLED
+
+[2026-11-14 13:58:23.361 Uid(value=10327):18735:18811 I/Runtime]
+first frame presented
+
+[2026-11-14 13:58:23.396 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d656, importpid=-1
+
+[2026-11-14 13:58:23.425 Uid(value=10327):18735:18757 W/Parcel]
+Expecting binder but got null!
+
+[2026-11-14 13:58:23.426 Uid(value=10327):18735:18811 I/Runtime]
+session 1 first output received
+
+[2026-11-14 13:58:23.432 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d657, importpid=-1
+
+[2026-11-14 13:58:23.435 Uid(value=10327):18735:18735 W/libc]
+Access denied finding property "persist.unipnp.debug"
+
+[2026-11-14 13:58:23.435 Uid(value=10327):18735:18735 W/libc]
+Access denied finding property "persist.unipnp.debug"
+
+[2026-11-14 13:58:23.439 Uid(value=10327):18735:18735 W/ziparchive]
+Unable to open '/system_ext/framework/unipnp-framework.dm': No such file or directory
+
+[2026-11-14 13:58:23.439 Uid(value=10327):18735:18735 W/ziparchive]
+Unable to open '/system_ext/framework/unipnp-framework.dm': No such file or directory
+
+[2026-11-14 13:58:23.532 Uid(value=10327):18735:18735 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-14 13:58:23.532 Uid(value=10327):18735:18735 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{9457ffa VFED..... .F...... 0,0-472,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-11-14 13:58:23.600 Uid(value=10327):18735:18735 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 13:58:23.675 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d65b, importpid=-1
+
+[2026-11-14 13:58:24.217 Uid(value=10327):18735:18811 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.417115ms p95=17.358462ms max=34.286269ms pre_max=0.108731ms pre_p95=0.069923ms ≈69fps vsync=16.7ms
+
+[2026-11-14 13:58:24.217 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.268013ms p95=0.143038ms max=10.119692ms scrollback=0 rows
+
+[2026-11-14 13:58:24.656 Uid(value=10327):18735:18742 I/com.termux]
+Compiler allocated 4898KB to compile java.lang.Object terminal.emulator.runtime.RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend(java.lang.Object)
+
+[2026-11-14 13:58:25.219 Uid(value=10327):18735:18811 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.688446ms p95=17.539923ms max=17.740692ms pre_max=0.019077ms pre_p95=0.017039ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:25.220 Uid(value=10327):18735:18779 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.057107ms p95=0.09ms max=0.105462ms scrollback=0 rows
+
+[2026-11-14 13:58:26.181 Uid(value=10327):18735:18742 I/com.termux]
+Compiler allocated 5814KB to compile java.lang.Object terminal.emulator.runtime.RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend(java.lang.Object)
+
+[2026-11-14 13:58:26.221 Uid(value=10327):18735:18811 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.690587ms p95=17.545038ms max=17.624ms pre_max=0.065423ms pre_p95=0.017346ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 13:58:26.222 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.050711ms p95=0.062846ms max=0.121923ms scrollback=0 rows
+
+[2026-11-14 13:58:26.276 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:26.313 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 13:58:26.333 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-14 13:58:26.338 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d657, base=0x0, importpid=18735
+
+[2026-11-14 13:58:26.339 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d65b, base=0x0, importpid=18735
+
+[2026-11-14 13:58:26.339 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d656, base=0x0, importpid=18735
+
+[2026-11-14 13:58:26.347 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 13:58:26.353 Uid(value=10327):18735:18811 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 13:58:26.457 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:26.494 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 13:58:26.496 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x7687685190 472x819
+
+[2026-11-14 13:58:26.496 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-14 13:58:26.496 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-14 13:58:26.496 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d652, base=0x0, importpid=18735
+
+[2026-11-14 13:58:26.496 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d653, base=0x0, importpid=18735
+
+[2026-11-14 13:58:26.496 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d654, base=0x0, importpid=18735
+
+[2026-11-14 13:58:26.496 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d655, base=0x0, importpid=18735
+
+[2026-11-14 13:58:26.497 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:26.497 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:26.497 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:26.497 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:26.497 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:26.497 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:26.498 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:26.498 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:26.498 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d669, importpid=-1
+
+[2026-11-14 13:58:26.499 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d66a, importpid=-1
+
+[2026-11-14 13:58:26.499 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d66b, importpid=-1
+
+[2026-11-14 13:58:26.500 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d66c, importpid=-1
+
+[2026-11-14 13:58:26.500 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 13:58:26.500 Uid(value=10327):18735:18735 I/native::render::pass::frame]
+warmup: presenting the retained last frame (472x819)
+
+[2026-11-14 13:58:26.501 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 13:58:26.501 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=false
+
+[2026-11-14 13:58:26.514 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d66d, importpid=-1
+
+[2026-11-14 13:58:26.541 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d66e, importpid=-1
+
+[2026-11-14 13:58:26.557 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d66f, importpid=-1
+
+[2026-11-14 13:58:26.613 Uid(value=10327):18735:18735 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 13:58:26.633 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:27.424 Uid(value=10327):18735:18779 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.10691ms p95=0.132231ms max=1.732538ms scrollback=0 rows
+
+[2026-11-14 13:58:27.424 Uid(value=10327):18735:18844 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.347754ms p95=17.371462ms max=17.704077ms pre_max=0.055692ms pre_p95=0.026ms ≈65fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:27.762 Uid(value=10327):18735:18742 I/com.termux]
+Compiler allocated 4896KB to compile java.lang.Object terminal.emulator.runtime.RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend(java.lang.Object)
+
+[2026-11-14 13:58:27.963 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:27.989 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 13:58:28.013 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-14 13:58:28.023 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d66d, base=0x0, importpid=18735
+
+[2026-11-14 13:58:28.023 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d66e, base=0x0, importpid=18735
+
+[2026-11-14 13:58:28.023 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d66f, base=0x0, importpid=18735
+
+[2026-11-14 13:58:28.028 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 13:58:28.038 Uid(value=10327):18735:18844 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 13:58:28.039 Uid(value=10327):18735:18859 D/ProfileInstaller]
+Skipping profile installation for com.termux
+
+[2026-11-14 13:58:28.042 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:28.065 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 13:58:28.067 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x76876ab6b0 472x819
+
+[2026-11-14 13:58:28.067 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-14 13:58:28.067 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-14 13:58:28.067 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d669, base=0x0, importpid=18735
+
+[2026-11-14 13:58:28.068 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d66a, base=0x0, importpid=18735
+
+[2026-11-14 13:58:28.068 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d66b, base=0x0, importpid=18735
+
+[2026-11-14 13:58:28.068 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d66c, base=0x0, importpid=18735
+
+[2026-11-14 13:58:28.069 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:28.069 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:28.069 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:28.069 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:28.070 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:28.070 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:28.070 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:28.070 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:28.071 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d67c, importpid=-1
+
+[2026-11-14 13:58:28.072 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d67d, importpid=-1
+
+[2026-11-14 13:58:28.072 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d67e, importpid=-1
+
+[2026-11-14 13:58:28.074 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d67f, importpid=-1
+
+[2026-11-14 13:58:28.074 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 13:58:28.075 Uid(value=10327):18735:18735 I/native::render::pass::frame]
+warmup: presenting the retained last frame (472x819)
+
+[2026-11-14 13:58:28.076 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 13:58:28.076 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=false
+
+[2026-11-14 13:58:28.086 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d680, importpid=-1
+
+[2026-11-14 13:58:28.094 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d681, importpid=-1
+
+[2026-11-14 13:58:28.111 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d682, importpid=-1
+
+[2026-11-14 13:58:28.184 Uid(value=10327):18735:18735 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 13:58:28.250 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:28.995 Uid(value=10327):18735:18864 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.291557ms p95=17.252116ms max=17.799269ms pre_max=0.072692ms pre_p95=0.070154ms ≈65fps vsync=16.7ms avg=17.0ms p95=16.7ms max=33.4ms
+
+[2026-11-14 13:58:28.995 Uid(value=10327):18735:18782 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.101935ms p95=0.120731ms max=2.105039ms scrollback=0 rows
+
+[2026-11-14 13:58:29.980 Uid(value=10327):18735:18864 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.409903ms p95=17.463654ms max=17.670192ms pre_max=0.1315ms pre_p95=0.069846ms ≈60fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:29.981 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.063621ms p95=0.120038ms max=0.142077ms scrollback=0 rows
+
+[2026-11-14 13:58:30.673 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:30.712 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 13:58:30.726 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-14 13:58:30.733 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d680, base=0x0, importpid=18735
+
+[2026-11-14 13:58:30.734 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d681, base=0x0, importpid=18735
+
+[2026-11-14 13:58:30.734 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d682, base=0x0, importpid=18735
+
+[2026-11-14 13:58:30.738 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 13:58:30.775 Uid(value=10327):18735:18864 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 13:58:30.816 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:30.845 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 13:58:30.848 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x768769a630 472x819
+
+[2026-11-14 13:58:30.848 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-14 13:58:30.848 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-14 13:58:30.848 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d67c, base=0x0, importpid=18735
+
+[2026-11-14 13:58:30.849 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d67d, base=0x0, importpid=18735
+
+[2026-11-14 13:58:30.849 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d67e, base=0x0, importpid=18735
+
+[2026-11-14 13:58:30.849 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d67f, base=0x0, importpid=18735
+
+[2026-11-14 13:58:30.850 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:30.850 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:30.850 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:30.850 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:30.850 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:30.850 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:30.850 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:30.850 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:30.851 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d68f, importpid=-1
+
+[2026-11-14 13:58:30.852 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d690, importpid=-1
+
+[2026-11-14 13:58:30.852 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d691, importpid=-1
+
+[2026-11-14 13:58:30.853 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d692, importpid=-1
+
+[2026-11-14 13:58:30.853 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 13:58:30.853 Uid(value=10327):18735:18735 I/native::render::pass::frame]
+warmup: presenting the retained last frame (472x819)
+
+[2026-11-14 13:58:30.854 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 13:58:30.854 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=false
+
+[2026-11-14 13:58:30.862 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d693, importpid=-1
+
+[2026-11-14 13:58:30.883 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d694, importpid=-1
+
+[2026-11-14 13:58:30.900 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d695, importpid=-1
+
+[2026-11-14 13:58:30.982 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:31.524 Uid(value=10327):18735:18735 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-14 13:58:31.524 Uid(value=10327):18735:18735 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{9457ffa VFED..... .F...... 0,0-472,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-11-14 13:58:31.576 Uid(value=10327):18735:18735 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 13:58:31.751 Uid(value=10327):18735:18888 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.929101ms p95=17.687077ms max=17.882231ms pre_max=0.305231ms pre_p95=0.069ms ≈66fps vsync=16.5ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:31.751 Uid(value=10327):18735:18782 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.094749ms p95=0.105615ms max=1.5225ms scrollback=0 rows
+
+[2026-11-14 13:58:32.736 Uid(value=10327):18735:18888 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.415132ms p95=17.239231ms max=17.560192ms pre_max=0.070654ms pre_p95=0.066923ms ≈60fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.9ms
+
+[2026-11-14 13:58:32.736 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.064315ms p95=0.104231ms max=0.138692ms scrollback=0 rows
+
+[2026-11-14 13:58:33.128 Uid(value=10327):18735:18735 D/InsetsController]
+show(ime(), fromIme=false)
+
+[2026-11-14 13:58:33.128 Uid(value=10327):18735:18735 D/InputMethodManager]
+showSoftInput() view=terminal.emulator.ui.TerminalSurface{9457ffa VFED..... .F...... 0,0-472,819 aid=1073741825} flags=0 reason=SHOW_SOFT_INPUT_BY_INSETS_API
+
+[2026-11-14 13:58:33.169 Uid(value=10327):18735:18735 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 13:58:33.688 Uid(value=10327):18735:18888 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.861256ms p95=17.564769ms max=18.267ms pre_max=0.064769ms pre_p95=0.041231ms ≈63fps vsync=16.6ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 13:58:33.689 Uid(value=10327):18735:18779 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.057825ms p95=0.089308ms max=0.103423ms scrollback=0 rows
+
+[2026-11-14 13:58:34.178 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:34.212 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 13:58:34.222 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-14 13:58:34.227 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d693, base=0x0, importpid=18735
+
+[2026-11-14 13:58:34.228 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d694, base=0x0, importpid=18735
+
+[2026-11-14 13:58:34.232 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d695, base=0x0, importpid=18735
+
+[2026-11-14 13:58:34.244 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 13:58:34.273 Uid(value=10327):18735:18888 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 13:58:34.483 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:34.513 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 13:58:34.515 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x7687698420 472x819
+
+[2026-11-14 13:58:34.515 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-14 13:58:34.515 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-14 13:58:34.515 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d68f, base=0x0, importpid=18735
+
+[2026-11-14 13:58:34.515 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d690, base=0x0, importpid=18735
+
+[2026-11-14 13:58:34.515 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d691, base=0x0, importpid=18735
+
+[2026-11-14 13:58:34.515 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d692, base=0x0, importpid=18735
+
+[2026-11-14 13:58:34.516 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:34.516 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:34.516 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:34.516 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:34.516 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:34.516 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:34.517 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:34.517 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:34.517 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d6b1, importpid=-1
+
+[2026-11-14 13:58:34.518 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d6b2, importpid=-1
+
+[2026-11-14 13:58:34.519 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d6b3, importpid=-1
+
+[2026-11-14 13:58:34.520 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d6b4, importpid=-1
+
+[2026-11-14 13:58:34.520 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 13:58:34.520 Uid(value=10327):18735:18735 I/native::render::pass::frame]
+warmup: presenting the retained last frame (472x819)
+
+[2026-11-14 13:58:34.521 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 13:58:34.521 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=false
+
+[2026-11-14 13:58:34.531 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d6b5, importpid=-1
+
+[2026-11-14 13:58:34.542 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d6b6, importpid=-1
+
+[2026-11-14 13:58:34.558 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d6b7, importpid=-1
+
+[2026-11-14 13:58:34.596 Uid(value=10327):18735:18735 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 13:58:34.646 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:35.425 Uid(value=10327):18735:18915 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.045671ms p95=17.237769ms max=18.228115ms pre_max=0.129539ms pre_p95=0.012346ms ≈66fps vsync=16.7ms avg=17.0ms p95=16.7ms max=33.4ms
+
+[2026-11-14 13:58:35.425 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.129358ms p95=0.119077ms max=3.692577ms scrollback=0 rows
+
+[2026-11-14 13:58:35.865 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:35.885 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 13:58:35.901 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-14 13:58:35.915 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d6b5, base=0x0, importpid=18735
+
+[2026-11-14 13:58:35.915 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d6b7, base=0x0, importpid=18735
+
+[2026-11-14 13:58:35.915 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d6b6, base=0x0, importpid=18735
+
+[2026-11-14 13:58:35.921 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 13:58:35.944 Uid(value=10327):18735:18915 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 13:58:35.984 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:36.013 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 13:58:36.015 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x7687685190 472x819
+
+[2026-11-14 13:58:36.015 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-14 13:58:36.015 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-14 13:58:36.015 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d6b1, base=0x0, importpid=18735
+
+[2026-11-14 13:58:36.015 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d6b2, base=0x0, importpid=18735
+
+[2026-11-14 13:58:36.015 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d6b3, base=0x0, importpid=18735
+
+[2026-11-14 13:58:36.015 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d6b4, base=0x0, importpid=18735
+
+[2026-11-14 13:58:36.016 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:36.016 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:36.016 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:36.016 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:36.016 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:36.016 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:36.017 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:36.017 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:36.017 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d6c4, importpid=-1
+
+[2026-11-14 13:58:36.018 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d6c5, importpid=-1
+
+[2026-11-14 13:58:36.019 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d6c6, importpid=-1
+
+[2026-11-14 13:58:36.019 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d6c7, importpid=-1
+
+[2026-11-14 13:58:36.019 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 13:58:36.020 Uid(value=10327):18735:18735 I/native::render::pass::frame]
+warmup: presenting the retained last frame (472x819)
+
+[2026-11-14 13:58:36.020 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 13:58:36.020 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=false
+
+[2026-11-14 13:58:36.029 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d6c8, importpid=-1
+
+[2026-11-14 13:58:36.045 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d6c9, importpid=-1
+
+[2026-11-14 13:58:36.063 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d6ca, importpid=-1
+
+[2026-11-14 13:58:36.098 Uid(value=10327):18735:18735 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 13:58:36.148 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:36.945 Uid(value=10327):18735:18932 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.388817ms p95=17.350846ms max=17.607192ms pre_max=0.030808ms pre_p95=0.011192ms ≈64fps vsync=16.7ms avg=17.0ms p95=16.7ms max=33.4ms
+
+[2026-11-14 13:58:36.945 Uid(value=10327):18735:18782 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.110554ms p95=0.101308ms max=2.682769ms scrollback=0 rows
+
+[2026-11-14 13:58:37.369 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:37.405 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 13:58:37.425 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-14 13:58:37.430 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d6c8, base=0x0, importpid=18735
+
+[2026-11-14 13:58:37.430 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d6ca, base=0x0, importpid=18735
+
+[2026-11-14 13:58:37.430 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d6c9, base=0x0, importpid=18735
+
+[2026-11-14 13:58:37.436 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 13:58:37.444 Uid(value=10327):18735:18932 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 13:58:40.479 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:40.502 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 13:58:40.505 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x7687682f80 472x819
+
+[2026-11-14 13:58:40.505 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-14 13:58:40.505 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-14 13:58:40.506 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d6c4, base=0x0, importpid=18735
+
+[2026-11-14 13:58:40.506 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d6c5, base=0x0, importpid=18735
+
+[2026-11-14 13:58:40.506 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d6c6, base=0x0, importpid=18735
+
+[2026-11-14 13:58:40.506 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d6c7, base=0x0, importpid=18735
+
+[2026-11-14 13:58:40.506 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:40.506 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:40.507 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:40.507 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:40.507 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:40.507 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:40.507 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:58:40.507 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:58:40.508 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d6e4, importpid=-1
+
+[2026-11-14 13:58:40.511 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d6e5, importpid=-1
+
+[2026-11-14 13:58:40.512 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d6e6, importpid=-1
+
+[2026-11-14 13:58:40.513 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d6e7, importpid=-1
+
+[2026-11-14 13:58:40.514 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 13:58:40.514 Uid(value=10327):18735:18735 I/native::render::pass::frame]
+warmup: presenting the retained last frame (472x819)
+
+[2026-11-14 13:58:40.515 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 13:58:40.515 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=false
+
+[2026-11-14 13:58:40.527 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d6e8, importpid=-1
+
+[2026-11-14 13:58:40.534 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d6e9, importpid=-1
+
+[2026-11-14 13:58:40.543 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d6ea, importpid=-1
+
+[2026-11-14 13:58:40.618 Uid(value=10327):18735:18735 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 13:58:40.659 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:41.390 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.555333ms p95=17.467308ms max=18.974115ms pre_max=0.060539ms pre_p95=0.032308ms ≈68fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:41.390 Uid(value=10327):18735:18779 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.090739ms p95=0.102923ms max=1.529231ms scrollback=0 rows
+
+[2026-11-14 13:58:42.313 Uid(value=10327):18735:19082 I/Runtime]
+session 1 first output received
+
+[2026-11-14 13:58:42.316 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.184798ms p95=0.120154ms max=6.2605ms scrollback=0 rows
+
+[2026-11-14 13:58:42.316 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.420089ms p95=17.479154ms max=17.944116ms pre_max=0.065654ms pre_p95=0.033154ms ≈64fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:42.545 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773772): avc: granted { execute } for name="cfdisk" dev="dm-38" ino=7111280 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:43.126 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.496823ms p95=17.440423ms max=17.970307ms pre_max=0.065038ms pre_p95=0.012116ms ≈74fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:43.127 Uid(value=10327):18735:18782 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.257707ms p95=1.325461ms max=4.193423ms scrollback=0 rows
+
+[2026-11-14 13:58:43.979 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.207051ms p95=17.422153ms max=17.809192ms pre_max=0.078731ms pre_p95=0.008231ms ≈70fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:43.980 Uid(value=10327):18735:18779 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.131325ms p95=0.12273ms max=2.563962ms scrollback=0 rows
+
+[2026-11-14 13:58:44.831 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.189514ms p95=17.538154ms max=17.719346ms pre_max=0.067692ms pre_p95=0.015731ms ≈70fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:44.831 Uid(value=10327):18735:18782 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.280946ms p95=2.050192ms max=4.727192ms scrollback=0 rows
+
+[2026-11-14 13:58:45.569 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.293151ms p95=17.668384ms max=17.845ms pre_max=0.161577ms pre_p95=0.064115ms ≈81fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:45.569 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.144504ms p95=0.415077ms max=1.948192ms scrollback=0 rows
+
+[2026-11-14 13:58:46.317 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773773): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:46.401 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.87251ms p95=17.279385ms max=17.844461ms pre_max=0.131462ms pre_p95=0.112384ms ≈72fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:46.402 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.210099ms p95=1.515961ms max=4.375077ms scrollback=0 rows
+
+[2026-11-14 13:58:46.861 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773774): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:47.181 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773775): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:47.192 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.167323ms p95=17.275038ms max=17.609808ms pre_max=0.124384ms pre_p95=0.080115ms ≈75fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:47.193 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.351856ms p95=1.965424ms max=5.704654ms scrollback=0 rows
+
+[2026-11-14 13:58:47.693 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773776): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:48.041 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773777): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:48.052 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.326919ms p95=17.390577ms max=17.574116ms pre_max=0.082346ms pre_p95=0.02ms ≈69fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:48.052 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.224462ms p95=0.146923ms max=4.579884ms scrollback=0 rows
+
+[2026-11-14 13:58:48.377 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773778): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:48.377 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773779): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:48.561 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773780): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:48.907 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.233778ms p95=17.558231ms max=17.623577ms pre_max=0.065154ms pre_p95=0.010616ms ≈70fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:48.907 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.137123ms p95=0.127ms max=1.974923ms scrollback=0 rows
+
+[2026-11-14 13:58:49.161 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773781): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:49.161 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773782): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:49.597 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773783): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:49.725 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.632244ms p95=17.536308ms max=18.002462ms pre_max=0.164423ms pre_p95=0.130538ms ≈73fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:49.725 Uid(value=10327):18735:18779 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.171232ms p95=0.264538ms max=2.608115ms scrollback=0 rows
+
+[2026-11-14 13:58:50.681 Uid(value=10327):19122:19122 W/git]
+type=1400 audit(0.0:3773793): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libdl.so.2" dev="dm-38" ino=6821998 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:50.681 Uid(value=10327):19122:19122 W/git]
+type=1400 audit(0.0:3773794): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/3g2mlwyf1wkiwkjcv86hi9j9d73r9xz9-pcre2-10.49/lib/libpcre2-8.so.0.16.1" dev="dm-38" ino=7082608 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:50.681 Uid(value=10327):19122:19122 W/git]
+type=1400 audit(0.0:3773795): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/wl3d2qbnjm8h45hi56613zgb1yjd2j0g-zlib-ng-2.3.3/lib/libz-ng.so.2.3.3" dev="dm-38" ino=7094944 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:50.681 Uid(value=10327):19122:19122 W/git]
+type=1400 audit(0.0:3773796): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/c1h1q4h9bfmb5d0w342qwjmhw8cxkxzc-gcc-16.2.0-libgcc/lib/libgcc_s.so.1" dev="dm-38" ino=6819978 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:50.681 Uid(value=10327):19122:19122 W/git]
+type=1400 audit(0.0:3773797): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libc.so.6" dev="dm-38" ino=6821988 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:58:50.728 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.699266ms p95=17.575462ms max=18.1245ms pre_max=0.129385ms pre_p95=0.113769ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:50.728 Uid(value=10327):18735:18779 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.077162ms p95=0.141769ms max=0.241885ms scrollback=0 rows
+
+[2026-11-14 13:58:51.731 Uid(value=10327):18735:18782 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.120276ms p95=0.238538ms max=0.360769ms scrollback=0 rows
+
+[2026-11-14 13:58:51.731 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.691922ms p95=17.195461ms max=17.639961ms pre_max=0.175654ms pre_p95=0.021846ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:52.733 Uid(value=10327):18735:18782 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.191651ms p95=0.347808ms max=0.541769ms scrollback=0 rows
+
+[2026-11-14 13:58:52.733 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.677632ms p95=17.432038ms max=17.709424ms pre_max=0.194193ms pre_p95=0.022539ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:58:53.592 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.293627ms p95=17.369154ms max=17.974808ms pre_max=0.153961ms pre_p95=0.022538ms ≈69fps vsync=16.6ms avg=16.7ms p95=16.7ms max=17.1ms
+
+[2026-11-14 13:58:53.593 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.426079ms p95=0.514654ms max=9.552654ms scrollback=0 rows
+
+[2026-11-14 13:58:54.219 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=10.421419ms p95=17.387923ms max=25.364269ms pre_max=0.196038ms pre_p95=0.025116ms ≈95fps vsync=16.7ms avg=16.7ms p95=16.7ms max=17.1ms
+
+[2026-11-14 13:58:54.219 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=1.882698ms p95=10.119346ms max=24.744577ms scrollback=0 rows
+
+[2026-11-14 13:58:55.221 Uid(value=10327):18735:19082 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.684847ms p95=17.621154ms max=26.788693ms pre_max=0.116346ms pre_p95=0.021961ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.9ms
+
+[2026-11-14 13:58:55.221 Uid(value=10327):18735:18779 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.173298ms p95=0.171962ms max=6.232961ms scrollback=0 rows
+
+[2026-11-14 13:58:55.878 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:58:55.906 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 13:58:55.922 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
+[2026-11-14 13:58:55.925 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d6e9, base=0x0, importpid=18735
+
+[2026-11-14 13:58:55.926 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d6ea, base=0x0, importpid=18735
+
+[2026-11-14 13:58:55.926 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d6e8, base=0x0, importpid=18735
+
+[2026-11-14 13:58:55.938 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 13:58:55.951 Uid(value=10327):18735:19082 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 13:59:22.896 Uid(value=10327):18735:18776 I/TerminalDocumentsProvider]
+renameDocument 'torvox/docs/STATUS.md' -> '10697970.rollback' ok (6ms)
+
+[2026-11-14 13:59:22.910 Uid(value=10327):18735:18776 I/TerminalDocumentsProvider]
+createDocument 'STATUS.md' ok (3ms)
+
+[2026-11-14 13:59:22.940 Uid(value=10327):18735:18776 I/TerminalDocumentsProvider]
+deleteDocument 'torvox/docs/10697970.rollback' ok (4ms)
+
+[2026-11-14 13:59:29.101 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:59:29.127 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=3
+
+[2026-11-14 13:59:29.131 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow ptr=0x76876a7290 472x819
+
+[2026-11-14 13:59:29.131 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: ANativeWindow changed; rebuilding for the new window
+
+[2026-11-14 13:59:29.131 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: same-session reattach; keeping last frame for warmup present
+
+[2026-11-14 13:59:29.131 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d6e4, base=0x0, importpid=18735
+
+[2026-11-14 13:59:29.132 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d6e5, base=0x0, importpid=18735
+
+[2026-11-14 13:59:29.132 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d6e6, base=0x0, importpid=18735
+
+[2026-11-14 13:59:29.132 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d6e7, base=0x0, importpid=18735
+
+[2026-11-14 13:59:29.134 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:59:29.134 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:59:29.135 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:59:29.135 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:59:29.135 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:59:29.135 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:59:29.135 Uid(value=10327):18735:18735 E/mali_gralloc]
+Requested R8 format is not supported with this allocator. R8 format is only supported with the AIDL allocator
+
+[2026-11-14 13:59:29.135 Uid(value=10327):18735:18735 E/mali_gralloc]
+ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00
+
+[2026-11-14 13:59:29.136 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d73c, importpid=-1
+
+[2026-11-14 13:59:29.137 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d73d, importpid=-1
+
+[2026-11-14 13:59:29.137 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d73e, importpid=-1
+
+[2026-11-14 13:59:29.138 Uid(value=10327):18735:18735 I/mali_gralloc]
+register: id=0x2930004d73f, importpid=-1
+
+[2026-11-14 13:59:29.138 Uid(value=10327):18735:18735 I/native::render::context::renderer]
+attach_surface: configured 472x819 format=Rgba8Unorm present=Mailbox latency=2
+
+[2026-11-14 13:59:29.139 Uid(value=10327):18735:18735 I/native::render::pass::frame]
+warmup: presenting the retained last frame (472x819)
+
+[2026-11-14 13:59:29.139 Uid(value=10327):18735:18735 I/native::android::ffi::render::window]
+FFI: attachWindow surface attached (session 1)
+
+[2026-11-14 13:59:29.139 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=false
+
+[2026-11-14 13:59:29.155 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d740, importpid=-1
+
+[2026-11-14 13:59:29.162 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d741, importpid=-1
+
+[2026-11-14 13:59:29.172 Uid(value=10327):18735:18757 I/mali_gralloc]
+register: id=0x2930004d742, importpid=-1
+
+[2026-11-14 13:59:29.266 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 13:59:29.294 Uid(value=10327):18735:18735 D/InsetsController]
+show(ime(), fromIme=true)
+
+[2026-11-14 13:59:30.018 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.618935ms p95=17.522462ms max=18.379385ms pre_max=0.147077ms pre_p95=0.057384ms ≈68fps vsync=16.7ms avg=17.5ms p95=16.7ms max=33.4ms
+
+[2026-11-14 13:59:30.018 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.17317ms p95=0.078923ms max=7.522461ms scrollback=0 rows
+
+[2026-11-14 13:59:31.019 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.681498ms p95=17.468346ms max=17.713616ms pre_max=0.069116ms pre_p95=0.0615ms ≈59fps vsync=16.4ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 13:59:31.020 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.04717ms p95=0.085308ms max=0.104577ms scrollback=0 rows
+
+[2026-11-14 13:59:32.022 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.033578ms p95=0.050961ms max=0.054116ms scrollback=0 rows
+
+[2026-11-14 13:59:32.022 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.707703ms p95=17.561192ms max=18.069116ms pre_max=0.067308ms pre_p95=0.009846ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:32.831 Uid(value=10327):18735:19686 I/Runtime]
+session 1 first output received
+
+[2026-11-14 13:59:32.829 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773930): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:32.874 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.181545ms p95=17.358ms max=17.683385ms pre_max=0.028346ms pre_p95=0.022961ms ≈70fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:32.874 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.24805ms p95=0.298962ms max=8.141039ms scrollback=0 rows
+
+[2026-11-14 13:59:33.697 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773931): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:33.742 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.468353ms p95=17.349808ms max=17.504039ms pre_max=0.083ms pre_p95=0.026461ms ≈69fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:33.742 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.219201ms p95=0.223077ms max=4.851577ms scrollback=0 rows
+
+[2026-11-14 13:59:34.033 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773932): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:34.661 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.301875ms p95=17.879461ms max=18.216308ms pre_max=0.168039ms pre_p95=0.128307ms ≈65fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:34.662 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.171623ms p95=0.132423ms max=5.140769ms scrollback=0 rows
+
+[2026-11-14 13:59:34.717 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773933): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:34.717 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773934): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:35.417 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773935): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:35.417 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773936): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:35.479 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.63044ms p95=17.653269ms max=18.066884ms pre_max=0.177346ms pre_p95=0.120462ms ≈73fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:35.480 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.241671ms p95=1.567923ms max=5.161769ms scrollback=0 rows
+
+[2026-11-14 13:59:36.454 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.232975ms p95=17.376307ms max=17.625846ms pre_max=0.189615ms pre_p95=0.01677ms ≈61fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:36.455 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.049103ms p95=0.080884ms max=0.095308ms scrollback=0 rows
+
+[2026-11-14 13:59:36.457 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773937): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:37.336 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.684378ms p95=17.293961ms max=17.663423ms pre_max=0.057192ms pre_p95=0.022192ms ≈68fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:37.336 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.195082ms p95=0.215808ms max=5.209462ms scrollback=0 rows
+
+[2026-11-14 13:59:37.489 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773948): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:37.841 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773949): avc: granted { execute } for name="gunzip" dev="dm-38" ino=7088711 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:38.146 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.493191ms p95=17.247962ms max=17.479807ms pre_max=0.130231ms pre_p95=0.10073ms ≈74fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:38.146 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.328522ms p95=1.829884ms max=5.498923ms scrollback=0 rows
+
+[2026-11-14 13:59:39.004 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.296408ms p95=17.640923ms max=18.277731ms pre_max=0.222038ms pre_p95=0.162308ms ≈69fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:39.005 Uid(value=10327):18735:18762 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.219412ms p95=0.246076ms max=5.038923ms scrollback=0 rows
+
+[2026-11-14 13:59:39.597 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773950): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:39.923 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.3042ms p95=17.399538ms max=17.487ms pre_max=0.114808ms pre_p95=0.068731ms ≈65fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 13:59:39.924 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.145877ms p95=0.222192ms max=4.329ms scrollback=0 rows
+
+[2026-11-14 13:59:39.945 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773951): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:40.297 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773952): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:40.743 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.660627ms p95=17.537116ms max=17.737769ms pre_max=0.031884ms pre_p95=0.014885ms ≈73fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:40.743 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.261671ms p95=1.784192ms max=4.832846ms scrollback=0 rows
+
+[2026-11-14 13:59:40.881 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773953): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:40.881 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773954): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:41.644 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.0074ms p95=17.504307ms max=17.691731ms pre_max=0.213193ms pre_p95=0.051923ms ≈66fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:41.645 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.244042ms p95=0.159615ms max=6.799654ms scrollback=0 rows
+
+[2026-11-14 13:59:41.685 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773955): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:42.001 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773956): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:42.165 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773957): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:42.479 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.901609ms p95=17.115346ms max=17.432115ms pre_max=0.141423ms pre_p95=0.026884ms ≈71fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:42.479 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.262347ms p95=0.152039ms max=5.0ms scrollback=0 rows
+
+[2026-11-14 13:59:42.769 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773959): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:42.769 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773958): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:43.365 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.765409ms p95=17.166308ms max=17.816423ms pre_max=0.014846ms pre_p95=0.012731ms ≈67fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:43.365 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.102287ms p95=0.076846ms max=2.286615ms scrollback=0 rows
+
+[2026-11-14 13:59:43.421 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773960): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:44.134 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=12.807029ms p95=17.511577ms max=17.725769ms pre_max=0.133962ms pre_p95=0.031885ms ≈78fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:44.135 Uid(value=10327):18735:18780 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.230669ms p95=1.726577ms max=4.799077ms scrollback=0 rows
+
+[2026-11-14 13:59:44.457 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773979): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:44.969 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.894709ms p95=17.289654ms max=17.704192ms pre_max=0.094923ms pre_p95=0.027115ms ≈71fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 13:59:44.969 Uid(value=10327):18735:18779 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.314414ms p95=0.378115ms max=6.789654ms scrollback=0 rows
+
+[2026-11-14 13:59:45.005 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773980): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:45.325 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773981): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:45.804 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.920857ms p95=17.676308ms max=18.4275ms pre_max=0.175693ms pre_p95=0.121884ms ≈71fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:45.805 Uid(value=10327):18735:18762 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.260756ms p95=1.727192ms max=5.169538ms scrollback=0 rows
+
+[2026-11-14 13:59:45.825 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773982): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:45.825 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773983): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:46.193 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773984): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:46.561 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773985): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:46.561 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773986): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:46.561 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773987): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:46.581 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3773988): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:46.622 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.615027ms p95=17.289115ms max=17.585308ms pre_max=0.135462ms pre_p95=0.107461ms ≈73fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:46.622 Uid(value=10327):18735:18762 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.271249ms p95=2.025807ms max=4.746385ms scrollback=0 rows
+
+[2026-11-14 13:59:47.574 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.860723ms p95=17.241731ms max=17.68ms pre_max=0.067423ms pre_p95=0.021347ms ≈63fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 13:59:47.575 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.11787ms p95=0.090269ms max=4.664961ms scrollback=0 rows
+
+[2026-11-14 13:59:47.581 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3774008): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:47.745 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3774009): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:48.365 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3774010): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:48.365 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3774011): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:48.393 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.633789ms p95=17.194846ms max=17.501462ms pre_max=0.0355ms pre_p95=0.013692ms ≈73fps vsync=16.6ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:48.393 Uid(value=10327):18735:18779 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.249324ms p95=1.682039ms max=5.498577ms scrollback=0 rows
+
+[2026-11-14 13:59:48.681 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3774012): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:48.681 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3774013): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:49.269 Uid(value=10327):18795:18795 W/fish]
+type=1400 audit(0.0:3774014): avc: granted { execute } for name="git" dev="dm-38" ino=7113307 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:49.277 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.727526ms p95=17.420346ms max=17.809539ms pre_max=0.127731ms pre_p95=0.022ms ≈67fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:49.278 Uid(value=10327):18735:18762 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.159797ms p95=0.130077ms max=4.639269ms scrollback=1 rows
+
+[2026-11-14 13:59:49.281 Uid(value=10327):19791:19791 W/git]
+type=1400 audit(0.0:3774015): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57/lib/libdl.so.2" dev="dm-38" ino=6821998 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:49.281 Uid(value=10327):19791:19791 W/git]
+type=1400 audit(0.0:3774016): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/3g2mlwyf1wkiwkjcv86hi9j9d73r9xz9-pcre2-10.49/lib/libpcre2-8.so.0.16.1" dev="dm-38" ino=7082608 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:49.281 Uid(value=10327):19791:19791 W/git]
+type=1400 audit(0.0:3774017): avc: granted { execute } for path="/data/data/com.termux/files/usr/nix/store/wl3d2qbnjm8h45hi56613zgb1yjd2j0g-zlib-ng-2.3.3/lib/libz-ng.so.2.3.3" dev="dm-38" ino=7094944 scontext=u:r:untrusted_app_27:s0:c71,c257,c512,c768 tcontext=u:object_r:app_data_file:s0:c71,c257,c512,c768 tclass=file app=com.termux
+
+[2026-11-14 13:59:50.231 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.895727ms p95=17.282769ms max=18.057346ms pre_max=0.115538ms pre_p95=0.019692ms ≈62fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:50.232 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.049365ms p95=0.100077ms max=0.280808ms scrollback=1 rows
+
+[2026-11-14 13:59:51.218 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.410422ms p95=17.293116ms max=18.442269ms pre_max=0.232039ms pre_p95=0.122039ms ≈60fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:51.220 Uid(value=10327):18735:18781 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.07924ms p95=0.158192ms max=0.254385ms scrollback=9 rows
+
+[2026-11-14 13:59:51.251 Uid(value=10327):18735:19686 W/native::render::pass::frame]
+SLOW_CELL_BUILD build=24.009ms upload=0.473ms plan=0.008ms gpu=6.594ms total=31.083ms cells=1113 instances=610 partial=true rows=28 slow_frames=1
+
+[2026-11-14 13:59:51.251 Uid(value=10327):18735:19686 W/native::android::ffi::render::frame]
+SLOW_RENDER_INNER phase1=0.002ms receive=0.003ms lock=0.000ms keys=0.001ms query=0.000ms lock2=0.000ms prepare=0.105ms draw=31.299ms render=31.405ms total=31.410ms count=1 slow_frames=1
+
+[2026-11-14 13:59:51.252 Uid(value=10327):18735:19686 W/Runtime]
+SLOW_FRAME session=1 render=31.588346 count=1 slow_frames=1 newOutput=false scrollOffset=0 scrollRemainderPx=0.0
+
+[2026-11-14 13:59:51.252 Uid(value=10327):18735:19686 W/Runtime]
+SLOW_LOOP session=1 total=32.792576ms gate=0.699192ms pre=0.004308ms render=31.588653ms backoff=0.0ms poll=0.489231ms tail=0.011192ms slow_loops=1
+
+[2026-11-14 13:59:52.086 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.439142ms p95=17.508538ms max=32.792576ms pre_max=0.147038ms pre_p95=0.046308ms ≈69fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:52.086 Uid(value=10327):18735:18781 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.924364ms p95=0.421ms max=31.588346ms scrollback=9 rows
+
+[2026-11-14 13:59:53.038 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=15.852375ms p95=17.387731ms max=17.754ms pre_max=0.13923ms pre_p95=0.031846ms ≈63fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:53.038 Uid(value=10327):18735:18781 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.238684ms p95=0.149577ms max=9.679ms scrollback=11 rows
+
+[2026-11-14 13:59:54.041 Uid(value=10327):18735:18779 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.075207ms p95=0.099808ms max=0.277693ms scrollback=11 rows
+
+[2026-11-14 13:59:54.042 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.696583ms p95=17.458116ms max=18.035038ms pre_max=0.028615ms pre_p95=0.023808ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 13:59:55.043 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.666582ms p95=17.495692ms max=17.737077ms pre_max=0.168731ms pre_p95=0.028923ms ≈60fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:55.043 Uid(value=10327):18735:18779 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.080737ms p95=0.092115ms max=0.307038ms scrollback=11 rows
+
+[2026-11-14 13:59:55.928 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.724668ms p95=17.1395ms max=17.378346ms pre_max=0.193269ms pre_p95=0.030384ms ≈67fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:55.928 Uid(value=10327):18735:18781 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.331832ms p95=0.273231ms max=8.526192ms scrollback=13 rows
+
+[2026-11-14 13:59:56.930 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.68531ms p95=17.327616ms max=21.696577ms pre_max=0.470038ms pre_p95=0.340885ms ≈59fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.8ms
+
+[2026-11-14 13:59:56.930 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.084878ms p95=0.296961ms max=0.572308ms scrollback=13 rows
+
+[2026-11-14 13:59:57.908 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=16.285769ms p95=17.451885ms max=18.243538ms pre_max=0.540077ms pre_p95=0.040039ms ≈61fps vsync=16.4ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:57.908 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.068748ms p95=0.090615ms max=0.161346ms scrollback=13 rows
+
+[2026-11-14 13:59:58.800 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=14.855807ms p95=17.526807ms max=17.75323ms pre_max=0.189615ms pre_p95=0.021461ms ≈67fps vsync=16.4ms avg=16.7ms p95=16.7ms max=17.0ms
+
+[2026-11-14 13:59:58.801 Uid(value=10327):18735:18781 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.233407ms p95=0.206807ms max=4.912846ms scrollback=13 rows
+
+[2026-11-14 13:59:59.585 Uid(value=10327):18735:19686 I/Runtime]
+session 1 loop timing window (60 frames): avg=13.073666ms p95=17.560116ms max=17.584847ms pre_max=0.05627ms pre_p95=0.013769ms ≈76fps vsync=16.7ms avg=16.7ms p95=16.7ms max=16.7ms
+
+[2026-11-14 13:59:59.585 Uid(value=10327):18735:18761 I/Runtime]
+session 1 frame timing window (60 frames): avg=0.135487ms p95=0.052423ms max=2.589192ms scrollback=13 rows
+
+[2026-11-14 14:00:00.219 Uid(value=10327):18735:18797 I/native::terminal::session::spawn]
+reader thread: PTY EOF (slave closed, EIO)
+
+[2026-11-14 14:00:00.220 Uid(value=10327):18735:18798 I/native::terminal::session::spawn]
+wait thread: child exited: Ok(Exited(Pid(18795), 0))
+
+[2026-11-14 14:00:00.240 Uid(value=10327):18735:19686 I/Runtime]
+session 1 exited with code 0
+
+[2026-11-14 14:00:00.240 Uid(value=10327):18735:19686 I/native::android::ffi::session]
+FFI: destroySession id=1
+
+[2026-11-14 14:00:00.293 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: set DeliverInputEventCallback
+
+[2026-11-14 14:00:00.293 Uid(value=10327):18735:18735 I/native::android::ffi::render::control]
+setRenderPaused: paused=true
+
+[2026-11-14 14:00:00.297 Uid(value=10327):18735:19686 I/native::render::context::cover]
+read_cover_frame: 已回读 472x819 的遮罩帧（1546272 字节）
+
+[2026-11-14 14:00:00.474 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d740, base=0x0, importpid=18735
+
+[2026-11-14 14:00:00.474 Uid(value=10327):18735:18757 I/mali_gralloc]
+unregister: id=0x2930004d741, base=0x0, importpid=18735
+
+[2026-11-14 14:00:00.478 Uid(value=10327):18735:18735 D/VRI[MainActivity]]
+performTraversals relayoutWindow: maybeSyncSeqId=-1 ,mSyncSeqId=0 ,relayoutResult=2
+
+[2026-11-14 14:00:00.479 Uid(value=10327):18735:18735 I/mali_gralloc]
+unregister: id=0x2930004d742, base=0x0, importpid=18735
+
+[2026-11-14 14:00:00.483 Uid(value=10327):18735:18735 D/ViewRootImpl]
+DEBUG_DELIVER: remove DeliverInputEventCallback
+
