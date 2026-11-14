@@ -246,6 +246,20 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
 
         printAndAwait("echo POST_DEVICE_LOSS", "POST_DEVICE_LOSS")
         awaitInk("重建后再输出：")
+
+        // STATUS 记录的第二个症状是「后台切换返回黑屏，添加新会话依旧黑屏」：
+        // 设备丢失尚未恢复时新建的会话仍会挂到同一个死设备上，画面永远不出。
+        // 恢复后新建会话必须照常出帧，否则修复只覆盖了旧会话。
+        val sessionBefore = composeTestRule.activity.runtime.state.value.activeSessionId
+        composeTestRule.activity.terminalViewModel.createSession()
+        assertNotNull(
+            "设备丢失恢复后新建会话必须在 20s 内成为活动会话",
+            UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 100) {
+                composeTestRule.activity.runtime.state.value.activeSessionId != sessionBefore
+            },
+        )
+        printAndAwait("echo NEW_SESSION_AFTER_LOSS", "NEW_SESSION_AFTER_LOSS")
+        awaitInk("设备丢失恢复后新会话：")
     }
 
     @Test
