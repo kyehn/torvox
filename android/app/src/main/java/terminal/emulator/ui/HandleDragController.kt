@@ -157,9 +157,16 @@ internal class HandleDragController(private val surface: TerminalSurface) {
         surface.viewModel?.commitDragBounds()
         surface.viewModel?.endSelection()
         lastDragEndUptimeMs = SystemClock.uptimeMillis()
-        surface.reshowSelectionHandles()
-        surface.showSelectionMenuForCurrentSelection()
-        surface.viewModel?.runtime?.forceRender()
+        // 本函数常由覆盖层自己的 dispatchTouchEvent(ACTION_UP) 调用：此刻 dismiss 承载
+        // 本次按压的弹窗，平台就在「同一事件仍在投递中」拆掉它的输入接收器，日志里
+        // 表现为 `InputEventReceiver: Attempted to finish an input event but the input
+        // event receiver has already been disposed.`（真机 2026-11-14 14:52 日志 5 条）。
+        // 重锚与重显推到下一帧：手柄吸附差一帧无感，窗口拆装不再与事件投递重叠。
+        surface.post {
+            surface.reshowSelectionHandles()
+            surface.showSelectionMenuForCurrentSelection()
+            surface.viewModel?.runtime?.forceRender()
+        }
     }
 
     /** 拖动结束（未走 [finish] 的路径，如长按拖动）也要记一笔，供轻击保护使用。 */
