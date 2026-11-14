@@ -8,8 +8,8 @@
 
 use super::session::read_jni_string;
 use super::{
-    Env, EnvUnowned, JClass, JNIString, JString, Ordering, ThrowRuntimeExAndFailure, jbyteArray,
-    jint, jintArray, jlong, jni_str, render_state_mut, rlock_session_registry, theme,
+    Env, EnvUnowned, JClass, JNIString, JString, ThrowRuntimeExAndFailure, jbyteArray, jint,
+    jintArray, jlong, jni_str, render_state_mut, rlock_session_registry, theme,
     throw_session_missing,
 };
 
@@ -99,10 +99,9 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setThem
         if let Some(render_state) = state.as_mut() {
             render_state.palette = palette;
             render_state.renderer.set_background_color(background);
-            // 主题色存于实例缓存，闲时无新 CellData 则颜色过期，一并重绘。
-            render_state.renderer.cell_cache = None;
-            // VT 线程已推送换主题后的单元数据：标记脏并整幅重绘。
-            render_state.dirty.store(true, Ordering::Relaxed);
+            // 主题色存于实例缓存，闲时无新 CellData 则颜色过期；VT 线程已推送换主题
+            // 后的单元数据，故标记脏并整幅重绘。
+            render_state.invalidate_glyph_instances();
             render_state.full_repaint = true;
         }
         drop(state);

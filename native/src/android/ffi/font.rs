@@ -1,8 +1,8 @@
 use super::render::string_to_jstring;
 use super::session::read_jni_string;
 use super::{
-    EnvUnowned, JClass, JNI_FALSE, JNI_TRUE, JObject, JString, Ordering, ThrowRuntimeExAndFailure,
-    jboolean, jbyteArray, jfloat, jfloatArray, jint, jlong, jni_str, jobjectArray, jsize, jstring,
+    EnvUnowned, JClass, JNI_FALSE, JNI_TRUE, JObject, JString, ThrowRuntimeExAndFailure, jboolean,
+    jbyteArray, jfloat, jfloatArray, jint, jlong, jni_str, jobjectArray, jsize, jstring,
     render_state_mut, with_render_state,
 };
 
@@ -189,8 +189,7 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFont
             .set_font_family(&family_str, family_files);
         if render_state.font_pipeline.font_id != previous {
             // 字体源变化：实例缓存的图集 UV 与行高全部过期，同尺寸下仍判兼容，必须整库丢弃并重绘。
-            render_state.renderer.cell_cache = None;
-            render_state.dirty.store(true, Ordering::Relaxed);
+            render_state.invalidate_glyph_instances();
             // 只在字面真的换了时出声：同一字族的重复下发是常态，逐次记录
             // 「未变化」只会刷屏。字族找不到的情形由管线自己告警。
             log::info!("setFontFamily: {family_str} 字面已切换");
@@ -275,8 +274,7 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFont
         // 置脏标志：字号变化必须重绘，即便终端空闲（字形度量已变 → 缓存帧过期）。
         // 同时丢弃实例缓存：干净行存的是旧图集 UV 与旧行高，同网格尺寸仍判兼容，
         // 不丢则丢字/错位/行高混杂（压扁·撕裂）。
-        render_state.renderer.cell_cache = None;
-        render_state.dirty.store(true, Ordering::Relaxed);
+        render_state.invalidate_glyph_instances();
         log::info!("setFontSizeInPlace: {size_tenths} -> cell {cell_width:.1}x{cell_height:.1}");
     });
 }
@@ -332,8 +330,7 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRast
             // （再乘一次反而会把字形缩回逻辑像素），故已删除而非同步两处。
             render_state.font_pipeline.set_raster_scale(scale);
             // 位图全部重光栅：旧 UV 指向错误图块，丢缓存并重绘。
-            render_state.renderer.cell_cache = None;
-            render_state.dirty.store(true, Ordering::Relaxed);
+            render_state.invalidate_glyph_instances();
         }
     });
 }
@@ -385,8 +382,7 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFon
             if render_state.font_pipeline.font_id != previous {
                 // 字体源变化：实例缓存的图集 UV 与行高全部过期，同尺寸下仍判兼容，
                 // 必须整库丢弃并重绘。
-                render_state.renderer.cell_cache = None;
-                render_state.dirty.store(true, Ordering::Relaxed);
+                render_state.invalidate_glyph_instances();
             }
             family
         };
@@ -427,8 +423,7 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSyst
         if let Some(render_state) = state.as_mut() {
             render_state.font_pipeline.set_system_locale(&locale_str);
             // CJK 回退排序变化会改变字形来源，同 UV 缓存过期。
-            render_state.renderer.cell_cache = None;
-            render_state.dirty.store(true, Ordering::Relaxed);
+            render_state.invalidate_glyph_instances();
         }
     });
 }

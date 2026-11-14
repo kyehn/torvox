@@ -561,6 +561,16 @@ impl RenderState {
         self.scroll_frame_pending = true;
     }
 
+    /// 字形实例缓存失效并请求重绘：字体源（主字面、字号、光栅缩放、CJK 回退顺序）
+    /// 或主题色变更后，旧实例携带的 UV 与行高已过期，混用会导致字形错乱。
+    ///
+    /// 六处字体与主题入口 MUST 共用本方法，MUST NOT 各自复制这两步——复制会使某入口
+    /// 遗漏其中一步，而遗漏处不会产生任何日志。
+    fn invalidate_glyph_instances(&mut self) {
+        self.renderer.cell_cache = None;
+        self.dirty.store(true, Ordering::Relaxed);
+    }
+
     /// 已送达的滚动命令是否仍在途（帧里还没见到它），超时即自动解除。
     ///
     /// 超时一并按「不在途」处理并解除门控：任何原因让 VT 不再推出带该序号的
