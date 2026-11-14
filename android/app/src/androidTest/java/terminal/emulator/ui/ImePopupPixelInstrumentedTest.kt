@@ -528,6 +528,42 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         )
     }
 
+    /**
+     * 切后台期间输入法位移 MUST 冻结：回前台的首帧要画在离开时的位置上。
+     *
+     * `ON_PAUSE` 自己会收起键盘（平台也会收起），平台随后派发一次「输入法高度 0」。
+     * 若照单收下，位移会在用户看不见时归零；而开孔遮罩与原生保留的最后一帧都是按
+     * 离开时的位移拍下的，回前台的首帧因此画在错误位置上，等输入法重新弹出再跳一次
+     * ——STATUS「输入法弹出时切后台返回终端闪烁」。
+     */
+    @Test
+    fun imeShiftFrozenWhileBackgrounded() {
+        // 位移按内容下沿裁剪：内容不满一屏时位移恒为 0（见 computeImeSurfaceShift），
+        // 前提不成立。先铺满内容，再弹键盘。
+        val stamp = System.currentTimeMillis() % 100000
+        printAndAwait(
+            "for i in \$(seq 1 120); do echo IME_BG_\${i}" + "_$stamp; done",
+            "IME_BG_120_$stamp",
+        )
+        tapAndAwaitIme()
+        val before = surfaceShiftPx()
+        assertTrue("输入法弹出后位移必须为正，否则本用例前提不成立 (位移=$before)", before > 0)
+        composeTestRule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+        // 派发是异步的：留足窗口让「输入法已隐藏」到达主线程。
+        Thread.sleep(1_000)
+        assertTrue(
+            "切后台期间位移 MUST 冻结 (离开时=$before 实测=${surfaceShiftPx()})",
+            before == surfaceShiftPx(),
+        )
+        composeTestRule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+        composeTestRule.waitForIdle()
+        Thread.sleep(SETTLE_MILLIS)
+        assertTrue(
+            "回前台后位移 MUST 与离开时一致 (离开时=$before 实测=${surfaceShiftPx()})",
+            before == surfaceShiftPx(),
+        )
+    }
+
     @Test
     fun imeCommitChineseTextGridded() {
         // 中文 commitText 经 InputConnection→PTY 必须落格（拼音候选上屏口径）。

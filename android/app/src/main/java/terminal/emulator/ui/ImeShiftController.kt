@@ -96,6 +96,17 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
      */
     internal fun installImeInsetListener() {
         ViewCompat.setOnApplyWindowInsetsListener(surface) { view, insets ->
+            // 切后台期间 MUST NOT 采纳 insets：`ON_PAUSE` 自己调了
+            // `hideSoftInputFromWindow`（平台也会收起输入法），派发回来的高度是 0，
+            // 照单收下就会把位移在用户看不见时归零。而开孔遮罩与原生保留的最后一帧
+            // 都是按**离开时**的位移拍下的，回前台的首帧因此画在错误位置上，等输入法
+            // 重新弹出再跳一次——即「输入法弹出时切后台返回终端闪烁」。
+            //
+            // 冻结是安全的：回前台时平台按 `onCheckIsTextEditor` 的答复重新弹出输入法
+            // （离开时它就在显示），派发的高度与冻结值相同，位移一次都不跳；真的不再
+            // 需要键盘（`softKeyboardEnabled` 为假）时，那次隐藏发生在前台、已把位移
+            // 归零。旋转等视口变化由 `onSizeChanged` 重算，不依赖这次派发。
+            if (surface.viewModel?.runtime?.isBackgroundPaused == true) return@setOnApplyWindowInsetsListener insets
             val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
             val navigationBottom =
                 insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
