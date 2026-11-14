@@ -1,3 +1,4 @@
 {
-  "ignores": ["**/target/**", "result*/**", "android/**/build/**"]
+  // docs/STATUS.md 首行声明禁止任何修改，其内容不受 markdownlint 约束
+  "ignores": ["**/target/**", "result*/**", "android/**/build/**", "docs/STATUS.md"]
 }
