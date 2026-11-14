@@ -8,6 +8,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -623,5 +624,43 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
                 runtime.surfaceBufferPresent.value
             },
         )
+    }
+
+    /**
+     * 渲染途中开孔被拆：那一帧提交的是已被平台废弃的缓冲区。
+     *
+     * 渲染线程在进入原生渲染前取开孔世代，提交结果时一起带上（渲染循环与切会话
+     * 首帧两条路径）。若这期间 surface 被拆，上报的 true 必须丢弃——否则遮罩会被
+     * 撤掉，而新开孔还没有任何缓冲，开孔空着的那一段就是用户看到的闪烁。
+     */
+    @Test
+    fun staleBufferPresentFromDestroyedSurfaceIsDropped() {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
+        composeTestRule.waitForIdle()
+        val staleEpoch = runtime.surfacePresentEpoch()
+        // 切后台：平台拆掉 surface，渲染线程随之停下。此后除本用例之外没有谁再发布
+        // 「已有缓冲区」——陈旧上报若被接受，观测到的就是它。
+        composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        composeTestRule.activity.runOnUiThread {
+            runtime.publishSurfaceBufferPresent(true, staleEpoch)
+        }
+        assertNull(
+            "旧开孔的帧提交不得撤遮罩",
+            UxTestUtils.pollUntilTrue(timeoutMs = 500, intervalMs = 16) {
+                runtime.surfaceBufferPresent.value
+            },
+        )
+        // 正对照：同一后台状态下用当前世代发布必须生效，否则上一条只是「帧回调没跑」。
+        composeTestRule.activity.runOnUiThread {
+            runtime.publishSurfaceBufferPresent(true, runtime.surfacePresentEpoch())
+        }
+        assertNotNull(
+            "当前开孔的帧提交必须撤遮罩",
+            UxTestUtils.pollUntilTrue(timeoutMs = 2_000, intervalMs = 16) {
+                runtime.surfaceBufferPresent.value
+            },
+        )
+        composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        composeTestRule.waitForIdle()
     }
 }
