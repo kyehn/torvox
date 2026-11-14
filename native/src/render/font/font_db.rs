@@ -445,6 +445,7 @@ pub(crate) fn face_source_path(face: &fontdb::FaceInfo) -> Option<&std::path::Pa
 /// 用户投放字体可被 `cp` 覆盖（截断），映射后仍可能变短，故不共享。
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn share_face_data_under(font_database: &mut fontdb::Database, dirs: &[&str]) {
+    let total = font_database.faces().count();
     let ids: Vec<fontdb::ID> = font_database
         .faces()
         .filter(|face| {
@@ -452,12 +453,13 @@ pub(crate) fn share_face_data_under(font_database: &mut fontdb::Database, dirs: 
         })
         .map(|face| face.id)
         .collect();
-    for id in ids {
+    for id in ids.iter().copied() {
         // SAFETY: 系统字体目录只读，映射期间文件内容不变。
         unsafe {
             font_database.make_shared_face_data(id);
         }
     }
+    log::debug!("FONT_LOAD: shared {} of {total} face mappings", ids.len());
 }
 
 /// 库内是否已有该字体文件。装入一个 TTC 即含其全部面，故按文件名判定即可，
