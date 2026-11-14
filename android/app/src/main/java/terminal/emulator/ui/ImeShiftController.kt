@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import android.view.WindowInsets.Type
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.viewModelScope
@@ -217,7 +218,9 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
         if (keyboardRestoreDeadline != null) return
         armKeyboardRestoreDeadline()
         LogUtil.debug(TerminalSurface.TAG, "restoreKeyboard: show(Type.ime())")
-        surface.windowInsetsController?.show(WindowInsetsCompat.Type.ime())
+        // 平台的 WindowInsetsController 收平台 `WindowInsets.Type` 常量，
+        // 与 TerminalSurface/TerminalScreen/SurfaceInput 的同一路径一致。
+        surface.windowInsetsController?.show(Type.ime())
     }
 
     /**
