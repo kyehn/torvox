@@ -578,6 +578,16 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
             "回前台后位移 MUST 与离开时一致 (离开时=$before 实测=${surfaceShiftPx()})",
             before == surfaceShiftPx(),
         )
+        // 离开时键盘在显示，回来必须还在：平台不保证自动还回（同进程实测两种结果都
+        // 出现过），不还时位移先按隐藏态归零、内容下移，用户轻点后键盘再弹出、内容
+        // 上移——就是「切后台返回终端闪烁」。恢复由 ImeShiftController.onWindowShown
+        // 显式请求，这里锁住该契约。
+        assertNotNull(
+            "回前台后键盘必须回到离开时的可见状态",
+            UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
+                isImeVisible(composeTestRule.activity)
+            },
+        )
     }
 
     @Test

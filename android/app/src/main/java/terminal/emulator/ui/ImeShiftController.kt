@@ -95,50 +95,153 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
      * 属性时在同一拍内生效。
      */
     internal fun installImeInsetListener() {
-        ViewCompat.setOnApplyWindowInsetsListener(surface) { view, insets ->
+        ViewCompat.setOnApplyWindowInsetsListener(surface) { _, insets ->
             // 切后台期间 MUST NOT 采纳 insets：`ON_PAUSE` 自己调了
             // `hideSoftInputFromWindow`（平台也会收起输入法），派发回来的高度是 0，
             // 照单收下就会把位移在用户看不见时归零。而开孔遮罩与原生保留的最后一帧
             // 都是按**离开时**的位移拍下的，回前台的首帧因此画在错误位置上，等输入法
             // 重新弹出再跳一次——即「输入法弹出时切后台返回终端闪烁」。
             //
-            // 冻结是安全的：回前台时平台按 `onCheckIsTextEditor` 的答复重新弹出输入法
-            // （离开时它就在显示），派发的高度与冻结值相同，位移一次都不跳；真的不再
-            // 需要键盘（`softKeyboardEnabled` 为假）时，那次隐藏发生在前台、已把位移
-            // 归零。旋转等视口变化由 `onSizeChanged` 重算，不依赖这次派发。
+            // 回前台的恢复期同样 MUST NOT 把「输入法已隐藏」当成用户收起：窗口重新
+            // 可见的那一拍先派发的是隐藏态，而键盘要靠 [onWindowShown] 显式要回来，
+            // 此间归零就是同一处闪烁。真隐藏由恢复超时兜底（见
+            // [armKeyboardRestoreDeadline]），不会让位移无限期停在离开时的值。
             if (surface.viewModel?.runtime?.isBackgroundPaused == true) return@setOnApplyWindowInsetsListener insets
-            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            val navigationBottom =
-                insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            val reserved = maxOf(imeBottom - navigationBottom, 0)
-            if (reserved != imeInsetPx) {
-                imeInsetPx = reserved
-                LogUtil.debug(TerminalSurface.TAG, "setImeInsetPx: $reserved")
-                applyImeShift()
-                // 键栏（Compose 覆盖层）也按此高度上移。它只能走组合，故经运行期流发布：
-                // 直接回调会在 insets 遍历内写组合状态，那次写入不保证被观察到。
-                // 同一次发布也更新网格扣减量（三条网格路径共用，见 imeGridReserve）。
-                surface.viewModel?.runtime?.publishImeInsetPx(reserved, surface)
-                // 备用屏按可见高度重排网格。与平移不同，它必须等输入法高度稳定
-                // （见 [scheduleImeGridResize]），否则逐帧 SIGWINCH 会让全屏 TUI 反复重排。
-                scheduleImeGridResize()
+            if (pendingKeyboardRestore && !insets.isVisible(WindowInsetsCompat.Type.ime())) {
+                return@setOnApplyWindowInsetsListener insets
             }
-            // 键盘的显示/隐藏 FLIP 才关闭选区手柄与上下文菜单——显示时定位的弹窗
-            // 绝不会相对滚动而陈旧。以 FLIP（而非每像素变化）为闸门很重要：显示/隐藏
-            // 动画每帧都发出 insets，逐帧清除会抹掉动画期间做出的选择。
-            //
-            // 必须在**本监听器**里做而不能靠 `onApplyWindowInsets`：框架在视图装了就
-            // `OnApplyWindowInsetsListener` 时只调它，不再调用 `onApplyWindowInsets`
-            // （ViewCompat 的 wrapper 即如此实现），放在重写方法里等于静默失效。
-            val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
-            if (imeVisible != lastImeVisible) {
-                lastImeVisible = imeVisible
-                surface.viewModel?.clearSelection()
-                surface.selectionHandles.hideSelectionHandles()
-                surface.hideSelectionMenu("imeVisibilityChanged")
-            }
+            adoptImeInsets(insets)
             insets
         }
+    }
+
+    /**
+     * 采纳一次 insets 派发：更新遮挡高度、键栏上移、网格重排与可见性 FLIP。
+     *
+     * 单独成函数是为了让「恢复键盘超时」能把一次性的真实 insets 送进同一条路径
+     * （[armKeyboardRestoreDeadline]），口径与派发完全一致。
+     */
+    private fun adoptImeInsets(insets: WindowInsetsCompat) {
+        val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+        if (pendingKeyboardRestore && imeVisible) {
+            // 键盘真的回来了：恢复期结束，此后一切按派发为准。
+            pendingKeyboardRestore = false
+            cancelKeyboardRestoreDeadline()
+        }
+        applyImeInset(
+            maxOf(
+                insets.getInsets(WindowInsetsCompat.Type.ime()).bottom -
+                    insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom,
+                0,
+            ),
+        )
+        // 键盘的显示/隐藏 FLIP 才关闭选区手柄与上下文菜单——显示时定位的弹窗
+        // 绝不会相对滚动而陈旧。以 FLIP（而非每像素变化）为闸门很重要：显示/隐藏
+        // 动画每帧都发出 insets，逐帧清除会抹掉动画期间做出的选择。
+        //
+        // 必须在**本监听器**里做而不能靠 `onApplyWindowInsets`：框架在视图装了就
+        // `OnApplyWindowInsetsListener` 时只调它，不再调用 `onApplyWindowInsets`
+        // （ViewCompat 的 wrapper 即如此实现），放在重写方法里等于静默失效。
+        setImeVisible(imeVisible)
+    }
+
+    /** 采纳一个遮挡高度（px）：位移、键栏与网格三条路径的唯一入口。 */
+    private fun applyImeInset(reserved: Int) {
+        if (reserved == imeInsetPx) return
+        imeInsetPx = reserved
+        LogUtil.debug(TerminalSurface.TAG, "setImeInsetPx: $reserved")
+        applyImeShift()
+        // 键栏（Compose 覆盖层）也按此高度上移。它只能走组合，故经运行期流发布：
+        // 直接回调会在 insets 遍历内写组合状态，那次写入不保证被观察到。
+        // 同一次发布也更新网格扣减量（三条网格路径共用，见 imeGridReserve）。
+        surface.viewModel?.runtime?.publishImeInsetPx(reserved, surface)
+        // 备用屏按可见高度重排网格。与平移不同，它必须等输入法高度稳定
+        // （见 [scheduleImeGridResize]），否则逐帧 SIGWINCH 会让全屏 TUI 反复重排。
+        scheduleImeGridResize()
+    }
+
+    /** 键盘可见性 FLIP：由显示转隐藏、或反之，才清掉选区与菜单。 */
+    private fun setImeVisible(visible: Boolean) {
+        if (visible == lastImeVisible) return
+        lastImeVisible = visible
+        surface.viewModel?.clearSelection()
+        surface.selectionHandles.hideSelectionHandles()
+        surface.hideSelectionMenu("imeVisibilityChanged")
+    }
+
+    /** 窗口不可见（切后台）时的键盘可见性：回前台据此恢复，见 [onWindowShown]。 */
+    private var imeVisibleAtWindowHide = false
+
+    /**
+     * 正在等键盘回来：期间忽略「输入法已隐藏」的 insets 派发（理由见监听器）。
+     *
+     * 只在 [onWindowShown] 置位，在输入法真的可见或恢复超时后清除；置位、清除与
+     * 读取都在主线程（窗口可见性、焦点与 insets 派发同为主线程）。
+     */
+    private var pendingKeyboardRestore = false
+
+    /** 在途的恢复超时（[armKeyboardRestoreDeadline]）；null 表示没有在等。 */
+    private var keyboardRestoreDeadline: Runnable? = null
+
+    /**
+     * 宿主窗口不可见（切后台）：快照键盘可见性。
+     *
+     * 必须早于平台收起输入法后派发的隐藏态 insets，故挂在窗口可见性变化上而不是
+     * `ON_PAUSE`：后者在组合层，时机不保证早于那次派发。
+     */
+    internal fun onWindowHidden() {
+        imeVisibleAtWindowHide = lastImeVisible
+    }
+
+    /**
+     * 宿主窗口重新可见：离开时键盘在显示就显式要求它回来。
+     *
+     * 平台**不保证**回前台自动还回键盘：同进程实测既有自动恢复（`fromIme=true`），
+     * 也有一路不恢复直到用户轻点（`fromIme=false`）。后者正是「切后台返回终端
+     * 闪烁」的成因：位移按隐藏态归零、内容下移，用户轻点后键盘弹出、内容再上移。
+     */
+    internal fun onWindowShown() {
+        if (!imeVisibleAtWindowHide || !surface.softKeyboardEnabled) return
+        imeVisibleAtWindowHide = false
+        pendingKeyboardRestore = true
+        if (surface.hasWindowFocus()) requestKeyboardRestore()
+    }
+
+    /** 窗口重新取得焦点：`show` 只在窗口有焦点时被平台接受。 */
+    internal fun onFocusGained() {
+        if (pendingKeyboardRestore) requestKeyboardRestore()
+    }
+
+    private fun requestKeyboardRestore() {
+        // 已请求过（焦点与可见性两条路径都会到）就不再排一次超时、也不再 show 一次。
+        if (keyboardRestoreDeadline != null) return
+        armKeyboardRestoreDeadline()
+        LogUtil.debug(TerminalSurface.TAG, "restoreKeyboard: show(Type.ime())")
+        surface.windowInsetsController?.show(WindowInsetsCompat.Type.ime())
+    }
+
+    /**
+     * 恢复键盘的等待上限：超过它仍未见输入法可见（平台拒收或被切到别的输入法），
+     * 按真实 insets 重新采纳——位移不能无限期停在离开时的值。
+     */
+    private fun armKeyboardRestoreDeadline() {
+        cancelKeyboardRestoreDeadline()
+        keyboardRestoreDeadline =
+            Runnable {
+                keyboardRestoreDeadline = null
+                if (!pendingKeyboardRestore) return@Runnable
+                pendingKeyboardRestore = false
+                LogUtil.debug(TerminalSurface.TAG, "restoreKeyboard: timeout, 按隐藏态采纳")
+                // 没有输入法可见的派发：键盘确实没回来，按隐藏态收尾。不读
+                // `rootWindowInsets`——那是被本类取代的轮询通道（见 displacements 规范）。
+                applyImeInset(0)
+                setImeVisible(false)
+            }.also { surface.postDelayed(it, KEYBOARD_RESTORE_TIMEOUT_MS) }
+    }
+
+    private fun cancelKeyboardRestoreDeadline() {
+        keyboardRestoreDeadline?.let { surface.removeCallbacks(it) }
+        keyboardRestoreDeadline = null
     }
 
     /**
@@ -188,6 +291,10 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
         imeShiftCapacityPx = capacity
         val shift = capacity - imeShiftRevealPx.toInt()
         if (shift == appliedImeShiftPx) return
+        LogUtil.debug(
+            TerminalSurface.TAG,
+            "applyImeShift: $appliedImeShiftPx -> $shift (capacity=$capacity inset=$imeInsetPx)",
+        )
         appliedImeShiftPx = shift
         surface.translationY = -shift.toFloat()
     }
@@ -253,6 +360,9 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
         imeShiftCapacityPx = 0
         imeShiftRevealPx = 0f
         imeInsetPx = 0
+        pendingKeyboardRestore = false
+        imeVisibleAtWindowHide = false
+        cancelKeyboardRestoreDeadline()
         cancelGridResize()
         imeShiftJob?.cancel()
         imeShiftJob = null
@@ -268,5 +378,15 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
     internal fun releaseGridResizePause() {
         pendingImeGridResizeToken?.let { surface.viewModel?.runtime?.releaseRenderPause(it) }
         pendingImeGridResizeToken = null
+    }
+
+    private companion object {
+        /**
+         * 恢复键盘的等待上限（ms）。
+         *
+         * 输入法弹出动画约 250ms，留出平台排队余量；超过它即认为键盘不会回来，
+         * 按真实 insets 重新采纳位移（见 [armKeyboardRestoreDeadline]）。
+         */
+        const val KEYBOARD_RESTORE_TIMEOUT_MS = 700L
     }
 }

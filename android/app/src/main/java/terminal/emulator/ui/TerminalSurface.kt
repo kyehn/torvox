@@ -637,6 +637,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon =
         PointerIcon.getSystemIcon(context, PointerIcon.TYPE_TEXT)
 
+    /**
+     * 窗口不可见即「切后台」：快照键盘可见性，回到前台由输入法控制器显式恢复。
+     *
+     * 不用 `ON_PAUSE`：快照必须早于平台收起输入法后派发的隐藏态 insets，窗口可见性
+     * 变化正好在那一拍之前；系统对话框期间窗口仍可见，也不会误触发恢复。
+     */
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (visibility == VISIBLE) ime.onWindowShown() else ime.onWindowHidden()
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         viewModel?.runtime?.focusChange(hasFocus)
@@ -657,6 +668,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 组字中；在此中止会导致输入法失步，产生重复文本、多余空格或静默丢字。
             isPaused = false
             armInputSuppression(SUPPRESS_GRACE_PERIOD_NS)
+            // 从后台回来且离开时键盘在显示：`show` 只在窗口有焦点时被平台接受。
+            ime.onFocusGained()
         }
     }
 
