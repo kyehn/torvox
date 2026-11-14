@@ -60,12 +60,17 @@ unsafe fn attach_window_inner(
     if crate::render::context::device_lost() {
         match crate::render::context::rebuild_global_gpu() {
             Ok(gpu) => {
-                let mut state = render_state_mut();
+                // 渲染器若已存在：换到新设备上（丢失位清空前，渲染循环不得碰到
+                // 旧设备）。此处**只读**渲染状态而不新建：新建要走 `global_gpu()`，
+                // 而那一刻丢失位仍置着（要等渲染器装好才清），会撞上那条断言。
+                // 状态不存在时无需搬运：丢失位清掉之后新建的渲染器用的正是槽位里
+                // 的新设备。
+                let mut state = RENDER_STATE
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                 if let Some(render_state) = state.as_mut() {
                     render_state.renderer.rebuild_after_device_loss(&gpu);
                 }
-                // 状态被 detach 拆除时无需搬运：下一次 `render_state_mut` 会直接在新
-                // 设备上新建。放下锁之前新渲染状态已可用。
                 drop(state);
                 // 新设备与使用它的渲染状态都已就位，此后 GPU 入口才放行。
                 crate::render::context::clear_device_lost();

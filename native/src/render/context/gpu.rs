@@ -129,6 +129,13 @@ pub(crate) struct GlobalGpu {
     pub(crate) adapter: wgpu::Adapter,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
+    /// 本设备是否已判死。
+    ///
+    /// 标志与设备**同生共死**：丢失回调注册时拿到同一份（见
+    /// [`register_device_lost_callback`]），故旧设备的丢失回调迟到时不会把重建后的
+    /// 新设备误判成判死。重建路径据此判定「槽位里那个还能不能用」
+    /// （见 [`gpu_slot_reusable`]）。
+    lost: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[cfg(test)]
@@ -153,7 +160,16 @@ pub(crate) fn device_lost() -> bool {
 }
 
 /// 新设备与新 `Renderer` 都装好后放行 GPU 入口（见 `attachWindow` 的重建路径）。
+///
+/// 连同槽位里那个设备的判死位一起清：判死位是「这个设备配不到新 surface」的
+/// 事实，仪器化用例的注入撤销（`setDeviceLostInjected(false)`）也要把它清掉，
+/// 否则正常路径会以为槽位里的设备已判死而反复重建。
 pub(crate) fn clear_device_lost() {
+    if let Some(current) = current_gpu() {
+        current
+            .lost
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
     DEVICE_LOST.store(false, std::sync::atomic::Ordering::Release);
 }
 
@@ -163,7 +179,24 @@ pub(crate) fn clear_device_lost() {
 /// 「发现丢失」这件事交给这里，不必各自决定日志级别。置位点是丢失回调
 /// （[`register_device_lost_callback`]），以及回调覆盖不到的文本判据路径
 /// （[`is_device_loss_text`]）；仪器化用例也经这里注入。
+///
+/// 文本判据路径拿不到设备身份，只能按「当前设备」置位：此刻正在用的就是出错的
+/// 那个。回调路径由 [`register_device_lost_callback`] 精确置位（置的是它自己那
+/// 一份标志），不在此处。
 pub(crate) fn mark_device_lost(detail: &str) {
+    if let Some(current) = current_gpu() {
+        current
+            .lost
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+    record_device_loss(detail);
+}
+
+/// 判死记账：置全局丢失位，并且只在本进程**第一次**记账时记一条 error。
+///
+/// 与 [`mark_device_lost`] 分开：丢失回调置的是**它那一个**设备的标志，若在此
+/// 再按「当前设备」置一次，旧设备的丢失回调迟到时会把重建后的新设备误判成判死。
+fn record_device_loss(detail: &str) {
     if !DEVICE_LOST.swap(true, std::sync::atomic::Ordering::Release) {
         log::error!(
             "GPU device lost ({detail}); rendering stops until a new surface attach rebuilds the device"
@@ -199,10 +232,17 @@ pub(crate) fn is_device_loss_text(text: &str) -> bool {
 ///
 /// 这是丢失的唯一生产置位点。原因只在这里记一次：逐帧的取帧/轮询路径此后看到
 /// 标志即停，不再逐条重复报同一件事，也不再碰到死设备。
-fn register_device_lost_callback(device: &wgpu::Device) {
-    device.set_device_lost_callback(|reason, message| {
-        mark_device_lost(&format!("{reason:?}: {message}"));
+///
+/// 返回与设备同生共死的判死标志（见 [`GlobalGpu::lost`]）：回调置的是**这一个**
+/// 设备的标志，旧设备的丢失回调迟到时不会把重建后的新设备误判成判死。
+fn register_device_lost_callback(device: &wgpu::Device) -> Arc<std::sync::atomic::AtomicBool> {
+    let lost = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = Arc::clone(&lost);
+    device.set_device_lost_callback(move |reason, message| {
+        flag.store(true, std::sync::atomic::Ordering::Release);
+        record_device_loss(&format!("{reason:?}: {message}"));
     });
+    lost
 }
 
 /// 初始化 Vulkan 全局对象；失败时按可操作的指引记账（原因只有这一处需要讲清）。
@@ -211,7 +251,7 @@ fn init_gpu() -> Result<GlobalGpu, GpuError> {
         Ok((_inst, _adapt, device, queue)) => {
             // 每个新设备（首次初始化与丢失后重建）都必须注册：wgpu 的回调随设备
             // 生灭，旧设备上的回调不会跟到新设备来。
-            register_device_lost_callback(&device);
+            let lost = register_device_lost_callback(&device);
             Ok(GlobalGpu {
                 #[cfg(target_os = "android")]
                 instance: _inst,
@@ -219,6 +259,7 @@ fn init_gpu() -> Result<GlobalGpu, GpuError> {
                 adapter: _adapt,
                 device,
                 queue,
+                lost,
             })
         }
         Err(initialization_error) => {
@@ -244,6 +285,30 @@ fn gpu_slot() -> &'static parking_lot::RwLock<Option<Arc<GlobalGpu>>> {
 
 fn current_gpu() -> Option<Arc<GlobalGpu>> {
     gpu_slot().read().clone()
+}
+
+/// 全局 GPU 槽位的写入互斥：首次初始化与丢失后重建都经它。
+///
+/// 两处共用一把锁，故不会出现「两个线程各建一个 GPU、后写者顶掉前者的」——
+/// 那会让渲染器绑定的设备与 `global_gpu()` 返回的 instance 不是同一个，surface
+/// 随即配不上（Vulkan surface 是 instance 级对象）。
+fn gpu_lock() -> &'static parking_lot::Mutex<()> {
+    static GPU_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+    &GPU_LOCK
+}
+
+/// 重建决策：槽位里的全局 GPU 能否直接复用。
+///
+/// 参数是「槽位里那个是否已判死」；`None` 表示槽位为空（还没有 GPU）。
+/// 判死的那个不能复用：判死后必须换**新**设备与**新** instance（Vulkan surface
+/// 是 instance 级对象，旧 instance 上的 surface 配不到新设备上）。而「另一线程
+/// 已经重建好」时可以复用——重建出来的设备必须与渲染器绑定的那个是同一个，
+/// 不能各建一个。
+///
+/// 纯函数：便于单测覆盖三种组合，不必构造 GPU 设备。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn gpu_slot_reusable(slot_lost: Option<bool>) -> bool {
+    slot_lost.is_some_and(|lost| !lost)
 }
 
 /// 渲染路径取全局 GPU：不可用即致命（无法渲染的终端是坏的，不应跚行运转）。
@@ -283,14 +348,20 @@ fn global_gpu_or_init() -> Result<Arc<GlobalGpu>, GpuError> {
 /// 新 surface 必须由新 instance 重建：调用方随后照常走 `attach_surface`。
 /// **不清**丢失标志：标志由调用方在「新 `Renderer` 也装好」之后清除，装不上时
 /// 保持置位，下一次 attach 才会再试（见 [`clear_device_lost`]）。
+///
+/// 槽位里若还是**判死的那个**设备，必须换新的：判死的设备配不到新 surface，
+/// 复用它等于把黑屏原样留着（这正是本函数存在的理由）。
 #[cfg(target_os = "android")]
 pub(crate) fn rebuild_global_gpu() -> Result<Arc<GlobalGpu>, GpuError> {
-    static REBUILD: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
-    let _rebuild = REBUILD.lock();
-    if let Some(initialized) = current_gpu() {
-        // 另一线程已重建过（同一个宿主窗口可能并发重挂）：直接复用，别再多建一个
+    let _rebuild = gpu_lock().lock();
+    let slot = current_gpu();
+    let slot_lost = slot
+        .as_ref()
+        .map(|gpu| gpu.lost.load(std::sync::atomic::Ordering::Acquire));
+    if gpu_slot_reusable(slot_lost) {
+        // 另一线程已重建好（同一个宿主窗口可能并发重挂）：直接复用，别再多建一个
         // VkInstance。`init_gpu` 成功但 `Renderer` 还没装上时也走这里，由调用方继续装。
-        return Ok(initialized);
+        return Ok(slot.expect("可复用即槽位非空"));
     }
     let global = Arc::new(init_gpu()?);
     *gpu_slot().write() = Some(Arc::clone(&global));
@@ -311,11 +382,10 @@ pub(crate) fn rebuild_global_gpu() -> Result<Arc<GlobalGpu>, GpuError> {
 /// 设备上的 Vulkan 初始化在进程刚起来的数秒内可能失败（GPU 尚被别的应用占用），
 /// 而同一设备稍后即可成功，预热不该把一次瞬时失败固化成启动即崩。
 fn initialize_global_gpu() -> Result<Arc<GlobalGpu>, GpuError> {
-    static INITIALIZATION: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
     if let Some(initialized) = current_gpu() {
         return Ok(initialized);
     }
-    let _initialization = INITIALIZATION.lock();
+    let _initialization = gpu_lock().lock();
     // 持锁后重查：等锁期间可能已由另一线程初始化完毕。
     if let Some(initialized) = current_gpu() {
         return Ok(initialized);

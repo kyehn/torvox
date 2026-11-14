@@ -472,6 +472,18 @@ wgpu 在致命 HAL 错误上先调设备丢失回调、再 panic，逐帧调用�
       MUST NOT 挂到丢失前的死设备上（`SurfaceLossRecoveryInstrumentedTest`
       在恢复后新建会话并断言墨迹）
 
+### Requirement: 判死的设备不得被复用
+
+判死后的重建 MUST 换掉判死的那个设备：全局槽位里若还是判死的设备，MUST 新建
+instance/adapter/device 并换上，MUST NOT 复用它——Vulkan surface 绑定 instance，
+旧 instance 上的 surface 配不到新设备，复用等于把黑屏原样留着。
+
+#### Scenario: 判死的设备不得被复用
+
+- **WHEN** 重建路径被调用，而全局槽位里那个设备已判死
+- **THEN** MUST 新建 instance/adapter/device 并换上，MUST NOT 复用判死的那个；
+      另一线程已重建好时 MUST 复用同一个设备，MUST NOT 各建一个
+
 ### Requirement: 不得以日志手段掩盖设备丢失
 
 MUST NOT 以反射清平台同步组、降级日志等级、过滤 tag 或缩短日志来掩盖设备丢失；丢失的

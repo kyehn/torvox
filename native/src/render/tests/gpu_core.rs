@@ -929,3 +929,20 @@ fn device_loss_text_is_recognized_in_real_panic_payloads() {
     ));
     assert!(!crate::render::context::is_device_loss_text(""));
 }
+
+/// 判死后「重建」必须换**新**设备：槽位里若还是判死的那个，复用它等于把黑屏
+/// 原样留着（真机症状：换新窗口后仍挂在死设备上，永久黑屏）。
+///
+/// 三种组合各有用例：没有 GPU 必须新建；槽位里是别的线程刚重建好的则复用；
+/// 槽位里是判死的设备则必须换新——修复前这一条判错（只看「槽位非空」就复用）。
+#[test]
+fn rebuild_replaces_the_lost_device_but_reuses_a_fresh_one() {
+    use crate::render::context::gpu_slot_reusable;
+
+    // 槽位为空：没有可复用的东西，必须新建。
+    assert!(!gpu_slot_reusable(None));
+    // 槽位里是别的线程刚重建好的：复用，别再多建一个 VkInstance。
+    assert!(gpu_slot_reusable(Some(false)));
+    // 槽位里是判死的设备：必须换新——这一条正是回归护栏。
+    assert!(!gpu_slot_reusable(Some(true)));
+}

@@ -15,7 +15,7 @@ pub(crate) use gpu::rebuild_global_gpu;
 #[cfg(test)]
 pub(crate) use gpu::{
     INITIALIZATION_COUNT, SURFACE_INVALIDATION_LOG_LEVEL, global_gpu_for_tests,
-    gpu_error_is_surface_lost, surface_loss_transition,
+    gpu_error_is_surface_lost, gpu_slot_reusable, surface_loss_transition,
 };
 pub(crate) use gpu::{
     clear_device_lost, device_lost, is_device_loss_text, log_gpu_error, mark_device_lost, one_line,
