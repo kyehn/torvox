@@ -12,7 +12,6 @@ import androidx.annotation.MainThread
 import androidx.compose.runtime.IntState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.graphics.toArgb
-import androidx.core.net.toUri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -56,6 +55,7 @@ import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
+import terminal.emulator.util.urlOrigin
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
@@ -1670,15 +1670,7 @@ constructor(
                 // 仅记录来源（scheme://host），不记录完整 URL：
                 // 私有引导程序地址可能携带 token 与查询参数，logcat 无差别记录。
 
-                val origin =
-                    runCatchingCancellable {
-                        val uri = bootstrapUrl.toUri()
-                        val scheme = uri.scheme ?: return@runCatchingCancellable "<no-scheme>"
-                        val host = uri.host
-                        if (host.isNullOrBlank()) return@runCatchingCancellable "<no-host>"
-                        "$scheme://$host"
-                    }
-                        .getOrNull() ?: "<unparsable>"
+                val origin = urlOrigin(bootstrapUrl)
                 LogUtil.debug("Runtime", "Bootstrap URL set: $origin")
                 val directories = bootstrapDirectories(context)
                 val installOrchestrator =

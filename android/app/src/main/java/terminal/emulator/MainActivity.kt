@@ -61,6 +61,7 @@ import terminal.emulator.ui.SettingsScreen
 import terminal.emulator.ui.TerminalScreen
 import terminal.emulator.ui.theme.resolveMaterialColorScheme
 import terminal.emulator.util.TerminalDispatchers
+import terminal.emulator.util.urlOrigin
 import javax.inject.Inject
 
 /** 冷启动后，设置覆盖层的暂停逻辑等待 bridge 出现的时间预算（毫秒）。 */
@@ -267,7 +268,9 @@ class MainActivity : ComponentActivity() {
         val name = intent?.getStringExtra(EXTRA_LOG_LEVEL) ?: return
         val level = LogLevel.entries.firstOrNull { it.name == name }
         if (level == null) {
-            LogUtil.warn(TAG, "unknown $EXTRA_LOG_LEVEL extra: $name")
+            // 取值来自外部 Intent：既不是应用缺陷，也不值得占一条告警；原值回显会把
+            // 调用方的任意文本带进 logcat，故只记事实。
+            LogUtil.debug(TAG, "unknown $EXTRA_LOG_LEVEL extra")
             return
         }
         terminalViewModel.forceLogLevel(level)
@@ -343,10 +346,11 @@ class MainActivity : ComponentActivity() {
                     TermuxBootstrap.downloadUrl(detectDeviceArchitecture())
             }
         if (url != presetUrl) {
-            LogUtil.warn(TAG, "拒绝非官方引导包地址的安装请求：$url")
+            // 只记来源：请求方给的地址可能带 token 与换行，原样回显会把外部文本带进 logcat。
+            LogUtil.warn(TAG, "拒绝非官方引导包地址的安装请求：${urlOrigin(url)}")
             return
         }
-        LogUtil.info(TAG, "按官方地址安装引导包：$url")
+        LogUtil.info(TAG, "按官方地址安装引导包：${urlOrigin(url)}")
         terminalViewModel.setBootstrapUrl(url)
         terminalViewModel.runBootstrap()
     }
