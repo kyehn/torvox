@@ -157,6 +157,9 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
      */
     private var longPressDragStarted = false
 
+    /** 最近按下的鼠标键号（0=左、1=右、2=中）；ACTION_UP 的按键状态已清零，须沿用它。 */
+    private var lastMouseButton = 0
+
     /**
      * 本次手势是否已把拖动转发为滚轮（见 onScroll）：转发过的手势其惯性段
      * 同样属于应用，onFling 只吞不滚，绝不让本地回滚接管（见 onFling）。
@@ -648,12 +651,18 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
             if (bridge != null) {
                 val mouseCellWidth = runtime.cellWidth
                 val mouseCellHeight = runtime.cellHeight
-                val button =
+                // ACTION_UP/CANCEL 的 getButtonState 已清零（isButtonPressed 全假），
+                // 释放帧必须沿用按下时记下的键号：否则 SGR 上报把右/中键释放编码成
+                // 左键释放（`<0;x;ym`），远端（tmux、TUI）按下的键永远配不上抬起。
+                val pressedButton =
                     when {
                         event.isButtonPressed(MotionEvent.BUTTON_SECONDARY) -> 1
                         event.isButtonPressed(MotionEvent.BUTTON_TERTIARY) -> 2
-                        else -> 0
+                        event.isButtonPressed(MotionEvent.BUTTON_PRIMARY) -> 0
+                        else -> null
                     }
+                if (pressedButton != null) lastMouseButton = pressedButton
+                val button = pressedButton ?: lastMouseButton
                 val action =
                     when (event.actionMasked) {
                         MotionEvent.ACTION_UP,

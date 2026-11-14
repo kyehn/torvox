@@ -763,6 +763,20 @@ fn encode_mouse_event_drag_sequence() {
     );
 }
 
+/// SGR 释放帧必须保留按键号：右键释放是 `<2;x;ym`，不是左键的 `<0;x;ym`。
+/// 应用（tmux、文件管理器类 TUI）据此判断哪个键抬起；按键号错了会把右键
+/// 释放当成左键释放，按下与抬起永远配不上对。
+#[test]
+fn encode_mouse_event_sgr_right_release_keeps_button() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    terminal_under_test.flush();
+    let encoded = terminal_under_test
+        .encode_mouse_event((35.0, 45.0), 1, 1, 0, 10.0, 20.0)
+        .expect("right release encode");
+    assert_eq!(encoded, b"\x1b[<2;4;3m");
+}
+
 /// 滑出视口的拖动必须上报：上游 `mouse_encode` 只在有键按下时报告
 /// 视口外 motion（1003 全事件跟踪），标志缺省 false 会静默丢弃，
 /// 手指滑出终端边缘的拖动在远端看来直接中断。
