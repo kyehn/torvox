@@ -113,9 +113,22 @@
 归因证据：同一次调用紧接着记录 `configured ... format=Rgba8Unorm`，窗口几何为
 `WINDOW_FORMAT_RGBA_8888`，且生产代码没有任何 `R8Unorm` 纹理/缓冲请求；4 次
 尝试与 4 张交换链图像一一对应，位于旧交换链图像 `unregister` 与新图像 `register`
-之间，即发生在厂商 `vkCreateSwapchainKHR` 内部。该条属于平台分配器噪声，
-MUST NOT 通过过滤 tag、降级日志或改窗口格式来掩盖；应用侧只要保持
-「窗口格式 = 交换链格式 = 多通道」即可。
+之间，即发生在厂商 `vkCreateSwapchainKHR` 内部。紧邻的
+`persist.vendor.gpu.fbc` 读取表明这是厂商帧缓冲压缩（FBC）元数据的分配尝试，
+应用侧没有开关。该条属于平台分配器噪声，MUST NOT 通过过滤 tag、降级日志或改窗口
+格式来掩盖；应用侧只要保持「窗口格式 = 交换链格式 = 多通道」即可。
+
+#### Scenario: 返回回调未启用导致的框架告警
+
+- **WHEN** Android 13+ 的 `android.window.WindowOnBackInvokedDispatcher` 在注册返回回调时
+      以 tag `OnBackInvokedCallback` 打出 `OnBackInvokedCallback is not enabled for the
+      application`
+- **THEN** 应用 MUST 在 `<application>` 声明 `android:enableOnBackInvokedCallback="true"`；
+      该属性由平台按 `ApplicationInfo.isOnBackInvokedCallbackEnabled()` 读取，判断路径不含
+      targetSdk 条件；属性自 API 33 引入，API 31/32 设备忽略（本应用 minSdk 31），
+      lint 的 UnusedAttribute 属误报，MUST NOT 因此移除该属性
+- **AND** MUST NOT 通过过滤 `OnBackInvokedCallback` tag、降级日志或移除返回回调来消除；
+      AndroidX 的 `OnBackPressedDispatcher` 注册回调是本告警的触发点
 
 ### Requirement: 日志 tag 必须与事件语义一致
 
@@ -345,6 +358,20 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
        是客户端回查缺失文档，MUST NOT 记为应用侧缺陷；处置 MUST 走「客户端可见响应不变」
        的口径——框架捕获该异常后回的同样是 null 游标，故缺失文档回 null 游标即消掉该
        告警；MUST NOT 以过滤该日志作为处置
+
+#### Scenario: 2026-11-14 运行日志的聚合归因
+
+- **WHEN** 审计该日运行日志（应用进程 W/E 共 76 条）
+- **THEN** 逐类计数与处置 MUST 为：
+      - 应用自身 13 条：`WindowOnBackDispatcher` 返回回调未启用；已启用清单属性并复验；
+      - 厂商分配器 48 条：Mali/Unisoc `mali_gralloc` 的 R8/FBC 元数据分配尝试，
+        平台侧无应用开关（见同文件的分配器场景）；
+      - 平台/框架 15 条：`Typeface` 字体路径、`ziparchive` 厂商 dm 缺失、`libc`
+        厂商属性 sepolicy、`FeatureOpt` 折叠屏能力、`Parcel` binder 空值、
+        `wgpu_core` downlevel 汇报、debug 构建 jdwp 提示；均无应用栈
+- **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
+- **AND** 设备丢失相关 panic 在该轮已归零；历史 `Device::poll` 致命 panic 由
+      `poll_device_wait` 接住，不再穿出 JNI
 
 #### Scenario: 上游未实现的矩形区域属性动作
 
