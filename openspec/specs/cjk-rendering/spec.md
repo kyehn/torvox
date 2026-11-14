@@ -91,6 +91,26 @@ CJK 回退层的发现 MUST NOT 依赖 locale 早于字体库构建这一调用�
 - **WHEN** locale 为 `en-US`
 - **THEN** 不补装任何 `lang` 族，CJK 回退层保持为空
 
+### Requirement: 系统字体面共享同一份只读映射
+
+`fontdb::Source::File` 的 `with_face_data` 每次调用都会重新 open + mmap 字体文件。
+CJK 回退面通常是几十 MB 的 TTC，而字形号解析与光栅化各要取一次面数据；冷字形集中
+出现时（整屏 CJK 首次绘制）逐字符重映射会把单帧拖到 24ms，触发慢帧告警。
+
+系统字体目录（`FONT_DIRS`，只读分区）下的面 MUST 在装入后（建库、区域回退补装、
+字体族切换三条路径）转为共享映射，使同一查询只剩一次 `Arc` 取值，整库只保留一份
+映射。共享 MUST 记录「已共享面数 / 总面数」到 `FONT_LOAD` 日志，便于核对是否覆盖到
+最贵的回退面。
+
+用户投放字体 MUST NOT 共享：文件可被覆盖或截断，映射后长度可变。
+
+#### Scenario: 冷字形整屏绘制不再慢帧
+
+- **WHEN** 首次把整屏 CJK 文本写入终端
+- **THEN** 字形解析与光栅化 MUST 复用已共享的系统字体映射
+- **AND** 单帧实例构建 MUST NOT 因逐字符重映射字体文件而超过慢帧阈值
+- **AND** `FONT_LOAD: shared N of M face mappings` 中的 N MUST 覆盖区域回退面
+
 ### Requirement: CJK 后备状态按判据上报
 
 设置页展示的 CJK 后备状态 MUST 与渲染器实际取舍同源。
