@@ -953,24 +953,30 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 - **aislop**（须以 `npx aislop@latest` 调用，本仓 nix 环境未内置该可执行文件）：
   `npx aislop@latest scan --json native/src` 退出码 0，`score` 100、label `Healthy`、
-  `coverage.supportedFiles` 105、`unsupportedFiles` 0，`summary` 0 errors /
+  `coverage.supportedFiles` 113、`unsupportedFiles` 0，`summary` 0 errors /
   1 warning / 0 fixable；唯一 `diagnostics` 为 `complexity/file-too-large`
-  （`terminal/ghostty_terminal/public_api.rs`，1123 行），
+  （`terminal/ghostty_terminal/internal/input_filter.rs`，1146 行），
   `findingAssessment.byKind` 为 `style-policy` 1 / `confirmed-defect` 0。
   全仓扫描 `npx aislop@latest scan --json` 同为 0 errors / 1 warning，
-  `coverage.supportedFiles` 106、`unsupportedFiles` 164、
+  `coverage.supportedFiles` 114、`unsupportedFiles` 201、
   `dominantUnsupported` 为 `Kotlin`、`scoreable` 为真。
   **覆盖面限制**：该工具扫不到本仓 Android 侧 Kotlin 代码，
   故本项 MUST NOT 被当作全仓门禁；它只对 Rust 侧有判别力。
   **评分可用性**：该工具仅在 `unsupportedFiles < 10` 或
-  `unsupportedFiles ≤ supportedFiles × 3` 时给出分数；本仓当前 164 ≤ 106 × 3，
+  `unsupportedFiles ≤ supportedFiles × 3` 时给出分数；本仓当前 201 ≤ 114 × 3，
   全仓扫描亦可评分，但分数基线仍 MUST 取 Rust 子目录扫描。
+  **与上一列基线的偏差来源**：上一列记的唯一 `file-too-large` 命中在
+  `terminal/ghostty_terminal/public_api.rs`（1123 行），该文件已按职责拆成
+  `terminal/ghostty_terminal/public_api/` 目录模块，命中位置随之迁移到
+  `internal/input_filter.rs`；命中条数仍为 1（`function-too-long` 仍为 0），
+  未上升，故不触发「条数 MUST NOT 上升」的验收判据。`supportedFiles` 由 105 升至 113
+  是新增 Rust 源文件所致。
   验收判据：接入后 `confirmed-defect` 与 `errors` MUST 维持 0，
   `file-too-large` / `function-too-long` 的条数 MUST NOT 上升（基线 1 / 0）；
   该工具归类为 style-policy 的项 MUST NOT 阻断构建，
   只有 error 级或 `confirmed-defect` 才阻断。
 - **jscpd**：`jscpd --min-lines 8 --min-tokens 60` 对 `native/src` 与
-  `android/app/src/main` 实测退出码 0，1 处克隆 / 12 行重复 / 0.02%，涉 207 个文件。
+  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，涉 254 个文件。
   测量取自已提交的树快照，不取工作区状态（工作区可能同时存在他人进行中的改动）。
   前一列基线为 2 处克隆 / 26 行重复 / 0.04% / 115 个文件：其第二处
   `native/src/terminal/ghostty_terminal/internal/mod.rs` 内 `process_query` 与
@@ -978,9 +984,14 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   了另外三处克隆（JNI 导出的注册表查找骨架、会话测试夹具、Kitty 放置撤除用例的
   送图与清屏流程），已分别收敛为 `with_session_entry`、`mock_pty::mock_session` 与
   `mock_pty::mock_arc_session`、`ed2_clears_direct_kitty_placement`。
-  现存唯一残留为 `android/app/src/main/res/drawable/launcher_monochrome.xml` 与
-  `logo_art.xml` 的同形 `pathData`，不修的具体理由是 Android drawable 不支持跨文件
+  现存两处残留逐条判定如下：
+  ① `android/app/src/main/res/drawable/launcher_monochrome.xml` 与 `logo_art.xml`
+  的同形 `pathData`（14 行），不修的具体理由是 Android drawable 不支持跨文件
   引用几何，单色版必须自带路径。
+  ② `android/app/src/main/java/terminal/emulator/ui/SettingsAppearanceSection.kt` 与
+  `SettingsLogLevelSection.kt` 的同形包声明与 import 段（9 行），不修的具体理由是
+  同包同层级的两个界面文件各自按需 import 同一组 Compose API，合并即产生
+  只为转发符号的中间层（违 `STYLE.md` 的一次性抽象禁令），属天然相似。
   验收判据：重复率 MUST NOT 高于该基线；新增克隆 MUST 逐处给出
   「不修」的具体理由（被测行为不同、脚手架样板、或传状态必需的形参列表），
   MUST NOT 以「先记着」放行。
@@ -988,8 +999,9 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   下载到 `/tmp/.rapidocr-models`，模型环境已就绪；该下载与其他 shellHook 初始化步骤
   （AOSP testkey、`/tmp/alacritty-theme` 克隆）共享同一把排他锁，多个 shell 并发进入
   时 MUST 串行执行，MUST NOT 并发写同一 `/tmp` 路径；但
-  `scripts/test-emulator.nu` 只跑 `connectedDebugAndroidTest` 与
-  `connectedBenchmarkReleaseAndroidTest`，仓内无任何 OCR 消费方，即
+  `scripts/test-emulator.nu` 跑 `connectedDebugAndroidTest`、
+  `connectedBenchmarkReleaseAndroidTest` 与 `connectedBenchmarkNixAndroidTest`，
+  仓内无任何 OCR 消费方，即
   `TESTING.md` 的「拉截图 → 跑 rapidocr → 断言」闭环仍只存在于人工步骤。
   验收判据：实施后 MUST 有程序化断言比对识别文本，MUST NOT 只落截图或只打印识别结果。
 - **CI 产物哈希比对** 与 **16KB 页对齐**：本轮未实测（MUST NOT 以推定数字入表）。
