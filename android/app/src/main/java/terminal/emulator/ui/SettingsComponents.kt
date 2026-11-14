@@ -318,14 +318,14 @@ internal fun SettingsPickerDialog(
     colors: SettingsColors,
     onSelected: (String) -> Unit,
     onDismiss: () -> Unit,
-    testTag: String? = null,
+    testTag: String,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title, color = colors.textColor) },
         text = {
             LazyColumn(
-                modifier = modifierThenTestTag(testTag),
+                modifier = Modifier.testTag(testTag),
             ) {
                 items(options) { (key, label) ->
                     val isSelected = key == selectedKey
@@ -358,15 +358,6 @@ internal fun SettingsPickerDialog(
         },
         containerColor = colors.cardBackground,
     )
-}
-
-/** 给 Modifier 挂 testTag（tag 为 null 时原样返回）。 */
-private fun modifierThenTestTag(testTag: String?): Modifier = if (testTag !=
-    null
-) {
-    Modifier.testTag(testTag)
-} else {
-    Modifier
 }
 
 /** 字体缺 CJK 回退时的警示橙，与 [CjkFallbackMissingWarning] 配套。 */
