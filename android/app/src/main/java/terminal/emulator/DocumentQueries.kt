@@ -36,7 +36,7 @@ internal class DocumentQueries(
      * 绝对路径，客户端回查时被重新拼到根目录下而永远打不开。
      */
     fun rootDir(): File = File(
-        requireNotNull(context) { "TerminalDocumentsProvider requires a Context" }.filesDir,
+        context.filesDir,
         "home",
     ).also { directory ->
         // mkdirs 在目录已存在时返回 false，只有目录仍不存在才告警。
