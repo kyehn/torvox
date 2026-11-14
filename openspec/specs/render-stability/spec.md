@@ -411,6 +411,70 @@ MUST 换新的 `SurfaceView` 以取得新的原生窗口，且请求 MUST 受间
       用尽后 MUST 转为慢重试（间隔 ≥ 5s）并只告警一次，MUST NOT 永久停止请求——
       平台迟迟不交付新窗口时，停止请求等于把渲染线程钉在死窗口上，用户看到永久空白
 
+### Requirement: 设备丢失后停止向死设备提交
+
+Vulkan 设备被判死（`VK_ERROR_DEVICE_LOST`）后，MUST NOT 继续向死设备提交调用：
+wgpu 在致命 HAL 错误上先调设备丢失回调、再 panic，逐帧调用会逐条复现同一条 panic，
+而宿主换的新窗口仍挂在同一个死设备上，画面永久黑屏。
+
+进程级 `DEVICE_LOST` 原子位由三处汇入同一记账点（实现见
+`native/src/render/context/gpu.rs`）：wgpu 丢失回调、`DeviceError::Lost`
+（Display 为 `Parent device is lost`）与 `SurfaceError::DeviceLost` 的错误文字判据、
+仪器化注入。记账点 MUST 只在本进程第一次置位时记一条 error，余波阶段 MUST NOT
+逐条重复。
+
+#### Scenario: 丢失后不再逐帧 panic
+
+- **WHEN** 设备被判死（丢失回调触发，或取纹理 panic 载荷含 `Parent device is lost`）
+- **THEN** 本进程只记一条 error，后续帧 MUST 在 GPU 调用前返回，MUST NOT 逐帧复现 panic
+
+#### Scenario: 丢失后所有 GPU 入口先于 wgpu 返回
+
+- **WHEN** 进程已判定设备丢失
+- **THEN** `render_inner` MUST 返回 0（空闲），`read_cover_frame` MUST 返回 `None`
+      （遮罩退化为平底色），`attach_surface` MUST 直接放弃
+
+#### Scenario: 丢失判据不以错误类型为唯一条件
+
+- **WHEN** 丢失回调未触发，丢失只体现在 panic 载荷或错误文字里
+- **THEN** MUST 同样置位并只记一条 error，MUST NOT 因路径上没有 `DeviceError` 而漏判
+
+### Requirement: 换新窗口触发 GPU 重建并恢复渲染
+
+恢复 MUST 走「宿主换新 `SurfaceView` → `attachWindow` 重建 instance/adapter/device 与
+`Renderer` → 清除丢失位 → 正常出帧」这一条链，MUST NOT 依赖进程重启。
+
+`renderWithNewOutput` 的失效位 MUST 把 `device_lost` 与 `surface_invalidated` 合并上报
+（同一动作：宿主换新窗口）；否则丢失后宿主等不到任何换窗口触发。重建 MUST 发生在收到
+**新** `ANativeWindow` 的 `attachWindow` 内，且先于 `attach_surface`：`wgpu::Surface`
+绑定 instance，旧 surface 不能配到新设备。
+
+重建 MUST 搬运与设备无关的会话状态（暂停位、背景色、滚动偏移），MUST NOT 让恢复后的
+首帧丢背景色或跳回顶部；重建失败 MUST 保持失效位并释放窗口引用，由宿主的重建预算继续
+换窗口。
+
+#### Scenario: 新窗口触发重建并恢复
+
+- **WHEN** 丢失位已置且宿主送来新的 `ANativeWindow`
+- **THEN** MUST 重建 instance/device 与 `Renderer`，清除丢失位，
+      首帧 MUST 恢复出图（暂停位、背景色、滚动偏移保持）
+
+#### Scenario: 重建失败继续换窗口
+
+- **WHEN** 重建 instance/device 失败
+- **THEN** 丢失位 MUST 保持，窗口引用 MUST 释放，失效位 MUST 继续上报，
+      宿主按重建预算继续换窗口
+
+### Requirement: 不得以日志手段掩盖设备丢失
+
+MUST NOT 以反射清平台同步组、降级日志等级、过滤 tag 或缩短日志来掩盖设备丢失；丢失的
+第一次记账必须是 error，余波的收敛靠「停止向死设备提交」，不是靠沉默。
+
+#### Scenario: 丢失的第一条记录是 error
+
+- **WHEN** 进程内首次判定设备丢失
+- **THEN** MUST 记一条 error 级别的日志，MUST NOT 以降级等级、过滤 tag 或缩短日志代替
+
 ### Requirement: 已取出的帧不得因 surface 竞态丢弃
 
 `receive_cell_data` 是破坏性取数，VT 去重基线在入队时已推进，被取走又丢弃的帧不会补发。
