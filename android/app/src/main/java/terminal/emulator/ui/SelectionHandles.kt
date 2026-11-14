@@ -71,7 +71,12 @@ internal class SelectionHandles(private val surface: TerminalSurface) {
         if (existingContent != null && existingContent.streamForwarding) {
             existingContent.dismissOnStreamEnd(existingPopup)
             existingContent.onStreamEnded = {
-                dismissPopupQuietly(existingContent.consumeDeferredDismiss())
+                // 事件仍在投递中：同步 dismiss 会把承载本次按压的输入接收器一起拆掉，
+                // 平台随后的 finishInputEvent 无处可去，打出
+                // `InputEventReceiver: ... already been disposed.`。推到下一轮 UI 循环
+                // 再拆，事件投递与窗口拆除不再重叠。
+                val pending = existingContent.consumeDeferredDismiss()
+                surface.post { dismissPopupQuietly(pending) }
             }
             overlayContent = null
             overlayPopup = null
@@ -103,7 +108,9 @@ internal class SelectionHandles(private val surface: TerminalSurface) {
             )
         overlayContent = content
         content.onStreamEnded = {
-            dismissPopupQuietly(content.consumeDeferredDismiss())
+            // 同上：投递内拆窗会让本窗口的输入接收器先于 finishInputEvent 消失。
+            val pending = content.consumeDeferredDismiss()
+            surface.post { dismissPopupQuietly(pending) }
         }
 
         val windowLocation = IntArray(2)
