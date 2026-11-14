@@ -531,7 +531,15 @@ private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalVi
         // 上，渲染器尚未建立时写入即丢失，故打开设置页前先等它出现（有界等待，
         // 只在带 `openSettingsOnLaunch` 的冷启动才真正等待）。
         awaitBridgeReady { viewModel.runtime.bridge() != null }
-        settingsPauseToken = viewModel.runtime.acquireRenderPause()
+        val token = viewModel.runtime.acquireRenderPause()
+        // 等待 bridge 期间（冷启动无引导时最长约 2.5s）用户可能已经关掉设置页：
+        // 此刻协程虽未被取消到能阻止这次赋值，把凭证记进状态就再无人归还——
+        // 账本里永远留着一次暂停，终端从此不再渲染。当场核对开合状态再决定去留。
+        if (!showSettings) {
+            viewModel.runtime.releaseRenderPause(token)
+        } else {
+            settingsPauseToken = token
+        }
     }
     DisposableEffect(showSettings) {
         onDispose {
