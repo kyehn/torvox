@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-11-13
+goal: |
+  把 code-health 的审计留档落点钉到当前真实位置，并把文件规模治理交回
+  docs/specification/STYLE.md——该规范把行数与文件大小列为仅风格相关、可忽略且不得耗时的问题。
