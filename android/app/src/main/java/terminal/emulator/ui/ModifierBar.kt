@@ -451,7 +451,15 @@ private fun ModifierBarTextInputPage(
             .fillMaxWidth()
             .height(buttonHeight * 2)
             .testTag("TextInputPage"),
-        label = { Text(stringResource(R.string.text_input_box)) },
+        // 紧凑的修饰键栏文本输入页：用占位提示而非浮动标签，避免标签收缩后挤占
+        // 输入区导致已输入文本显示过小。
+        placeholder = {
+            Text(
+                text = stringResource(R.string.text_input_box),
+                fontSize = TEXT_INPUT_FONT_SIZE_SP.sp,
+                color = textColor.copy(alpha = 0.6f),
+            )
+        },
         singleLine = true,
         textStyle =
         TextStyle(
@@ -477,6 +485,8 @@ private fun ModifierBarTextInputPage(
             unfocusedContainerColor = backgroundColor,
             focusedIndicatorColor = Color.Transparent,
             unfocusedIndicatorColor = Color.Transparent,
+            focusedPlaceholderColor = textColor.copy(alpha = 0.6f),
+            unfocusedPlaceholderColor = textColor.copy(alpha = 0.6f),
         ),
     )
 }
