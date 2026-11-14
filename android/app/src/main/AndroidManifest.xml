@@ -33,11 +33,10 @@
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.Terminal"
         tools:ignore="UnusedAttribute">
-        <!-- API 33+ 的平台按 ApplicationInfo.isOnBackInvokedCallbackEnabled() 读取本属性，
-             与 targetSdk 无关（targetSdk≥33 只是默认打开）。不设它时，AndroidX 每次注册
-             返回回调，WindowOnBackDispatcher 都会记一条
-             「OnBackInvokedCallback is not enabled for the application」。
-             lint 仅按 minSdk 31/targetSdk 28 推断该属性不会被使用，属误报，故就地说明。 -->
+        <!-- 平台按 ApplicationInfo.isOnBackInvokedCallbackEnabled() 读取本属性，判断路径不含
+             targetSdk 条件；不声明时注册返回回调会被 WindowOnBackInvokedDispatcher 记一条
+             「OnBackInvokedCallback is not enabled for the application」。属性自 API 33 引入，
+             minSdk 31 的 lint UnusedAttribute 属误报，就地抑制。 -->
 
         <!-- singleTask：进程内只允许一个主界面实例。
              终端的原生渲染器全局唯一（一份交换链、一份会话表），第二个实例会与
