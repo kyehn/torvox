@@ -437,7 +437,12 @@ impl Renderer {
         drop(render_pass);
 
         // ── 呈现：一次拷贝（累加器 → 交换链） ─────────────
-        if let Some(acc_texture) = self.frame_texture.as_ref() {
+        // 只在**本帧确实写入了累加器**时拷贝：`swapchain_copy_supported` 为假时
+        // 渲染直接写交换链，而 `resume_last_frame` 可能保留了旧 surface 的累加器
+        // （格式/尺寸未必与新交换链一致），照拷会触发 wgpu 的 copy 校验失败。
+        if accumulator_view.is_some()
+            && let Some(acc_texture) = self.frame_texture.as_ref()
+        {
             encoder.copy_texture_to_texture(
                 acc_texture.as_image_copy(),
                 frame_ctx.texture.texture.as_image_copy(),
