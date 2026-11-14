@@ -257,6 +257,19 @@ impl Renderer {
                     crate::render::context::mark_device_lost(&crate::render::context::one_line(
                         &text,
                     ));
+                } else if text.contains("not configured for presentation") {
+                    // 上一次 `Surface::configure` 失败（真机/模拟器日志：`GpuWaitTimeout`）
+                    // 会让 surface 停在未配置态，此后每次取纹理都按 validation 错误 panic。
+                    // 与 Lost/Outdated 同源：重配一次，下一帧即按正常 surface 取纹理。
+                    // 配置本身仍可能失败——那时 reconfigure 只是 no-op 级的无害重试，
+                    // wgpu 会再报一条 validation，不会 panic。
+                    Self::reconfigure_surface(surface, self.surface_config.as_ref(), &self.device);
+                    if ACQUIRE_PANIC_THROTTLE.should_log() {
+                        log::warn!(
+                            "acquire_texture: get_current_texture panicked (surface not configured); surface reconfigured: {}",
+                            crate::render::context::one_line(&text)
+                        );
+                    }
                 } else if ACQUIRE_PANIC_THROTTLE.should_log() {
                     log::warn!("acquire_texture: get_current_texture panicked");
                 }
