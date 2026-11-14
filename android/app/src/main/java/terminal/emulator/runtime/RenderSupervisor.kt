@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import terminal.emulator.bridge.Bridge
 import terminal.emulator.monitor.LivenessRecovery
 import terminal.emulator.monitor.LivenessThresholds
 import terminal.emulator.monitor.RenderWatchDog
@@ -611,81 +612,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                                     // 否则一次持续渲染失败会阻塞读取线程并冻结全部会话。
                                     try {
                                         val poll = bridge.pollAll()
-                                        // 退出优先在独立分支中处理：该事件已从原生队列消费且无法重放，
-                                        // 故下方剪贴板处理中的异常绝不能跳过清理。
-                                        if (poll.exit) {
-                                            // 本帧退出的是否就是本条目（而非同帧里某个后台会话）。
-                                            // 只有「自己退出」才允许结束本渲染循环；后台会话退出
-                                            // 绝不能把活动会话的循环 break 掉——那会让可见终端
-                                            // 冻结到看门狗重启（每次还累加重启计数，最终误关活会话）。
-                                            val selfExited =
-                                                poll.sessionId == 0L || poll.sessionId == entry.sessionId
-                                            // 先回复空值，再做任何清理：这些剪贴板读取请求
-                                            // 已从原生队列消费且永不会再被派发，
-                                            // 不予回复会挂起请求方。
-                                            // 先于 runtime.handleSessionExit 回复（后者可能关闭
-                                            // bridge，~100ms+）也把延迟降到最低。
-                                            // 每个应答在 runtime.dispatchClipboardRequests 内部各自保护，
-                                            // 那里吞掉 JNI 失败正是为了不跳过下方的退出清理。
-                                            runtime.dispatchClipboardRequests(poll.clipboardReads)
-                                            if (poll.sessionId != 0L && poll.sessionId != entry.sessionId) {
-                                                // 后台（非活动）会话的 shell 已退出。
-                                                // 其渲染线程已停止，不会再有其他方回收它
-                                                // ——原生清扫只经本队列上报一次。在此关闭它
-                                                // （runtime.handleSessionExit 对非活动会话是安全的：
-                                                // 接替分支以 entry.sessionId == runtime.activeSessionId 为闸门）。
-                                                val exitedEntry =
-                                                    synchronized(runtime.sessionLock) {
-                                                        runtime.sessions[poll.sessionId]
-                                                    }
-                                                if (exitedEntry != null) {
-                                                    LogUtil.info(
-                                                        "Runtime",
-                                                        "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
-                                                    )
-                                                    runtime.handleSessionExit(
-                                                        exitedEntry,
-                                                        poll.exitCode,
-                                                    )
-                                                }
-                                            } else {
-                                                // 完整清理（关闭 bridge、移除会话、更新状态）在此进行；
-                                                // 渲染监视器跳过 !running 的条目，因而绝不会回收已退出会话。
-                                                runtime.handleSessionExit(entry, poll.exitCode)
-                                            }
-                                            // 两个分支共用：回收同一帧内退出的其他会话
-                                            // （首个已在上方处理）。它们的原生 exit_reported
-                                            // 标志已置位且不重发。
-                                            // 仅排除 poll.sessionId——列表中其他每个 id
-                                            // （含后台分支下的 entry.sessionId）都必须回收，
-                                            // 否则 Kotlin 条目、原生会话与僵尸子进程将永久泄漏。
-                                            // runtime.handleSessionExit 幂等（内部重查 containsKey）。
-                                            poll.exits.forEach { exitInfo ->
-                                                if (exitInfo.sessionId != poll.sessionId) {
-                                                    val extra =
-                                                        synchronized(
-                                                            runtime.sessionLock,
-                                                        ) { runtime.sessions[exitInfo.sessionId] }
-                                                    if (extra != null) {
-                                                        LogUtil.info(
-                                                            "Runtime",
-                                                            "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
-                                                        )
-                                                        runtime.handleSessionExit(
-                                                            extra,
-                                                            exitInfo.exitCode,
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                            if (selfExited && !entry.waitingForProcessCompleted) {
-                                                break
-                                            }
-                                            // 正在显示 [Process completed] 提示
-                                            // ——保持会话可见（running 保持为真）
-                                            // 直到用户按 Enter。
-                                            // 原生 exit_reported 已置位，故不会再有退出事件到达。
-                                        }
+                                        if (reapExitedSessions(entry, poll)) break
                                         runtime.eventDispatcher.handle(poll)
                                     } catch (exception: Exception) {
                                         // 输出泵失败会逐帧发生（桥接层持续抛异常）：按窗口
@@ -773,57 +700,20 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                                         ) > SLOW_FRAME_LOG_THRESHOLD_MS * 1_000_000L
                                     ) {
                                         slowLoopThrottle.record()?.let { slowLoops ->
-                                            val tailNanos =
-                                                loopDurationNanos - (loopPollDoneNanos - loopFrameStart)
-                                            val gateMs =
-                                                (loopGateDoneNanos - loopFrameStart) / NANOS_PER_MILLI
-                                            val preMs =
-                                                (loopPrerenderDoneNanos - loopGateDoneNanos) / NANOS_PER_MILLI
-                                            val renderMs =
-                                                (renderDoneNanos - loopPrerenderDoneNanos) / NANOS_PER_MILLI
-                                            val backoffMs = loopBackoffNanos / NANOS_PER_MILLI
-                                            val pollMs =
-                                                (loopPollDoneNanos - renderDoneNanos - loopBackoffNanos) /
-                                                    NANOS_PER_MILLI
-                                            val totalMs = loopDurationNanos / NANOS_PER_MILLI
-                                            LogUtil.warn(
-                                                "Runtime",
-                                                "SLOW_LOOP " +
-                                                    "session=${entry.sessionId} " +
-                                                    "total=${totalMs}ms " +
-                                                    "gate=${gateMs}ms " +
-                                                    "pre=${preMs}ms " +
-                                                    "render=${renderMs}ms " +
-                                                    "backoff=${backoffMs}ms " +
-                                                    "poll=${pollMs}ms " +
-                                                    "tail=${tailNanos / NANOS_PER_MILLI}ms " +
-                                                    "slow_loops=$slowLoops",
+                                            logSlowLoop(
+                                                entry = entry,
+                                                slowLoops = slowLoops,
+                                                totalNanos = loopDurationNanos,
+                                                gateNanos = loopGateDoneNanos - loopFrameStart,
+                                                preNanos = loopPrerenderDoneNanos - loopGateDoneNanos,
+                                                renderNanos = renderDoneNanos - loopPrerenderDoneNanos,
+                                                backoffNanos = loopBackoffNanos,
+                                                pollNanos = loopPollDoneNanos - renderDoneNanos - loopBackoffNanos,
+                                                tailNanos = loopDurationNanos - (loopPollDoneNanos - loopFrameStart),
                                             )
                                         }
                                     }
-                                    val preReport = loopPreTiming.takeReport()
-                                    loopTiming.takeReport()?.let { loopReport ->
-                                        val loopAvgMs = loopReport.averageNanos / NANOS_PER_MILLI
-                                        val loopP95Ms = loopReport.p95Nanos / NANOS_PER_MILLI
-                                        val loopMaxMs = loopReport.maxNanos / NANOS_PER_MILLI
-                                        val preMaxMs = (preReport?.maxNanos ?: 0L) / NANOS_PER_MILLI
-                                        val preP95Ms = (preReport?.p95Nanos ?: 0L) / NANOS_PER_MILLI
-                                        val framesPerSecond =
-                                            if (loopReport.averageNanos > 0) {
-                                                (NANOS_PER_SECOND / loopReport.averageNanos).toInt()
-                                            } else {
-                                                0
-                                            }
-                                        LogUtil.info(
-                                            "Runtime",
-                                            "session ${entry.sessionId} loop timing window " +
-                                                "(${loopReport.frameCount} frames): " +
-                                                "avg=${loopAvgMs}ms p95=${loopP95Ms}ms " +
-                                                "max=${loopMaxMs}ms pre_max=${preMaxMs}ms " +
-                                                "pre_p95=${preP95Ms}ms " +
-                                                "≈${framesPerSecond}fps vsync=${runtime.displayPeriodText()}",
-                                        )
-                                    }
+                                    logLoopTiming(entry, loopTiming.takeReport(), loopPreTiming.takeReport())
                                 } catch (exception: InterruptedException) {
                                     // 渲染线程在关闭期间（会话切换/运行期停止）被中断。
                                     // 这是预期信号而非渲染失败——干净地退出循环。
@@ -930,6 +820,132 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                 onHangDetected = { watchdog, diagnosis -> handleSessionHang(entry, watchdog, diagnosis) },
             )
                 .also { it.start() }
+    }
+
+    /**
+     * 处置一帧输出泵里的退出事件，返回渲染循环是否应当结束。
+     *
+     * 退出优先于同帧的其余事件：该事件已从原生队列消费且无法重放，故剪贴板
+     * 回复中的异常绝不能跳过清理。方法从循环体里抽出，使渲染循环本身保持短小
+     * （长循环体会被 ART 编译成数兆的单方法，见 `logSlowLoop` 的同款理由）。
+     *
+     * @return true 表示本条目自己的 shell 已退出且无需等待 `[Process completed]`
+     *   确认，调用方应结束渲染循环。
+     */
+    private fun reapExitedSessions(entry: SessionEntry, poll: Bridge.PollResult): Boolean {
+        if (!poll.exit) return false
+        // 本帧退出的是否就是本条目（而非同帧里某个后台会话）。
+        // 只有「自己退出」才允许结束本渲染循环；后台会话退出绝不能把活动会话的
+        // 循环结束掉——那会让可见终端冻结到看门狗重启（每次还累加重启计数，
+        // 最终误关活会话）。
+        val selfExited = poll.sessionId == 0L || poll.sessionId == entry.sessionId
+        // 先回复空值，再做任何清理：这些剪贴板读取请求已从原生队列消费且永不会
+        // 再被派发，不予回复会挂起请求方。先于 runtime.handleSessionExit 回复
+        // （后者可能关闭 bridge，~100ms+）也把延迟降到最低。每个应答在
+        // runtime.dispatchClipboardRequests 内部各自保护，那里吞掉 JNI 失败
+        // 正是为了不跳过下方的退出清理。
+        runtime.dispatchClipboardRequests(poll.clipboardReads)
+        if (poll.sessionId != 0L && poll.sessionId != entry.sessionId) {
+            // 后台（非活动）会话的 shell 已退出。其渲染线程已停止，不会再有其他方
+            // 回收它——原生清扫只经本队列上报一次。在此关闭它
+            // （runtime.handleSessionExit 对非活动会话是安全的：接替分支以
+            // entry.sessionId == runtime.activeSessionId 为闸门）。
+            val exitedEntry = synchronized(runtime.sessionLock) { runtime.sessions[poll.sessionId] }
+            if (exitedEntry != null) {
+                LogUtil.info(
+                    "Runtime",
+                    "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
+                )
+                runtime.handleSessionExit(exitedEntry, poll.exitCode)
+            }
+        } else {
+            // 完整清理（关闭 bridge、移除会话、更新状态）在此进行；渲染监视器跳过
+            // !running 的条目，因而绝不会回收已退出会话。
+            runtime.handleSessionExit(entry, poll.exitCode)
+        }
+        // 两个分支共用：回收同一帧内退出的其他会话（首个已在上方处理）。它们的
+        // 原生 exit_reported 标志已置位且不重发。仅排除 poll.sessionId——列表中
+        // 其他每个 id（含后台分支下的 entry.sessionId）都必须回收，否则 Kotlin
+        // 条目、原生会话与僵尸子进程将永久泄漏。runtime.handleSessionExit 幂等
+        // （内部重查 containsKey）。
+        poll.exits.forEach { exitInfo ->
+            if (exitInfo.sessionId != poll.sessionId) {
+                val extra =
+                    synchronized(runtime.sessionLock) { runtime.sessions[exitInfo.sessionId] }
+                if (extra != null) {
+                    LogUtil.info(
+                        "Runtime",
+                        "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
+                    )
+                    runtime.handleSessionExit(extra, exitInfo.exitCode)
+                }
+            }
+        }
+        // 正在显示 [Process completed] 提示时保持会话可见（running 保持为真）直到
+        // 用户按 Enter；原生 exit_reported 已置位，故不会再有退出事件到达。
+        return selfExited && !entry.waitingForProcessCompleted
+    }
+
+    /**
+     * 记一条慢循环诊断。
+     *
+     * 慢循环帧的定位仪器：整循环超阈值才看——但空闲会话的门控驻留
+     * （waitOutput 至多 500ms）与渲染失败退避都是设计上主动等的等待而非慢，按去掉
+     * 两段等待后的工作时长判定，避免 release 里空终端永久 WARN 刷屏，也避免平台
+     * 收走窗口这类正常退化路径在退避后记出 WARN。各阶段耗时（渲染前推送/渲染
+     * JNI/退避/输出泵+事件/循环尾）供真机日志定位吃时环节，各段之和等于 total。
+     * SLOW_FRAME 只看渲染 JNI，循环其他环节静默。
+     */
+    private fun logSlowLoop(
+        entry: SessionEntry,
+        slowLoops: Int,
+        totalNanos: Long,
+        gateNanos: Long,
+        preNanos: Long,
+        renderNanos: Long,
+        backoffNanos: Long,
+        pollNanos: Long,
+        tailNanos: Long,
+    ) {
+        LogUtil.warn(
+            "Runtime",
+            "SLOW_LOOP " +
+                "session=${entry.sessionId} " +
+                "total=${totalNanos / NANOS_PER_MILLI}ms " +
+                "gate=${gateNanos / NANOS_PER_MILLI}ms " +
+                "pre=${preNanos / NANOS_PER_MILLI}ms " +
+                "render=${renderNanos / NANOS_PER_MILLI}ms " +
+                "backoff=${backoffNanos / NANOS_PER_MILLI}ms " +
+                "poll=${pollNanos / NANOS_PER_MILLI}ms " +
+                "tail=${tailNanos / NANOS_PER_MILLI}ms " +
+                "slow_loops=$slowLoops",
+        )
+    }
+
+    /**
+     * 记一条整循环计时窗口（平均值的倒数才是真实帧率，含 waitOutput + pollAll +
+     * 事件派发）。渲染均值 ~16ms 而此处 ~50ms 时，时间花在循环的其他环节而非
+     * 原生渲染路径。
+     */
+    private fun logLoopTiming(entry: SessionEntry, loopReport: FrameTimingReport?, preReport: FrameTimingReport?) {
+        loopReport ?: return
+        val framesPerSecond =
+            if (loopReport.averageNanos > 0) {
+                (NANOS_PER_SECOND / loopReport.averageNanos).toInt()
+            } else {
+                0
+            }
+        LogUtil.info(
+            "Runtime",
+            "session ${entry.sessionId} loop timing window " +
+                "(${loopReport.frameCount} frames): " +
+                "avg=${loopReport.averageNanos / NANOS_PER_MILLI}ms " +
+                "p95=${loopReport.p95Nanos / NANOS_PER_MILLI}ms " +
+                "max=${loopReport.maxNanos / NANOS_PER_MILLI}ms " +
+                "pre_max=${(preReport?.maxNanos ?: 0L) / NANOS_PER_MILLI}ms " +
+                "pre_p95=${(preReport?.p95Nanos ?: 0L) / NANOS_PER_MILLI}ms " +
+                "≈${framesPerSecond}fps vsync=${runtime.displayPeriodText()}",
+        )
     }
 
     internal fun stopRenderThread(entry: SessionEntry): Boolean {
