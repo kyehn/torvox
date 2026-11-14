@@ -535,8 +535,10 @@ impl ControlData {
 
     /// 按上游的应答格式生成错误应答；静默规则与上游一致。
     fn error_response(&self, message: &str) -> Option<Vec<u8>> {
-        // `q=2`：连失败应答也不回。
-        if self.quiet == 2 {
+        // 静默等级 ≥2 时连失败应答也不回。上游把除 0、1 之外的值一律当
+        // 「不回包」（`0 => .no, 1 => .ok, else => .failures`），故 `q=3` 与
+        // `q=2` 同样静默——只认 `q=2` 会让本层比上游多回一个错误应答。
+        if self.quiet >= 2 {
             return None;
         }
         // 上游在没有图像 id 与图像编号时压根不编码应答。
@@ -777,6 +779,17 @@ mod tests {
             responses,
             [b"\x1b_Gi=31;EINVAL: unsupported medium\x1b\\".to_vec()],
             "缺省动作按上游语义就是 transmit，应答必须与显式 a=t 一致"
+        );
+    }
+
+    /// 静默等级 ≥2 时不得回包：上游把除 0、1 之外的值一律当「不回包」。
+    #[test]
+    fn quiet_level_above_two_suppresses_the_error_response() {
+        let (payload, responses) = filter(b"\x1b_Ga=q,i=3,t=s,q=3;AAAA\x1b\\");
+        assert!(payload.is_empty(), "本层代答的探测命令不得到达上游");
+        assert!(
+            responses.is_empty(),
+            "q=3 与 q=2 同样静默：上游除 0、1 外一律不回包"
         );
     }
 
