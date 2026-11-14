@@ -1037,7 +1037,11 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         val runtime = viewModel?.runtime ?: return
         // 原生 surface 已有缓冲：MUST NOT 画遮罩（它不透明，画上去就把终端内容整个
         // 盖住）。判据是运行期的事实（谁呈现过帧），不是本视图的猜测。
-        if (runtime.surfaceBufferPresent.value) return
+        if (runtime.surfaceBufferPresent.value) {
+            // 位图也随之释放：此后的每一帧都从这里早退，缓存的那份会一直留到视图销毁。
+            releaseCoverBitmap()
+            return
+        }
         val cover = runtime.coverFrame.value
         // 遮罩帧与当前开孔的尺寸可以不同：输入法弹出/收起会改开孔高度，而遮罩帧
         // 是离开画面时的旧尺寸。按宽度等比缩放、顶边对齐地贴上去（见 `coverFit`），
