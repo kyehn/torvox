@@ -37,6 +37,7 @@ import terminal.emulator.settings.MacroStep
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.settings.TermuxConfiguration
 import terminal.emulator.settings.TermuxPropertiesRepository
+import terminal.emulator.ui.TerminalInputEncoder
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.formatWorkingDirectory
 import terminal.emulator.util.runCatchingCancellable
@@ -750,7 +751,7 @@ constructor(
     }
 
     /** 死键（组合符）状态：组合键本身不产生输出，等下一次击键合成。 */
-    private val deadKeys = terminal.emulator.input.DeadKeyState()
+    private val deadKeys = DeadKeyState()
 
     /** Shell 启动入口经保存按钮直接写入（DESIGN.md 设置节 Shell 启动入口项），不检查文本。 */
     fun setShell(shell: String) {
@@ -832,7 +833,7 @@ constructor(
         if (success) {
             // 硬件输入同样经过共用的贴底点，否则粘滞 SCROLL 永不被物理键盘解除。
             onUserInputForScrollSnap(
-                isCommit = keyCode in terminal.emulator.ui.TerminalInputEncoder.enterKeyCodes,
+                isCommit = keyCode in TerminalInputEncoder.enterKeyCodes,
             )
             // 清除一次性（轻点）粘滞修饰键，使其不会延续到下一次击键。
             // 上方编码器已看到本次击键的激活修饰键；消费发生在编码之后。
