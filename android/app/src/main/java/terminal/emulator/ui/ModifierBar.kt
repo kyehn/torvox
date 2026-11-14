@@ -1069,7 +1069,11 @@ private fun RowScope.ExtraKeyButton(
                                             currentOnRepeat?.invoke()
                                         }
                                     }
-                                    nextRepeatAt += AUTO_REPEAT_INTERVAL_MS
+                                    // 从当前时刻重排而非累加：主线程卡顿超过一个间隔后，
+                                    // 累加会让进度落后于时钟，随后的循环不再 await 而一次
+                                    // 补发多次重复（光标连跳多格）。
+                                    nextRepeatAt =
+                                        SystemClock.uptimeMillis() + AUTO_REPEAT_INTERVAL_MS
                                     continue
                                 }
                                 if (pointerEvent.isGestureCancelled()) {
