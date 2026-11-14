@@ -439,12 +439,23 @@ impl super::GhosttyTerminal {
         // ── CellIterator 循环 ──
         // 先用 RowIterator 遍历全部可见行，再用 CellIterator 遍历每行的
         // 全部单元。取代了逐单元的 grid_ref。
+        // 空白单元：抽取失败处的占位。快照按网格索引取单元，缺一格就会让其后所有
+        // 行错位，故任何缺格都补在这里，绝不让行短掉。
+        let blank_cell = || CellSnapshot {
+            foreground: default_foreground,
+            background: default_background,
+            ..CellSnapshot::default()
+        };
+
         while let Some(row) = row_iter_impl.next() {
+            let row_start = cells.len();
             let mut cell_iter_impl = match cell_iter.update(row) {
                 Ok(cell_iterator) => cell_iterator,
                 Err(error) => {
+                    // 逐行失败只丢这一行：后面的行仍要读出，故不用 break 丢弃整屏。
                     log::warn!("build_snapshot: cell_iter.update failed: {error}");
-                    break;
+                    cells.resize(row_start + cols as usize, blank_cell());
+                    continue;
                 }
             };
 
@@ -453,11 +464,7 @@ impl super::GhosttyTerminal {
                     Ok(raw_cell) => raw_cell,
                     Err(error) => {
                         log::warn!("build_snapshot: raw_cell failed: {error}");
-                        cells.push(CellSnapshot {
-                            foreground: default_foreground,
-                            background: default_background,
-                            ..CellSnapshot::default()
-                        });
+                        cells.push(blank_cell());
                         continue;
                     }
                 };
@@ -466,11 +473,7 @@ impl super::GhosttyTerminal {
                     Ok(cell_style) => cell_style,
                     Err(error) => {
                         log::warn!("build_snapshot: cell style failed: {error}");
-                        cells.push(CellSnapshot {
-                            foreground: default_foreground,
-                            background: default_background,
-                            ..CellSnapshot::default()
-                        });
+                        cells.push(blank_cell());
                         continue;
                     }
                 };
@@ -522,10 +525,28 @@ impl super::GhosttyTerminal {
                     width,
                 });
             }
+            // 单行取不满：补齐本行，否则其后每一行都按错误列号取单元。
+            if cells.len() - row_start != cols as usize {
+                log::warn!(
+                    "build_snapshot: 行单元数 {} 与 cols={cols} 不符，按空白补齐",
+                    cells.len() - row_start
+                );
+                cells.resize(row_start + cols as usize, blank_cell());
+            }
         }
 
         // 视口相对的光标坐标（与按视口行存放的单元行一致）：口径见 [cursor_in_viewport]。
         let (cursor_row, cursor_col, _, cursor_visible) = cursor_in_viewport(&snapshot);
+
+        // 行迭代提前结束时补齐缺行，多出的单元截断：`cells` 必须恰为 rows×cols，
+        // 否则按网格索引取单元会越界或错位（行内缺格已在上方补齐）。
+        if cells.len() != size {
+            log::error!(
+                "build_snapshot: extracted {} cells, expected {size}",
+                cells.len()
+            );
+            cells.resize(size, blank_cell());
+        }
 
         let dirty = vec![true; (rows as usize) * (cols as usize)];
 
