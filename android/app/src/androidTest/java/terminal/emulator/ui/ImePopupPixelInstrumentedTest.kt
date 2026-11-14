@@ -548,6 +548,13 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         tapAndAwaitIme()
         val before = surfaceShiftPx()
         assertTrue("输入法弹出后位移必须为正，否则本用例前提不成立 (位移=$before)", before > 0)
+        // 离开前拍下内容条带：回来时必须还是同一批像素。往返途中位移或网格任一被
+        // 重算，这里就差出成片像素——那正是用户看到的闪烁（STATUS 遗留项）。
+        // 条带取「未位移时」的表面顶边：位移后表面顶边已被推到屏幕外（取到负坐标），
+        // 而未位移顶边（= 当前屏幕位置 + 位移量）始终是状态栏下方的静止网格行。
+        val stripTop = surfaceTopPx() + before + SPARSE_STRIP_TOP_MARGIN_PX
+        val stripHeight = sparseStripHeightPx()
+        val beforeShot = UxTestUtils.screenshot(device)
         val runtime = composeTestRule.activity.terminalViewModel.runtime
         composeTestRule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
         // 离开前必须把最后一帧回读成开孔遮罩：回前台在新 surface 出帧前只靠它遮住
@@ -577,6 +584,18 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         assertTrue(
             "回前台后位移 MUST 与离开时一致 (离开时=$before 实测=${surfaceShiftPx()})",
             before == surfaceShiftPx(),
+        )
+        // 往返一次后内容条带必须逐像素不变：这是「回前台的画面就是离开时的画面」
+        // 的终判，也是开孔遮罩比对（TerminalHoleCoverInstrumentedTest）的另一半。
+        val stripDiff = countDifferingPixels(
+            beforeShot,
+            UxTestUtils.screenshot(device),
+            stripTop,
+            stripTop + stripHeight,
+        )
+        assertTrue(
+            "回前台内容条带必须与离开时一致（实测差 $stripDiff 像素，上限 $SPARSE_STRIP_MAX_DIFF）",
+            stripDiff <= SPARSE_STRIP_MAX_DIFF,
         )
         // 离开时键盘在显示，回来必须还在：平台不保证自动还回（同进程实测两种结果都
         // 出现过），不还时位移先按隐藏态归零、内容下移，用户轻点后键盘再弹出、内容
