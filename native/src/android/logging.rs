@@ -108,7 +108,7 @@ pub(crate) fn init() {
 
 /// 将任意 Rust 线程的 panic 连同 backtrace 导入日志系统。
 ///
-/// 无此钩子时，非 JNI 线程（如 `session.rs` 起的 PTY 读取线程，无 `catch_unwind`）
+/// 无此钩子时，非 JNI 线程（如 `session/spawn.rs` 起的 PTY 读取线程，无 `catch_unwind`）
 /// 的 panic 只进 stderr，在 Android 上不可见：线程静默死亡且丢失崩溃现场；
 /// Kotlin 的 `Thread.setDefaultUncaughtExceptionHandler` 不覆盖 Rust 线程。
 /// `Backtrace::force_capture()` 在 release 构建下无需 `RUST_BACKTRACE` 亦生效。

@@ -859,7 +859,7 @@ fn append_row_instances(
         // (spec cursor-rendering "宽字符光标几何"): 宽字符
         // 光标必须覆盖整个字形。build_cell_data 为每个宽字符只发出一条
         // width=2 的 CellData（尾部网格列没有自己的
-        // CellData——review-1 已验证 internal.rs 会消费两列），故
+        // CellData——review-1 已验证 internal/rendering.rs 会消费两列），故
         // 首条记录的 `cell_span` 已跨整个字形：光标盒按 cell_span 取宽即横跨两列。
         // 不存在需要另行标记的间隔单元记录。
         //

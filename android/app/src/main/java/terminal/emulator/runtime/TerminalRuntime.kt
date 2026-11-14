@@ -3516,7 +3516,8 @@ constructor(
      *
      * 标题是 VT 的 OSC 0 上报，只能通过一次阻塞式 VT 往返取得（最长约 1 秒），
      * 故整个查询必须离开调用线程（切换/关闭都可能发生在主线程），并且
-     * `sessions` 的读取要回到 `sessionLock` 内——它是普通 `HashMap`。
+     * `activeSessionId` 要回到 `sessionLock` 内读取——它与 `sessions` 的增删
+     * 在同一次持锁区间内切换，锁外读可能拿到已被移除的 id。
      * 写回时按会话 ID 校验，避免慢查询覆盖已经切走的会话标题。
      */
     private fun scheduleActiveSessionTitleRefresh() {
