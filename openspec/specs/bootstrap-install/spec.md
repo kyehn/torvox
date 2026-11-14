@@ -35,8 +35,8 @@ bootstrap 经 staging 目录的原子安装行为：解压防护、清单建链�
 （`…/files/usr/…`）取该分段之后的后缀拼到本机 prefix，落盘的链接 MUST 指向重写后
 的路径——校验与建链 MUST 用同一个路径，否则链接会指向归档里的旧 prefix 而断裂。
 
-不含 `files/usr/` 分段的绝对目标分两种：**沙箱根**路径（Nix 引导包的
-`/nix/store/…`——引导环境把 prefix 的顶层目录绑成沙箱里的同名路径）MUST 把根
+不含 `files/usr/` 分段的绝对目标分两种：**沙箱根**路径（Nix 引导包里 store
+目录的路径——引导环境把 prefix 的顶层目录绑成沙箱里的同名路径）MUST 把根
 重新落到 prefix，判据是「引导包确实提供了那个顶层目录」；其余绝对目标 MUST
 原样保留，由规范路径校验决定接受与否。
 
@@ -58,10 +58,10 @@ bootstrap 经 staging 目录的原子安装行为：解压防护、清单建链�
 
 #### Scenario: 沙箱根目标落回 prefix
 
-- **WHEN** SYMLINKS.txt 的目标形如 `/nix/store/…-bash/bin/sh`，且引导包提供了
-      `nix/` 顶层目录
-- **THEN** 链接指向本机 prefix 下的 `nix/store/…-bash/bin/sh`，MUST NOT 指向
-      prefix 之外（那会让安装因「不安全的目标」失败——Nix 变种即装不上引导包）
+- **WHEN** SYMLINKS.txt 的目标形如沙箱根 store 目录下的包路径（`…-bash/bin/sh`），
+      且引导包提供了 store 所在的顶层目录
+- **THEN** 链接指向本机 prefix 下的同一路径，MUST NOT 指向 prefix 之外
+      （那会让安装因「不安全的目标」失败——Nix 变种即装不上引导包）
 
 #### Scenario: 未提供该顶层目录时保持原样
 

@@ -546,16 +546,16 @@ class BootstrapInstallerNormalizePathTest {
 
     @Test
     fun sandbox_root_absolute_target_is_re_rooted_into_prefix() {
-        // Nix 引导包（com.termux.nix）的 SYMLINKS.txt 用沙箱根绝对路径：
-        // 引导环境把 prefix 的顶层目录绑成沙箱里的同名路径（见引导包的 bin/login），
-        // 故 `/nix/store/...` 指的是 prefix 下的 nix/store。
+        // 引导包的 SYMLINKS.txt 用沙箱根绝对路径：引导环境把 prefix 的顶层目录
+        // 绑成沙箱里的同名路径（见引导包的 bin/login），故沙箱里的路径指的是
+        // prefix 下的同名路径。
         // 判别力：原样照抄会指向 prefix 之外，规范路径校验直接判安装失败——
         // 那正是 Nix 变种装不上引导包的原因。
-        File(stagingDir, "nix").mkdirs()
+        File(stagingDir, "sandbox").mkdirs()
         assertEquals(
-            "/data/user/10/com.termux/files/usr/nix/store/abc-bash/bin/sh",
+            "/data/user/10/com.termux/files/usr/sandbox/store/abc-bash/bin/sh",
             installer.resolveAbsoluteSymlinkTarget(
-                "/nix/store/abc-bash/bin/sh",
+                "/sandbox/store/abc-bash/bin/sh",
                 "/data/user/10/com.termux/files/usr",
             ),
         )

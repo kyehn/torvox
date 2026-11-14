@@ -3,7 +3,7 @@ package terminal.emulator.installer
 /**
  * Nix-on-Droid 引导包（Nix 变种用）。
  *
- * 引导包里的 `bin/login` 以 `/data/data/com.termux.nix/files/...` 为绝对路径，
+ * 引导包里的 `bin/login` 以包私有目录（`/data/data/<pkg>/files/...`）为绝对路径，
  * 故它只适用于包名为 `com.termux.nix` 的变种——正是本仓的 Nix 变种。
  *
  * 引导包结构与 Termux 官方包同源（`SYMLINKS.txt` + `EXECUTABLES.txt` + `bin/login`），
