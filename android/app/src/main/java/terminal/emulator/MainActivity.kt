@@ -8,6 +8,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.ColorDrawable
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.InputDevice
@@ -140,6 +141,10 @@ class MainActivity : ComponentActivity() {
 
     internal val terminalViewModel: TerminalViewModel by viewModels()
 
+    // POST_NOTIFICATIONS 自 Android 13（API 33）起存在。该字段是编译期常量
+    // （编译期已内联为字符串），低版本读取不会触发字段缺失；真正的版本闸在
+    // [shouldRequestNotificationPermission] 里——没有该权限的平台不发起请求。
+    @SuppressLint("InlinedApi")
     override fun onCreate(savedInstanceState: Bundle?) {
         // 系统启动屏：冷启动首帧前显示主题背景，与 windowBackground 同色，
         // 首帧就绪后自动切回 Theme.Terminal。
@@ -173,9 +178,15 @@ class MainActivity : ComponentActivity() {
         // + 通知渠道创建，且裸 start() 的计数为 0，会被紧接着的会话更新覆盖。
         // Android 13+ 需要 POST_NOTIFICATIONS 运行时权限，未授权时通知被**静默丢弃**
         // （不抛异常），常驻通知与桌面通知都不会出现。启动时申请一次；拒绝不影响终端功能。
+        // 更早的平台上没有这个权限：不带版本闸时每次启动都会派发一次对不存在权限的
+        // 请求——平台直接拒发，用户看不到任何东西，只是白跑一趟。
         if (
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
+            shouldRequestNotificationPermission(
+                sdkInt = Build.VERSION.SDK_INT,
+                permissionGranted =
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED,
+            )
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -576,6 +587,19 @@ private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalVi
         }
     }
 }
+
+/**
+ * 是否发起 `POST_NOTIFICATIONS` 运行时权限请求。
+ *
+ * 该权限自 Android 13（API 33）起存在：更早的平台上没有这个权限，
+ * `checkSelfPermission` 恒为「未授予」，不带版本闸时每次启动都会派发一次
+ * 对不存在权限的请求——平台直接拒发，用户看不到任何东西，只是白跑一趟。
+ * 已授予时也不得重复请求。
+ *
+ * 纯函数、无 Android 运行时依赖，便于单测。
+ */
+internal fun shouldRequestNotificationPermission(sdkInt: Int, permissionGranted: Boolean): Boolean =
+    sdkInt >= Build.VERSION_CODES.TIRAMISU && !permissionGranted
 
 /**
  * 配置变化是否要求重推渲染契约。
