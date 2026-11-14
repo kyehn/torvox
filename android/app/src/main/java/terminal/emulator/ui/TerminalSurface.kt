@@ -35,7 +35,7 @@ class TerminalSurface
 @JvmOverloads
 constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0) :
     SurfaceView(context, attrs, defStyleAttr),
-    SurfaceHolder.Callback {
+    SurfaceHolder.Callback2 {
 
     override fun onDetachedFromWindow() {
         // 先落旗再拆窗口：平台在 onDetachedFromWindow 回调**内部**仍报告
@@ -1093,6 +1093,32 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     // ══════════════════════════════════════════════════════════════════════
     // 五、Surface 生命周期（网格/尺寸由 ResizeManager 拥有）
     // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * 平台重绘请求的同步入口（`SurfaceHolder.Callback2`）。
+     *
+     * 真正的完成信号必须走 [surfaceRedrawNeededAsync]：Android 13 的
+     * `SurfaceView.handleSyncNoBuffer` 先调用重绘回调、再把 syncId 记进 `mSyncIds`。
+     * 若完成回调同步执行，syncId 会在被记入之前就随同步组完成而移除，此后每次
+     * `surfaceSyncStarted` 都会拿这个陈旧 id 去查同步组，logcat 里便是
+     * `SurfaceSyncer: Failed to find sync for id=N`（序号随表面重建递增）。
+     * 平台在 Android 14 重写了该路径并删掉了 `mSyncIds`，故只有 13 会命中。
+     *
+     * 原生渲染器本身异步出帧，这里只负责把「重绘已安排」告诉平台；同步版本不得
+     * 自行完成回调，否则等价于旧行为。
+     */
+    override fun surfaceRedrawNeeded(holder: SurfaceHolder) {
+        viewModel?.runtime?.forceRender()
+    }
+
+    /**
+     * 重绘完成的异步回调：投递到下一轮 UI 循环再完成，确保平台先完成
+     * `mSyncIds` 记账（见 [surfaceRedrawNeeded]），并顺带请求一帧。
+     */
+    override fun surfaceRedrawNeededAsync(holder: SurfaceHolder, drawingFinished: Runnable) {
+        viewModel?.runtime?.forceRender()
+        post(drawingFinished)
+    }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         // 先认领归属：此后本视图才是唯一有权暂停渲染的那个，旧视图迟到的
