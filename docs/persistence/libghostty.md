@@ -3,12 +3,12 @@
 ## 0. 来源与口径
 
 - 上游：<https://github.com/Uzaaft/libghostty-rs>，crate `libghostty-vt`（安全封装 `libghostty-vt-sys`，对 C 库 libghostty-vt 的 FFI 绑定）。
-- 本项目经 `native/Cargo.toml` 跟踪 master，当前 pin：`483ea3d5247b214060da58ef6037a95f30ae89fb`（HEAD，2026-11-14），特性 `log` + `png`，无本地补丁。
+- 本项目经 `native/Cargo.toml` 的 `rev` 字段跟踪 master（pin 坐标以该清单为准，2026-11-14 取值），特性 `log` + `png`，无本地补丁。
 - 统计口径：对 `crates/libghostty-vt/src` 的 `pub` 项做静态枚举（不含 `pub(crate)`、trait 实现、测试模块）。本 rev 公开项 **789** 个。
 - 本仓接线程度有两个可复现的口径（分析脚本对 `native/src` 全部 `.rs` 计）：**use/路径限定证据可明确对应 64 项**（确定下限；代码经 `internal/mod.rs` 统一 `use` 后由 `super::` 再导出给兄弟模块，故此口径系统性低估）；**标识符存在性匹配 348 项**（上限，含 `rows`/`cols` 等与本仓同名成员，方法级上游项无独立路径，故此口径系统性高估）。真实接线范围介于两者之间。其余为未接线能力。
 - 目标：只接入“本仓需要且能降低本地复杂度/提高正确性”的 API；不为覆盖率而接线，不引入会话持久化等被禁止能力（见 `docs/specification/PROHIBITED.md`）。
 
-## 1. 模块总览（上游 483ea3d）
+## 1. 模块总览（上游当前 pin）
 
 | 模块 | 公开项 |
 | --- | ---: |
