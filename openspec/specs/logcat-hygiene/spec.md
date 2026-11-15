@@ -115,18 +115,32 @@
 
 - **WHEN** 宿主创建交换链
 - **THEN** 缓冲格式 MUST 与窗口缓冲格式一致（见 `render-stability` 的同款
-      Requirement），应用 MUST NOT 主动申请单通道格式
+      Requirement），应用 MUST NOT 主动申请单通道或双通道格式
+- **AND** 归因 MUST 指明 `Requested R8 format ...` 与
+      `Unrecognized ... format 0x38 and usage 0xb00` 由**厂商 Vulkan 驱动的交换链
+      缓冲分配**在 `vkCreateSwapchainKHR` 内部打出，MUST NOT 记为应用侧格式选择错误
 
-真机（Mali/Unisoc）在 `attach_surface` 内仍会由 `mali_gralloc` 打出
-`Requested R8 format is not supported ...` 与 `Unrecognized ... format 0x38`。
-归因证据（2026-11-14 两份日志与 2026-11-15 07:15 日志一致）：同一次调用紧接着记录
-`configured ... format=Rgba8Unorm`，窗口几何为 `WINDOW_FORMAT_RGBA_8888`，且生产
-代码没有任何 `R8Unorm` 纹理/缓冲请求；4 次尝试与 4 张交换链图像一一对应，位于旧
-交换链图像 `unregister` 与新图像 `register` 之间，即发生在厂商
-`vkCreateSwapchainKHR` 内部。紧邻的 `persist.vendor.gpu.fbc` 读取表明这是厂商帧
-缓冲压缩（FBC）元数据的分配尝试，应用侧没有开关。该条属于平台分配器噪声，
-MUST NOT 通过过滤 tag、降级日志或改窗口格式来掩盖；应用侧只要保持「窗口格式 =
-交换链格式 = 多通道」即可。
+判据（2026-11-15 07:15 日志，Unisoc/Spreadtrum 设备；`SPRD:` 前缀与
+`persist.vendor.gpu.fbc` 读取即该厂商分配的指纹）：
+
+1. **数值**：`0x38` 同时是 `AHARDWAREBUFFER_FORMAT_R8_UNORM`
+   （AOSP `libs/nativewindow/include/android/hardware_buffer.h`）与
+   `PIXEL_FORMAT_R_8`（`libs/ui/include/ui/PixelFormat.h`）；`0xb00` 是
+   `GPU_SAMPLED_IMAGE (0x100) | GPU_FRAMEBUFFER / GPU_COLOR_OUTPUT (0x200) |
+   COMPOSER_OVERLAY (0x800)`，正是交换链图像的用法组合。
+2. **时序**：4 次尝试全部落在 `attachWindow`（07:12:27.469）之后、
+   `ensure_frame_texture` 与 `configured ... format=Rgba8Unorm`（07:12:27.481）
+   之前，即位于 `Surface::configure` 调用的 `vkCreateSwapchainKHR` 内部；紧随
+   其后是同数量的 `register:`（4 张交换链图像分配成功）。
+3. **请求方**：应用请求 `Rgba8Unorm`，wgpu-hal 将其映射为
+   `VK_FORMAT_R8G8B8A8_UNORM`（`wgpu-hal-30.0.2/src/vulkan/conv.rs` 的
+   `map_texture_format`），窗口几何为 `WINDOW_FORMAT_RGBA_8888`（= 1），生产代码
+   没有任何 `R8Unorm` 纹理/缓冲请求。故 R8 只能来自驱动 WSI 的缓冲分配。
+4. **非致命**：探测失败后驱动按请求的 RGBA8 重试成功（同批 `register:`），交换链
+   可用、颜色正确；条目本身是分配器的探测噪声。
+5. **不可抑制**：wgpu 不暴露交换链缓冲格式选择；`SurfaceHolder.setFormat` 已固定
+   为 `RGBA_8888`；`persist.vendor.gpu.fbc` 是厂商帧缓冲压缩开关，应用无权限。
+   故 MUST NOT 通过过滤 tag、降级日志或改窗口格式来掩盖。
 
 条目数是**新建原生窗口次数**的函数：同一 `ANativeWindow` 上切会话走
 `attach_surface` 的 fast path（日志为 `RECONFIGURE_SWAPCHAIN (fast path, existing
