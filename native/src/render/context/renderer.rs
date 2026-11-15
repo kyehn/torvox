@@ -611,7 +611,7 @@ impl Renderer {
     ///
     /// 设备丢失也算「本窗口已不可用」：宿主据此走同一条换新窗口的自愈路径，
     /// 新窗口的 `attachWindow` 才会重建设备（见 `render/context/gpu.rs` 的
-    /// [`device_lost`]）。不合并这一位，丢失后宿主永远等不到换窗口信号。
+    /// `device_lost`）。不合并这一位，丢失后宿主永远等不到换窗口信号。
     pub fn surface_invalidated(&self) -> bool {
         self.surface_invalidated || super::gpu::device_lost()
     }
