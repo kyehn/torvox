@@ -101,6 +101,15 @@
 - **AND** 归因 MUST 写明请求由输入法发起，应用侧无对应调用；应用侧的准入判据
       （`admitCursorAnchor`）已与平台同口径取 `InputMethodManager.isActive`，
       MUST NOT 记为应用侧缺陷
+- **AND** 触发条件 MUST 写明是**输入焦点离开终端视图**：2026-11-15 日志中每次该告警
+      都紧邻 `InputMethodManager: showSoftInput() view=androidx.compose.ui.platform.
+      AndroidComposeView`（搜索栏/设置页的 Compose 文本框）或紧随其后的
+      `InsetsController: show(ime(), fromIme=true)`，即输入法正从终端的连接切到另一条
+      文本框连接；同窗口内偶有 `getSurroundingText on inactive InputConnection`，
+      同属「取文类请求打到已被取代的连接」
+- **AND** 应用侧 MUST NOT 靠延迟创建连接、跳过 `finishComposingText` 或预先
+      `closeConnection` 来消除该行——那会让组字状态失步；该告警是平台在焦点切换窗口内
+      的固有行为，随切换结束自行停止
 
 #### Scenario: 不得以设备分配器不支持的格式申请缓冲
 
@@ -108,15 +117,24 @@
 - **THEN** 缓冲格式 MUST 与窗口缓冲格式一致（见 `render-stability` 的同款
       Requirement），应用 MUST NOT 主动申请单通道格式
 
-真机（Mali/Unisoc，2026-11-14）在 `attach_surface` 内仍会由 `mali_gralloc` 打出
+真机（Mali/Unisoc）在 `attach_surface` 内仍会由 `mali_gralloc` 打出
 `Requested R8 format is not supported ...` 与 `Unrecognized ... format 0x38`。
-归因证据：同一次调用紧接着记录 `configured ... format=Rgba8Unorm`，窗口几何为
-`WINDOW_FORMAT_RGBA_8888`，且生产代码没有任何 `R8Unorm` 纹理/缓冲请求；4 次
-尝试与 4 张交换链图像一一对应，位于旧交换链图像 `unregister` 与新图像 `register`
-之间，即发生在厂商 `vkCreateSwapchainKHR` 内部。紧邻的
-`persist.vendor.gpu.fbc` 读取表明这是厂商帧缓冲压缩（FBC）元数据的分配尝试，
-应用侧没有开关。该条属于平台分配器噪声，MUST NOT 通过过滤 tag、降级日志或改窗口
-格式来掩盖；应用侧只要保持「窗口格式 = 交换链格式 = 多通道」即可。
+归因证据（2026-11-14 两份日志与 2026-11-15 07:15 日志一致）：同一次调用紧接着记录
+`configured ... format=Rgba8Unorm`，窗口几何为 `WINDOW_FORMAT_RGBA_8888`，且生产
+代码没有任何 `R8Unorm` 纹理/缓冲请求；4 次尝试与 4 张交换链图像一一对应，位于旧
+交换链图像 `unregister` 与新图像 `register` 之间，即发生在厂商
+`vkCreateSwapchainKHR` 内部。紧邻的 `persist.vendor.gpu.fbc` 读取表明这是厂商帧
+缓冲压缩（FBC）元数据的分配尝试，应用侧没有开关。该条属于平台分配器噪声，
+MUST NOT 通过过滤 tag、降级日志或改窗口格式来掩盖；应用侧只要保持「窗口格式 =
+交换链格式 = 多通道」即可。
+
+条目数是**新建原生窗口次数**的函数：同一 `ANativeWindow` 上切会话走
+`attach_surface` 的 fast path（日志为 `RECONFIGURE_SWAPCHAIN (fast path, existing
+surface)`），一行都不产生；换新窗口才重走 `vkCreateSwapchainKHR`，每次固定 8 行
+（4 组「请求 + 错误」）。2026-11-15 日志中 6 次新窗口对应 48 行，切会话两次对应
+0 行，与该口径逐条相符。故该条目的治理目标是**减少不必要的换窗**（见
+`render-stability`「终端 Surface 的表面策略跟随平台默认」），不是压低单次重建的
+行数。
 
 #### Scenario: 返回回调未启用导致的框架告警
 
@@ -147,12 +165,20 @@
       属选区会话的既有行为（覆盖层每次选区会话重建一次、菜单窗口复用），
       MUST NOT 记为泄漏；判据是 `mViews.size()` 峰值与回落，不是单次添加
 
-#### Scenario: 厂商缓冲队列上的 `Expecting binder but got null!`
+#### Scenario: 平台编组路径上的 `Expecting binder but got null!`
 
 - **WHEN** 日志以 tag `Parcel` 打出 `Expecting binder but got null!`
-- **THEN** MUST 归因于平台/厂商缓冲路径：真机两次日志（2026-11-14 13:58 与 14:52）中
-      它都出现在**缓冲队列线程**（紧邻 `mali_gralloc` 的 `register: ... importpid=-1`
-      与 `unregister`），不在应用调用的任何 API 上，且与 `attach_surface`/窗口拆装无关
+- **THEN** 该条目 MUST 按**出现位置**分成两类归因，MUST NOT 用一条概括覆盖两者：
+      其一在**缓冲队列线程**上，紧邻 `mali_gralloc` 的 `register: ... importpid=-1`
+      与 `unregister`（2026-11-14 13:58/14:52 两份日志均如此，2026-11-15 日志的
+      07:12:27.648 亦然）
+- **AND** 其二在**主线程**上，紧跟 `WindowClient: Add to mViews ...
+      PopupWindow$PopupDecorView` 与 `VRI[PopupWindow] performTraversals
+      relayoutWindow` 之后（2026-11-15 日志 07:14:15.395 与 07:14:15.429，分别对应
+      选区手柄覆盖层与选区菜单两个窗口的 `addView`）
+- **AND** 两类都发生在平台把窗口参数/缓冲句柄编组到 Binder 的路径上；应用侧只是
+      以已附着的视图为父调用 `PopupWindow.showAtLocation`（窗口令牌非空），
+      MUST NOT 记为应用侧缺陷，MUST NOT 因此改动选区窗口的创建方式
 - **AND** MUST NOT 通过过滤 `Parcel` tag、降级日志或改动窗口/交换链格式来消除；
       应用侧无对应开关，与 `render-stability` 的 FBC 噪声同类
 
@@ -405,6 +431,37 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 - **AND** 同 UID 子进程的 72 + 33 条 MUST 全部归为 `avc: granted { execute }`
       审计行（见同文件的内核 AVC 场景）；唯一的 `F` 是 2026-11-12 另一进程
       （PID 12237）的历史 `Device::poll` 崩溃，已被 `poll_device_wait` 接住
+- **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
+
+#### Scenario: 2026-11-15 运行日志的聚合归因
+
+- **WHEN** 审计 `logcat_2026-11-15_07-15-08.txt`（主进程 29154，运行约 2.5 分钟）
+- **THEN** 应用进程 W/E 的计数与处置 MUST 为（合计 75 条）：
+      - `mali_gralloc` 48 条：6 次新窗口 × 8 条（R8 探测与格式拒绝各半），
+        两次切会话（fast path）零条，见同文件的分配器场景；
+      - `RemoteInputConnectionImpl` 10 条（`requestCursorAnchorInfo` 9、
+        `getSurroundingText` 1）：焦点从终端切到 Compose 文本框时输入法仍在轮询
+        已被取代的连接，见同文件的光标监视场景；
+      - `ziparchive` 4、`libc` 4、`FeatureOpt` 2：厂商框架的镜像 dex 元数据探测、
+        属性读取被拒与特性开关探测，均为各自场景所述的无应用栈路径；
+      - `Parcel` 3：1 条在缓冲队列线程、2 条在主线程的选区窗口 `addView` 之后，
+        见同文件的编组路径场景；
+      - `wgpu_core::instance` 2：适配器缺 `SURFACE_VIEW_FORMATS` 时上游
+        `Adapter::request_device` 无条件打出的 downlevel 提示（`instance.rs` 中
+        判据为 `!caps.downlevel.is_webgpu_compliant()`），应用侧无 API 可关；
+      - `Typeface` 1、`com.termux` 1（debug 构建 jdwp 未启动）：见同文件的
+        厂商标字体与调试器场景
+- **AND** 同 UID 子进程的 75 条 MUST 全部归为内核审计与历史崩溃：74 条是
+      `type=1400 audit(...)` 行（`granted` 66、`denied` 8，全部为用户 shell 里的
+      `fish`／`coreutils`／`file`／`comma`／`kitten`／`which` 读取 `/proc` 的结果；此处 `fish` 是审计观察到的进程名，不是应用代码使用的 shell），<!-- nosemgrep: semgrep.no-prohibited-shells -->
+      唯一的 `F` 是 2026-11-12 另一进程（PID 12237）的历史 `Device::poll` 崩溃
+      ——该日志早于本次运行三天，已被 `poll_device_wait` 的 panic 捕获接住
+- **AND** 本次审计新增的可修项只有一项：渲染循环的 lambda 体被 ART 编译成
+      约 4.9MB／5.8MB 的单方法（`I/com.termux: Compiler allocated ...`，2.5 分钟内
+      4 次）。处置是按职责把循环体内的退出回收、慢循环诊断与计时窗口三块抽成独立
+      方法（`RenderSupervisor.reapExitedSessions`／`logSlowLoop`／`logLoopTiming`），
+      判据是编译产物的字节数而非行数阈值（`code-health` 明禁按行数拆分）；
+      该行是 info 级、不属应用侧错误，MUST NOT 以过滤它作为处置
 - **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
 
 #### Scenario: 上游未实现的矩形区域属性动作
