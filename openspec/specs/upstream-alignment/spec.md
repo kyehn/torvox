@@ -953,31 +953,33 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 - **aislop**（须以 `npx aislop@latest` 调用，本仓 nix 环境未内置该可执行文件）：
   `npx aislop@latest scan --json native/src` 退出码 0，`score` 100、label `Healthy`、
-  `coverage.supportedFiles` 113、`unsupportedFiles` 0，`summary` 0 errors /
+  `coverage.supportedFiles` 115、`unsupportedFiles` 0，`summary` 0 errors /
   1 warning / 0 fixable；唯一 `diagnostics` 为 `complexity/file-too-large`
-  （`terminal/ghostty_terminal/internal/input_filter.rs`，1146 行），
+  （`terminal/ghostty_terminal/internal/input_filter.rs`，1159 行），
   `findingAssessment.byKind` 为 `style-policy` 1 / `confirmed-defect` 0。
   全仓扫描 `npx aislop@latest scan --json` 同为 0 errors / 1 warning，
-  `coverage.supportedFiles` 114、`unsupportedFiles` 201、
+  `coverage.supportedFiles` 116、`unsupportedFiles` 204、
   `dominantUnsupported` 为 `Kotlin`、`scoreable` 为真。
   **覆盖面限制**：该工具扫不到本仓 Android 侧 Kotlin 代码，
   故本项 MUST NOT 被当作全仓门禁；它只对 Rust 侧有判别力。
   **评分可用性**：该工具仅在 `unsupportedFiles < 10` 或
-  `unsupportedFiles ≤ supportedFiles × 3` 时给出分数；本仓当前 201 ≤ 114 × 3，
+  `unsupportedFiles ≤ supportedFiles × 3` 时给出分数；本仓当前 204 ≤ 116 × 3，
   全仓扫描亦可评分，但分数基线仍 MUST 取 Rust 子目录扫描。
   **与上一列基线的偏差来源**：上一列记的唯一 `file-too-large` 命中在
   `terminal/ghostty_terminal/public_api.rs`（1123 行），该文件已按职责拆成
   `terminal/ghostty_terminal/public_api/` 目录模块，命中位置随之迁移到
   `internal/input_filter.rs`；命中条数仍为 1（`function-too-long` 仍为 0），
-  未上升，故不触发「条数 MUST NOT 上升」的验收判据。`supportedFiles` 由 105 升至 113
-  是新增 Rust 源文件所致。
+  未上升，故不触发「条数 MUST NOT 上升」的验收判据。`supportedFiles` 由 105 升至 115
+  是新增 Rust 源文件所致（2026-11-15 重测：命中条数、判定与 `score` 均未变，
+  命中文件行数由 1146 增至 1159——kitty 静默等级修复为其新增了回归用例）。
   验收判据：接入后 `confirmed-defect` 与 `errors` MUST 维持 0，
   `file-too-large` / `function-too-long` 的条数 MUST NOT 上升（基线 1 / 0）；
   该工具归类为 style-policy 的项 MUST NOT 阻断构建，
   只有 error 级或 `confirmed-defect` 才阻断。
 - **jscpd**：`jscpd --min-lines 8 --min-tokens 60` 对 `native/src` 与
-  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，涉 256 个文件
-  （2026-11-14 重测：克隆数、重复行数与重复率与上一列基线同值，文件数随新增源文件而变）。
+  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，涉 258 个文件
+  （2026-11-15 重测：克隆数、重复行数、重复率与残留位置均与上一列基线同值，
+  文件数随新增源文件而变）。
   测量取自已提交的树快照，不取工作区状态（工作区可能同时存在他人进行中的改动）。
   前一列基线为 2 处克隆 / 26 行重复 / 0.04% / 115 个文件：其第二处
   `native/src/terminal/ghostty_terminal/internal/mod.rs` 内 `process_query` 与
@@ -1011,6 +1013,32 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 `code-health` 要求的审计留档（静态形状扫描与依赖活跃度）同记在本节，事实与判定如下。
 
+**门禁实际内容清单**（`code-health`「规范声明的静态检查工具必须与验证门禁一致」与
+「门禁内容变更后重新比对」要求的留档，2026-11-15 逐条比对 `scripts/check.nu` 与
+`.github/workflows/` 的实际内容）：
+
+- `scripts/check.nu`（CI `check.yml` 的唯一检查工作流调用它）逐步为：`cargo fmt --all -v
+  -- --check` → `cargo clippy --all-targets -- --deny warnings` → `cargo ndk -t arm64-v8a
+  clippy --all-targets -- --deny warnings` → `cargo machete --with-metadata` →
+  `cargo test --no-fail-fast` → `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` →
+  `cargo bench --bench cell_builder --bench vt_typing --bench cjk_resolve -- --quick` →
+  `cargo build --package native --profile release` → `semgrep scan --error
+  --dataflow-traces --config .semgrep/rules.yml` → `markdownlint-cli2 "**/*.md"` →
+  `openspec validate --all --strict` → `./gradlew --continue detekt spotlessCheck
+  app:dokkaGenerate lintDebug lintVitalRelease assembleDebugAndroidTest
+  testDebugUnitTest benchmark:compileBenchmarkReleaseKotlin
+  baselineprofile:compileNonMinifiedReleaseKotlin`。
+- 另两个工作流不属检查门禁：`fmt.yml` 是自动修复并回推（`markdownlint-cli2 --fix`、
+  `cargo fmt`、`cargo clippy --fix`、`spotlessApply`、`detekt --auto-correct`、`nix fmt`），
+  `build.yml` 是构建与设备侧验证（`scripts/build-apk.nu --debug`／`--nix`／`--release`，
+  模拟器步骤调 `scripts/test-emulator.nu`，后者跑 `:app:connectedDebugAndroidTest`、
+  `:benchmark:connectedBenchmarkReleaseAndroidTest` 与
+  `:benchmark:connectedBenchmarkNixAndroidTest`）。
+- 与 `docs/specification/TESTING.md` 环境节声明的比对：`aislop`、`jscpd` 与 `rapidocr`
+  三项声明了检查手段但未进门禁，已在上表「落地方案（未实施）」逐项登记差异位置与接入
+  方式，并各带当次实测基线；其余声明（lavapipe 提供 Vulkan 环境、nix 提供工具链与
+  字体）由构建与运行环境提供，不是独立检查项，无需另立门禁条目。
+
 **静态形状扫描**（`footgun-scan` 的 32 个模式，覆盖 Kotlin/Compose 源码；Rust 侧由
 `cargo clippy --all-targets -- --deny warnings` 与 `aislop` 覆盖，本工具不适用）：
 
@@ -1035,6 +1063,21 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 | `SettingsAppearanceSection.kt` 的 `FontSizeSlider` | `slider-value-range` | 驳回 | 传入滑块的值是 `sliderFontSize`，初值经 `SettingsRepository.clampFontSize` 收敛，区间收紧时由 `LaunchedEffect(fontSizeUpperBound)` 再次收敛；区间上界与收敛入口同源（`SettingsRepository.fontSizeMaxSp`），故值恒在区间内 |
 | `SettingsComponents.kt` 的 `SettingsSliderRow` | `slider-value-range` | 驳回 | 通用滑块行只透传调用方给的区间与值，唯一调用方即上条，值已在区间内 |
 | `SettingsScreen.kt` 的设置页遮罩层 `pointerInput(Unit)` | `pointer-input-unit` | 驳回 | 块体是 `detectTapGestures(onTap = {})`，不读任何状态，无可失效的捕获值 |
+
+**显示节拍的帧率声明与省电模式分支**（`code-health`「显示节拍禁止使用固定帧率和省电模式
+分支」要求的审查留档，2026-11-15 实测）：
+
+- 固定帧率声明：`android/` 与 `native/src` 全仓无 `setFrameRate()` 调用，`Window.setFrameRate`
+  与等价声明均未出现。渲染节拍仍以显示帧回调为唯一帧源，定时闭锁只作安全网（口径同
+  `display-adaptation`「刷新率与省电只影响节拍不影响正确性」）。
+- 省电模式分支：`PowerManager.isPowerSaveMode` 在生产代码中仅一处——`TerminalApp` 的
+  `currentPowerPreference()`（应用启动期、native 装载前读一次）。其唯一去向是 **GPU
+  适配器的排序偏好**：`hostPowerPreference` → `NativeBridge.setPowerPreference` →
+  `wgpu_backend::set_power_preference` → `initialize_wgpu` 中 `request_adapter` 的
+  `PowerPreference`。它只影响适配器选取顺序，不决定帧率，也不切换渲染路径；渲染路径
+  内无任何省电模式分支。取值只影响排序，取不到适配器的风险为零，故不影响正确性。
+- 前台服务的省电保活（`TerminalForegroundService` 的 `PARTIAL_WAKE_LOCK` 与配对的
+  Wi-Fi 锁）属规范明列的豁免项，不在此列。
 
 **依赖活跃度**（直接依赖的下载量与最近发布）：
 
