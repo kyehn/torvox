@@ -117,38 +117,45 @@
 - **THEN** 缓冲格式 MUST 与窗口缓冲格式一致（见 `render-stability` 的同款
       Requirement），应用 MUST NOT 主动申请单通道或双通道格式
 - **AND** 归因 MUST 指明 `Requested R8 format ...` 与
-      `Unrecognized ... format 0x38 and usage 0xb00` 由**厂商 Vulkan 驱动的交换链
-      缓冲分配**在 `vkCreateSwapchainKHR` 内部打出，MUST NOT 记为应用侧格式选择错误
+      `Unrecognized ... format 0x38 and usage 0xb00` 由平台的 `libvulkan`
+      （`GetPhysicalDeviceSurfaceFormatsKHR` 合成候选列表时对 R8 的支持性探测）打出，
+      MUST NOT 记为应用侧格式选择错误，MUST NOT 记为驱动交换链缓冲分配
 
 判据（2026-11-15 07:15 日志，Unisoc/Spreadtrum 设备；`SPRD:` 前缀与
 `persist.vendor.gpu.fbc` 读取即该厂商分配的指纹）：
 
-1. **数值**：`0x38` 同时是 `AHARDWAREBUFFER_FORMAT_R8_UNORM`
-   （AOSP `libs/nativewindow/include/android/hardware_buffer.h`）与
-   `PIXEL_FORMAT_R_8`（`libs/ui/include/ui/PixelFormat.h`）；`0xb00` 是
-   `GPU_SAMPLED_IMAGE (0x100) | GPU_FRAMEBUFFER / GPU_COLOR_OUTPUT (0x200) |
-   COMPOSER_OVERLAY (0x800)`，正是交换链图像的用法组合。
-2. **时序**：4 次尝试全部落在 `attachWindow`（07:12:27.469）之后、
-   `ensure_frame_texture` 与 `configured ... format=Rgba8Unorm`（07:12:27.481）
-   之前，即位于 `Surface::configure` 调用的 `vkCreateSwapchainKHR` 内部；紧随
-   其后是同数量的 `register:`（4 张交换链图像分配成功）。
-3. **请求方**：应用请求 `Rgba8Unorm`，wgpu-hal 将其映射为
-   `VK_FORMAT_R8G8B8A8_UNORM`（`wgpu-hal-30.0.2/src/vulkan/conv.rs` 的
-   `map_texture_format`），窗口几何为 `WINDOW_FORMAT_RGBA_8888`（= 1），生产代码
-   没有任何 `R8Unorm` 纹理/缓冲请求。故 R8 只能来自驱动 WSI 的缓冲分配。
-4. **非致命**：探测失败后驱动按请求的 RGBA8 重试成功（同批 `register:`），交换链
-   可用、颜色正确；条目本身是分配器的探测噪声。
-5. **不可抑制**：wgpu 不暴露交换链缓冲格式选择；`SurfaceHolder.setFormat` 已固定
-   为 `RGBA_8888`；`persist.vendor.gpu.fbc` 是厂商帧缓冲压缩开关，应用无权限。
-   故 MUST NOT 通过过滤 tag、降级日志或改窗口格式来掩盖。
+1. **数值指纹**：`0x38` 是 `AHARDWAREBUFFER_FORMAT_R8_UNORM`
+   （AOSP `libs/nativewindow/include/android/hardware_buffer.h`）；`0xb00` 是
+   `COMPOSER_OVERLAY (0x800) | GPU_SAMPLED_IMAGE (0x100) | GPU_FRAMEBUFFER (0x200)`，
+   恰为 `swapchain.cpp` 的 `GetSurfaceFormats` 构造探测描述符时的
+   `consumer_usage | GPU_SAMPLED_IMAGE | GPU_FRAMEBUFFER`（`consumer_usage` 取自
+   `native_window_get_consumer_usage`，即 SurfaceFlinger 的 `COMPOSER_OVERLAY`）。
+   尺寸 `1x1x1` 与这两项合起来唯一对应 `AHardwareBuffer_isSupported` 的这个调用点。
+2. **请求方**：调用方是平台的 `libvulkan`，不是驱动 WSI、也不是应用：
+   `GetPhysicalDeviceSurfaceFormatsKHR` 合成候选列表时无条件探测 R8（同一函数还探测
+   `R5G6B5`、`RGBA16F`、`RGB10A2`、`RGBA10x6`，本机 gralloc 都支持故无日志）。
+   应用请求 `Rgba8Unorm`（`VK_FORMAT_R8G8B8A8_UNORM`），窗口几何
+   `WINDOW_FORMAT_RGBA_8888`（= 1），生产代码没有任何 `R8Unorm` 请求。
+3. **时序**：4 组全部落在 `attachWindow`（07:12:27.469）之后、
+   `configured ... format=Rgba8Unorm`（07:12:27.481）之前，且夹在 4 条
+   `unregister`（旧交换链拆除）与 4 条 `register`（新交换链图像）之间——正是
+   `attach_surface` 里 `self.surface = None` → `create_surface` → `get_capabilities`
+   → `configure` 那一段，与 `vkGetPhysicalDeviceSurfaceFormatsKHR` 的调用点吻合。
+4. **倍数**：1 组 = 1 次表面格式查询；一次挂载固定 4 组，与交换链图像数无关。
+5. **非致命**：探测失败只表示「该候选格式不进入可选列表」，交换链按 `Rgba8Unorm`
+   建立、颜色正确；紧随其后的 `register:` 4 条是图像分配成功。
+6. **不可抑制**：`AHardwareBuffer_isSupported` 的探测列表由平台源码写死；wgpu 不
+   暴露该查询，`SurfaceHolder.setFormat` 已固定 `RGBA_8888`，
+   `persist.vendor.gpu.fbc` 是厂商帧缓冲压缩开关、应用无权限。故 MUST NOT 通过
+   过滤 tag、降级日志或改窗口格式来掩盖。
 
 条目数是**新建原生窗口次数**的函数：同一 `ANativeWindow` 上切会话走
 `attach_surface` 的 fast path（日志为 `RECONFIGURE_SWAPCHAIN (fast path, existing
-surface)`），一行都不产生；换新窗口才重走 `vkCreateSwapchainKHR`，每次固定 8 行
-（4 组「请求 + 错误」）。2026-11-15 日志中 6 次新窗口对应 48 行，切会话两次对应
-0 行，与该口径逐条相符。故该条目的治理目标是**减少不必要的换窗**（见
-`render-stability`「终端 Surface 的表面策略跟随平台默认」），不是压低单次重建的
-行数。
+surface)`），一次表面格式查询都不做，一行都不产生；换新窗口才重走完整挂载
+（`get_capabilities` + `configure`），每次固定 8 行（4 次表面格式查询）。2026-11-15
+日志中 6 次新窗口对应 48 行，切会话两次对应 0 行，与该口径逐条相符。故该条目的治理
+目标是**减少不必要的换窗**（见 `render-stability`「终端 Surface 的表面策略跟随平台
+默认」），不是压低单次重建的行数。
 
 #### Scenario: 返回回调未启用导致的框架告警
 
@@ -621,16 +628,23 @@ dex 元数据缺失、厂商私有属性读取被拒）MUST 指出条目由厂�
 
 - **WHEN** 日志出现设备图形分配器对格式的探测告警（真机为 `mali_gralloc` 报告 R8
       格式不被支持）
-- **THEN** 归因 MUST 给出上游判据位置：AOSP `vulkan/libvulkan/swapchain.cpp` 的
-      `GetPhysicalDeviceSurfaceFormatsKHR` 在枚举表面格式时无条件对 R8 调
-      `AHardwareBuffer_isSupported`，Mali 的 gralloc 在该探测里逐次打出
-      「Requested R8 format…」与「Unrecognized…0x38/usage 0xb00」；探测由表面重建
-      触发，每次重建固定 4 对（8 行）
+- **THEN** 归因 MUST 给出上游判据位置与**可复算的判据值**：AOSP
+      `vulkan/libvulkan/swapchain.cpp`（`libvulkan` 的 `GetSurfaceFormats`）在合成
+      `vkGetPhysicalDeviceSurfaceFormatsKHR` 的候选列表时，对
+      `AHARDWAREBUFFER_FORMAT_R8_UNORM` 无条件调 `AHardwareBuffer_isSupported`；其
+      探测描述符在源码里固定为 `1x1x1`、`format = 0x38`、
+      `usage = COMPOSER_OVERLAY(0x800) | GPU_SAMPLED_IMAGE(0x100) | GPU_FRAMEBUFFER(0x200) = 0xb00`
+      ——日志里那一对「Requested R8 format…」与「Unrecognized…0x38/usage 0xb00」
+      与这四个数逐一对应，故可判定调用方就是该函数，而非应用申请的缓冲
+- **THEN** MUST 说明同一函数还按同一模板探测 `R5G6B5`、`RGBA16F`、`RGB10A2`、
+      `RGBA10x6`，这些在本机 gralloc 上探测通过故无日志——只有 R8 这一项被拒，
+      正是「列表里只有 R8 报错」的原因；MUST NOT 把「只有 R8 报错」解释成应用只
+      申请了 R8
 - **THEN** MUST 指出被拒的是平台格式枚举的支持性探测，不是应用申请的呈现缓冲；应用
       实际请求 `Rgba8Unorm`（与窗口缓冲 `RGBA_8888` 同格式），交换链照常建立、帧
       照常呈现，MUST 说明应用侧无开关（除非放弃 Vulkan 表面），MUST NOT 记为应用
-      选错格式；MUST 同时记明该组条数与表面重建次数的倍数关系（8 行/次），以及
-      应用侧减少重建的手段
+      选错格式；MUST 同时记明该组条数与表面重建次数的倍数关系（8 行/次 = 4 次
+      表面格式查询 × 每次 1 对），以及应用侧减少重建的手段
 
 #### Scenario: 系统窗口事务的空 Binder 返回
 

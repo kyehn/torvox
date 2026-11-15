@@ -35,9 +35,8 @@ pub const MIN_VERTEX_BUFFER_SIZE: u64 = 64;
 ///
 /// 与交换链格式一一对应：该格式在 Vulkan 上是 `VK_FORMAT_R8G8B8A8_UNORM`，即
 /// wgpu 的 [`wgpu::TextureFormat::Rgba8Unorm`]；宿主侧 `SurfaceHolder` 置的
-/// `PixelFormat.RGBA_8888` 是同一件事的 Android 说法。三处必须同格式：
-/// 队列按别的格式分配缓冲时，厂商 Vulkan 驱动会试分配单通道格式，Mali 的
-/// 分配器直接拒收（`Requested R8 format is not supported with this allocator`）。
+/// `PixelFormat.RGBA_8888` 是同一件事的 Android 说法。三处必须同格式，否则呈现
+/// 的像素布局与渲染写入的布局不一致。
 ///
 /// 挂载路径（`ANativeWindow_setBuffersGeometry`）用它，交换链路径
 /// （`Renderer::select_surface_format`）取与之对应的 `Rgba8Unorm`。
@@ -63,20 +62,24 @@ impl Renderer {
     /// 从适配器报告的格式里**指名**挑一个能承载颜色的交换链格式。
     ///
     /// 此前是「取第一个非 sRGB 格式」——那等于让设备决定我们会去申请哪种窗口缓冲。
-    /// 真机（Mali GPU）在 `attachWindow` 之后立刻报告 R8 格式不被分配器支持。0x38 正是
-    /// `AHARDWAREBUFFER_FORMAT_R8_UNORM`——即驱动把单通道格式排在了候选首位，我们照单
-    /// 申请，于是缓冲区队列分配失败。这不只是日志噪音：渲染进 R8 目标也只有灰度一个
-    /// 通道，即便侥幸分配成功，颜色也是错的。
+    /// 表面格式列表不全是能承载颜色的格式：驱动可以按任何顺序报告单通道格式，
+    /// 旧取法在这种设备上就会选中 R8。渲染进 R8 目标只有灰度一个通道，颜色是错的。
+    ///
+    /// 旁注（日志里那组 `mali_gralloc` 报错与本节取舍无关，不要据此改选格式）：
+    /// 「Requested R8 format is not supported with this allocator」来自平台
+    /// `libvulkan` 的 `GetPhysicalDeviceSurfaceFormatsKHR`——它合成候选列表时无条件
+    /// 对 `R8_UNORM` 调 `AHardwareBuffer_isSupported`，探测描述符固定为
+    /// `1x1x1 / format 0x38 / usage 0xb00`。配置成 `Rgba8Unorm` 时同样出现，
+    /// 条目数只随表面格式查询次数变，见 `openspec/specs/logcat-hygiene`。
     ///
     /// 取舍顺序：Rgba8Unorm（与 `SurfaceFlinger` 默认 `RGBA_8888` 原生对应，无需 sRGB 视图）
     /// → 其它非 sRGB 的 RGBA/BGRA 8 位 → sRGB 的 RGBA/BGRA 8 位 → 任意非 sRGB 的
-    /// 多通道格式 → 任意多通道格式。**单通道与双通道格式一律不选**：颜色渲染不出来，
-    /// 且 R8 在部分设备的分配器上根本分配不出来。每一档退化都记一条日志，避免
-    /// 「用了个奇怪格式」这件事再次无声发生。
+    /// 多通道格式 → 任意多通道格式。**单通道与双通道格式一律不选**：颜色渲染不出来。
+    /// 每一档退化都记一条日志，避免「用了个奇怪格式」这件事再次无声发生。
     ///
     /// 首选的 `Rgba8Unorm` 与窗口缓冲格式 [`WINDOW_FORMAT_RGBA_8888`] 一一对应
-    /// （`VK_FORMAT_R8G8B8A8_UNORM`）：窗口缓冲格式与交换链格式必须同格式，
-    /// 否则队列按另一种格式分配缓冲，厂商驱动便会试分配单通道格式而遭分配器拒收。
+    /// （`VK_FORMAT_R8G8B8A8_UNORM`）：窗口缓冲格式与交换链格式必须同格式，否则呈现
+    /// 的像素布局与写入布局不一致。
     /// 与 `select_present_mode` 同理：唯一调用方 `attach_surface` 仅 Android 存在，
     /// 故限定为 Android 生产构建 + 测试，而非加 `allow(dead_code)`。
     #[cfg(any(target_os = "android", test))]
@@ -92,8 +95,7 @@ impl Renderer {
                     | wgpu::TextureFormat::Bgra8UnormSrgb
             )
         };
-        // 交换链目标至少要三个分量：R8（1 分量）在 Mali 的 `mali_gralloc` 上不被支持
-        // （只支持 AIDL 分配器），RG8（2 分量）同样渲染不出颜色。
+        // 交换链目标至少要三个分量：R8（1 分量）与 RG8（2 分量）渲染不出颜色。
         let carries_color = |candidate: &wgpu::TextureFormat| candidate.components() >= 3;
         if let Some(format) = caps
             .formats

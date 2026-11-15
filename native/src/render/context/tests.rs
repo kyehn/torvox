@@ -19,10 +19,10 @@ mod surface_format_selection {
 
     /// 回归钉：必须指名要 8 位 RGBA 族，而不是「取第一个非 sRGB 格式」。
     ///
-    /// 真机（Mali GPU）在 `attachWindow` 后立刻报告 R8 格式不被分配器支持——0x38 就是
-    /// `AHARDWAREBUFFER_FORMAT_R8_UNORM`。旧写法把「设备排第一的非 sRGB 格式」直接
-    /// 当交换链格式，于是照着设备的首选去申请窗口缓冲；Mali 的 gralloc 分配不出来，
-    /// 即便侥幸分配成功，渲染进 R8 目标也只有灰度一个通道。
+    /// 表面格式列表由驱动按任意顺序报告，可能以单通道开头（`R8Unorm` 只对应 0x38 =
+    /// `AHARDWAREBUFFER_FORMAT_R8_UNORM` 的灰度目标）。旧写法把「设备排第一的非 sRGB
+    /// 格式」直接当交换链格式，于是照着设备的首选去申请窗口缓冲：渲染进 R8 目标只有
+    /// 灰度一个通道，颜色是错的。
     #[test]
     fn rgba8_is_preferred_even_when_the_device_lists_r8_first() {
         let selected = Renderer::select_surface_format(&caps(vec![

@@ -1173,12 +1173,10 @@ VT 线程 MUST 在持续输出下持续发布帧：命令批有界（见 `vt-que
 `VK_FORMAT_R8G8B8A8_UNORM`，即 wgpu 的 `Rgba8Unorm`）。两处 MUST 取自同一处定义，
 MUST NOT 各写一份字面量。
 
-两处不一致时，缓冲队列按另一种格式分配缓冲，厂商 Vulkan 驱动会试分配单通道格式
-（Mali 报 `Requested R8 format is not supported with this allocator`），分配失败被
-记为 error；即便侥幸分配成功，渲染进单通道目标也只有灰度一个通道，颜色是错的。
+两处不一致时，缓冲队列按另一种格式分配缓冲，呈现出来的像素布局与渲染写入的布局
+不一致；单通道格式即便能呈现，也只有灰度一个通道。
 
-单通道与双通道格式 MUST NOT 被选为交换链格式：颜色渲染不出来，且部分设备的分配器
-根本分配不出来。
+单通道与双通道格式 MUST NOT 被选为交换链格式：颜色渲染不出来。
 
 #### Scenario: 窗口缓冲格式与交换链格式同源
 
@@ -1191,10 +1189,15 @@ MUST NOT 各写一份字面量。
 - **WHEN** 适配器报告的候选格式里排在前面的单通道格式
 - **THEN** 交换链 MUST NOT 选用它，MUST 退到多通道格式；退化 MUST 记一条日志
 
-#### Scenario: 分配器不得因格式被拒收
+#### Scenario: 申请格式必须可被分配器分配
 
-- **WHEN** 设备分配器不支持被申请的缓冲格式
-- **THEN** 该情形 MUST NOT 出现——申请格式 MUST 是分配器支持的格式
+- **WHEN** 应用申请交换链缓冲格式
+- **THEN** 该格式 MUST 被设备分配器支持（`Rgba8Unorm` / `RGBA_8888` 是各设备通用的
+      颜色格式）；平台在格式枚举阶段自行发起的探测不在此列，MUST NOT 据此改动应用
+      请求的格式
+- **AND** 日志里分配器拒绝某格式的行（如 `mali_gralloc` 拒绝 R8）MUST 归因于平台
+      `libvulkan` 枚举表面格式时的固定探测（判据见 `logcat-hygiene` 的「设备分配器的
+      格式探测告警」），MUST NOT 据此改动应用请求的格式
 
 ### Requirement: 终端 Surface 的表面策略跟随平台默认
 
