@@ -258,6 +258,7 @@ constructor(
                 surfacePresentToken++
                 surfacePresentPending = false
                 surfaceBufferPresentFlow.value = false
+                recordHoleState()
             }
             mainHandler.post {
                 surfacePresentFrameCallback?.let { Choreographer.getInstance().removeFrameCallback(it) }
@@ -281,6 +282,7 @@ constructor(
                             surfacePresentFrameCallback = null
                             if (surfaceBufferPresentFlow.value) return
                             surfaceBufferPresentFlow.value = true
+                            recordHoleState()
                         }
                         // 新帧已上屏：开孔遮罩使命完成，撤掉并释放像素（见 [coverFrame]）。
                         clearCoverFrame()
@@ -309,6 +311,33 @@ constructor(
     val coverFrame: StateFlow<Bridge.CoverFrame?> = coverFrameFlow.asStateFlow()
 
     /**
+     * 开孔状态转换日志：每次「缓冲区在位 / 遮罩在位」变化记一条，只留最近
+     * [HOLE_JOURNAL_CAPACITY] 条。
+     *
+     * 闪烁是一两帧的瞬态：截图来不及，轮询采样在后台会被进程冻结吞掉，回前台的
+     * 关键路径又会压过采样线程。产品自己的状态机是唯一不丢事件的来源，故在两个
+     * 标志的写入点各记一条；仪器化测试据此验证「可见时开孔永远有内容」。
+     */
+    private val holeJournalLock = Any()
+    private val holeJournal = ArrayDeque<HoleStateEntry>()
+
+    /** 开孔状态的一条转换记录（供闪烁取证）。 */
+    internal data class HoleStateEntry(val bufferPresent: Boolean, val coverPresent: Boolean)
+
+    /** 记录一次开孔状态；与上一条相同则忽略。 */
+    private fun recordHoleState() {
+        synchronized(holeJournalLock) {
+            val entry = HoleStateEntry(surfaceBufferPresentFlow.value, coverFrameFlow.value != null)
+            if (holeJournal.lastOrNull() == entry) return
+            holeJournal.addLast(entry)
+            if (holeJournal.size > HOLE_JOURNAL_CAPACITY) holeJournal.removeFirst()
+        }
+    }
+
+    /** 开孔状态转换快照（旧 → 新）。 */
+    internal fun holeStateJournal(): List<HoleStateEntry> = synchronized(holeJournalLock) { holeJournal.toList() }
+
+    /**
      * 发布开孔遮罩。
      *
      * [frame] 是回读到的上一帧（尺寸与 RGBA8 像素）；尺寸对不上时直接丢弃——
@@ -325,12 +354,14 @@ constructor(
             return
         }
         coverFrameFlow.value = frame
+        recordHoleState()
     }
 
     /** 新帧已上屏：遮罩使命完成，撤掉并释放像素。 */
     internal fun clearCoverFrame() {
         if (coverFrameFlow.value == null) return
         coverFrameFlow.value = null
+        recordHoleState()
     }
 
     /**
@@ -1367,6 +1398,9 @@ constructor(
     }
 
     private companion object {
+        /** 开孔状态转换日志的容量：只留最近若干条，足够覆盖一次后台往返。 */
+        private const val HOLE_JOURNAL_CAPACITY = 32
+
         private const val TENTHS_PER_UNIT = 10
 
         /** 网格与像素尺寸上界：PTY winsize 字段为 u16，原生对超限值抛 IllegalArgumentException。 */

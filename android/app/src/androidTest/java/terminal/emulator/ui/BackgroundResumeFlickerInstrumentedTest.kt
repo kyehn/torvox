@@ -1,0 +1,288 @@
+package terminal.emulator.ui
+
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.runners.JUnit4
+import terminal.emulator.ComposeTerminalLogcatTest
+import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitBridge
+import terminal.emulator.findTerminalSurface
+import terminal.emulator.hideImeAndConfirm
+import terminal.emulator.requireBridge
+import terminal.emulator.waitForSession
+import terminal.emulator.waitForTerminalPixels
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.roundToInt
+
+/**
+ * 切后台返回的闪烁验收：**真实** HOME 往返期间，开孔任何时刻都不得既无缓冲区又无遮罩。
+ *
+ * 与 `TerminalHoleCoverInstrumentedTest` 的分工：后者注入 surface 失效并验证「遮罩
+ * 画出来的是离开时的画面」；本用例不注入，走用户真实的 HOME → 重新启动路径。
+ *
+ * 为什么不用截图/轮询采样做瞬态判定：闪烁只有一两帧，模拟器上一次
+ * `UiDevice.takeScreenshot()` 要 100ms 以上；轮询线程在后台会被进程冻结吞掉，回
+ * 前台的关键路径又会压过采样线程（实测采样序列从「CREATED/无缓冲/有遮罩」一步跳到
+ * 「RESUMED/有缓冲/无遮罩」，中间的瞬态一条都没采到）。故判据取产品自己的状态机：
+ * `TerminalRuntime` 在缓冲区与遮罩每次变化时记一条开孔状态，事件不丢、无采样竞态。
+ * 断言：
+ *
+ * 1. 切后台必须出现「无缓冲 + 有遮罩」——遮罩真的在开孔上；
+ * 2. 整段往返 MUST NOT 出现「无缓冲 + 无遮罩」——那一拍开孔透出桌面，就是闪烁；
+ * 3. 回前台首帧 MUST 是保留的最后一帧（原生 `warmup` 的保留分支），不是清屏；
+ * 4. 终判：往返前后同一批像素一致，且条带里仍有内容像素（防止「一致」实为两帧空白）。
+ */
+@RunWith(JUnit4::class)
+class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
+    companion object {
+        private const val GRID_TIMEOUT_MS = 15_000L
+        private const val BACKGROUND_TIMEOUT_MS = 20_000L
+        private const val RESUME_TIMEOUT_MS = 30_000L
+        private const val SETTLE_MILLIS = 800L
+
+        /** 条带顶边相对表面顶部的余量（避开状态栏圆角阴影，与输入法用例同口径）。 */
+        private const val STRIP_TOP_MARGIN_PX = 8
+
+        /** 像素抽样步长：只影响统计速度。 */
+        private const val PIXEL_SAMPLE_STEP_PX = 3
+
+        /** 单像素三通道差和阈值：低于视为同一内容。 */
+        private const val PIXEL_DELTA_THRESHOLD = 40
+
+        /** 往返前后条带允许的差异像素（采样噪声 + 光标残影）。 */
+        private const val MAX_STRIP_DIFF = 300
+
+        /** 条带里至少要有多少种颜色：平底色/桌面都能凑出高「一致」，只有内容才有色。 */
+        private const val MIN_DISTINCT_COLORS = 8
+
+        /** 颜色统计的抽样步长。 */
+        private const val COLOR_SAMPLE_STEP_PX = 6
+
+        /** 原生 warmup 两种分支的日志锚点（`native::render::pass::frame`）。 */
+        private const val WARMUP_RETAINED = "warmup: presenting the retained last frame"
+        private const val WARMUP_CLEARED = "warmup: no retained frame to present"
+    }
+
+    private lateinit var device: UiDevice
+    private lateinit var packageName: String
+
+    @Before
+    fun setUp() {
+        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        packageName = InstrumentationRegistry.getInstrumentation().targetContext.packageName
+        composeTestRule.waitForSession()
+        composeTestRule.waitForTerminalPixels()
+        composeTestRule.awaitBridge()
+    }
+
+    /** 开孔在屏幕上的纵向条带（像素坐标）。 */
+    private data class Band(val top: Int, val bottom: Int)
+
+    /** 清屏并铺满彩色多行文本：开孔比对需要可区分的颜色，且不得依赖 shell 回显。 */
+    private fun paintColoredContent() {
+        val payload =
+            buildString {
+                append("\u001b[2J\u001b[H")
+                append("\u001b[?25l")
+                for (line in 1..24) {
+                    val color = 31 + (line % 6)
+                    append("\u001b[${color}mFLICKER_${line.toString().padStart(2, '0')}_")
+                    append("ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789\u001b[0m\r\n")
+                }
+            }
+        composeTestRule.requireBridge().feedTerminal(payload.toByteArray(Charsets.UTF_8))
+        assertNotNull(
+            "彩色内容必须落格",
+            UxTestUtils.pollUntilTrue(GRID_TIMEOUT_MS, 100) {
+                (composeTestRule.requireBridge().getTerminalText() ?: "").contains("FLICKER_01_")
+            },
+        )
+        composeTestRule.waitForIdle()
+        Thread.sleep(SETTLE_MILLIS)
+    }
+
+    /** 当前开孔的屏幕纵向条带。 */
+    private fun holeBand(): Band {
+        var top = 0
+        var bottom = 0
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val surface = findTerminalSurface(composeTestRule.activity)
+            val location = IntArray(2)
+            surface.getLocationOnScreen(location)
+            top = location[1] + STRIP_TOP_MARGIN_PX
+            bottom = location[1] + surface.height
+        }
+        return Band(top, bottom)
+    }
+
+    /** 条带里的颜色种数（抽样）：用于区分「有内容」与「一块平底色/桌面」。 */
+    private fun distinctColors(bitmap: android.graphics.Bitmap, band: Band): Int {
+        val colors = HashSet<Int>()
+        var row = band.top.coerceAtLeast(0)
+        val bottom = band.bottom.coerceAtMost(bitmap.height)
+        while (row < bottom) {
+            var column = 0
+            while (column < bitmap.width) {
+                colors.add(bitmap.getPixel(column, row))
+                column += COLOR_SAMPLE_STEP_PX
+            }
+            row += COLOR_SAMPLE_STEP_PX
+        }
+        return colors.size
+    }
+
+    /** 终端表面因输入法位移的像素数（未位移时为 0）。 */
+    private fun surfaceShiftPx(): Int {
+        var shift = 0
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            shift = (-findTerminalSurface(composeTestRule.activity).translationY).roundToInt()
+        }
+        return shift
+    }
+
+    /**
+     * 收起输入法并等终端回到未位移状态。
+     *
+     * 启动会按用户设置自动弹键盘；位移中的表面顶边是负坐标（被推出屏幕），
+     * 按它算条带会越界。基准帧必须取「未位移」形态，往返后也按同一形态比对。
+     */
+    private fun hideImeAndSettle() {
+        assertTrue("输入法必须收起", hideImeAndConfirm(composeTestRule.activity, 5_000))
+        assertNotNull(
+            "输入法收起后终端必须回到未位移状态",
+            UxTestUtils.pollUntilTrue(5_000, 100) { surfaceShiftPx() == 0 },
+        )
+        composeTestRule.waitForIdle()
+        Thread.sleep(SETTLE_MILLIS)
+    }
+
+    /** `logcat -v threadtime` 的时间戳前缀（与设备日志同一时钟）。 */
+    private fun wallClockStamp(): String = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
+
+    /** 取时间戳不早于 [since] 的原生 warmup 日志行。 */
+    private fun warmupLinesSince(since: String): List<String> = UxTestUtils
+        .runShellCommand("logcat -d -v threadtime -t 5000")
+        .lineSequence()
+        // tag 超过平台的 23 字符上限会被截断，故只取不会被截掉的前缀。
+        .filter { it.contains("native::render::pass") }
+        // threadtime 的时间戳是定长前缀（`MM-dd HH:mm:ss.SSS`），字典序即时间序。
+        .filter { it.take(18) >= since }
+        .toList()
+
+    @Test
+    fun backgroundResumeNeverExposesUncoveredHole() {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
+        paintColoredContent()
+        hideImeAndSettle()
+        val band = holeBand()
+        val before = UxTestUtils.screenshot(device)
+        assertTrue(
+            "离开前条带必须有内容像素（否则「无闪烁」断言无意义）",
+            distinctColors(before, band) >= MIN_DISTINCT_COLORS,
+        )
+
+        val journalBefore = runtime.holeStateJournal()
+        val leaveStamp = wallClockStamp()
+
+        // 真实切后台：HOME 键。后台应用的 startActivity 会被平台拦截，回前台只能
+        // 交回 shell（`am start`），与用户从桌面图标启动同一条路径。
+        device.pressHome()
+        assertNotNull(
+            "必须真的退到后台",
+            UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 50) {
+                device.currentPackageName != packageName
+            },
+        )
+        assertNotNull(
+            "切后台后平台必须拆掉 surface（否则本用例前提不成立）",
+            UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 20) {
+                !runtime.surfaceBufferPresent.value
+            },
+        )
+        assertNotNull(
+            "切后台必须回读出开孔遮罩",
+            UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 20) {
+                runtime.coverFrame.value != null
+            },
+        )
+
+        UxTestUtils.runShellCommand("am start -n $packageName/terminal.emulator.MainActivity")
+        assertNotNull(
+            "必须回到前台",
+            UxTestUtils.pollUntilTrue(RESUME_TIMEOUT_MS, 50) {
+                device.currentPackageName == packageName
+            },
+        )
+        assertNotNull(
+            "回前台首帧上屏后遮罩必须撤下",
+            UxTestUtils.pollUntilTrue(RESUME_TIMEOUT_MS, 20) {
+                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
+            },
+        )
+        Thread.sleep(SETTLE_MILLIS)
+
+        // 1-2. 用状态机自己的转换序列判定：本次往返新增的条目即整段后台往返。
+        val journalAfter = runtime.holeStateJournal()
+        val cycle =
+            if (journalAfter.size >= journalBefore.size) {
+                journalAfter.drop(journalBefore.size)
+            } else {
+                // 环形日志在往返期间溢出（容量 32，正常一次往返只有几条）：退回整份。
+                journalAfter
+            }
+        android.util.Log.i("FlickerTest", "开孔状态转换序列（buffer,cover）：$cycle")
+        assertTrue("本次往返必须产生开孔状态转换记录（实测 ${cycle.size} 条）", cycle.isNotEmpty())
+        assertTrue(
+            "切后台必须进入「无缓冲 + 有遮罩」：遮罩真的遮在开孔上（实测 $cycle）",
+            cycle.any { !it.bufferPresent && it.coverPresent },
+        )
+        assertTrue(
+            "回前台终态必须是「有缓冲 + 无遮罩」（实测 ${cycle.lastOrNull()}）",
+            cycle.last().bufferPresent && !cycle.last().coverPresent,
+        )
+        // 核心判据：无缓冲的那段时间里遮罩不得缺席——缺席的那一拍开孔透出桌面。
+        val uncovered = cycle.filter { !it.bufferPresent && !it.coverPresent }
+        assertTrue(
+            "开孔 MUST NOT 在无缓冲区时同时无遮罩（实测 ${uncovered.size} 条：$cycle）",
+            uncovered.isEmpty(),
+        )
+
+        // 3. 回前台首帧必须是保留的最后一帧：清屏分支会让开孔空一拍。
+        val warmup = warmupLinesSince(leaveStamp)
+        assertTrue(
+            "回前台首帧 MUST 呈现保留的最后一帧（原生 warmup 无对应日志）",
+            warmup.any { it.contains(WARMUP_RETAINED) },
+        )
+        assertTrue(
+            "回前台首帧 MUST NOT 清屏（出现 `${WARMUP_CLEARED}`）",
+            warmup.none { it.contains(WARMUP_CLEARED) },
+        )
+
+        // 4. 终判：往返前后同一批像素一致，且条带里仍有内容。
+        val after = UxTestUtils.screenshot(device)
+        assertTrue(
+            "回前台后条带必须有内容（不得是桌面或空白）",
+            distinctColors(after, band) >= MIN_DISTINCT_COLORS,
+        )
+        val diff =
+            UxTestUtils.countDiffInBand(
+                before,
+                after,
+                band.top.coerceAtLeast(0),
+                band.bottom.coerceAtMost(after.height),
+                PIXEL_SAMPLE_STEP_PX,
+                PIXEL_DELTA_THRESHOLD,
+            )
+        assertTrue(
+            "回前台后内容条带必须与离开时一致（实测差 $diff 像素）",
+            diff <= MAX_STRIP_DIFF,
+        )
+    }
+}
