@@ -263,8 +263,16 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             "回前台终态必须是「有缓冲 + 无遮罩」（实测 ${cycle.lastOrNull()}）",
             cycle.last().bufferPresent && !cycle.last().coverPresent,
         )
-        // 核心判据：无缓冲的那段时间里遮罩不得缺席——缺席的那一拍开孔透出桌面。
-        val uncovered = cycle.filter { !it.bufferPresent && !it.coverPresent }
+        // 核心判据一：遮罩必须**真的画进窗口**，而且要在平台拆 surface 之前画完。
+        // 状态机里有遮罩不等于屏幕上有遮罩：遮罩发布发生在渲染线程，窗口不会自己
+        // 重绘；漏掉这次重绘，窗口留着的就是离开时那个空开孔。
+        assertTrue(
+            "切后台时遮罩 MUST 在 surface 仍在时画进窗口（实测 $cycle）",
+            cycle.any { it.painted && it.bufferPresent && it.coverPresent },
+        )
+        // 核心判据二：无覆盖的那段时间里既不得缺缓冲、也不得缺遮罩与底色——缺席的
+        // 那一拍开孔透出桌面。
+        val uncovered = cycle.filter { !it.bufferPresent && !it.coverPresent && !it.painted }
         assertTrue(
             "开孔 MUST NOT 在无缓冲区时同时无遮罩（实测 ${uncovered.size} 条：$cycle）",
             uncovered.isEmpty(),

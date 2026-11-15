@@ -20,6 +20,9 @@ import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.Magnifier
 import androidx.core.graphics.createBitmap
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.input.KeyModifiers
@@ -92,6 +95,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 否则换视图 / Activity 重建后终端会被上一份键盘高度上移（旋转不重建 Activity，
         // 由 `onSizeChanged` → `applyImeShift` 按新视口高度覆盖，不走这条路径）。
         ime.reset()
+        holeCoverJob?.cancel()
+        holeCoverJob = null
         if (translationY != 0f) translationY = 0f
         // 运行期那份也必须归零：它只由本视图的 insets 派发写入，而新视图（或复用后
         // 的本视图）的首次派发若发生在键盘已收起时，算出的 `reserved` 就是 0、与它
@@ -148,7 +153,26 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // （见 onDetachedFromWindow 的清理），而视图复用时不会重新走 AndroidView.factory，
         // 于是 altScreenActiveFlow / lastContentRowFlow / cellMetricsFlow 三条输入全部失联
         // ——网格再也不重排、主屏位移不再跟随内容。
-        viewModel?.let { ime.observeInputs(it) }
+        viewModel?.let { host ->
+            ime.observeInputs(host)
+            observeHoleCover(host)
+        }
+    }
+
+    /**
+     * 遮罩一发布就重绘本视图：切后台那一刻没有任何别的失效源，漏这一次重绘，
+     * 窗口留着的就是离开前的**空开孔**（见 [onDraw] 与 `recordHolePainted`）。
+     *
+     * 与 [TerminalSurface.surfaceHasBuffer] 的分工：那个属性由组合层在「缓冲区在位」
+     * 翻转时推来（撤遮罩及时），本订阅管另一头——遮罩发布发生在渲染线程，与组合层
+     * 的失效时机无关，必须由视图自己接住。
+     */
+    private fun observeHoleCover(host: TerminalViewModel) {
+        holeCoverJob?.cancel()
+        holeCoverJob =
+            host.viewModelScope.launch {
+                host.runtime.coverFrame.collect { invalidate() }
+            }
     }
 
     fun setDimensions(rows: Int, cols: Int) = resizeManager.setDimensions(rows, cols)
@@ -193,6 +217,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     internal fun getAccentColor(): Int = viewModel?.runtime?.accentColor ?: 0xFF2196F3.toInt()
 
+    /** 遮罩失效订阅（见 [observeHoleCover]）：随 attach 建、随 detach 撤。 */
+    private var holeCoverJob: Job? = null
+
     @Volatile
     internal var viewModel: TerminalViewModel? = null
 
@@ -210,6 +237,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 硬件按键与鼠标事件同样排到批缓冲（理由见 [bindActivePtyWriteQueue]）。
         bindActivePtyWriteQueue()
         ime.observeInputs(viewModel)
+        observeHoleCover(viewModel)
     }
 
     @Volatile internal var rows: Int = DEFAULT_GRID_ROWS
@@ -1049,9 +1077,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val runtime = viewModel?.runtime ?: return
-        // 原生 surface 已有缓冲：MUST NOT 画遮罩（它不透明，画上去就把终端内容整个
-        // 盖住）。判据是运行期的事实（谁呈现过帧），不是本视图的猜测。
-        if (runtime.surfaceBufferPresent.value) {
+        // 原生 surface 已有缓冲、且应用在前台：MUST NOT 画遮罩（它不透明，画上去就把
+        // 终端内容整个盖住）。判据是运行期的事实（谁呈现过帧），不是本视图的猜测。
+        //
+        // 切后台期间即使缓冲区还在也照画：暂停发生在窗口仍可见的转场里，此刻平台
+        // 还没拆 surface，而遮罩正是要在**这一刻**进窗口缓冲区——晚到平台拆完之后
+        // 就没有任何一帧会再画这个窗口，回前台首帧露出的仍是离开时那个空开孔。
+        if (runtime.surfaceBufferPresent.value && !runtime.isBackgroundPaused) {
             // 位图也随之释放：此后的每一帧都从这里早退，缓存的那份会一直留到视图销毁。
             releaseCoverBitmap()
             return
@@ -1068,12 +1100,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             coverSourceRect.set(0, 0, bitmap.width, fit.sourceHeight.roundToInt())
             coverDestRect.set(0f, 0f, width.toFloat(), fit.destHeight)
             canvas.drawBitmap(bitmap, coverSourceRect, coverDestRect, coverPaint)
+            runtime.recordHolePainted()
             return
         }
         // 没有可用遮罩（或遮罩已撤下）：铺终端底色。顺带释放缓存的位图——遮罩撤下后
         // 它再无用处，留着白占几百 KB 直到视图销毁。
         releaseCoverBitmap()
         canvas.drawColor(holeCoverBackground)
+        runtime.recordHolePainted()
     }
 
     /** 释放缓存的遮罩位图与它的来源。 */

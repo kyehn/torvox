@@ -144,6 +144,8 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
 遮罩 MUST 用**离开时的画面**（而非仅一块平底色）：平底色与桌面都是「闪一下」，只是
 闪成另一种颜色。
 
+发布遮罩 MUST 直接触发 `SurfaceView` 重绘，且这次重绘 MUST 落在平台拆 surface 之前。
+
 返回前台后 MUST 重新出帧，MUST NOT 停留在渲染暂停状态形成永久黑屏。
 
 #### Scenario: 切后台拆除 surface
@@ -186,13 +188,26 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
       （等比缩放不拉伸字形），MUST NOT 因尺寸不一致整块放弃：输入法弹出/收起
       会改开孔高度，整块放弃就退回平底色——即「输入法弹出时切后台返回终端闪烁」
 
+#### Scenario: 遮罩发布即重绘，且重绘在窗口可见期内
+
+- **WHEN** 运行期在切后台路径上发布开孔遮罩
+- **THEN** `SurfaceView` MUST 立即重绘，MUST NOT 等组合层的下一次重组（遮罩发布发生在
+      渲染线程，与组合层的失效时机无关）
+- **AND** 重绘 MUST 发生在平台拆掉 surface **之前**：那之后的窗口不再有帧，画了也上不了
+      屏。实测反向对照（去掉发布侧重绘）序列为 `(true,true) → (false,true,painted)
+      → ……`——遮罩只在 surface 已经拆掉之后才画，正好那一帧没人看
+- **AND** 每一次重绘覆盖开孔 MUST 回记为「已涂满」（遮罩画面或底色都算），供仪器化
+      用例区分「有遮罩」与「遮罩真的上屏」
+
 #### Scenario: 遮罩在画面恢复后撤下
 
 - **WHEN** 新 surface 提交了首帧
 - **THEN** 遮罩 MUST 被撤下并释放像素
-- **AND** 撤下 MUST 延后到**下一个显示帧**：`present` 只把缓冲排入 surface 的队列，
-      SurfaceFlinger 要到下一次 vsync 才把它锁存上屏。同一拍就撤遮罩，开孔在那一个
-      vsync 里既无旧画面也无新画面，只剩窗口底色——就是「切回前台闪一下」
+- **AND** 撤下 MUST 延后到**队列深度足够的显示帧**：`present` 只把缓冲排入 surface 的
+      队列，SurfaceFlinger 要到下一次 vsync 才把它锁存上屏；交换链按
+      `desired_maximum_frame_latency = 2` 配置，队列可以压两帧才交出去，而应用侧的
+      frame 回调与合成器的锁存发生在同一个 vsync、先后无保证。故延后 MUST 覆盖队列
+      深度（当前两帧），差一帧撤遮罩，开孔就空一帧——就是「切回前台闪一下」
 - **AND** 「无缓冲区」（surface 被拆）MUST 立即生效，遮罩 MUST 马上回来：那条路上
       延迟一帧等于让已经消亡的 surface 再裸一帧
 - **AND** 帧提交上报 MUST 带上「渲染开始时」的开孔世代：开孔在渲染途中被拆时，这一帧
@@ -210,9 +225,11 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
       同一批可见行
 - **THEN** 判据 MUST 取产品自己的开孔状态转换序列——截图与轮询采样都抓不到一两帧的
       瞬态（模拟器一次截图 >100ms，后台采样线程还会被进程冻结）：断言 MUST 包含
-      「无缓冲 + 有遮罩」，且 MUST NOT 出现「无缓冲 + 无遮罩」
-- **AND** 实测序列 MUST 为 `(true,true) → (false,true) → (true,true) → (true,false)`：
-      遮罩在离场时发布、平台拆 surface 那一拍接住、新缓冲上屏后才撤下
+      「无缓冲 + 有遮罩」、「遮罩在 surface 仍在时已涂满窗口」，且 MUST NOT 出现
+      「无缓冲 + 无遮罩 + 未涂满」
+- **AND** 实测序列 MUST 为 `(true,true) → (true,true,painted) → (false,true) →
+      (true,true) → (true,false)`：遮罩在离场时发布并当场画进窗口（surface 还在）、
+      平台拆 surface 那一拍遮罩已在窗口里接住、新缓冲上屏后才撤下
 - **AND** 回前台首帧 MUST 走原生 `warmup: presenting the retained last frame` 分支，
       MUST NOT 走 `no retained frame to present`
 - **AND** 该用例 MUST 做过反向对照（移除遮罩回读后必须失败），否则它证明不了任何事

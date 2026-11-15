@@ -227,11 +227,18 @@ constructor(
      *
      * `present` 只把缓冲**排入** surface 的队列，SurfaceFlinger 要到下一次 vsync
      * 才把它锁存上屏。若此时立刻撤掉遮罩，开孔在那一个 vsync 里既没有旧画面也没有
-     * 新画面，只剩窗口底色——就是「切后台返回闪一下」。故 true 的发布延后到下一个
-     * 显示帧；false（surface 被拆）仍然立即生效，遮罩必须马上回来。
+     * 新画面，只剩窗口底色——就是「切后台返回闪一下」。故 true 的发布延后
+     * [SURFACE_PRESENT_DEFERRAL_FRAMES] 个显示帧；false（surface 被拆）仍然立即
+     * 生效，遮罩必须马上回来。
+     *
+     * 为什么是两帧而不是一帧：交换链按 `desired_maximum_frame_latency = 2` 配置
+     * （见 native 的 surface 配置），队列可以压着两帧才交给合成器；应用侧的下一个
+     * frame 回调与合成器的锁存发生在同一个 vsync，先后没有保证。差一帧撤遮罩，
+     * 开孔就空一帧——用户看到的就是那一闪。
      */
     private val surfacePresentLock = Any()
     private var surfacePresentPending = false
+    private var surfacePresentDeferralFrames = 0
     private var surfacePresentToken = 0L
     private var surfacePresentFrameCallback: Choreographer.FrameCallback? = null
 
@@ -270,20 +277,36 @@ constructor(
             if (epoch != surfacePresentToken) return
             if (surfaceBufferPresentFlow.value || surfacePresentPending) return
             surfacePresentPending = true
+            surfacePresentDeferralFrames = SURFACE_PRESENT_DEFERRAL_FRAMES
         }
         val token = synchronized(surfacePresentLock) { surfacePresentToken }
         mainHandler.post {
             val callback =
                 object : Choreographer.FrameCallback {
                     override fun doFrame(frameTimeNanos: Long) {
+                        var waitMore = false
+                        var published = false
                         synchronized(surfacePresentLock) {
                             if (token != surfacePresentToken || !surfacePresentPending) return
-                            surfacePresentPending = false
-                            surfacePresentFrameCallback = null
-                            if (surfaceBufferPresentFlow.value) return
-                            surfaceBufferPresentFlow.value = true
-                            recordHoleState()
+                            if (surfacePresentDeferralFrames > 0) {
+                                surfacePresentDeferralFrames--
+                                waitMore = true
+                            } else {
+                                surfacePresentPending = false
+                                surfacePresentFrameCallback = null
+                                if (!surfaceBufferPresentFlow.value) {
+                                    surfaceBufferPresentFlow.value = true
+                                    recordHoleState()
+                                    published = true
+                                }
+                            }
                         }
+                        if (waitMore) {
+                            // 交换链还压着这一帧：再等一个显示帧，遮罩继续盖着。
+                            Choreographer.getInstance().postFrameCallback(this)
+                            return
+                        }
+                        if (!published) return
                         // 新帧已上屏：开孔遮罩使命完成，撤掉并释放像素（见 [coverFrame]）。
                         clearCoverFrame()
                     }
@@ -317,18 +340,51 @@ constructor(
      * 闪烁是一两帧的瞬态：截图来不及，轮询采样在后台会被进程冻结吞掉，回前台的
      * 关键路径又会压过采样线程。产品自己的状态机是唯一不丢事件的来源，故在两个
      * 标志的写入点各记一条；仪器化测试据此验证「可见时开孔永远有内容」。
+     *
+     * 光有「遮罩在位」还不够：遮罩得真的进了窗口缓冲区才有用。标志翻转只说明
+     * 运行期有了遮罩，视图未必被要求重绘——切后台那一刻没有别的失效源，漏一次
+     * 重绘，窗口留着上一帧的**空开孔**，回前台首帧就是用户看到的那一下闪。
+     * 故视图每画一次覆盖开孔的内容就回记一条（见 [recordHolePainted]）。
      */
     private val holeJournalLock = Any()
     private val holeJournal = ArrayDeque<HoleStateEntry>()
 
-    /** 开孔状态的一条转换记录（供闪烁取证）。 */
-    internal data class HoleStateEntry(val bufferPresent: Boolean, val coverPresent: Boolean)
+    /**
+     * 开孔状态的一条转换记录（供闪烁取证）。
+     *
+     * [painted] 是「视图已把开孔涂满（遮罩画面或底色）并交给窗口」的事实记录，
+     * 只与某一份遮罩一起出现一次：重复重绘不再记流水账。
+     */
+    internal data class HoleStateEntry(
+        val bufferPresent: Boolean,
+        val coverPresent: Boolean,
+        val painted: Boolean = false,
+    )
+
+    /** 当前这份遮罩是否已被视图画进窗口（见 [recordHolePainted]）。 */
+    private var holePaintedForCover = false
 
     /** 记录一次开孔状态；与上一条相同则忽略。 */
     private fun recordHoleState() {
         synchronized(holeJournalLock) {
             val entry = HoleStateEntry(surfaceBufferPresentFlow.value, coverFrameFlow.value != null)
             if (holeJournal.lastOrNull() == entry) return
+            holeJournal.addLast(entry)
+            if (holeJournal.size > HOLE_JOURNAL_CAPACITY) holeJournal.removeFirst()
+        }
+    }
+
+    /**
+     * 记下「视图已把开孔涂满并重绘了窗口」（视图在主线程绘制路径上调用）。
+     *
+     * 这是遮罩**真的上屏**的唯一证据：运行期发布遮罩不会自己让窗口重绘，而闪烁
+     * 恰恰发生在「遮罩已发布、窗口没重绘」的那一刻。每份遮罩只记一次。
+     */
+    internal fun recordHolePainted() {
+        synchronized(holeJournalLock) {
+            if (holePaintedForCover) return
+            holePaintedForCover = true
+            val entry = HoleStateEntry(surfaceBufferPresentFlow.value, coverFrameFlow.value != null, painted = true)
             holeJournal.addLast(entry)
             if (holeJournal.size > HOLE_JOURNAL_CAPACITY) holeJournal.removeFirst()
         }
@@ -353,6 +409,8 @@ constructor(
             )
             return
         }
+        // 新遮罩：上一份「已上屏」的记录随之作废（见 recordHolePainted）。
+        synchronized(holeJournalLock) { holePaintedForCover = false }
         coverFrameFlow.value = frame
         recordHoleState()
     }
@@ -360,6 +418,7 @@ constructor(
     /** 新帧已上屏：遮罩使命完成，撤掉并释放像素。 */
     internal fun clearCoverFrame() {
         if (coverFrameFlow.value == null) return
+        synchronized(holeJournalLock) { holePaintedForCover = false }
         coverFrameFlow.value = null
         recordHoleState()
     }
@@ -1427,6 +1486,15 @@ constructor(
     private companion object {
         /** 开孔状态转换日志的容量：只留最近若干条，足够覆盖一次后台往返。 */
         private const val HOLE_JOURNAL_CAPACITY = 32
+
+        /**
+         * 新帧提交后遮罩再等几个显示帧才撤。
+         *
+         * 交换链的 `desired_maximum_frame_latency` 是 2：`present` 只把缓冲排入队列，
+         * 合成器可能压两帧才锁存。应用侧 frame 回调与合成器锁存同一个 vsync，
+         * 先后无保证，故按队列深度留够余量（见 [publishSurfaceBufferPresent]）。
+         */
+        private const val SURFACE_PRESENT_DEFERRAL_FRAMES = 2
 
         private const val TENTHS_PER_UNIT = 10
 
