@@ -3,6 +3,7 @@ package terminal.emulator.ui
 import android.view.WindowInsets
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
+import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -17,6 +18,8 @@ import terminal.emulator.hideImeAndConfirm
 import terminal.emulator.isImeVisible
 import terminal.emulator.requireBridge
 import terminal.emulator.runtime.TerminalRuntime.HoleStateEntry
+import terminal.emulator.runtime.holeStateCycle
+import terminal.emulator.showCursor
 import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
 import java.time.LocalDateTime
@@ -87,6 +90,20 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         composeTestRule.waitForSession()
         composeTestRule.waitForTerminalPixels()
         composeTestRule.awaitBridge()
+    }
+
+    /**
+     * 还原光标可见性。
+     *
+     * 像素比对期间必须藏起光标（块光标闪烁是逐像素噪声源），但仪器化套件跨用例
+     * 共用同一会话：光标一直藏着，后继用例就拿不到帧内光标，退格与组字两条用例
+     * 的「起点」判据整段失效（实测报「渲染帧未追上当前光标」「帧内光标一直取不到」）。
+     * 故离开前必须还原——与 [paintColoredContent] 的藏光标成对；还原夹具与判据见
+     * [showCursor]。
+     */
+    @After
+    fun restoreCursorVisibility() {
+        composeTestRule.requireBridge().showCursor()
     }
 
     /** 开孔在屏幕上的纵向条带（像素坐标）。 */
@@ -245,14 +262,8 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         Thread.sleep(SETTLE_MILLIS)
 
         // 1-2. 状态机自己的转换序列：本次往返新增的条目即整段后台往返。
-        val journalAfter = runtime.holeStateJournal()
-        val cycle =
-            if (journalAfter.size >= journalBefore.size) {
-                journalAfter.drop(journalBefore.size)
-            } else {
-                // 环形日志在往返期间溢出（容量 32，正常一次往返只有几条）：退回整份。
-                journalAfter
-            }
+        // 差分按序号取：日志是环形缓冲，前后都满时按条数差分恒为空。
+        val cycle = holeStateCycle(journalBefore, runtime.holeStateJournal())
         android.util.Log.i("FlickerTest", "开孔状态转换序列（buffer,cover）：$cycle")
         assertTrue("本次往返必须产生开孔状态转换记录（实测 ${cycle.size} 条）", cycle.isNotEmpty())
         assertTrue(

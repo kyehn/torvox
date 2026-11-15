@@ -468,6 +468,23 @@ fun withShellProbeSession(homeName: String, timeoutMs: Long = 20_000, body: (ses
 private val SGR_SEQUENCE = Regex("\u001B\\[[0-9;]*m")
 
 /**
+ * 显示光标（DECTCEM 置位）。
+ *
+ * 光标可见性是**跨用例存活**的会话状态：像素比对期间必须藏起光标（块光标闪烁是逐像素
+ * 噪声源），藏过又忘了还原时，后继用例取不到帧内光标（隐藏时 `cursorViewportPacked`
+ * 返回 -1），落格与帧内光标判据整段失效——红灯措辞落在后继用例上，根因却在更早的用例。
+ *
+ * 故藏与还原必须成对，且还原放在收尾钩子里，断言失败时同样执行。序列只此一份：
+ * 两处各写一份字面量时，一处改了另一处没改，污染只会以更难查的形式复发。
+ */
+internal const val SHOW_CURSOR_SEQUENCE = "\u001B[?25h"
+
+/** [SHOW_CURSOR_SEQUENCE] 的共享出口：把光标恢复为可见。 */
+fun Bridge.showCursor() {
+    feedTerminal(SHOW_CURSOR_SEQUENCE.toByteArray(Charsets.UTF_8))
+}
+
+/**
  * 让共享 shell 回到可预期状态：结束占着 tty 的前台进程、恢复 tty 回显、关掉全部鼠标上报模式。
  *
  * 共享会话是所有仪器测试的公共资源，而**命令回显**正是它的状态之一：任何用例把
@@ -517,6 +534,9 @@ fun Bridge.restoreSharedShellState(timeoutMs: Long = 30_000) {
  * 清屏会抹掉同一次调用序列里先前写下的标记（实测三色只剩最后一个，红/绿像素
  * 恒为 0、蓝独活）；光标归位已足够让每轮轮询从可区分的状态出发。
  * SGR 不占列，期望列按剥除转义后的可见长度计。
+ *
+ * 判据要求光标可见：光标被藏（隐藏或不在视口内）时 `cursorViewportPacked` 返回 -1，
+ * 轮询恒不成立——那是前序用例的会话污染，不是本用例的落格问题。
  */
 fun placeTextAtRow(bridge: Bridge, row: Int, text: String, timeoutMs: Long = 15_000) {
     val expectedColumn = SGR_SEQUENCE.replace(text, "").length
@@ -524,15 +544,25 @@ fun placeTextAtRow(bridge: Bridge, row: Int, text: String, timeoutMs: Long = 15_
     assertTrue("光标归位送显失败", homed)
     val fedBytes = bridge.feedTerminal("\u001B[${row + 1};1H$text".toByteArray(Charsets.UTF_8))
     assertTrue("标记送显失败", fedBytes)
+    var cursorVisible = false
     val landed = UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 50) {
         val packed = bridge.cursorViewportPacked()
+        cursorVisible = cursorVisible || packed >= 0
         packed >= 0 &&
             (packed shr 32).toInt() == row &&
             (packed and 0xffffffffL).toInt() == expectedColumn
     }
     // 断言信息不得含裸控制字符：ESC 会让 JUnit XML 报告无法解析，失败详情随之整体丢失。
+    // 光标不可见（隐藏或不在视口内）与「落在别的位置」是两种根因，措辞 MUST NOT 混同：
+    // 前者是前序用例留下的会话污染，后者才是本用例的落格问题。
+    val reason =
+        if (cursorVisible) {
+            "标记必须落格于 ($row,$expectedColumn)"
+        } else {
+            "光标不可见（隐藏或不在视口内），标记无法落格于 ($row,$expectedColumn)"
+        }
     assertNotNull(
-        "标记必须落格于 ($row,$expectedColumn): [${SGR_SEQUENCE.replace(text, "")}]",
+        "$reason: [${SGR_SEQUENCE.replace(text, "")}]",
         landed,
     )
 }

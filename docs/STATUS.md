@@ -22,3 +22,8 @@
 - 验证：`BackgroundResumeFlickerInstrumentedTest`（模拟器，真实 HOME 往返，含键盘在
   场形态）断言「遮罩在 surface 仍在时已涂满窗口」，并做过反向对照——去掉发布侧的
   重绘后该断言失败，即原实现确实漏了这一帧。
+- 过渡期的像素级取证：`TerminalHoleTransitionFillInstrumentedTest`（模拟器，真实 HOME
+  往返）用 `PixelCopy` 连续读窗口自己的缓冲，量开孔区域的不透明占比——前台稳态必须
+  透明，遮罩发布后实测 79~98ms 内被填满且填满发生在平台拆 surface 之前。反向对照
+  （去掉「遮罩发布即重绘」与「暂停期间照画遮罩」两处）下整个过渡段开孔一直透明，填满
+  延迟实测 3278ms，用例按「500ms 内必须填满」失败。

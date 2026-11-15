@@ -350,27 +350,53 @@ constructor(
     private val holeJournal = ArrayDeque<HoleStateEntry>()
 
     /**
+     * 转换序号：单调递增，每追加一条记录 +1。
+     *
+     * 日志是环形缓冲，满了就挤掉最早的条目，故「某段时间内新增了哪些条目」不能
+     * 按条数差分——前后都满时差分恒为空，整段往返会被算成「什么都没发生」。
+     * 序号不受绕回影响，差分改按序号取。
+     */
+    private var holeStateSequence = 0L
+
+    /**
      * 开孔状态的一条转换记录（供闪烁取证）。
      *
      * [painted] 是「视图已把开孔涂满（遮罩画面或底色）并交给窗口」的事实记录，
      * 只与某一份遮罩一起出现一次：重复重绘不再记流水账。
+     *
+     * [sequence] 是该条记录的序号（见 [holeStateSequence]）：状态相同时也要靠它
+     * 区分先后，故相等判断只比状态三元组。
      */
     internal data class HoleStateEntry(
         val bufferPresent: Boolean,
         val coverPresent: Boolean,
         val painted: Boolean = false,
+        val sequence: Long = 0L,
     )
 
     /** 当前这份遮罩是否已被视图画进窗口（见 [recordHolePainted]）。 */
     private var holePaintedForCover = false
 
+    /** 追加一条记录并盖上序号（调用方须持 [holeJournalLock]）。 */
+    private fun appendHoleState(entry: HoleStateEntry) {
+        holeJournal.addLast(entry.copy(sequence = ++holeStateSequence))
+        if (holeJournal.size > HOLE_JOURNAL_CAPACITY) holeJournal.removeFirst()
+    }
+
     /** 记录一次开孔状态；与上一条相同则忽略。 */
     private fun recordHoleState() {
         synchronized(holeJournalLock) {
             val entry = HoleStateEntry(surfaceBufferPresentFlow.value, coverFrameFlow.value != null)
-            if (holeJournal.lastOrNull() == entry) return
-            holeJournal.addLast(entry)
-            if (holeJournal.size > HOLE_JOURNAL_CAPACITY) holeJournal.removeFirst()
+            val last = holeJournal.lastOrNull()
+            if (
+                last != null &&
+                last.bufferPresent == entry.bufferPresent &&
+                last.coverPresent == entry.coverPresent &&
+                last.painted == entry.painted
+            ) {
+                return
+            }
+            appendHoleState(entry)
         }
     }
 
@@ -384,9 +410,9 @@ constructor(
         synchronized(holeJournalLock) {
             if (holePaintedForCover) return
             holePaintedForCover = true
-            val entry = HoleStateEntry(surfaceBufferPresentFlow.value, coverFrameFlow.value != null, painted = true)
-            holeJournal.addLast(entry)
-            if (holeJournal.size > HOLE_JOURNAL_CAPACITY) holeJournal.removeFirst()
+            appendHoleState(
+                HoleStateEntry(surfaceBufferPresentFlow.value, coverFrameFlow.value != null, painted = true),
+            )
         }
     }
 

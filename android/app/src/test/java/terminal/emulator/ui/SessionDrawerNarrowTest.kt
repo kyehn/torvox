@@ -10,6 +10,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -43,13 +44,28 @@ private const val SESSION_LIST_MIN_FRACTION = 2f / 5f
 class SessionDrawerNarrowTest {
     @get:Rule val composeRule = createComposeRule()
 
-    private fun setDrawer() {
+    /**
+     * 摆出抽屉内容。
+     *
+     * 夹具只有一份：三条用例共用同一个抽屉组装（空会话 / 带会话 / 限高），
+     * 各自只改「会话表」与「高度」两处参数——会话表不同则断言对象不同，
+     * 高度不同则动作区与会话列表的比例才有意义。
+     *
+     * [drawerHeight] 为 null 时不约束高度：只关心窄屏动作网格的用例不必钉高度。
+     */
+    private fun setDrawer(
+        sessions: List<SessionInfo> = emptyList(),
+        activeSessionId: Long = 0L,
+        drawerHeight: Dp? = null,
+    ) {
         composeRule.setContent {
             MaterialTheme {
-                Box(Modifier.width(240.dp)) {
+                val width = Modifier.width(240.dp)
+                val boxModifier = if (drawerHeight == null) width else width.height(drawerHeight)
+                Box(boxModifier) {
                     SessionDrawer(
-                        sessions = emptyList(),
-                        activeSessionId = 0L,
+                        sessions = sessions,
+                        activeSessionId = activeSessionId,
                         onSwitchSession = {},
                         onCloseSession = {},
                         onAddSession = {},
@@ -65,30 +81,16 @@ class SessionDrawerNarrowTest {
     }
 
     private fun setDrawerWithSession() {
-        composeRule.setContent {
-            MaterialTheme {
-                Box(Modifier.width(240.dp)) {
-                    SessionDrawer(
-                        sessions =
-                        listOf(
-                            SessionInfo(
-                                sessionId = 1L,
-                                title = "VT_TITLE",
-                            ),
-                        ),
-                        activeSessionId = 1L,
-                        onSwitchSession = {},
-                        onCloseSession = {},
-                        onAddSession = {},
-                        onSettings = {},
-                        onSearch = {},
-                        onKeyboardToggle = {},
-                        onResetTerminal = {},
-                        onClose = {},
-                    )
-                }
-            }
-        }
+        setDrawer(
+            sessions =
+            listOf(
+                SessionInfo(
+                    sessionId = 1L,
+                    title = "VT_TITLE",
+                ),
+            ),
+            activeSessionId = 1L,
+        )
     }
 
     /** 节点在根坐标里的纵向范围（上沿、下沿），单位像素。 */
@@ -163,24 +165,7 @@ class SessionDrawerNarrowTest {
      */
     @Test
     fun action_area_leaves_room_for_session_list() {
-        composeRule.setContent {
-            MaterialTheme {
-                Box(Modifier.width(240.dp).height(DRAWER_HEIGHT.dp)) {
-                    SessionDrawer(
-                        sessions = emptyList(),
-                        activeSessionId = 0L,
-                        onSwitchSession = {},
-                        onCloseSession = {},
-                        onAddSession = {},
-                        onSettings = {},
-                        onSearch = {},
-                        onKeyboardToggle = {},
-                        onResetTerminal = {},
-                        onClose = {},
-                    )
-                }
-            }
-        }
+        setDrawer(drawerHeight = DRAWER_HEIGHT.dp)
         val resetTop = verticalRange("ResetTerminalButton").first
         val settingsBottom = verticalRange("SettingsButton").second
         assertTrue(

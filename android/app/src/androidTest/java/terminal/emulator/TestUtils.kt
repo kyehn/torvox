@@ -775,6 +775,10 @@ fun injectTap(view: View, pointerX: Float, pointerY: Float) {
  * 选区菜单留给后继用例，全量文本查询越过原生 `QUERY_TIMEOUT_MS` 即返回空串，
  * 渲染快照也可能超时——外部表现是与被测行为无关的成片红灯。ED3 后回滚必须真的
  * 归零，不归零就大声失败：静默失效会把污染继续往后传。
+ *
+ * 光标可见性（DECTCEM）同样跨用例存活，且产品自身从不隐藏光标，故清场时一并
+ * 恢复成可见：藏过光标又忘了还原的用例会让后继用例取光标位置恒为 -1（隐藏光标
+ * 时 `cursorViewportPacked` 返回 -1），落格与帧内光标判据整段失效。
  */
 fun AndroidComposeTestRule<*, *>.cleanUpTerminalState() {
     closeSettingsOverlay()
@@ -783,7 +787,9 @@ fun AndroidComposeTestRule<*, *>.cleanUpTerminalState() {
     runOnMainThread { (activity as MainActivity).terminalViewModel.clearSelection() }
     val bridge = getBridge() ?: return
     bridge.setScrollOffset(0)
-    if (!bridge.feedTerminal("\u001B[2J\u001B[3J\u001B[H".toByteArray(Charsets.UTF_8))) {
+    val reset =
+        "\u001B[2J\u001B[3J\u001B[H" + SHOW_CURSOR_SEQUENCE
+    if (!bridge.feedTerminal(reset.toByteArray(Charsets.UTF_8))) {
         throw AssertionError("清屏送显失败")
     }
     val cleared =
