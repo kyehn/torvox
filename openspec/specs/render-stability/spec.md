@@ -200,6 +200,23 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
       遮罩已被撤掉，那条空档就是闪烁。世代不符的上报 MUST 被丢弃，由新开孔的真实帧
       重新上报（输入法弹出会拆装 surface，渲染线程同时在跑，这是常态而非边角）
 
+#### Scenario: 模拟器实测往返全程不露底
+
+- **WHEN** 仪器化用例 `BackgroundResumeFlickerInstrumentedTest` 在模拟器上走真实
+      HOME → `am start` 往返
+- **THEN** 该用例 MUST 覆盖两种形态：**键盘收起**（像素条带可比）与**键盘在场**
+      （`docs/STATUS.md` 报的场景——开孔被位移/改高，遮罩与开孔尺寸不一致，走等比
+      缩放贴合）；键盘在场的用例 MUST 断言往返前后终端位移相同，否则像素比对的不是
+      同一批可见行
+- **THEN** 判据 MUST 取产品自己的开孔状态转换序列——截图与轮询采样都抓不到一两帧的
+      瞬态（模拟器一次截图 >100ms，后台采样线程还会被进程冻结）：断言 MUST 包含
+      「无缓冲 + 有遮罩」，且 MUST NOT 出现「无缓冲 + 无遮罩」
+- **AND** 实测序列 MUST 为 `(true,true) → (false,true) → (true,true) → (true,false)`：
+      遮罩在离场时发布、平台拆 surface 那一拍接住、新缓冲上屏后才撤下
+- **AND** 回前台首帧 MUST 走原生 `warmup: presenting the retained last frame` 分支，
+      MUST NOT 走 `no retained frame to present`
+- **AND** 该用例 MUST 做过反向对照（移除遮罩回读后必须失败），否则它证明不了任何事
+
 #### Scenario: 没有可回读的内容时不遮
 
 - **WHEN** 回读失败、没有保留的帧或帧格式不是 RGBA8

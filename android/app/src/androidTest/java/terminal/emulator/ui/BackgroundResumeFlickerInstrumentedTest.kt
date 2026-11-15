@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import android.view.WindowInsets
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
@@ -13,7 +14,9 @@ import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.hideImeAndConfirm
+import terminal.emulator.isImeVisible
 import terminal.emulator.requireBridge
+import terminal.emulator.runtime.TerminalRuntime.HoleStateEntry
 import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
 import java.text.SimpleDateFormat
@@ -176,19 +179,28 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         .filter { it.take(18) >= since }
         .toList()
 
-    @Test
-    fun backgroundResumeNeverExposesUncoveredHole() {
-        val runtime = composeTestRule.activity.terminalViewModel.runtime
-        paintColoredContent()
-        hideImeAndSettle()
-        val band = holeBand()
-        val before = UxTestUtils.screenshot(device)
-        assertTrue(
-            "离开前条带必须有内容像素（否则「无闪烁」断言无意义）",
-            distinctColors(before, band) >= MIN_DISTINCT_COLORS,
+    /** 弹出输入法并等到其确实可见（`STATUS.md` 报的场景就是键盘在场）。 */
+    private fun showImeAndSettle() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val decor = composeTestRule.activity.window.decorView
+            decor.windowInsetsController?.show(WindowInsets.Type.ime())
+        }
+        assertNotNull(
+            "输入法必须弹出",
+            UxTestUtils.pollUntilTrue(5_000, 100) { isImeVisible(composeTestRule.activity) },
         )
+        composeTestRule.waitForIdle()
+        Thread.sleep(SETTLE_MILLIS)
+    }
 
-        val journalBefore = runtime.holeStateJournal()
+    /**
+     * 真实 HOME → `am start` 往返，并用开孔状态机自己的转换序列断言全程不露底。
+     *
+     * @param journalBefore 离开前的状态快照；差额即本次往返。
+     * @return 本次往返新增的转换记录，供调用方附加断言。
+     */
+    private fun roundTripAndAssertNeverUncovered(journalBefore: List<HoleStateEntry>): List<HoleStateEntry> {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
         val leaveStamp = wallClockStamp()
 
         // 真实切后台：HOME 键。后台应用的 startActivity 会被平台拦截，回前台只能
@@ -228,7 +240,7 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         )
         Thread.sleep(SETTLE_MILLIS)
 
-        // 1-2. 用状态机自己的转换序列判定：本次往返新增的条目即整段后台往返。
+        // 1-2. 状态机自己的转换序列：本次往返新增的条目即整段后台往返。
         val journalAfter = runtime.holeStateJournal()
         val cycle =
             if (journalAfter.size >= journalBefore.size) {
@@ -264,6 +276,22 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             "回前台首帧 MUST NOT 清屏（出现 `${WARMUP_CLEARED}`）",
             warmup.none { it.contains(WARMUP_CLEARED) },
         )
+        return cycle
+    }
+
+    @Test
+    fun backgroundResumeNeverExposesUncoveredHole() {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
+        paintColoredContent()
+        hideImeAndSettle()
+        val band = holeBand()
+        val before = UxTestUtils.screenshot(device)
+        assertTrue(
+            "离开前条带必须有内容像素（否则「无闪烁」断言无意义）",
+            distinctColors(before, band) >= MIN_DISTINCT_COLORS,
+        )
+
+        roundTripAndAssertNeverUncovered(runtime.holeStateJournal())
 
         // 4. 终判：往返前后同一批像素一致，且条带里仍有内容。
         val after = UxTestUtils.screenshot(device)
@@ -282,6 +310,57 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             )
         assertTrue(
             "回前台后内容条带必须与离开时一致（实测差 $diff 像素）",
+            diff <= MAX_STRIP_DIFF,
+        )
+    }
+
+    /**
+     * `docs/STATUS.md` 报的场景：**输入法在场**时切后台返回。
+     *
+     * 键盘在场时开孔高度被子窗口/位移改过，遮罩与开孔尺寸不一致——那条路上整块放弃
+     * 遮罩就退回平底色，正是「大概率闪烁」。故本用例不收起键盘：状态序列判据与上
+     * 一用例相同，另加「往返前后终端位移相同」以保证像素比对的是同一批可见行。
+     */
+    @Test
+    fun backgroundResumeWithImeVisibleNeverExposesUncoveredHole() {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
+        paintColoredContent()
+        showImeAndSettle()
+        val band = holeBand()
+        val before = UxTestUtils.screenshot(device)
+        val shiftBefore = surfaceShiftPx()
+        assertTrue(
+            "键盘在场时离开前条带必须有内容像素",
+            distinctColors(before, band) >= MIN_DISTINCT_COLORS,
+        )
+
+        roundTripAndAssertNeverUncovered(runtime.holeStateJournal())
+
+        val shiftAfter = surfaceShiftPx()
+        assertTrue(
+            "回前台后输入法必须仍在场（否则本用例没覆盖键盘场景）",
+            isImeVisible(composeTestRule.activity),
+        )
+        assertTrue(
+            "往返前后终端位移必须相同（否则像素比对不是同一批可见行：$shiftBefore → $shiftAfter）",
+            shiftBefore == shiftAfter,
+        )
+        val after = UxTestUtils.screenshot(device)
+        assertTrue(
+            "键盘在场时回前台后条带必须有内容",
+            distinctColors(after, band) >= MIN_DISTINCT_COLORS,
+        )
+        val diff =
+            UxTestUtils.countDiffInBand(
+                before,
+                after,
+                band.top.coerceAtLeast(0),
+                band.bottom.coerceAtMost(after.height),
+                PIXEL_SAMPLE_STEP_PX,
+                PIXEL_DELTA_THRESHOLD,
+            )
+        assertTrue(
+            "键盘在场时回前台后内容条带必须与离开时一致（实测差 $diff 像素）",
             diff <= MAX_STRIP_DIFF,
         )
     }
