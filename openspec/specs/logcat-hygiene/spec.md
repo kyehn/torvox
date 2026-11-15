@@ -511,6 +511,81 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       该行是 info 级、不属应用侧错误，MUST NOT 以过滤它作为处置
 - **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
 
+#### Scenario: 2026-11-15 第二份运行日志（13:25-24）的聚合归因
+
+- **WHEN** 审计 `logcat_2026-11-15_13-25-24.txt`（主进程 25222，13:23:41 冷启动到
+      13:25:01 会话退出，含两次真实 HOME 往返）
+- **THEN** 应用进程 W/E 合计 MUST 为 104 条，全部无应用栈，逐条处置 MUST 为：
+       - `mali_gralloc` 80 条（`Requested R8 format is not supported with this allocator`
+         40 + `ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00` 40）：
+         即 10 次新窗口 × 8 条，源头是 AOSP `vulkan/libvulkan/swapchain.cpp` 对
+         `VK_FORMAT_R8_UNORM`（`AHARDWAREBUFFER_FORMAT_R8_UNORM` = 0x38）的
+         `AHardwareBuffer_isSupported` 探测（该文件第 849-851 行），厂商 HIDL 分配器
+         不支持 R8 故回这条错；应用侧无 API 可改，MUST NOT 以换 surface 格式或过滤
+         该 tag 处置
+       - `ziparchive` 4（`unisoc-framework.dm` 2、`unipnp-framework.dm` 2）、
+         `FeatureOpt` 2（`zte_foldable`）、`libc` 4（`vendor.MB.running`、
+         `persist.vendor.gpu.fbc`、`persist.unipnp.debug` 2）：厂商框架镜像 dex
+         元数据与属性读取探测，无应用栈
+       - `Typeface` 1（`updateDefaultTypeface(fontPath: /data/resource-cache/font/...)`）：
+         AOSP `graphics/java/android/graphics/Typeface.java` 既无该函数也无任何
+         `Log.e`/`Log.w`（全文件只有 TAG 常量），故 MUST 归为厂商标字体框架，
+         MUST NOT 记为应用字体路径错误
+       - `wgpu_core::instance` 2（`Missing downlevel flags: DownlevelFlags(SURFACE_VIEW_FORMATS)`
+         + `DownlevelCapabilities {`）：上游 `wgpu-core 30.0.2` 的 `instance.rs` 第
+         924-925 行，判据 `Backends::PRIMARY.contains(...) && !caps.downlevel
+         .is_webgpu_compliant()`，对适配器无 `SURFACE_VIEW_FORMATS` 时无条件打出，
+         应用侧无 API 可关
+       - `Parcel` 1（`Expecting binder but got null!`）：`frameworks/native/libs/binder/
+         Parcel.cpp` 第 2330 行的 `ALOGW`，读 null binder 时打出，调用方在平台一侧
+       - `com.termux` 1（`Not starting debugger since process cannot load the jdwp agent.`）：
+         debug 构建未启用 jdwp，无应用栈
+       - `AndroidRuntime` 1（`FATAL EXCEPTION: Render-1`，正文为 2026-11-12 另一进程
+         PID 12237 的 `Rust panic: Error in Device::poll: Validation Error`）：该行早于
+         本次运行三天，属历史崩溃；现由 `poll.rs` 的 `poll_outcome`/`classify` 用
+         `catch_unwind` 归一成 `PollOutcome::Failed`（`native/src/render/context/poll.rs`
+         含回归用例），MUST NOT 记为本次运行的缺陷
+       - 同 UID 子进程 8 条 MUST 全部归为 `avc: granted { execute }` 内核审计行：
+         路径全在 `files/usr/nix/store/.../{glibc,jemalloc,oniguruma,gcc,ncurses}`，<!-- nosemgrep: semgrep.no-nix-store-paths -->
+         由用户 shell 起的 `bash`/`yazi`/`clear` 装载动态库所致，`granted` 是放行决定，
+         MUST NOT 记为应用侧缺陷，也 MUST NOT 以过滤这些 tag 处置
+- **AND** 本份日志 MUST NOT 出现任何应用侧 W/E：应用自身 tag（`Runtime`、
+      `native::render::*`、`native::android::ffi::*`）全为 info 级；慢帧告警
+      （`SLOW_*`）一条也没有，即本次运行未触发渲染诊断
+- **AND** 本份日志的两次往返 MUST 与 `render-stability` 的开孔序列对得上：
+      `setRenderPaused: paused=true` → `read_cover_frame`（42ms 后）→（约 26s 后台）
+      → `attachWindow`（新指针）→ `attach_surface: ANativeWindow changed; rebuilding`
+      → `configured ... latency=2` → `warmup: presenting the retained last frame`
+      → `paused=false`。即后台期间窗口 surface 确实被平台拆掉、回前台确实重建，
+      与「`SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT` 已证伪」的结论一致
+- **AND** 本份日志中的 `read_cover_frame` 只证明「回读出了遮罩帧」，不证明遮罩画进了
+      窗口；后者由 `render-stability` 的「已涂满」判据单独取证（见该文件的开孔场景）
+- **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
+
+#### Scenario: 模拟器 debug 构建的聚合归因
+
+- **WHEN** 审计模拟器（x86_64）上 debug 构建的一次冷启动加一次真实 HOME 往返
+- **THEN** 应用进程 W/E 的计数与处置 MUST 为（合计 42 条）：
+      - `com.termux` 12 条（10 条 `Accessing hidden method/field ...` + 2 条 x86 CPU
+        变体提示）：隐藏 API 访问告警的调用方是调试期依赖 `curtains.internal.*`
+        （LeakCanary 的传递依赖，经 dex 反查定位到具体类）；该依赖是
+        `debugImplementation`、发布构建不含，应用自身源码无这些反射调用
+        （`WindowManagerGlobal`／`ActivityThread`／`SystemProperties` 均无命中），
+        MUST NOT 记为应用侧缺陷，MUST NOT 以过滤该 tag 处置
+      - `wgpu_core` 9 条（`Missing downlevel flags` 及其能力清单）：上游对适配器缺少
+        `SURFACE_VIEW_FORMATS` 的无条件提示，应用侧无 API 可关，与 13-25-24 的归因同
+      - 慢帧 5 条（`SLOW_RENDER_PHASE`／`SLOW_CELL_BUILD`／`SLOW_RENDER_INNER`／
+        `SLOW_FRAME`／`SLOW_LOOP`）：模拟器软件渲染下的冷启动首帧（约 30ms），是应用
+        侧诊断而非缺陷，处置按限频口径
+      - `RemoteInputConnectionImpl` 6 条、`WindowOnBackDispatcher` 3 条、`HWUI` 2 条、
+        `ziparchive` 2 条、`InteractionJankMonitor` 1 条、`FrameTracker` 1 条
+        （`force finish cuj ... IME_INSETS_SHOW_ANIMATION`）、`platform` 1 条
+        （`Failed to open rendernode`）：平台与框架路径，无应用栈；其中失活输入连接的
+        告警见同文件场景
+- **AND** 本次审计 MUST NOT 发现应用侧 E 级缺陷条目：两条 E 分别来自平台 jank 跟踪
+      与平台渲染节点打开，应用自身 tag 里除慢帧诊断外全为 info 级
+- **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
+
 #### Scenario: 上游未实现的矩形区域属性动作
 
 - **WHEN** 日志出现上游 VT 解析器对 VT420 矩形区域属性（DECCARA／DECSACE）的未实现告警

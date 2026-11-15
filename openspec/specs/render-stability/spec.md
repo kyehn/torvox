@@ -194,8 +194,8 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
 - **THEN** `SurfaceView` MUST 立即重绘，MUST NOT 等组合层的下一次重组（遮罩发布发生在
       渲染线程，与组合层的失效时机无关）
 - **AND** 重绘 MUST 发生在平台拆掉 surface **之前**：那之后的窗口不再有帧，画了也上不了
-      屏。实测反向对照（去掉发布侧重绘）序列为 `(true,true) → (false,true,painted)
-      → ……`——遮罩只在 surface 已经拆掉之后才画，正好那一帧没人看
+      屏。实测反向对照（去掉发布侧重绘）序列为 `(true,true) → (false,true) →
+      (false,true,painted) → ……`——遮罩只在 surface 已经拆掉之后才画，正好那一帧没人看
 - **AND** 每一次重绘覆盖开孔 MUST 回记为「已涂满」（遮罩画面或底色都算），供仪器化
       用例区分「有遮罩」与「遮罩真的上屏」
 
@@ -232,7 +232,12 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
       平台拆 surface 那一拍遮罩已在窗口里接住、新缓冲上屏后才撤下
 - **AND** 回前台首帧 MUST 走原生 `warmup: presenting the retained last frame` 分支，
       MUST NOT 走 `no retained frame to present`
-- **AND** 该用例 MUST 做过反向对照（移除遮罩回读后必须失败），否则它证明不了任何事
+- **AND** 该用例 MUST 做过反向对照，否则它证明不了任何事。反向对照实测（模拟器，
+      2026-11-15）：去掉「遮罩发布即重绘」与「暂停期间照画遮罩」两处后，同一用例
+      MUST 失败，序列变成 `(true,true) → (false,true) → (false,true,painted) →
+      (true,true) → (true,false)`——遮罩直到平台拆掉 surface 之后才画进窗口，
+      那一帧没有任何窗口会再看，窗口里留着的仍是离开前的空开孔；去掉这两处后
+      修复态的序列不复现，故该断言对这两处改动敏感
 
 #### Scenario: 没有可回读的内容时不遮
 
