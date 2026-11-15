@@ -38,6 +38,23 @@ master rev，MUST NOT 长期停在某个旧 rev 上——DESIGN 已要求「跟�
       rev 的唯一载体是 `Cargo.toml` 的依赖钉——那是构建清单的功能性声明，不是正文。
       「落后多少」由提交日期与提交数差表达，与 hash 无关
 
+**2026-11-15 依赖版本复查**：
+
+- 绑定层：`libghostty-vt` 所钉提交与上游 master 提交数差为 0（当日 master），上游最新提交日期
+  2026-11-14。本次前进的提交中，两项把快照解码器的 kitty 图像计数与待传字节总量迁到
+  `IncrementalDecoder` 上、一项把可选 `allocator_api` feature 改用标准库分配器 trait、一项
+  抬高构建用 rustc。本仓未消费 `snapshot` 解码接口，也未启用 `allocator_api`；实际消费的
+  API 面（`key`、`mode`、`color`、`style`、`selection`、`search`、`screen`、`render`、`point`、
+  `paste`、`mouse`、`kitty::graphics`、`grid_ref`、`terminal`、`effect`、`report`、`set_logger`）
+  无签名或语义变化，全量 Rust 测试与其之上的 Android 仪器测试保持全绿。
+- crates.io：`nix` 由 0.31 升到 0.32（最新稳定，2026-11-14 发布），其余直接依赖已是当日最新
+  稳定版本；`fontdb` 仍受 `cosmic-text` 的 `^0.23` 要求约束（见依赖活跃度表）。
+- Gradle/Android：Gradle wrapper 9.9.1、KSP 2.3.14、Robolectric 4.18 为当日最新稳定版本。
+  `androidx.test`、Espresso 与 Benchmark 存在更新的 alpha，但当前所用为稳定版，按「最新稳定
+  版本」口径保持不动；AGP 9.6.0-alpha03、lifecycle 2.12.0-alpha05、activity 1.14.0-alpha03、
+  detekt 2.0.0-alpha.6、LeakCanary 3.0-alpha-9 属「已用不稳定版本且无更高稳定版本」，保持该线
+  最新不稳定版本。
+
 #### Scenario: 上游改的是语义而非签名
 
 - **WHEN** 上游改动使既有调用的**含义**改变而签名不变（如回滚字节预算的 `None`
@@ -1083,7 +1100,7 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 - crates.io 侧（口径同 `code-health`：累计下载量 ≥ 100 万、近 90 天下载量 ≥ 10 万、
   最近发布在 12 个月内；事实取 crates.io crate 元数据接口的 `downloads`、
-  `recent_downloads` 与最新非撤回版本的 `created_at`），采样于 2026-11-14：
+  `recent_downloads` 与最新非撤回版本的 `created_at`），采样于 2026-11-14（`nix` 行随当日版本复查更新）：
 
 | crate | 累计下载 | 近 90 天 | 最近发布 | 判定 |
 | --- | --- | --- | --- | --- |
@@ -1099,7 +1116,7 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 | libc | 1,976,289,422 | 486,586,000 | 2026-10-16 | 保留 |
 | log | 1,531,065,096 | 392,713,342 | 2026-10-30 | 保留 |
 | lru | 442,790,173 | 131,595,588 | 2026-10-18 | 保留 |
-| nix | 978,529,563 | 250,044,617 | 2026-05-11 | 保留 |
+| nix | 981,417,548 | 250,769,308 | 2026-11-14 | 保留 |
 | parking_lot | 1,276,525,387 | 283,846,814 | 2026-10-21 | 保留 |
 | raw-window-handle | 135,190,490 | 44,606,428 | 2024-05-17 | 保留（生态基线类型，见下） |
 | roxmltree | 105,796,268 | 40,792,343 | 2026-10-24 | 保留 |

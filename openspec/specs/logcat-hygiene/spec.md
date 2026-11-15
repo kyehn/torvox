@@ -101,6 +101,12 @@
 - **AND** 归因 MUST 写明请求由输入法发起，应用侧无对应调用；应用侧的准入判据
       （`admitCursorAnchor`）已与平台同口径取 `InputMethodManager.isActive`，
       MUST NOT 记为应用侧缺陷
+- **AND** 「应用侧无对应调用」MUST 给出源码判据：应用能用的锚点 API 只有
+      `InputMethodManager.updateCursorAnchorInfo(View, CursorAnchorInfo)`，其实现
+      （AOSP `InputMethodManager.java`）在 `hasServedByInputMethodLocked` 通过后
+      直接走 `mCurBindState.mImeSession.updateCursorAnchorInfo(...)` 发给输入法，
+      全函数不触碰 `requestCursorUpdatesInternal`；后者只由
+      `IRequestCursorUpdates*` 的 Binder 入口进入，即只能由输入法进程发起
 - **AND** 触发条件 MUST 写明是**输入焦点离开终端视图**：2026-11-15 日志中每次该告警
       都紧邻 `InputMethodManager: showSoftInput() view=androidx.compose.ui.platform.
       AndroidComposeView`（搜索栏/设置页的 Compose 文本框）或紧随其后的
@@ -110,6 +116,11 @@
 - **AND** 应用侧 MUST NOT 靠延迟创建连接、跳过 `finishComposingText` 或预先
       `closeConnection` 来消除该行——那会让组字状态失步；该告警是平台在焦点切换窗口内
       的固有行为，随切换结束自行停止
+- **AND** 判据 MUST 包含**跨平台对照**：AOSP x86_64 模拟器上点开 Compose 文本框时
+      同样出现 `getSurroundingText`／`requestCursorUpdates on inactive
+      InputConnection`（主线 AOSP 已把后者的文案从 `requestCursorAnchorInfo` 改成
+      `requestCursorUpdates`，同一 `requestCursorUpdatesInternal` 输出），
+      故该告警与厂商定制无关
 
 #### Scenario: 不得以设备分配器不支持的格式申请缓冲
 
@@ -133,7 +144,8 @@
    尺寸 `1x1x1` 与这两项合起来唯一对应 `AHardwareBuffer_isSupported` 的这个调用点。
 2. **请求方**：调用方是平台的 `libvulkan`，不是驱动 WSI、也不是应用：
    `GetPhysicalDeviceSurfaceFormatsKHR` 合成候选列表时无条件探测 R8（同一函数还探测
-   `R5G6B5`、`RGBA16F`、`RGB10A2`、`RGBA10x6`，本机 gralloc 都支持故无日志）。
+   `R5G6B5`、`RGBA16F`、`RGB10A2`，Android 14 起另有 `RGBA10x6`；本机 gralloc 对这些
+   格式探测通过故无日志——只有 R8 这一项被拒）。
    应用请求 `Rgba8Unorm`（`VK_FORMAT_R8G8B8A8_UNORM`），窗口几何
    `WINDOW_FORMAT_RGBA_8888`（= 1），生产代码没有任何 `R8Unorm` 请求。
 3. **时序**：4 组全部落在 `attachWindow`（07:12:27.469）之后、
@@ -141,7 +153,14 @@
    `unregister`（旧交换链拆除）与 4 条 `register`（新交换链图像）之间——正是
    `attach_surface` 里 `self.surface = None` → `create_surface` → `get_capabilities`
    → `configure` 那一段，与 `vkGetPhysicalDeviceSurfaceFormatsKHR` 的调用点吻合。
-4. **倍数**：1 组 = 1 次表面格式查询；一次挂载固定 4 组，与交换链图像数无关。
+4. **倍数**：1 组 = 1 次 R8 探测 = 1 次 `AHardwareBuffer_isSupported` 调用，
+   每次探测打 2 条 E（`Requested R8 …` 与 `ERROR: Unrecognized …`）。
+   一次挂载固定 4 组，与交换链图像数无关；4 = 2 × 2，两层各翻一倍：
+   应用侧每次挂载查 2 次表面能力（显式 `get_capabilities` + `configure` 内部的
+   能力校验），而每次能力查询在 ash 的 Vulkan 枚举两段式下变成 **2 次**
+   `vkGetPhysicalDeviceSurfaceFormatsKHR`（先问个数、再取数据，见 ash `prelude.rs`
+   的 `read_into_uninitialized_vector`）；AOSP 的实现两次都重建候选列表、两次都探测
+   R8。日志可复算：`Requested R8` 24 条 ÷ `attach_surface: configured` 6 条 = 4 组/次。
 5. **非致命**：探测失败只表示「该候选格式不进入可选列表」，交换链按 `Rgba8Unorm`
    建立、颜色正确；紧随其后的 `register:` 4 条是图像分配成功。
 6. **不可抑制**：`AHardwareBuffer_isSupported` 的探测列表由平台源码写死；wgpu 不
@@ -153,7 +172,9 @@
 `attach_surface` 的 fast path（日志为 `RECONFIGURE_SWAPCHAIN (fast path, existing
 surface)`），一次表面格式查询都不做，一行都不产生；换新窗口才重走完整挂载
 （`get_capabilities` + `configure`），每次固定 8 行（4 次表面格式查询）。2026-11-15
-日志中 6 次新窗口对应 48 行，切会话两次对应 0 行，与该口径逐条相符。故该条目的治理
+日志中 6 次新窗口对应 48 行（`attach_surface: configured` 恰 6 条、`Requested R8`
+24 条、`Unrecognized ... format 0x38` 24 条），3 次同窗重挂（`fast path, existing
+surface`，`attachWindow ptr` 与上次相同）对应 0 行，与该口径逐条相符。故该条目的治理
 目标是**减少不必要的换窗**（见 `render-stability`「终端 Surface 的表面策略跟随平台
 默认」），不是压低单次重建的行数。
 
@@ -202,6 +223,9 @@ surface)`），一次表面格式查询都不做，一行都不产生；换新�
       MUST NOT 记为应用侧缺陷，MUST NOT 因此改动选区窗口的创建方式
 - **AND** MUST NOT 通过过滤 `Parcel` tag、降级日志或改动窗口/交换链格式来消除；
       应用侧无对应开关，与 `render-stability` 的 FBC 噪声同类
+- **AND** 判据 MUST 包含**跨平台对照**：同一应用与同一选区窗口在 AOSP x86_64
+      模拟器（`sdk_gphone64_x86_64`，仪器化用例实跑）上该行出现 0 次，故它是
+      OEM 框架在编组路径上的差异，MUST NOT 记为应用或 AOSP 行为
 
 ### Requirement: 日志 tag 必须与事件语义一致
 
@@ -459,12 +483,14 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 - **WHEN** 审计 `logcat_2026-11-15_07-15-08.txt`（主进程 29154，运行约 2.5 分钟）
 - **THEN** 应用进程 W/E 的计数与处置 MUST 为（合计 75 条）：
       - `mali_gralloc` 48 条：6 次新窗口 × 8 条（R8 探测与格式拒绝各半），
-        两次切会话（fast path）零条，见同文件的分配器场景；
+        3 次同窗重挂（fast path）零条，见同文件的分配器场景；
       - `RemoteInputConnectionImpl` 10 条（`requestCursorAnchorInfo` 9、
         `getSurroundingText` 1）：焦点从终端切到 Compose 文本框时输入法仍在轮询
         已被取代的连接，见同文件的光标监视场景；
       - `ziparchive` 4、`libc` 4、`FeatureOpt` 2：厂商框架的镜像 dex 元数据探测、
-        属性读取被拒与特性开关探测，均为各自场景所述的无应用栈路径；
+        属性读取被拒与特性开关探测，均为各自场景所述的无应用栈路径；其中
+        `ziparchive` 的 `base.dm` 探测在 AOSP 模拟器上对本应用的调试包同样出现，
+        即平台 dexopt 元数据查找，MUST NOT 记为应用打包缺失元数据；
       - `Parcel` 3：1 条在缓冲队列线程、2 条在主线程的选区窗口 `addView` 之后，
         见同文件的编组路径场景；
       - `wgpu_core::instance` 2：适配器缺 `SURFACE_VIEW_FORMATS` 时上游
@@ -636,15 +662,24 @@ dex 元数据缺失、厂商私有属性读取被拒）MUST 指出条目由厂�
       `usage = COMPOSER_OVERLAY(0x800) | GPU_SAMPLED_IMAGE(0x100) | GPU_FRAMEBUFFER(0x200) = 0xb00`
       ——日志里那一对「Requested R8 format…」与「Unrecognized…0x38/usage 0xb00」
       与这四个数逐一对应，故可判定调用方就是该函数，而非应用申请的缓冲
-- **THEN** MUST 说明同一函数还按同一模板探测 `R5G6B5`、`RGBA16F`、`RGB10A2`、
-      `RGBA10x6`，这些在本机 gralloc 上探测通过故无日志——只有 R8 这一项被拒，
-      正是「列表里只有 R8 报错」的原因；MUST NOT 把「只有 R8 报错」解释成应用只
-      申请了 R8
+- **THEN** MUST 说明同一函数还按同一模板探测 `R5G6B5`、`RGBA16F`、`RGB10A2`
+      （Android 14 起另有 `RGBA10x6`），这些在本机 gralloc 上探测通过故无日志——只有
+      R8 这一项被拒，正是「列表里只有 R8 报错」的原因；MUST NOT 把「只有 R8 报错」
+      解释成应用只申请了 R8
+- **THEN** MUST 指出被拒的**是厂商旧 mapper 分配器的能力边界**：日志原文为
+      「R8 format is only supported with the AIDL allocator」，即 R8 只有 AIDL
+      分配器支持，该机用的是旧 mapper 路径；MUST 说明这是设备侧能力位，MUST NOT
+      记为应用选错格式、MUST NOT 建议改用 R8
 - **THEN** MUST 指出被拒的是平台格式枚举的支持性探测，不是应用申请的呈现缓冲；应用
       实际请求 `Rgba8Unorm`（与窗口缓冲 `RGBA_8888` 同格式），交换链照常建立、帧
       照常呈现，MUST 说明应用侧无开关（除非放弃 Vulkan 表面），MUST NOT 记为应用
       选错格式；MUST 同时记明该组条数与表面重建次数的倍数关系（8 行/次 = 4 次
-      表面格式查询 × 每次 1 对），以及应用侧减少重建的手段
+      R8 探测 × 每次 2 条 E），以及应用侧减少重建的手段
+- **THEN** MUST 写明倍数关系里那两层「翻倍」的来源，使该口径可复算：一次表面能力
+      查询在 ash 的 Vulkan 枚举两段式下是 2 次 `vkGetPhysicalDeviceSurfaceFormatsKHR`
+      调用（先问个数、再取数据），AOSP 实现两次都重建候选列表、两次都探测 R8；而
+      应用侧每次挂载查 2 次表面能力（显式 `get_capabilities` + `configure` 内部的
+      能力校验）——2 × 2 = 4 组/次。缺任一层，倍数关系即无法从源码复算
 
 #### Scenario: 系统窗口事务的空 Binder 返回
 
@@ -702,6 +737,12 @@ dex 元数据缺失、厂商私有属性读取被拒）MUST 指出条目由厂�
 - **THEN** 归因 MUST 给出 bionic `SystemProperties::Find` 的判据位置（属性区对应用
       的 SELinux 域不可见时打这条 W），MUST 说明被读的是厂商库在应用进程里读的私有
       属性，MUST 说明应用侧无开关
+- **AND** 逐条 MUST 指认读取方：`persist.vendor.gpu.fbc` 紧跟一条
+      `I/mali_gralloc: SPRD: get persist.vendor.gpu.fbc 1`，即分配器自己读、读到的是
+      缺省值 1（该读取与同毫秒的 R8 探测同一段分配器初始化，见同文件的分配器场景）；
+      `persist.unipnp.debug` 紧邻 `ziparchive` 对 `unipnp-framework.dm` 的探测，属
+      厂商框架装载；`vendor.MB.running` 在 `FeatureOpt` 读出 490 项特性之后的进程
+      初始化段，属同一厂商框架
 
 #### Scenario: 内核 AVC 审计行
 
