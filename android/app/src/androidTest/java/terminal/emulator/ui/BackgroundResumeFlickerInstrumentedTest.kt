@@ -19,8 +19,8 @@ import terminal.emulator.requireBridge
 import terminal.emulator.runtime.TerminalRuntime.HoleStateEntry
 import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -71,6 +71,10 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         /** 原生 warmup 两种分支的日志锚点（`native::render::pass::frame`）。 */
         private const val WARMUP_RETAINED = "warmup: presenting the retained last frame"
         private const val WARMUP_CLEARED = "warmup: no retained frame to present"
+
+        /** `logcat -v threadtime` 的时间戳格式（设备本地时区，定长前缀）。 */
+        private val THREAD_TIME_FORMATTER: DateTimeFormatter =
+            DateTimeFormatter.ofPattern("MM-dd HH:mm:ss.SSS", Locale.US)
     }
 
     private lateinit var device: UiDevice
@@ -167,7 +171,7 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
     }
 
     /** `logcat -v threadtime` 的时间戳前缀（与设备日志同一时钟）。 */
-    private fun wallClockStamp(): String = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
+    private fun wallClockStamp(): String = THREAD_TIME_FORMATTER.format(LocalDateTime.now())
 
     /** 取时间戳不早于 [since] 的原生 warmup 日志行。 */
     private fun warmupLinesSince(since: String): List<String> = UxTestUtils
