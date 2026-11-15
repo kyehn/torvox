@@ -2,6 +2,7 @@ package terminal.emulator.ui
 
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.runtime.computeGridAvailableHeight
 import terminal.emulator.runtime.computeGridDimensions
 
@@ -51,70 +52,77 @@ internal class ResizeManager(private val surface: TerminalSurface) {
         val cellWidth = runtime.cellWidth
         val cellHeight = runtime.cellHeight
         if (cellWidth <= 0f || cellHeight <= 0f) return
-        // 备用屏按可见高度重排（SIGWINCH），主屏恒为 0。取运行期的单一值：
-        // 三条网格路径（此处、`recomputeRowsColsImmediate`、运行期的
-        // `recomputeGridFromFontMetrics`）必须扣同一个数，否则备用屏会在字号变化
-        // 后被撑回被键盘遮住的高度且不会自愈。
-        val imeReserve = runtime.imeGridReserve()
-        // 高度是 SurfaceView 的布局高度。ModifierBar 覆盖其底部，
-        // 故计算 rows 之前减去其高度——与运行期施加的预留量相同。
-        val availableHeight =
-            computeGridAvailableHeight(
-                surfaceHeight = height,
-                modifierBarHeightPx = runtime.modifierBarHeightPx,
-                imeReserve = imeReserve,
-            )
-        val (newRows, newCols) =
-            computeGridDimensions(
-                surfaceWidth = width,
-                surfaceHeight = availableHeight,
-                cellWidth = cellWidth,
-                cellHeight = cellHeight,
-            )
-        if (newRows == 0 || newCols == 0) return
+        val grid = computeGrid(runtime, cellWidth, cellHeight, width, height) ?: return
         LogUtil.debug(
             TerminalSurface.TAG,
             "applyGridResize: $width x $height cell=($cellWidth,$cellHeight) " +
-                "-> ${newRows}x$newCols (was ${surface.rows}x${surface.cols})",
+                "-> ${grid.rows}x${grid.cols} (was ${surface.rows}x${surface.cols})",
         )
-        if (newRows != surface.rows || newCols != surface.cols) {
-            runtime.resize(newRows, newCols)
-            surface.rows = newRows
-            surface.cols = newCols
+        if (grid.rows != surface.rows || grid.cols != surface.cols) {
+            runtime.resize(grid.rows, grid.cols)
+            surface.rows = grid.rows
+            surface.cols = grid.cols
         }
         // 推入像素尺寸与网格变化解耦：输入法遮挡变化后行数可能恰好不变
         // （矮键盘 + 大单元格），但 ws_ypixel 描述的网格区域已经变了。
         // 契约见 NativeBridge.setPixelSize：每次网格 resize 都随 surface 的
         // 像素尺寸一并下发。availableHeight 已排除键栏与输入法遮挡——
         // 正是 rows 覆盖的网格区域。
-        runtime.setPixelSize(width, availableHeight)
+        runtime.setPixelSize(width, grid.availableHeight)
+    }
+
+    /** 网格计算结果：行列与扣减后的可用高度（像素尺寸下发要用后者）。 */
+    private data class Grid(val rows: Int, val cols: Int, val availableHeight: Int)
+
+    /**
+     * 按单元格度量与预留量算网格。
+     *
+     * 备用屏按可见高度重排（SIGWINCH），主屏恒为 0。输入法遮挡取运行期的单一值：
+     * 三条网格路径（此处、`recomputeRowsColsImmediate`、运行期的
+     * `recomputeGridFromFontMetrics`）必须扣同一个数，否则备用屏会在字号变化
+     * 后被撑回被键盘遮住的高度且不会自愈。
+     *
+     * 高度是 SurfaceView 的布局高度。ModifierBar 覆盖其底部，
+     * 故计算 rows 之前减去其高度——与运行期施加的预留量相同。
+     *
+     * 算出零行零列时返回 null：调用方据此放弃本次网格（度量未就绪的兜底另走一条路）。
+     */
+    private fun computeGrid(
+        runtime: TerminalRuntime,
+        cellWidth: Float,
+        cellHeight: Float,
+        width: Int,
+        height: Int,
+    ): Grid? {
+        val availableHeight =
+            computeGridAvailableHeight(
+                surfaceHeight = height,
+                modifierBarHeightPx = runtime.modifierBarHeightPx,
+                imeReserve = runtime.imeGridReserve(),
+            )
+        val (rows, cols) =
+            computeGridDimensions(
+                surfaceWidth = width,
+                surfaceHeight = availableHeight,
+                cellWidth = cellWidth,
+                cellHeight = cellHeight,
+            )
+        if (rows == 0 || cols == 0) return null
+        return Grid(rows, cols, availableHeight)
     }
 
     internal fun recomputeRowsColsImmediate(width: Int, height: Int) {
         val viewModel = surface.viewModel
         if (viewModel != null) {
-            val cellWidth = viewModel.runtime.cellWidth
-            val cellHeight = viewModel.runtime.cellHeight
+            val runtime = viewModel.runtime
+            val cellWidth = runtime.cellWidth
+            val cellHeight = runtime.cellHeight
             if (cellWidth > 0f && cellHeight > 0f) {
                 // 与运行期网格相同的预留量：不减去工具栏高度时，
                 // 此镜像会相差工具栏那几行，并在每次重组时被迫 requestLayout()。
-                val barPx = viewModel.runtime.modifierBarHeightPx
-                val availableHeight =
-                    computeGridAvailableHeight(
-                        surfaceHeight = height,
-                        modifierBarHeightPx = barPx,
-                        imeReserve = viewModel.runtime.imeGridReserve(),
-                    )
-                val (newRows, newCols) =
-                    computeGridDimensions(
-                        surfaceWidth = width,
-                        surfaceHeight = availableHeight,
-                        cellWidth = cellWidth,
-                        cellHeight = cellHeight,
-                    )
-                if (newRows == 0 || newCols == 0) return
-                surface.cols = newCols
-                surface.rows = newRows
+                val grid = computeGrid(runtime, cellWidth, cellHeight, width, height) ?: return
+                surface.cols = grid.cols
+                surface.rows = grid.rows
                 return
             }
         }
