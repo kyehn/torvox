@@ -190,15 +190,24 @@ impl super::GhosttyTerminal {
     /// 模式位上：程序没声明关心明暗时不得往它的输入流里塞未经请求的字节。
     fn report_color_scheme_on_change(terminal: &Terminal<'_, '_>, config: &RunConfig, dark: bool) {
         use libghostty_vt::mode::Mode;
+        use libghostty_vt::report::ColorScheme;
         match terminal.mode(Mode::COLOR_SCHEME_REPORT) {
             Ok(true) => {
-                let report: &[u8] = if dark {
-                    b"\x1b[?997;1n"
+                let scheme = if dark {
+                    ColorScheme::Dark
                 } else {
-                    b"\x1b[?997;2n"
+                    ColorScheme::Light
+                };
+                let mut buf = [0u8; 16];
+                let report = match scheme.encode(&mut buf) {
+                    Ok(written) => buf[..written].to_vec(),
+                    Err(error) => {
+                        log::warn!("ghostty_terminal: colour scheme encode failed: {error}");
+                        return;
+                    }
                 };
                 match config.response_buffer.lock() {
-                    Ok(mut guard) => guard.push(report.to_vec()),
+                    Ok(mut guard) => guard.push(report),
                     Err(error) => log::warn!(
                         "ghostty_terminal: colour scheme report buffer poisoned: {error}"
                     ),

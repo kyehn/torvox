@@ -127,14 +127,7 @@ class TerminalForegroundService : Service() {
         // 上游同义——持锁时释放，没锁时申请。处理完要重发通知，按钮文案才跟着状态翻。
         if (intent?.action == ACTION_WAKE_LOCK || intent?.action == ACTION_WAKE_UNLOCK) {
             wakeLockRequested = intent.action == ACTION_WAKE_LOCK
-            // 执行锁只为存活会话而持：无会话时用户的申请也不得把锁取回来。
-            if (wakeLockRequested && sessionCount >= 1) {
-                acquireWakeLockIfNeeded()
-                acquireWifiLockIfNeeded()
-            } else {
-                releaseWakeLock()
-                releaseWifiLock()
-            }
+            applyWakeLockState()
             startForegroundWithSessionCount(sessionCount)
             return START_STICKY
         }
@@ -156,15 +149,7 @@ class TerminalForegroundService : Service() {
             }
         // 先取锁再发通知：通知里的唤醒锁按钮文案按当前锁状态生成，顺序反了会让
         // 按钮一直显示「申请唤醒锁」，即便锁已经在手上。
-        if (sessionCount >= 1 && wakeLockRequested) {
-            acquireWakeLockIfNeeded()
-            acquireWifiLockIfNeeded()
-        } else {
-            // 无会话（或用户已明确不要）时不得继续持有执行锁：锁的代价是功耗，
-            // 没有人使用终端时不能付。
-            releaseWakeLock()
-            releaseWifiLock()
-        }
+        applyWakeLockState()
         startForegroundWithSessionCount(sessionCount)
         return START_STICKY
     }
@@ -334,6 +319,23 @@ class TerminalForegroundService : Service() {
     private fun releaseWifiLock() {
         wifiLock?.takeIf { it.isHeld }?.release()
         wifiLock = null
+    }
+
+    /**
+     * 依「用户要锁且有会话」决定持锁或放锁。
+     *
+     * 执行锁只为存活会话而持：无会话时用户的申请也不得把锁取回来；反之，无会话
+     * （或用户已明确不要）时不得继续持有——锁的代价是功耗，没有人使用终端时不能付。
+     * 通知按钮入口与常规启动入口共用这一份判据，避免两处漂移。
+     */
+    private fun applyWakeLockState() {
+        if (sessionCount >= 1 && wakeLockRequested) {
+            acquireWakeLockIfNeeded()
+            acquireWifiLockIfNeeded()
+        } else {
+            releaseWakeLock()
+            releaseWifiLock()
+        }
     }
 
     override fun onDestroy() {

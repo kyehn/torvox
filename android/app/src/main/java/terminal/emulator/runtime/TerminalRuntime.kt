@@ -1066,6 +1066,33 @@ constructor(
         }
     }
 
+    /**
+     * 会话建立后拉起前台服务并同步会话数。
+     *
+     * 失败只记日志：服务启动失败（API 31+ 的后台启动限制、ROM 的 SecurityException）
+     * 绝不能回滚已创建的会话；取消则按项目约定重抛（实践中不可达——该加锁段内无挂起点，
+     * 服务调用是同步 IPC；真发生时条目保持已插入状态，清理由调用方的作用域拆除负责）。
+     * [start] 与 [createSession] 共用这一份实现，避免判据与日志各自漂移。
+     *
+     * 调用点 MUST 持有 [sessionLock]：本方法读 [sessions] 并与关闭路径争用
+     * [foregroundServiceRunning] 标志，两者在同一把锁下才自洽。
+     */
+    private fun startForegroundServiceForSession(sessionId: Long) {
+        try {
+            startForegroundServiceIfNeeded()
+            updateForegroundSessionCount(sessions.size)
+        } catch (serviceException: Exception) {
+            if (serviceException is CancellationException) {
+                throw serviceException
+            }
+            LogUtil.error(
+                RUNTIME_LOG_TAG,
+                "Failed to start foreground service for session $sessionId",
+                serviceException,
+            )
+        }
+    }
+
     private fun stopForegroundService() {
         // 不以标志位为闸门：服务可能被系统回收而标志仍停在真（START_STICKY 尚未重启），
         // 若以标志位控制停止，存活会话的服务就再也停不掉。对未运行的服务调 stopService
@@ -1944,24 +1971,8 @@ constructor(
                     "session $finalSessionId config: fontSizeTenths=${config.fontSizeTenths}",
                 )
                 LogUtil.debug("Runtime", "session $finalSessionId started")
-                try {
-                    startForegroundServiceIfNeeded()
-                    updateForegroundSessionCount(sessions.size)
-                } catch (serviceException: Exception) {
-                    if (serviceException is CancellationException) {
-                        // 实践中不可达（该加锁块内无挂起点；服务调用是同步 IPC），
-                        // 但按项目约定重抛。若它真的触发，条目保持已插入状态，
-                        // 清理由调用方的作用域拆除负责。
-                        throw serviceException
-                    }
-                    // 与 createSession 同样的守卫：服务启动失败
-                    // 绝不能回滚已创建的会话。
-                    LogUtil.error(
-                        "Runtime",
-                        "Failed to start foreground service for session $finalSessionId",
-                        serviceException,
-                    )
-                }
+                // 服务启动失败只记日志，绝不能回滚已创建的会话（见 startForegroundServiceForSession）。
+                startForegroundServiceForSession(finalSessionId)
                 // 切后台期间 MUST NOT 启动渲染线程：渲染线程去取帧会得到
                 // ERROR_SURFACE_LOST_KHR（永久黑屏），且与推进泵重复消费全局事件队列。
                 // 会话已注册（running=false），ON_RESUME 由 resumeRendering 统一拉起。
@@ -2190,21 +2201,7 @@ constructor(
             synchronized(sessionLock) {
                 stillPresent = sessions.containsKey(nextId)
                 if (stillPresent) {
-                    try {
-                        startForegroundServiceIfNeeded()
-                        updateForegroundSessionCount(sessions.size)
-                    } catch (serviceException: Exception) {
-                        if (serviceException is CancellationException) {
-                            // 实践中不可达（该加锁段内无挂起点），按约定重抛；
-                            // 任何清理由作用域拆除负责。
-                            throw serviceException
-                        }
-                        LogUtil.error(
-                            "Runtime",
-                            "Failed to start foreground service for session $nextId",
-                            serviceException,
-                        )
-                    }
+                    startForegroundServiceForSession(nextId)
                 }
             }
             if (!stillPresent) {

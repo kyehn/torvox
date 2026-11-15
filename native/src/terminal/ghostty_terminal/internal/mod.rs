@@ -289,18 +289,6 @@ fn mark_grid_dirty(grid_dirty: &mut bool, cached_all_text: &mut Option<String>) 
     *cached_all_text = None;
 }
 
-/// 下划线是否需要绘制：除无下划线外五种形状均绘制。
-fn has_visible_underline(underline: libghostty_vt::style::Underline) -> bool {
-    matches!(
-        underline,
-        libghostty_vt::style::Underline::Single
-            | libghostty_vt::style::Underline::Double
-            | libghostty_vt::style::Underline::Curly
-            | libghostty_vt::style::Underline::Dashed
-            | libghostty_vt::style::Underline::Dotted
-    )
-}
-
 /// 逐帧渲染迭代器与其宿主行缓存。
 ///
 /// 四者与 VT 线程同生命周期，不逐帧新建：上游 [`RenderState`] 跨帧持有上次快照
@@ -649,11 +637,6 @@ fn synchronized_output_hold(
 
 /// 保持超过该时长即视为程序已放弃 ESU（上游推荐 1 秒）。
 const SYNC_OUTPUT_HOLD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
-
-/// 是否为双下划线：单独成函数，与绘制判定同源，避免三处散落比较。
-fn is_double_underline(underline: libghostty_vt::style::Underline) -> bool {
-    underline == libghostty_vt::style::Underline::Double
-}
 
 /// 创建三个逐帧渲染迭代器。
 /// 任一创建失败即记日志并返回 `None`。

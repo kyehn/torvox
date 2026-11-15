@@ -2,8 +2,9 @@ use super::{
     Arc, AtomicBool, CellData, CellSnapshot, CursorInfo, CursorStyle, DumpedGrid, FrameMailbox,
     GridSnapshot, MAX_GRAPHEME_CLUSTERS, MAX_GRAPHEME_EXTRA, Ordering, Point, PointCoordinate,
     RenderExtractors, RowCache, RunConfig, Terminal, create_render_iterators, cursor_in_viewport,
-    grid_cols, grid_rows, has_visible_underline, is_double_underline, scrollback_len, viewport_row,
+    grid_cols, grid_rows, scrollback_len, viewport_row,
 };
+use libghostty_vt::style::Underline;
 
 /// VT 线程每帧刷新的无锁屏幕状态镜像。
 ///
@@ -380,7 +381,7 @@ impl super::GhosttyTerminal {
         if style.blink {
             flags |= 1 << cell_flags::BLINK;
         }
-        if has_visible_underline(style.underline) {
+        if style.underline != Underline::None {
             flags |= 1 << cell_flags::UNDERLINE;
         }
         if style.strikethrough {
@@ -392,7 +393,7 @@ impl super::GhosttyTerminal {
         if style.faint {
             flags |= 1 << cell_flags::FAINT;
         }
-        if is_double_underline(style.underline) {
+        if style.underline == Underline::Double {
             flags |= 1 << cell_flags::DOUBLE_UNDERLINE;
         }
         if style.invisible {
@@ -515,13 +516,13 @@ impl super::GhosttyTerminal {
                     bold: style.bold,
                     dim: style.faint,
                     italic: style.italic,
-                    underline: has_visible_underline(style.underline),
+                    underline: style.underline != Underline::None,
                     reverse: style.inverse,
                     strikethrough: style.strikethrough,
                     blink: style.blink,
                     hidden: style.invisible,
                     overline: style.overline,
-                    double_underline: is_double_underline(style.underline),
+                    double_underline: style.underline == Underline::Double,
                     width,
                 });
             }
@@ -592,8 +593,8 @@ impl super::GhosttyTerminal {
         data.overline = style.overline;
         data.blink = style.blink;
         data.hidden = style.invisible;
-        data.underline = has_visible_underline(style.underline);
-        data.double_underline = is_double_underline(style.underline);
+        data.underline = style.underline != Underline::None;
+        data.double_underline = style.underline == Underline::Double;
         data.reverse = style.inverse;
     }
 

@@ -78,6 +78,19 @@ internal class FontManager(
     private var fontLoadJob: Job? = null
 
     /**
+     * 把用户投放目录注册到 bridge，使其字体在 bridge 上可见
+     * （重复注册为空操作）；主/次路径都纳入。
+     *
+     * 会话启动与字体列表两条路径共用这一份注册逻辑，避免目录集合格一漂移。
+     */
+    private fun registerUserFontDirs(bridge: Bridge) {
+        val fontDirs = termuxFontDirs(context).filter {
+            it.isDirectory
+        }.map { it.absolutePath }
+        if (fontDirs.isNotEmpty()) bridge.setExtraFontPaths(fontDirs)
+    }
+
+    /**
      * 会话启动路径：把已存字族应用到本会话的 bridge（bridge 按会话持有，
      * 每个新会话都要应用一次）。只做应用，不列举——列表是 UI 的事。
      */
@@ -89,12 +102,8 @@ internal class FontManager(
                 // 后续状态更新会再次触发本函数。
                 return@launch
             }
-            // 先注册用户投放目录再应用，使其字体在 bridge 上可见
-            // （重复注册为空操作）；主/次路径都纳入。
-            val fontDirs = termuxFontDirs(context).filter {
-                it.isDirectory
-            }.map { it.absolutePath }
-            if (fontDirs.isNotEmpty()) bridge.setExtraFontPaths(fontDirs)
+            // 先注册用户投放目录再应用。
+            registerUserFontDirs(bridge)
             val storedFamily = settingsRepository.fontFamily.first()
             clearUnknownFontFamily(
                 storedFamily,
@@ -128,11 +137,8 @@ internal class FontManager(
                     return@launch
                 }
                 // 先注册用户投放目录再列举，使其字体家族即使在早于
-                // Runtime.start() 完成时也被纳入（重复注册为空操作）；主/次路径都纳入。
-                val fontDirs = termuxFontDirs(context).filter {
-                    it.isDirectory
-                }.map { it.absolutePath }
-                if (fontDirs.isNotEmpty()) bridge.setExtraFontPaths(fontDirs)
+                // Runtime.start() 完成时也被纳入。
+                registerUserFontDirs(bridge)
                 val allFonts =
                     availableFontFamilies(
                         bridge.listFontFamilies().orEmpty(),
