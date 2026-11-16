@@ -1591,6 +1591,27 @@ class DocumentsProviderTest {
     }
 
     /**
+     * 站外链接连删除也拒绝：寻址一律按规范路径落在根内判定。
+     *
+     * 链接 inode 在家目录内，但它的**规范路径**（目标存在时解析到目标）落在根外，
+     * 故按「外部寻址一律按根内包含性判定」拒绝：链接 inode 与站外目标都不得被动。
+     */
+    @Test
+    fun deleteDocument_refuses_symlink_pointing_outside_home() {
+        val provider = ensureProvider()
+        val root = rootDir()
+        val outside =
+            java.io.File(requireNotNull(provider.context).filesDir, "outside-delete.txt").apply { writeText("x") }
+        createSymlink("portal", outside)
+
+        assertThrows(java.io.FileNotFoundException::class.java) {
+            provider.deleteDocument("portal")
+        }
+        assertTrue("站外链接 inode 不得被删除", java.io.File(root, "portal").exists())
+        assertTrue("站外目标不得被删改", outside.exists())
+    }
+
+    /**
      * 列举顺序：目录优先，其次按 display name 的**小写**比较。
      *
      * 判别力：直接按 `File.name` 排序会把所有大写名排到小写前（且默认 Locale

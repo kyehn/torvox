@@ -147,11 +147,23 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             return resolved
         }
 
+        /**
+         * [rawFile] 是否是**按链接自身操作**的那一类符号链接条目。
+         *
+         * 判据是**规范路径**（[File.getCanonicalPath]）：目标存在时规范路径解析到目标，
+         * 目标不存在（悬空链接）时规范路径留在链接自身。于是：
+         *
+         * - 指向家目录内的链接：规范路径在根内 → 属此类。删除只删链接 inode，
+         *   复制只复制 inode，链接指向的目标不被搬走或改名；
+         * - 指向家目录之外的链接：规范路径在根外 → 不属此类。寻址一律拒绝，
+         *   家目录之外的目标既不被读进家目录，也不被删改；
+         * - 悬空链接：目标不存在、无从解析，规范路径留在链接自身 → 属此类。
+         *
+         * [rawFile] 可能含 ".." 段（恶意 docId），而 [File] 不会规范化它们：
+         * 规范解析父目录后重新追加文件名，使判据覆盖实际被触及的条目。
+         * 父目录为 null（无目录部分的裸文件名）无法逃出根目录。
+         */
         fun isHomeLink(rawFile: File, rootDir: File): Boolean {
-            // 包含性针对链接*自身*路径检查，绝不针对其规范目标：
-            // rawFile 可能含 ".." 段（恶意 docId），而 File 不会规范化它们。
-            // 规范解析父目录后重新追加文件名，使检查覆盖实际被触及的条目。
-            // 父目录为 null（无目录部分的裸文件名）无法逃出根目录。
             if (!Files
                     .isSymbolicLink(rawFile.toPath())
             ) {

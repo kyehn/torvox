@@ -52,7 +52,7 @@ internal class DocumentQueries(
     // 链接身份一致性。
     fun resolveLinkEntry(documentId: String, rootDir: File): File {
         val linkCandidate = File(rootDir, documentId)
-        // 包含性复用 isHomeLink（规范解析父目录 + 原名，既不跟随链接也真正消解 ".."）：
+        // 包含性复用 isHomeLink（规范路径判据：目标存在时解析到目标，目标不存在时留在链接自身）：
         // 此处曾用词法 Path.normalize 自行判断，那既不消解 ".."，也与 isHomeLink
         // 重复，同一条规则的两套实现迟早分叉。
         // 非链接：decodeDocId 内部已做根内校验并返回规范化的 File，
