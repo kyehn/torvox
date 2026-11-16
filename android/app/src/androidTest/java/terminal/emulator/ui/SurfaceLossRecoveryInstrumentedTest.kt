@@ -372,19 +372,10 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
                     !runtime.surfaceBufferPresent.value
                 },
             )
-            // 等组合层把「无缓冲区」这个事实推给新视图：视图收到该事实才在自己的
-            // `onDraw` 里补画底色（开孔只能由 SurfaceView 自己填，见
-            // TerminalSurface.onDraw）。事实推达之前截到的画面是平台在洞里留的
-            // 空白——透出的是后方桌面，不是应用画的遮罩。
-            assertNotNull(
-                "组合层必须把「无缓冲区」推给换后的 SurfaceView",
-                UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = 50) {
-                    (findTerminalSurface(composeTestRule.activity) as? TerminalSurface)
-                        ?.surfaceHasBuffer == false
-                },
-            )
-            // 视图收到事实后要等一帧才画出来：推进组合时钟并等它空闲。
-            idleOrBusy()
+            // 视图自己订阅「缓冲/遮罩」两个事实（见 TerminalSurface.observeHoleCover），
+            // 不再经组合层转发；换视图后它会在自己的 `onDraw` 里补画底色（开孔只能由
+            // SurfaceView 自己填）。事实推达之前截到的画面是平台在洞里留的空白——
+            // 透出的是后方桌面，不是应用画的遮罩。
             // 像素证据要在「注入仍生效」的这一瞬抓；换视图、合盖推送都是多异步源，
             // 一次性截图会抓到「事实已写、视图还没画」的过渡帧——故轮询到开孔稳定
             // 为本应用像素为止。关掉注入之后再截图测的是活画面，跟保留帧比必然

@@ -68,6 +68,14 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         /** 条带里至少要有多少种颜色：平底色/桌面都能凑出高「一致」，只有内容才有色。 */
         private const val MIN_DISTINCT_COLORS = 8
 
+        /**
+         * 等输入法信号的上限。GBoard 首次构建键盘可能真的很慢（冷启动实测约 3 秒）。
+         * `after` 一侧的断言走 [imeShownSince] 的 `onShown` 锚点（强信号：键盘真的
+         * 画上才算）；`showImeAndSettle` 走 insets 可见门槛（弱信号但足够——内容区
+         * 排除输入法行，键盘画没画不影响比对口径）。
+         */
+        private const val IME_SHOWN_TIMEOUT_MS = 20_000L
+
         /** 颜色统计的抽样步长。 */
         private const val COLOR_SAMPLE_STEP_PX = 6
 
@@ -190,6 +198,41 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
     /** `logcat -v threadtime` 的时间戳前缀（与设备日志同一时钟）。 */
     private fun wallClockStamp(): String = THREAD_TIME_FORMATTER.format(LocalDateTime.now())
 
+    /**
+     * 自 [since] 起是否有输入法画上（`ImeTracker` 的 `onShown` 锚点）。
+     *
+     * 平台在 GBoard 真正画出来之前就把 ime 的 `visible` insets 派发给应用（实测在
+     * 请求后一拍就可见、面板约 3 秒后才画），所以这个锚点是这个设备上唯一可靠的
+     * 「键盘真的在屏幕上」信号。`ImeTracker` 是平台的跟踪器，与输入法品牌无关。
+     */
+    private fun imeShownSince(since: String): Boolean = UxTestUtils
+        .runShellCommand("logcat -d -v threadtime -t 5000")
+        .lineSequence()
+        .any { it.contains("ImeTracker") && it.contains("onShown") && it.take(18) >= since }
+
+    /** 输入法覆盖屏幕底部的像素（insets 的 ime 高度）。 */
+    private fun imeInsetBottomPx(): Int {
+        var bottom = 0
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            bottom =
+                composeTestRule.activity.window.decorView
+                    .rootWindowInsets
+                    ?.getInsets(WindowInsets.Type.ime())
+                    ?.bottom ?: 0
+        }
+        return bottom
+    }
+
+    /**
+     * 内容比对的条带：排除被输入法覆盖的行。
+     *
+     * 键盘上画什么（布局、皮肤、文案）不属于应用可渲染的终端画面，且可以随往返
+     * 变化（实测同一次往返前后 GBoard 换了皮肤）。这些行不计入内容一致性；
+     * 开孔行为本身由状态序列与遮罩断言覆盖。
+     */
+    private fun contentBand(band: Band, shotHeightPx: Int, imeInsetBottomPx: Int): Band =
+        Band(band.top.coerceAtLeast(0), minOf(band.bottom, shotHeightPx - imeInsetBottomPx))
+
     /** 取时间戳不早于 [since] 的原生 warmup 日志行。 */
     private fun warmupLinesSince(since: String): List<String> = UxTestUtils
         .runShellCommand("logcat -d -v threadtime -t 5000")
@@ -200,15 +243,20 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         .filter { it.take(18) >= since }
         .toList()
 
-    /** 弹出输入法并等到其确实可见（`STATUS.md` 报的场景就是键盘在场）。 */
+    /**
+     * 弹出输入法并等到键盘真的画上屏幕（`STATUS.md` 报的场景就是键盘在场）。
+     *
+     * 本用例比对的内容区排除输入法覆盖行（见 [contentBand]），键盘画没画上屏不影响
+     * 比对口径；insets 可见足够表达「键盘按用户要求在场」。
+     */
     private fun showImeAndSettle() {
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val decor = composeTestRule.activity.window.decorView
             decor.windowInsetsController?.show(WindowInsets.Type.ime())
         }
         assertNotNull(
-            "输入法必须弹出",
-            UxTestUtils.pollUntilTrue(5_000, 100) { isImeVisible(composeTestRule.activity) },
+            "输入法必须可见（insets）",
+            UxTestUtils.pollUntilTrue(IME_SHOWN_TIMEOUT_MS, 100) { isImeVisible(composeTestRule.activity) },
         )
         composeTestRule.waitForIdle()
         Thread.sleep(SETTLE_MILLIS)
@@ -281,7 +329,20 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             "切后台时遮罩 MUST 在 surface 仍在时画进窗口（实测 $cycle）",
             cycle.any { it.painted && it.bufferPresent && it.coverPresent },
         )
-        // 核心判据二：无覆盖的那段时间里既不得缺缓冲、也不得缺遮罩与底色——缺席的
+        // 核心判据二：回前台这一侧，遮罩必须在**当前窗口**真的画过才撤。
+        // 原生侧提交帧可能早于窗口重新可见，旧窗口的缓冲（连同遮罩）已被平台丢弃；
+        // 若见「有缓冲」就撤遮罩，首个可见窗口帧就是空开孔——这正是闪烁。
+        val resumeCover = cycle.indexOfLast { it.bufferPresent && it.coverPresent }
+        val resumeCleared = cycle.indexOfLast { it.bufferPresent && !it.coverPresent }
+        assertTrue(
+            "回前台必须留下终态「有缓冲 + 无遮罩」（实测 $cycle）",
+            resumeCover >= 0 && resumeCleared > resumeCover,
+        )
+        assertTrue(
+            "回前台的遮罩 MUST 在当前窗口画过再撤（实测 $cycle）",
+            cycle.subList(resumeCover, resumeCleared).any { it.painted },
+        )
+        // 核心判据三：无覆盖的那段时间里既不得缺缓冲、也不得缺遮罩与底色——缺席的
         // 那一拍开孔透出桌面。
         val uncovered = cycle.filter { !it.bufferPresent && !it.coverPresent && !it.painted }
         assertTrue(
@@ -322,12 +383,13 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             "回前台后条带必须有内容（不得是桌面或空白）",
             distinctColors(after, band) >= MIN_DISTINCT_COLORS,
         )
+        val content = contentBand(band, after.height, imeInsetBottomPx())
         val diff =
             UxTestUtils.countDiffInBand(
                 before,
                 after,
-                band.top.coerceAtLeast(0),
-                band.bottom.coerceAtMost(after.height),
+                content.top,
+                content.bottom,
                 PIXEL_SAMPLE_STEP_PX,
                 PIXEL_DELTA_THRESHOLD,
             )
@@ -351,6 +413,8 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         showImeAndSettle()
         val band = holeBand()
         val before = UxTestUtils.screenshot(device)
+        // 输入法的重现事件必须晚于这个时间点；往返前的键盘画在此前，不是往返后的证据。
+        val tripStartStamp = wallClockStamp()
         val shiftBefore = surfaceShiftPx()
         assertTrue(
             "键盘在场时离开前条带必须有内容像素",
@@ -360,9 +424,9 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         roundTripAndAssertNeverUncovered(runtime.holeStateJournal())
 
         val shiftAfter = surfaceShiftPx()
-        assertTrue(
-            "回前台后输入法必须仍在场（否则本用例没覆盖键盘场景）",
-            isImeVisible(composeTestRule.activity),
+        assertNotNull(
+            "回前台后输入法必须画上（ImeTracker onShown）",
+            UxTestUtils.pollUntilTrue(IME_SHOWN_TIMEOUT_MS, 200) { imeShownSince(tripStartStamp) },
         )
         assertTrue(
             "往返前后终端位移必须相同（否则像素比对不是同一批可见行：$shiftBefore → $shiftAfter）",
@@ -373,17 +437,18 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             "键盘在场时回前台后条带必须有内容",
             distinctColors(after, band) >= MIN_DISTINCT_COLORS,
         )
+        val content = contentBand(band, after.height, imeInsetBottomPx())
         val diff =
             UxTestUtils.countDiffInBand(
                 before,
                 after,
-                band.top.coerceAtLeast(0),
-                band.bottom.coerceAtMost(after.height),
+                content.top,
+                content.bottom,
                 PIXEL_SAMPLE_STEP_PX,
                 PIXEL_DELTA_THRESHOLD,
             )
         assertTrue(
-            "键盘在场时回前台后内容条带必须与离开时一致（实测差 $diff 像素）",
+            "键盘在场时回前台后内容条带必须与离开时一致（输入法区域已排除；实测差 $diff 像素）",
             diff <= MAX_STRIP_DIFF,
         )
     }

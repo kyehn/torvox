@@ -14,6 +14,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -25,6 +27,7 @@ import terminal.emulator.MainActivity
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
+import terminal.emulator.findTerminalSurface
 import terminal.emulator.probeAssertion
 import terminal.emulator.pumpedTerminalText
 
@@ -314,6 +317,32 @@ class ModifierBarTest : ComposeTerminalLogcatTest() {
         assertTrue(
             "ModifierBar bottom should be near screen bottom: $bounds",
             bounds.bottom > 0f,
+        )
+    }
+
+    /**
+     * 文本输入页滑走后，输入连接必须交回终端视图。
+     *
+     * 回归：`TextField` 获得焦点后，把页面滑回按键页并不会自动放弃输入法连接
+     * ——软键盘字符继续写进那个不可见的输入框，用户必须再点一次终端才能输入。
+     * 修复由组合层在离开文本页时清焦点并让 `TerminalSurface` 取回焦点。
+     */
+    @Test
+    fun leaving_text_input_page_returns_focus_to_terminal() {
+        composeTestRule.onNodeWithTag("ModifierBarPager").performTouchInput { swipeLeft() }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("TextInputPage").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("ModifierBarPager").performTouchInput { swipeRight() }
+        composeTestRule.waitForIdle()
+        val surface = findTerminalSurface(composeTestRule.activity)
+        assertTrue(
+            "从文本输入页滑回按键页后，输入连接必须交回终端视图",
+            surface.hasFocus(),
+        )
+        assertTrue(
+            "终端必须表明愿意接收文本输入，否则输入法不会重新绑定到它",
+            surface.onCheckIsTextEditor(),
         )
     }
 }

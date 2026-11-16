@@ -220,6 +220,30 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
     }
 
     /**
+     * 等纵向条带与离开前截图一致为止。
+     *
+     * resume 窗口会从滑入动画回位，动画期间整屏内容带着偏移；「条带在两次截图之间
+     * 停住」不足以放行（亚像素位移低于判据阈值时会被当成停住，实测坐标一致时像素
+     * 仍差 2000+）。终判就是「回前台帧的条带像素 = 离开帧的条带像素」——动画结束后
+     * 内容必然落回同一批像素，这正是断言本身。
+     * 15 秒内未收敛则返回最后一帧，让断言以真实差值失败——MUST NOT 无限期等下去，
+     * MUST NOT 放宽比对口径。
+     */
+    private fun waitForBandToMatchBefore(
+        before: android.graphics.Bitmap,
+        top: Int,
+        bottom: Int,
+        timeoutMs: Long,
+    ): android.graphics.Bitmap {
+        var frame = UxTestUtils.screenshot(device)
+        UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 150) {
+            frame = UxTestUtils.screenshot(device)
+            countDifferingPixels(before, frame, top, bottom) == 0
+        }
+        return frame
+    }
+
+    /**
      * 键栏覆盖层的顶边（**屏幕**坐标）。
      *
      * 键栏按输入法高度上移，与终端内容的位移量不同：条带含进键栏就不是同一批
@@ -587,9 +611,12 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         )
         // 往返一次后内容条带必须逐像素不变：这是「回前台的画面就是离开时的画面」
         // 的终判，也是开孔遮罩比对（TerminalHoleCoverInstrumentedTest）的另一半。
+        // resume 滑窗/面板入场动画期间整屏带偏移（亚像素位移截图会被判据当成「停住」），
+        // 故等回前台帧的条带像素等于离开帧为止——动画结束后内容必然落回同一批像素。
+        val afterShot = waitForBandToMatchBefore(beforeShot, stripTop, stripTop + stripHeight, 15_000L)
         val stripDiff = countDifferingPixels(
             beforeShot,
-            UxTestUtils.screenshot(device),
+            afterShot,
             stripTop,
             stripTop + stripHeight,
         )

@@ -291,6 +291,35 @@ MUST NOT 静默丢弃字符。
 - **WHEN** 测试或消费方需要探测编辑接口的返回值
 - **THEN** 只经 `runOnMainSync` 同步执行并读取返回值；`runOnUiThread` 投递后的同步读 MUST NOT 被依赖
 
+### Requirement: 离开修饰键栏文本输入页必须把输入连接交回终端
+
+修饰键栏的文本输入页持有输入法的连接：平台把该页的编辑框当作当前输入目标。用户从
+该页滑回按键页时，MUST 清除该页焦点并让终端视图重新取得焦点，MUST NOT 把输入连接
+留在已经不可见的输入框上——否则软键盘的字符写进用户看不见的地方，用户必须再点一次
+终端才能继续输入。
+
+终端重新取得焦点时 MUST 一并表明「本视图可接收文本输入」（`onCheckIsTextEditor` 报真），
+否则平台不会把输入连接绑定回终端。软键盘被显式禁用时 MUST NOT 借此弹出键盘。
+
+实现口径：`ModifierBar` 按分页的 settled 页号判定「从文本输入页离开」，清除组合焦点后
+回调组合层，由 `TerminalSurface.reclaimKeyboardFocus` 取回 Android 焦点。
+
+#### Scenario: 滑回按键页后输入连接回到终端
+
+- **WHEN** 用户在修饰键栏文本输入页输入后横向滑回按键页
+- **THEN** 焦点回到终端视图，输入法当前输入目标为终端而非文本输入页
+
+#### Scenario: 启动未请求键盘也照样交回
+
+- **WHEN** 应用启动未请求输入法（`hide-soft-keyboard-on-startup = true`），用户在文本
+  输入页输入后滑回按键页
+- **THEN** 终端重新取得焦点并表明可接收文本输入，输入法连接绑定到终端
+
+#### Scenario: 软键盘被禁用时不借此弹出
+
+- **WHEN** 软键盘已被 KEYBOARD 键禁用，用户从文本输入页滑回按键页
+- **THEN** 终端取得焦点但不弹出软键盘
+
 ### Requirement: 组字改写的光标落点必须在组字区内
 
 输入法的组字编辑（`setComposingText`、`deleteSurroundingText`、`commitText`、

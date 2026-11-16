@@ -259,6 +259,32 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
       整个过渡段开孔一直透明（实测 72~88 帧、约 380ms），直到回前台才被填上，填满延迟
       实测 3278ms——那正是用户看到的「切后台时窗口里的洞透出桌面」；该用例 MUST 因此失败
 
+#### Scenario: 键盘在场形态的像素一致性只量应用渲染的画面
+
+- **WHEN** `BackgroundResumeFlickerInstrumentedTest` 的键盘在场形态做往返前后像素比对
+- **THEN** 判据 MUST 排除输入法覆盖的行（`contentBand`：`band.bottom` 裁到
+      `shot.height − IME inset.bottom`）：键盘上画什么（布局、皮肤、文案）不属于应用
+      可渲染的终端画面，同一次往返实测 GBoard 会换皮肤（深色↔浅色），像素差异会漂在
+      键盘上而非终端内容上
+- **AND** 「键盘已画上屏」的判据 MUST 取 `ImeTracker` 的 `onShown` 锚点（平台的跟踪器，
+      与输入法品牌无关）：`rootWindowInsets.isVisible(ime())` 会超前派发——实测请求后
+      一拍即上报可见、面板约 3 秒后才画，取它做等待条件会在键盘未画时就放行验证
+- **AND** MUST NOT 以「底部条带颜色种数大于阈值」判定键盘是否上屏：平底的 Compose
+      区域也足够凑出 8 种颜色，实测会误判（键盘实际未画）
+- **AND** 该用例 MUST 保持 `shiftBefore == shiftAfter` 断言，否则像素比对的不是同一批
+      可见行
+
+#### Scenario: 切后台返回后的一致性比对等到动画彻底收住
+
+- **WHEN** `ImePopupPixelInstrumentedTest#imeShiftFrozenWhileBackgrounded` 在回前台后
+      做「离开前的截图 vs 返回后的截图」像素比对
+- **THEN** 比对 MUST 先轮询到回前台帧的条带像素与离开帧一致（15 秒上限，150ms 间隔）
+      再断言；亚像素位移低于判据阈值时会被当成「停住」，用「连续两次截图一致」放行
+      会量到动画中途帧（实测同一位置稳定时仍差 2000+ 像素）
+- **AND** MUST NOT 以「表面屏幕坐标回到离开时的位置」代替收敛判据：坐标一致早于
+      面板/键栏与内容的补帧结束（实测坐标一致时像素仍差 2000+）
+- **AND** 超时 MUST 带着真实差值落到断言而不是无限期等待或清空比对口径
+
 #### Scenario: 没有可回读的内容时不遮
 
 - **WHEN** 回读失败、没有保留的帧或帧格式不是 RGBA8

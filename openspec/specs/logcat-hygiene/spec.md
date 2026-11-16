@@ -562,6 +562,53 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       窗口；后者由 `render-stability` 的「已涂满」判据单独取证（见该文件的开孔场景）
 - **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
 
+#### Scenario: 2026-11-16 第三份运行日志（09:03-46）的聚合归因
+
+- **WHEN** 审计 `logcat_2026-11-16_09-03-46.txt`（`logcat_2026-11-16_09-03-46.txt`，
+      真实设备，主进程 28303，含三次新窗口与两次真实 HOME 往返，
+      应用侧 W/E 合计 178 条、零应用栈）
+- **THEN** 应用进程（28303）W/E 合计 MUST 为 87 条，逐条处置 MUST 为：
+       - `mali_gralloc` 72 条（`Requested R8 format is not supported with this allocator`
+         36 + `ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00` 36）：
+         即 3 次新窗口 × 24 条（每次新窗口 12 次格式探测 × 2 行），源头与
+         13:25-24 相同（AOSP `vulkan/libvulkan/swapchain.cpp` 对
+         `VK_FORMAT_R8_UNORM` 的 `AHardwareBuffer_isSupported` 探测，厂商 HIDL 分配器
+         不支持 R8 故回这条错），应用侧无 API 可改，MUST NOT 以换 surface 格式或过滤
+         该 tag 处置
+       - `ziparchive` 4（`unisoc-framework.dm`、`unipnp-framework.dm`）、`FeatureOpt` 2
+         （`zte_foldable`）、`libc` 4（`vendor.MB.running`、`persist.vendor.gpu.fbc`、
+         `persist.unipnp.debug`）：厂商框架镜像与属性读取探测，无应用栈，
+         MUST NOT 以过滤 tag 处置
+       - `Typeface` 1（`updateDefaultTypeface(fontPath: /data/resource-cache/font/...)`）：
+         归为厂商标字体框架（同 13:25-24 的归因），MUST NOT 记为应用字体路径错误
+       - `wgpu_core::instance` 2（`Missing downlevel flags: SURFACE_VIEW_FORMATS`
+         及其 `DownlevelCapabilities` 清单）：上游对适配器缺该旗标的无条件提示，
+         无应用 API 可关，MUST NOT 记为应用缺陷
+       - `Parcel` 1（`Expecting binder but got null!`）：`frameworks/native/libs/binder/
+         Parcel.cpp` 第 2330 行的 `ALOGW`，调用方在平台一侧
+       - `com.termux` 1（`Not starting debugger since process cannot load the jdwp agent.`）：
+         debug 构建未启用 jdwp，无应用栈
+      另有一个历史进程（PID 12237，与 28303 同 UID 但非本次运行）：`AndroidRuntime` 1
+      （`FATAL EXCEPTION: Render-1`，正文为 2026-11-12 的
+      `Rust panic: Error in Device::poll: Validation Error`），早于本次运行四天，
+      属历史崩溃；现由 `poll.rs` 的 `poll_outcome`/`classify` 归一成
+      `PollOutcome::Failed`，MUST NOT 记为本次运行的缺陷
+- **AND** 同 UID 子进程（28368/28628/28954/29707）MUST 为 90 条：`DefaultDispatch` 2、
+      `fish` 65、`login` 3、`bash` 2、`yazi` 4、`git` 14——其中 `avc: granted`<!-- nosemgrep: semgrep.no-prohibited-shells -->
+      83 条（内核审计的放行决定）、`avc: denied` 7 条：`login` 读 `/proc/modules`与
+      `/proc/bus/pci/devices` 2 次、`git` 读 `/proc/sys/vm/overcommit_memory` 2 次及
+      建立 3 个 pack 临时硬链接。路径全在 `files/usr/nix/store/...`，由用户 nix 用户态<!-- nosemgrep: semgrep.no-nix-store-paths -->
+      自行执行（与应用代码无关）；`granted` 不得记为缺陷，`denied` 是 SELinux
+      enforcing 的正常裁定且 nix 用户态已照常完成拉取（git 后续对象已入库），
+      MUST NOT 以过滤这些 tag 处置
+- **AND** 本份日志 MUST NOT 出现任何应用侧 W/E：应用自身 tag（`Runtime`、
+      `native::render::*`、`native::android::ffi::*`、`TerminalSurface`）全为 info 级
+- **AND** 本份日志的开孔路径 MUST 与 `render-stability` 对得上：两次往返均进入
+      「无缓冲 + 有遮罩」并 `warmup: presenting the retained last frame` 恢复
+- **AND** `read_cover_frame` 只证明回读出了遮罩帧，不证明遮罩画进了窗口；后者由
+      `render-stability` 的「已涂满」判据单独取证（见该文件的开孔场景）
+- **AND** 该日志 MUST NOT 被当作闪烁已修的证据：它不携带开孔像素信息
+
 #### Scenario: 模拟器 debug 构建的聚合归因
 
 - **WHEN** 审计模拟器（x86_64）上 debug 构建的一次冷启动加一次真实 HOME 往返

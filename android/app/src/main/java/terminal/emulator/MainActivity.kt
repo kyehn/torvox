@@ -5,9 +5,6 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.graphics.Color
-import android.graphics.PixelFormat
-import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -168,11 +165,9 @@ class MainActivity : ComponentActivity() {
         WindowCompat
             .enableEdgeToEdge(window)
         previousConfiguration = Configuration(resources.configuration)
-        // Color.TRANSPARENT 是 ARGB 整数而非资源 id —— lint 建议的 KTX
-        // Int.toDrawable() 会把它当作资源 id (0) 并解析到错误的 drawable。
-        @SuppressLint("UseKtx")
-        window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        window.setFormat(PixelFormat.TRANSPARENT)
+        // 窗口保持不透明：SurfaceView 的开孔是窗口图层的真实透明区，切后台的
+        // 系统快照取的是窗口缓冲；透明窗口会让开孔直接透出桌面（用户看到的闪）。
+        // 主题的 windowBackground 已是终端底色，移除透明设置后开孔至少是同色底。
         // 前台服务不在这里启动：它只为存活会话提供常驻通知与 PARTIAL_WAKE_LOCK，
         // 而首个会话由 `TerminalRuntime.startSession` 创建时经
         // `startForegroundServiceIfNeeded` 启动。冷启动时先起服务要付一次 AMS 往返

@@ -285,7 +285,6 @@ constructor(
                 object : Choreographer.FrameCallback {
                     override fun doFrame(frameTimeNanos: Long) {
                         var waitMore = false
-                        var published = false
                         synchronized(surfacePresentLock) {
                             if (token != surfacePresentToken || !surfacePresentPending) return
                             if (surfacePresentDeferralFrames > 0) {
@@ -296,19 +295,23 @@ constructor(
                                 surfacePresentFrameCallback = null
                                 if (!surfaceBufferPresentFlow.value) {
                                     surfaceBufferPresentFlow.value = true
+                                    // 遮罩不在此撤：这里只知道原生侧提交过帧，不知道
+                                    // **当前窗口**是否已经画过遮罩。返回时窗口可能刚被
+                                    // 平台重新挂上，旧窗口的缓冲（连同遮罩）已丢；此处
+                                    // 撤掉，首个可见窗口帧就是空开孔。撤下权交给视图的
+                                    // 可见绘制（TerminalSurface.onDraw）。
+                                    //
+                                    // 重置「已上屏」标记：即将出现的这一帧是本窗口的
+                                    // 首次可见绘制，需要留下自己的证据。
+                                    synchronized(holeJournalLock) { holePaintedForCover = false }
                                     recordHoleState()
-                                    published = true
                                 }
                             }
                         }
                         if (waitMore) {
                             // 交换链还压着这一帧：再等一个显示帧，遮罩继续盖着。
                             Choreographer.getInstance().postFrameCallback(this)
-                            return
                         }
-                        if (!published) return
-                        // 新帧已上屏：开孔遮罩使命完成，撤掉并释放像素（见 [coverFrame]）。
-                        clearCoverFrame()
                     }
                 }
             synchronized(surfacePresentLock) {
@@ -328,7 +331,8 @@ constructor(
      * 一块平底色）——用户看到的都是「切后台返回闪一下」。有遮罩时开孔里是
      * 离开时的画面，闪烁消失。
      *
-     * 渲染线程写（渲染线程停下之前回读），主线程读；新帧到达后随即撤掉。
+     * 渲染线程写（渲染线程停下之前回读），主线程读；由视图在**当前窗口**里画过
+     * 一帧之后撤掉（见 [clearCoverFrame]）——原生侧提交过帧不等于窗口已可见。
      */
     private val coverFrameFlow = MutableStateFlow<Bridge.CoverFrame?>(null)
     val coverFrame: StateFlow<Bridge.CoverFrame?> = coverFrameFlow.asStateFlow()
@@ -441,7 +445,12 @@ constructor(
         recordHoleState()
     }
 
-    /** 新帧已上屏：遮罩使命完成，撤掉并释放像素。 */
+    /**
+     * 遮罩已在**当前窗口**画进开孔：使命完成，撤掉并释放像素。
+     *
+     * 只由视图的可见绘制调用（[TerminalSurface.onDraw]）：原生侧提交帧早于窗口
+     * 重新可见，运行期无从判断「这一帧窗口到底有没有画过」。
+     */
     internal fun clearCoverFrame() {
         if (coverFrameFlow.value == null) return
         synchronized(holeJournalLock) { holePaintedForCover = false }

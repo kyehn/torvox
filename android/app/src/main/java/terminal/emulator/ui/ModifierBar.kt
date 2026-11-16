@@ -30,6 +30,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -534,12 +536,32 @@ fun ModifierBar(
     layout: List<List<ExtraKeySlot>>? = null,
     /** 单键高度相对默认值的缩放（`terminal-toolbar-height`）。 */
     buttonHeightScale: Float = 1f,
+    /**
+     * 从文本输入页滑回按键页时调用。
+     *
+     * 文本页的 `TextField` 会把输入法连接留在自己身上；只把页面滑走不清焦点，
+     * 软键盘的字符仍写进那个不可见的输入框，用户必须再点一次终端才能输入。
+     */
+    onTextInputPageLeft: () -> Unit = {},
 ) {
     val buttonHeight = buttonHeightDp(buttonHeightScale).dp
     val rows = layout ?: remember { defaultExtraKeySlots() }
     val drawerDescription = stringResource(R.string.open_session_drawer)
     // 第 0 页是按键页，第 1 页是文本输入页（DESIGN：左滑进入文本输入框）。
     val pagerState = rememberPagerState(pageCount = { KEY_PAGE_COUNT })
+    val focusManager = LocalFocusManager.current
+    // 只在**从文本页滑走**时交还输入连接：首次组合时 pager 就停在按键页，
+    // 若无条件触发会把「启动时不弹键盘」的设定改成弹键盘。
+    var wasOnTextInputPage by remember { mutableStateOf(false) }
+    LaunchedEffect(pagerState.settledPage) {
+        if (pagerState.settledPage == TEXT_INPUT_PAGE_INDEX) {
+            wasOnTextInputPage = true
+        } else if (wasOnTextInputPage) {
+            wasOnTextInputPage = false
+            focusManager.clearFocus()
+            onTextInputPageLeft()
+        }
+    }
     val actions =
         ModifierBarActions(
             onSubmit = onSubmit,

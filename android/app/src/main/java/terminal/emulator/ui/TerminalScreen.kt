@@ -40,7 +40,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -153,22 +152,12 @@ fun TerminalScreen(
     val viewModelDayThemeName = settings.dayThemeName
     val viewModelNightThemeName = settings.nightThemeName
     val runtimeState by viewModel.runtime.state.collectAsStateWithLifecycle()
-    // 开孔是否已有缓冲区：决定要不要在窗口层涂底色（见 TerminalRuntime.surfaceBufferPresent）。
-    //
-    // 这一条 MUST NOT 用 `collectAsStateWithLifecycle`：该标志的**关键一次写入发生在
-    // `onStop` 之后**（系统拆除 SurfaceView 的 surface 时），而 `collectAsStateWithLifecycle`
-    // 在生命周期低于 STARTED 时停止收集。切回前台时收集要等 `ON_START` 后的协程重启才
-    // 恢复，第一帧已经按旧值（true）画完——开孔区没有底色，正好透出上一个应用，即
-    // 「切换应用返回一闪」。常驻收集让写入直接落到组合状态上，恢复时的首帧就带底色；
-    // 该标志只在 Surface 交付/拆除时翻转，常驻不产生额外唤醒。
-    val surfaceBufferPresent by viewModel.runtime.surfaceBufferPresent.collectAsState()
     // 开孔遮罩（切后台时回读的上一帧）**不画在组合层**：窗口层的像素在平台给
     // SurfaceView 打的洞之下，一律被抹掉（实测组合层涂的底色只在 SurfaceView 之外的
     // 边距上可见，洞里始终是空的）。遮罩由视图自己在 `onDraw` 里画（见
-    // TerminalSurface.onDraw），并在绘制时向运行期现取「有没有缓冲」这个事实。
-    //
-    // 组合层只负责把该事实推给视图，好让视图在事实翻转时及时重绘——撤下遮罩晚一帧
-    // 就是用户看到的那一下闪。
+    // TerminalSurface.onDraw），视图直接订阅运行期的「缓冲/遮罩」两个事实并自行
+    // 失效——组合层的重组可能把 false→true 合并成一次，漏掉那次「该撤遮罩了」
+    // 的重绘就是用户看到的那一下闪。
     //
     // `~/.termux/termux.properties` 的解析结果。视图只读，不自己读文件——读取时机
     // （启动、设置变化）统一由运行期裁定。
@@ -732,12 +721,6 @@ fun TerminalScreen(
                             },
                             update = { surface ->
                                 surface.touchEnabled = !isOverlayVisible
-                                // 开孔遮罩：原生 surface 尚无缓冲时，SurfaceView 在自己的
-                                // `onDraw` 里补画离开时的画面（开孔只能由它自己填，组合层
-                                // 画的像素会被平台的打洞抹掉，见 TerminalSurface.onDraw）。
-                                // 这里只把「有没有缓冲」这个事实推给视图，由视图在绘制时
-                                // 取用并按事实决定画不画。
-                                surface.surfaceHasBuffer = surfaceBufferPresent
                                 // 没有可复现的上一帧时铺的底色（终端底色）：主题变了就得换。
                                 surface.holeCoverBackground = terminalBackground.toArgb()
                                 // 组合状态是唯一真源：翻转后由这里推给视图，轻点路径才
@@ -992,6 +975,9 @@ fun TerminalScreen(
                                 backgroundColor = resolvedTerminalTheme.background,
                                 layout = modifierLayout,
                                 buttonHeightScale = termuxProperties.properties.terminalToolbarHeightScale,
+                                onTextInputPageLeft = {
+                                    surfaceRef.value?.reclaimKeyboardFocus()
+                                },
                             )
                         }
                     }
