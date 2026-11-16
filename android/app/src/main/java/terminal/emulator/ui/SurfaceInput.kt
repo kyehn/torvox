@@ -129,7 +129,9 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
         surface.removeCallbacks(flingStepRunnable)
         surface.isScrolling = false
         surface.scrollAccumulatorPx = 0f
-        surface.viewModel?.runtime?.setScrollRemainderPx(0f)
+        // 清零走 clearScrollRemainder：手势期间的运动事件已逐帧刷新过滚动运动时钟，
+        // 收尾这一笔不是手势（经手势写入口写 0 会把「新输出不贴底」的窗口顺延）。
+        surface.viewModel?.runtime?.clearScrollRemainder()
         surface.onScrollingStateChanged?.invoke(false)
     }
 
@@ -180,7 +182,8 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                     surface.ime.applyImeShift()
                 }
                 surface.scrollAccumulatorPx = 0f
-                surface.viewModel?.runtime?.setScrollRemainderPx(0f)
+                // 手势尚未开始移动：此刻的清零不是一次滚动手势。
+                surface.viewModel?.runtime?.clearScrollRemainder()
                 return true
             }
 
@@ -332,7 +335,8 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                     // 使视图停在整行而非行中间。
                     surface.isScrolling = false
                     surface.scrollAccumulatorPx = 0f
-                    surface.viewModel?.runtime?.setScrollRemainderPx(0f)
+                    // 收尾清零不是手势：滚动运动时钟由手势期间的运动事件刷新。
+                    surface.viewModel?.runtime?.clearScrollRemainder()
                     surface.onScrollingStateChanged?.invoke(false)
                     return true
                 }
@@ -804,7 +808,8 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                 if (surface.isScrolling) {
                     surface.isScrolling = false
                     surface.scrollAccumulatorPx = 0f
-                    surface.viewModel?.runtime?.setScrollRemainderPx(0f)
+                    // 收尾清零不是手势：滚动运动时钟由手势期间的运动事件刷新。
+                    surface.viewModel?.runtime?.clearScrollRemainder()
                     surface.onScrollingStateChanged?.invoke(false)
                 }
                 if (longPressDragging) {

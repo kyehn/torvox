@@ -1280,10 +1280,9 @@ constructor(
      */
     fun setScrollRemainderPx(remainderPx: Float) {
         val entry = sessions[activeSessionId] ?: return
-        entry.scrollRemainderPx = remainderPx
-        // 此处也盖上滚动运动时钟（不只 setScrollOffset 中盖）：逐像素的亚行运动是
-        // 拖拽期间频率最高的事件，必须保持循环的活跃节奏。
-        entry.lastScrollNanos = System.nanoTime()
+        // 逐像素的亚行运动是拖拽期间频率最高的事件，必须保持循环的活跃节奏
+        // （滚动运动时钟在条目内一并刷新）。
+        entry.setScrollRemainderPx(remainderPx)
         // 同 setScrollOffset：亚行运动不直接唤醒，交给 vsync 回调合并。
         entry.lastSignalNanos = System.nanoTime()
         ensureVsyncChainRunning()
@@ -1298,7 +1297,7 @@ constructor(
      */
     fun clearScrollRemainder() {
         val entry = sessions[activeSessionId] ?: return
-        entry.scrollRemainderPx = 0f
+        entry.clearScrollRemainder()
         entry.lastSignalNanos = System.nanoTime()
     }
 
@@ -2388,6 +2387,11 @@ constructor(
             // 在任何停止动作之前捕获；用于切换/spawn 失败时恢复前一个会话。
             previousActiveId = activeSessionId
             if (sessionId == activeSessionId) return true
+            // 目标会话的亚行余量属于上次活动它时的手势：清零，否则它的渲染线程首帧
+            // 会把旧余量转发给原生（首帧先跳半行，待余量归零后再跳回）。
+            // 切换期间清零是本路径唯一的清零点——此刻活动会话仍是上一个，写入都落在
+            // 上一个会话上，目标会话的余量不会再被改写。
+            target.clearScrollRemainder()
             // 把 Surface 交给渲染器（attachWindow JNI 在 Rust 内部提取 ANativeWindow）。
             // 这是惰性的：它只存储引用——wgpu surface 在首个渲染帧才创建，
             // 而那发生在旧会话线程停止、其 surface 在下方释放之后。
@@ -2444,6 +2448,17 @@ constructor(
         //
         // 注意：刻意置于 sessionLock 之外——bridge.render() 在 GPU 故障时
         // （Mali GPU 的 get_current_texture）可能无限挂起。
+        try {
+            // 原生的亚行余量挂在**全局**渲染器上（渲染器只有一份）：上一会话留下的
+            // 半行余量会让本会话的首帧按它平移（跳半行后才跳回）。先归零再渲染。
+            target.bridge.setScrollYPx(0f)
+        } catch (exception: Exception) {
+            LogUtil.warn(
+                "Runtime",
+                "switchSession: failed to reset scroll remainder for session $sessionId",
+                exception,
+            )
+        }
         try {
             // 重试梯子只接硬失败（< 0）；`0` 的语义是「本帧没有可画的内容」，切会话后
             // 那正是常态——surface 尚未就绪、目标会话暂无新帧都会返回 0，而原生已按当前
@@ -2569,10 +2584,8 @@ constructor(
             }
             try {
                 setActiveSessionId(sessionId)
-                // 清除上一个会话残留的逐像素滚动余量：原生视口偏移是全局的，
-                // 故新会话必须从对齐状态开始
-                // （其渲染线程也会在首帧转发零余量）。
-                setScrollRemainderPx(0f)
+                // 目标会话的逐像素滚动余量已在阶段 1 清零（那里是唯一的清零点：
+                // 原生视口偏移是全局的，新会话必须从对齐状态开始）。
                 // 同步原生 ACTIVE_SESSION_ID，使 pollEvent/process_output 作用于新会话。
                 // 不做此步，除首个会话外的所有会话会共用同一个原生活动会话，
                 // 多会话的输出/退出检测将静默失效。

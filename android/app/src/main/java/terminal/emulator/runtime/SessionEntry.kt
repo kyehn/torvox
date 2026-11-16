@@ -212,8 +212,34 @@ internal data class SessionEntry(
     /**
      * 逐像素滚动余量（px，正值 = 内容下移），由渲染线程与 [scrollOffset] 一同取用。
      * 手势结束/会话切换时重置为 0，避免陈旧偏移泄漏到下一次手势。
+     *
+     * 写入只经 [setScrollRemainderPx] 与 [clearScrollRemainder]：两者对
+     * [lastScrollNanos] 的处理不同（手势刷新、清零不刷新），散开写就必然漂移。
      */
     @Volatile var scrollRemainderPx: Float = 0f
+        private set
+
+    /**
+     * 记下一次滚动手势的逐像素余量。
+     *
+     * 同时刷新 [lastScrollNanos]：逐像素的亚行运动是拖拽期间频率最高的事件，
+     * 必须保持渲染循环的活跃节奏（见 [hasScrollMotion]）。
+     */
+    fun setScrollRemainderPx(remainderPx: Float) {
+        scrollRemainderPx = remainderPx
+        lastScrollNanos = System.nanoTime()
+    }
+
+    /**
+     * 清掉亚行余量，且**不**把它记成一次滚动手势。
+     *
+     * 清零发生在手势结束、会话切换与终端重置等非手势路径上：刷新
+     * [lastScrollNanos] 会让随后一段时间里的新输出被误判为「用户刚滚动过」
+     * 而不再自动贴底（见 `shouldResetScroll` 的 `recentlyScrolled`）。
+     */
+    fun clearScrollRemainder() {
+        scrollRemainderPx = 0f
+    }
 
     /**
      * 滚动手势是否正在移动：最近的滚动运动事件（逐像素 `setScrollRemainderPx` 或整行 `setScrollOffset`）

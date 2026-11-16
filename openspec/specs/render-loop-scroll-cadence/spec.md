@@ -33,10 +33,19 @@ idle-clock 过期而塌到 500ms idle latch（滚动帧≈2fps）；手势停止
 latch 超时 MUST 同时咨询 `hasScrollMotion()`，使 idle-clocks 过期后手势仍能
 立即恢复活跃帧率。
 
+清零路径（手势结束、会话切换、终端重置）MUST NOT 戳 `lastScrollNanos`：清零不是
+一次滚动手势，戳了会让随后一段时间里的新输出被 `shouldResetScroll` 的
+`recentlyScrolled` 误判为「用户刚滚动过」而不自动贴底。
+
 #### Scenario: 稀疏事件仍保持活跃
 
 - **WHEN** 手势事件稀疏（主线程忙于手势/组合评分，事件间隙长）
 - **THEN** 250ms 运动窗口内的间隙不被 500ms latch 吞掉，帧率不塌陷
+
+#### Scenario: 清零余量不冒充滚动手势
+
+- **WHEN** 会话切换把亚行余量清零
+- **THEN** `lastScrollNanos` 不被刷新，该会话的新输出仍可自动回底
 
 ### Requirement: 滚动更新由 vsync 合并
 

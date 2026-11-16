@@ -1016,11 +1016,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     @Suppress("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean = input.onTouchEvent(event)
 
-    /**
-     * 鼠标滚轮事件（外接鼠标/触控板）。应用启用鼠标上报时
-     * （DECSET 1000/1002/1003），滚轮事件经 Ghostty 鼠标编码器编码为按钮 4/5
-     * 并写入 PTY；未启用时在主屏滚动本地回滚，备用屏保持不滚动。
-     */
+    /** 滚轮语义见 [SurfaceInput.onGenericMotionEvent]。 */
     override fun onGenericMotionEvent(event: MotionEvent): Boolean =
         input.onGenericMotionEvent(event) ?: super.onGenericMotionEvent(event)
 

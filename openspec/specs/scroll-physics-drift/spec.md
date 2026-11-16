@@ -101,7 +101,10 @@ MUST NOT 按行高把速度换算成行/秒——那样每帧落点被截成整�
 
 ### Requirement: fling 中断须收尾滚动状态
 
-`stopFlingAnimation()` 在中断进行中的 fling 时 MUST 清零亚行余量（`scrollAccumulatorPx` 与 `setScrollRemainderPx`），并发出 `onScrollingStateChanged(false)` 回调，使 render-loop 的 `shouldResetScroll` 不被旧 fling 残留状态阻止。
+`stopFlingAnimation()` 在中断进行中的 fling 时 MUST 清零亚行余量（`scrollAccumulatorPx` 与
+`clearScrollRemainder`），并发出 `onScrollingStateChanged(false)` 回调，使 render-loop 的
+`shouldResetScroll` 不被旧 fling 残留状态阻止。清零 MUST NOT 记成一次滚动手势：手势期间的
+运动事件已逐帧刷新过滚动运动时钟，收尾再刷一次只会把「新输出不贴底」的窗口顺延。
 
 #### Scenario: 惯性滚动中触屏打断
 
