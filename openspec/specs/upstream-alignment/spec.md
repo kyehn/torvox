@@ -1056,6 +1056,13 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   三项声明了检查手段但未进门禁，已在上表「落地方案（未实施）」逐项登记差异位置与接入
   方式，并各带当次实测基线；其余声明（lavapipe 提供 Vulkan 环境、nix 提供工具链与
   字体）由构建与运行环境提供，不是独立检查项，无需另立门禁条目。
+- semgrep 的覆盖面：全仓扫描（`semgrep scan --config .semgrep/rules.yml --json`）的
+  `errors` MUST NOT 含 `PartialParsing`。2026-11-16 实测为 0：改动前为 11 个文件 /
+  104 个区域被跳过扫描（cucumber 步骤定义文件用了 CJK 标识符
+  `io.cucumber.java.zh_cn.*`，semgrep 的 Kotlin 解析器解析不了），这些区域里的规则命中
+  一律不会被报出；步骤注解已改为 `io.cucumber.java.en.*`（步骤正则、Gherkin 特性文件与
+  匹配语义不变——cucumber 按正则匹配步骤文本，不校验注解的关键词类别，仓内已有反例：
+  特性文件里的 `而且 …` 由 `@那么` 的步骤定义接住）。
 
 **静态形状扫描**（`footgun-scan` 的 32 个模式，覆盖 Kotlin/Compose 源码；Rust 侧由
 `cargo clippy --all-targets -- --deny warnings` 与 `aislop` 覆盖，本工具不适用）：

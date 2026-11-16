@@ -8,9 +8,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
-import io.cucumber.java.zh_cn.假如
-import io.cucumber.java.zh_cn.当
-import io.cucumber.java.zh_cn.那么
+import io.cucumber.java.en.Given
+import io.cucumber.java.en.Then
+import io.cucumber.java.en.When
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import terminal.emulator.MainActivity
@@ -92,13 +92,13 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         return view
     }
 
-    @假如("^终端显示文本$")
+    @Given("^终端显示文本$")
     fun terminalDisplaysText() {
         composeRuleHolder.composeRule.waitForSession()
         ensureScreenText()
     }
 
-    @假如("^终端中的文本已被选中$")
+    @Given("^终端中的文本已被选中$")
     fun textIsSelectedInTerminal() {
         composeRuleHolder.composeRule.waitForSession()
         ensureScreenText()
@@ -110,19 +110,19 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         assertNotNull("长按后未进入选择状态", selected)
     }
 
-    @当("^长按字符$")
+    @When("^长按字符$")
     fun userLongPressesOnCharacter() {
         longPressCenter()
     }
 
-    @当("^长按空白区域$")
+    @When("^长按空白区域$")
     fun userLongPressesOnEmptyArea() {
         val view = surface()
         // 顶部是提示符与数字行，底部 90% 处为空行，长按此处应出粘贴菜单而非单词选中。
         injectLongPress(view, view.width / 2f, view.height * 0.9f)
     }
 
-    @当("^向前拖动选择手柄$")
+    @When("^向前拖动选择手柄$")
     fun userDragsSelectionHandleForward() {
         val view = surface()
         dragBeforeEnd = selection().end
@@ -135,7 +135,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         )
     }
 
-    @当("^向后拖动选择手柄$")
+    @When("^向后拖动选择手柄$")
     fun userDragsSelectionHandleBackward() {
         val view = surface()
         dragBeforeEnd = selection().end
@@ -148,7 +148,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         )
     }
 
-    @当("^触发复制$")
+    @When("^触发复制$")
     fun userTriggersCopy() {
         // 复制会清除选区，先记下所选文本供断言比对。
         val selectedText = selection().selectedText
@@ -161,7 +161,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         composeRuleHolder.composeRule.waitForIdle()
     }
 
-    @那么("^出现选择手柄$")
+    @Then("^出现选择手柄$")
     fun selectionHandleAppears() {
         // 手柄是 Surface 侧 TYPE_APPLICATION_SUB_PANEL 覆盖窗（HandleOverlayLayout），
         // 不在 Compose 语义树中，按视图类名用 UiAutomator 等待其出现。
@@ -172,14 +172,14 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         )
     }
 
-    @那么("^单词被选中$")
+    @Then("^单词被选中$")
     fun wordIsSelected() {
         composeRuleHolder.composeRule.waitForIdle()
         val selectedText = selection().selectedText
         assertTrue("应选中单词，实际选中文本为空", selectedText.isNotEmpty())
     }
 
-    @那么("^所选文本已在剪贴板$")
+    @Then("^所选文本已在剪贴板$")
     @SuppressLint("DeprecatedCall") // primaryClip：API 37 未标记废弃，lint 数据滞后
     fun textIsAvailableOnClipboard() {
         val expected = checkNotNull(copiedText) { "复制步骤未记录所选文本" }
@@ -194,7 +194,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         assertTrue("剪贴板内容应为所选文本 $expected，实际 $actual", actual == expected)
     }
 
-    @那么("^粘贴菜单已出现$")
+    @Then("^粘贴菜单已出现$")
     fun pastePopupAppears() {
         composeRuleHolder.composeRule.waitForIdle()
         // 空白处长按产生纯粘贴选区（startSelection(…, pasteOnly = true) + endSelection），带悬浮粘贴菜单。
@@ -207,7 +207,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         assertTrue("应为纯粘贴选区", pasteOnly)
     }
 
-    @那么("^选区扩展到拖动目标$")
+    @Then("^选区扩展到拖动目标$")
     fun selectionExtendsToDragTarget() {
         val before = checkNotNull(dragBeforeEnd) { "拖动步骤未记录拖前选区" }
         val settled =
@@ -222,7 +222,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         )
     }
 
-    @那么("^选区收缩到拖动目标$")
+    @Then("^选区收缩到拖动目标$")
     fun selectionShrinksToDragTarget() {
         val before = checkNotNull(dragBeforeEnd) { "拖动步骤未记录拖前选区" }
         val settled =

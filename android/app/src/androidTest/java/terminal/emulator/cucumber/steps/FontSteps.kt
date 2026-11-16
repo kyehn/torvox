@@ -8,8 +8,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.platform.app.InstrumentationRegistry
-import io.cucumber.java.zh_cn.当
-import io.cucumber.java.zh_cn.那么
+import io.cucumber.java.en.Then
+import io.cucumber.java.en.When
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.openSettings
 import javax.inject.Inject
@@ -17,12 +17,12 @@ import javax.inject.Inject
 class FontSteps
 @Inject
 constructor(private val composeRuleHolder: ComposeRuleHolder) {
-    @当("^打开设置$")
+    @When("^打开设置$")
     fun userOpensSettings() {
         composeRuleHolder.composeRule.openSettings()
     }
 
-    @当("^更改字体$")
+    @When("^更改字体$")
     fun changesFontFamily() {
         composeRuleHolder.composeRule
             .onNodeWithTag("SettingsScreen", useUnmergedTree = true)
@@ -44,13 +44,13 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         composeRuleHolder.composeRule.waitForIdle()
     }
 
-    @那么("^字体选择器已打开且无错误$")
+    @Then("^字体选择器已打开且无错误$")
     fun fontPickerOpensWithoutError() {
         // 点击选择器应无崩溃地打开字体选择对话框（标题“选择字体”）。
         composeRuleHolder.composeRule.onNodeWithText("选择字体", useUnmergedTree = true).assertIsDisplayed()
     }
 
-    @那么("^字体文件存放在应用私有字体目录$")
+    @Then("^字体文件存放在应用私有字体目录$")
     fun fontFilesStoredInPrivateDirectory() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fontsDir = terminal.emulator.termuxFontDir(context)

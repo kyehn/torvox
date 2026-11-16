@@ -8,8 +8,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
-import io.cucumber.java.zh_cn.当
-import io.cucumber.java.zh_cn.那么
+import io.cucumber.java.en.Then
+import io.cucumber.java.en.When
 import terminal.emulator.assertTerminalScreenDisplayed
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.openDrawer
@@ -22,7 +22,7 @@ import javax.inject.Inject
 class NavigationSteps
 @Inject
 constructor(private val composeRuleHolder: ComposeRuleHolder) {
-    @当("^按下返回键$")
+    @When("^按下返回键$")
     fun backButtonIsPressed() {
         composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
             activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK))
@@ -31,12 +31,12 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         composeRuleHolder.composeRule.waitForIdle()
     }
 
-    @当("^打开会话抽屉$")
+    @When("^打开会话抽屉$")
     fun userOpensSessionDrawer() {
         composeRuleHolder.composeRule.openDrawer()
     }
 
-    @当("^关闭抽屉$")
+    @When("^关闭抽屉$")
     fun userClosesDrawer() {
         composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
             activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK))
@@ -45,7 +45,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         composeRuleHolder.composeRule.waitForIdle()
     }
 
-    @当("^从抽屉进入设置$")
+    @When("^从抽屉进入设置$")
     fun navigatesToSettingsFromDrawer() {
         val rule = composeRuleHolder.composeRule
         // 先直点再兜底，与 TestUtils.openSettings 一致，应对 CI 慢设备。
@@ -118,20 +118,20 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         }
     }
 
-    @那么("^抽屉已显示$")
+    @Then("^抽屉已显示$")
     fun drawerIsDisplayed() {
         composeRuleHolder.composeRule
             .onNodeWithTag("SessionDrawer", useUnmergedTree = true)
             .assertIsDisplayed()
     }
 
-    @那么("^终端界面完全可见$")
+    @Then("^终端界面完全可见$")
     fun terminalScreenIsFullyVisible() {
         composeRuleHolder.composeRule.waitForTerminalScreenNode(5_000)
         composeRuleHolder.composeRule.assertTerminalScreenDisplayed()
     }
 
-    @那么("^设置界面已显示$")
+    @Then("^设置界面已显示$")
     fun settingsScreenIsDisplayed() {
         composeRuleHolder.composeRule
             .onNodeWithTag("SettingsScreen", useUnmergedTree = true)

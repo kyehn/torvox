@@ -4,9 +4,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import io.cucumber.java.zh_cn.假如
-import io.cucumber.java.zh_cn.当
-import io.cucumber.java.zh_cn.那么
+import io.cucumber.java.en.Given
+import io.cucumber.java.en.Then
+import io.cucumber.java.en.When
 import org.junit.Assert.assertTrue
 import terminal.emulator.assertTerminalScreenDisplayed
 import terminal.emulator.cucumber.ComposeRuleHolder
@@ -40,18 +40,18 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         composeRuleHolder.composeRule.waitForIdle()
     }
 
-    @假如("^应用已启动并创建了多个会话$")
+    @Given("^应用已启动并创建了多个会话$")
     fun appHasLaunchedWithMultipleSessions() {
         composeRuleHolder.composeRule.waitForSession()
         addSessionViaDrawer()
     }
 
-    @当("^新增会话$")
+    @When("^新增会话$")
     fun userAddsNewSession() {
         addSessionViaDrawer()
     }
 
-    @当("^切换到其他会话$")
+    @When("^切换到其他会话$")
     fun userSwitchesToDifferentSession() {
         composeRuleHolder.composeRule.onNodeWithTag("Key_DRAWER").performClick()
         composeRuleHolder.composeRule.waitUntil(timeoutMillis = 5000) {
@@ -73,7 +73,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         composeRuleHolder.composeRule.waitForIdle()
     }
 
-    @那么("^会话列表已显示$")
+    @Then("^会话列表已显示$")
     fun sessionListIsDisplayed() {
         composeRuleHolder.composeRule.waitUntil(timeoutMillis = 5000) {
             composeRuleHolder.composeRule
@@ -83,12 +83,12 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         }
     }
 
-    @那么("^存在\"([^\"]+)\"按钮$")
+    @Then("^存在\"([^\"]+)\"按钮$")
     fun addSessionButtonExists(buttonText: String) {
         composeRuleHolder.composeRule.onNodeWithTag("AddSessionButton").assertIsDisplayed()
     }
 
-    @那么("^抽屉中出现两个会话$")
+    @Then("^抽屉中出现两个会话$")
     fun bothSessionsAppearInDrawer() {
         composeRuleHolder.composeRule.waitUntil(timeoutMillis = 5000) {
             composeRuleHolder.composeRule
@@ -103,7 +103,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         assertTrue("抽屉中应至少有两个会话，实际 ${sessionItems.size}", sessionItems.size >= 2)
     }
 
-    @那么("^终端显示新会话内容$")
+    @Then("^终端显示新会话内容$")
     fun terminalShowsNewSessionContent() {
         composeRuleHolder.composeRule.waitForTerminalScreenNode(5_000)
         composeRuleHolder.composeRule.assertTerminalScreenDisplayed()

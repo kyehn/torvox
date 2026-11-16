@@ -7,8 +7,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.espresso.Espresso
-import io.cucumber.java.zh_cn.当
-import io.cucumber.java.zh_cn.那么
+import io.cucumber.java.en.Then
+import io.cucumber.java.en.When
 import org.junit.Assert.assertTrue
 import terminal.emulator.assertTerminalScreenDisplayed
 import terminal.emulator.cucumber.ComposeRuleHolder
@@ -32,7 +32,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         return names
     }
 
-    @当("^用户选择另一个主题$")
+    @When("^用户选择另一个主题$")
     fun userSelectsDifferentTheme() {
         val before = currentThemeNames()
         // 选一个当前未使用的内置主题，保证点下去一定是“切换”而非原地确认。
@@ -60,7 +60,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         composeRuleHolder.composeRule.waitForIdle()
     }
 
-    @那么("^终端主题变为所选主题$")
+    @Then("^终端主题变为所选主题$")
     fun terminalThemeUpdates() {
         val target = checkNotNull(selectedThemeName) { "主题切换步骤未记录所选主题" }
         selectedThemeName = null
@@ -75,7 +75,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         composeRuleHolder.composeRule.assertTerminalScreenDisplayed()
     }
 
-    @那么("^终端应用的是有效内置主题$")
+    @Then("^终端应用的是有效内置主题$")
     fun appliedThemeIsValidBuiltIn() {
         composeRuleHolder.composeRule.waitForSession()
         val validNames = ThemeRepository.all().map { it.name }.toSet()

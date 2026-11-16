@@ -4,7 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
-import io.cucumber.java.zh_cn.那么
+import io.cucumber.java.en.Then
 import org.junit.Assert.assertTrue
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.findTerminalSurface
@@ -13,12 +13,12 @@ import javax.inject.Inject
 class TerminalLaunchSteps
 @Inject
 constructor(private val composeRuleHolder: ComposeRuleHolder) {
-    @那么("^修饰键栏可见$")
+    @Then("^修饰键栏可见$")
     fun modifierBarIsVisible() {
         composeRuleHolder.composeRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
     }
 
-    @那么("^终端内容区宽高为正$")
+    @Then("^终端内容区宽高为正$")
     fun terminalContentAreaHasPositiveDimensions() {
         composeRuleHolder.composeRule
             .onNodeWithTag("TerminalContent")
@@ -26,7 +26,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
             .assertWidthIsAtLeast(1.dp)
     }
 
-    @那么("^SurfaceView 可见$")
+    @Then("^SurfaceView 可见$")
     fun surfaceViewIsVisible() {
         // JUnit 而非 Kotlin `assert`：ART 默认不带 `-ea`，后者恒为空操作。
         var dimensions = "?"
@@ -39,7 +39,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         assertTrue("SurfaceView 必须已取得尺寸 (实际=$dimensions)", dimensions != "?")
     }
 
-    @那么("^它渲染在 Compose 布局上层$")
+    @Then("^它渲染在 Compose 布局上层$")
     fun itRendersAboveComposeLayout() {
         composeRuleHolder.composeRule
             .onNodeWithTag("TerminalScreen", useUnmergedTree = true)

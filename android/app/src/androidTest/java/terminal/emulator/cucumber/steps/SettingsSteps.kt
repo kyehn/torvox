@@ -6,8 +6,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
-import io.cucumber.java.zh_cn.当
-import io.cucumber.java.zh_cn.那么
+import io.cucumber.java.en.Then
+import io.cucumber.java.en.When
 import org.junit.Assert.assertTrue
 import terminal.emulator.assertTerminalScreenDisplayed
 import terminal.emulator.cucumber.ComposeRuleHolder
@@ -25,12 +25,12 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         const val FONT_SIZE_TOLERANCE = 2.0f
     }
 
-    @当("^打开设置界面$")
+    @When("^打开设置界面$")
     fun userOpensSettingsScreen() {
         composeRuleHolder.composeRule.openSettings()
     }
 
-    @那么("^主题选择器与字号滑块已显示$")
+    @Then("^主题选择器与字号滑块已显示$")
     fun settingsSectionsDisplayed() {
         composeRuleHolder.composeRule
             .onNodeWithTag("SettingsScreen", useUnmergedTree = true)
@@ -40,7 +40,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
             .assertIsDisplayed()
     }
 
-    @那么("^字号滑块存在$")
+    @Then("^字号滑块存在$")
     fun fontSizeSliderExists() {
         composeRuleHolder.composeRule
             .onNodeWithTag("SettingsScreen", useUnmergedTree = true)
@@ -50,7 +50,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
             .assertIsDisplayed()
     }
 
-    @当("^调节滑块$")
+    @When("^调节滑块$")
     fun sliderIsAdjusted() {
         composeRuleHolder.composeRule
             .onNodeWithTag("FontSizeSlider", useUnmergedTree = true)
@@ -63,7 +63,7 @@ constructor(private val composeRuleHolder: ComposeRuleHolder) {
         composeRuleHolder.composeRule.waitForIdle()
     }
 
-    @那么("^终端字号变为预期值$")
+    @Then("^终端字号变为预期值$")
     fun terminalFontSizeReachesExpected() {
         composeRuleHolder.composeRule
             .onNodeWithTag("SettingsBackButton", useUnmergedTree = true)
