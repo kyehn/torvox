@@ -12,6 +12,7 @@
 
 - 使用 `cargo ndk` 进行 Android 构建，不使用 `cargo zigbuild`
 - 构建顺序：先构建 `.so`，再构建 APK。APK 构建阶段要求 `jniLibs/` 已填充。在运行时如果 APK 缺少 jniLibs 则不能正常工作，代码中不得设计降级或其他尝试兼容的行为，出现相关错误不做处理，亦无需自定义代码在运行时检查 jniLibs
+- `app_name` 为 `Torvox`
 - compileOptions 包括 `JavaVersion.VERSION_17`。
 - `minSdkVersion` 为 31，`compileSdkVersion` 为 37，`targetSdkVersion` 为 28。
 - 提供 `applicationIdSuffix = ".nix"` 和 `app_name` 为 `Nix` 的基于 release 构建的变种，使用 `/data/data/com.termux.nix` 目录，对其禁用如 termux bootstrap 等不兼容功能。

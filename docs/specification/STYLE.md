@@ -47,7 +47,7 @@
 - 变量与函数一律使用完整描述性名称：禁止单字母变量（如 `s`、`p`、`w`、`h`、`t`、`e`），禁止缩写（如 `config` 而非 `cfg`、`background` 而非 `bg`、`application` 而非 `app`）。
 - 使用简体中文编写注释和文档，表述需要简明扼要。
 - 尽可能少写注释
-- Torvox/torvox 仅为软件名称，除部分介绍文档外一律不得出现，使用如 terminal 等通用词。
+- Torvox/torvox 仅为软件名称，除部分介绍文档、少量必要代码外一律不得出现，使用如 terminal 等通用词。
 - 除了 `nativeBuildInputs` 检查代码，`nix/store` 不得出现在任何代码中
 - `fish` `dash` `zsh` 不得出现在任何代码中。
 - 不得定义任何 crate features。

@@ -67,7 +67,7 @@
 
 - `applicationId = "com.termux"`。
 
-- 包名 `terminal.emulator`。
+- Namespace 为 `terminal.emulator`。
 
 - 使用 AOSP testkey（`android/app/aosp-testkey.p12`）签名，禁止 debug 签名，禁止使用其他签名。
 
