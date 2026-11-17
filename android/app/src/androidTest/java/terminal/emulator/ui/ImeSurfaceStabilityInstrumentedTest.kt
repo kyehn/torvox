@@ -64,9 +64,16 @@ class ImeSurfaceStabilityInstrumentedTest : ComposeTerminalLogcatTest() {
         val surface = composeTestRule.findTerminalSurface()
         tapToFocus(surface)
         assertTrue("测试前提：输入法必须能弹出", showIme(activity))
+        // 首次弹出之后的布局/附着先落定：冷启动的首次 `attachWindow` 可能晚于
+        // 「输入法可见」一拍，若把它算进判定窗，正常启动会被当成「显隐交付了新窗口」
+        // （实测误报过一次，当时应用进程刚起 1.0 秒）。
+        Thread.sleep(SETTLE_MILLIS)
 
         val holderBefore = onUiThread { (surface as android.view.SurfaceView).holder.surface }
         val togglesStartedAt = System.currentTimeMillis()
+        // 基线：判定窗内已有的原生窗口交付行。显隐前已存在的实例不算「显隐交付了
+        // 新窗口」；差分后仍出现就说明真的换了窗口。
+        val attachBaseline = attachLinesSince(togglesStartedAt)
 
         repeat(TOGGLE_CYCLES) { cycle ->
             assertTrue("第 $cycle 轮：输入法必须收起", hideImeAndConfirm(activity, IME_TIMEOUT_MS))
@@ -82,16 +89,18 @@ class ImeSurfaceStabilityInstrumentedTest : ComposeTerminalLogcatTest() {
             onUiThread { (surfaceAfter as android.view.SurfaceView).holder.surface },
         )
 
-        val attachLines =
-            UxTestUtils
-                .logcatSince(togglesStartedAt - SLICE_SLACK_MS)
-                .filter { it.contains(ATTACH_LOG_ANCHOR) }
+        val attachLines = attachLinesSince(togglesStartedAt)
         assertEquals(
-            "输入法显隐不得交付新的 ANativeWindow（出现 $attachLines）",
-            emptyList<String>(),
+            "输入法显隐不得交付新的 ANativeWindow（显隐前 $attachBaseline，显隐后 $attachLines）",
+            attachBaseline,
             attachLines,
         )
     }
+
+    /** 判定窗（含切片回看余量）内的原生窗口交付行。 */
+    private fun attachLinesSince(startedAtMs: Long): List<String> = UxTestUtils
+        .logcatSince(startedAtMs - SLICE_SLACK_MS)
+        .filter { it.contains(ATTACH_LOG_ANCHOR) }
 
     private fun showIme(activity: android.app.Activity): Boolean {
         val visible =

@@ -412,20 +412,27 @@ constructor(
      *
      * [sequence] 是该条记录的序号（见 [holeStateSequence]）：状态相同时也要靠它
      * 区分先后，故相等判断只比状态三元组。
+     *
+     * [stampMs] 是记录时刻（进程内单调时钟，毫秒）：「遮罩发布 → 遮罩上屏」的
+     * 时延只能从这里量——外部采样在切后台期间会被平台拆掉窗口缓冲而整段丢失，
+     * 量到的时延是采样空档而非真实时延。
      */
     internal data class HoleStateEntry(
         val bufferPresent: Boolean,
         val coverPresent: Boolean,
         val painted: Boolean = false,
         val sequence: Long = 0L,
+        val stampMs: Long = 0L,
     )
 
     /** 当前这份遮罩是否已被视图画进窗口（见 [recordHolePainted]）。 */
     private var holePaintedForCover = false
 
-    /** 追加一条记录并盖上序号（调用方须持 [holeJournalLock]）。 */
+    /** 追加一条记录并盖上序号与时刻（调用方须持 [holeJournalLock]）。 */
     private fun appendHoleState(entry: HoleStateEntry) {
-        holeJournal.addLast(entry.copy(sequence = ++holeStateSequence))
+        holeJournal.addLast(
+            entry.copy(sequence = ++holeStateSequence, stampMs = SystemClock.uptimeMillis()),
+        )
         if (holeJournal.size > HOLE_JOURNAL_CAPACITY) holeJournal.removeFirst()
     }
 

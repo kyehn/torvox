@@ -670,6 +670,47 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       判据取 `render-stability` 的开孔状态序列与模拟器仪器化用例
 - **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
 
+#### Scenario: 2026-11-17 运行日志（20-23-59 至 20-32-32）的聚合归因
+
+- **WHEN** 审计 `logcat_2026-11-17_20-32-40.txt`（真实设备，主进程 27702，运行约
+      8.5 分钟，含多次切后台往返与用户 shell 里的 kitty 图形输出）
+- **THEN** 应用进程 W/E 合计 MUST 为 150 条，逐条处置 MUST 为：
+      - `mali_gralloc` 120 条（`Requested R8 format is not supported with this
+        allocator` 60 + `ERROR: Unrecognized and/or unsupported format 0x38 and
+        usage 0xb00` 60）：15 次新窗口挂载（日志中 `attach_surface: configured`
+        恰 15 条）× 每次 4 次格式枚举 × 每枚举 2 行；同窗口重挂走
+        `RECONFIGURE_SWAPCHAIN`（2 条）一次枚举都不做。归因与 08-52-39 一致：
+        平台 `GetPhysicalDeviceSurfaceFormatsKHR` 的 R8 能力探测，应用侧无 API 可关
+      - `RemoteInputConnectionImpl` 10 条：输入法侧在失活连接上请求光标锚点；每条
+        都紧邻 `show(ime(), fromIme=false)` 与 `showSoftInput() view=AndroidComposeView`
+        （本份日志 `fromIme=true` 53 条、`fromIme=false` 19 条），即焦点在终端与
+        Compose 文本框之间切换，见同文件的光标监视场景
+      - `ziparchive` 4、`libc` 4、`FeatureOpt` 2、`Typeface` 1、`com.termux` 1：
+        厂商框架与平台路径（Unisoc 镜像 dex 元数据、ZTE 折叠态开关、厂商属性读取、
+        debug 构建 jdwp 未启动），均无应用栈
+      - `wgpu_core::instance` 2 条：设备创建时上游对缺少 `SURFACE_VIEW_FORMATS`
+        的无条件 downlevel 提示（与 08-52-39 同一条上游事实）
+      - `kitty_gfx` 2 条（`failed to open image file` + `erroneous kitty graphics
+        response`）：PTY 读边界把用户 shell 的 kitty 图形探测（APC）劈成两半，半条
+        漏给上游解析器。已修：输入预处理器扣留块尾未结束的 APC（见 `vt` 的
+        Kitty APC 扣留用例）；本份日志早于该提交，故仍出现
+      - 慢帧 3 条（`SLOW_RENDER_INNER`／`SLOW_FRAME`／`SLOW_LOOP`）：同一次首帧
+        kitty 放置（20:24:16），分段为 `query=10.744ms`（锁外 VT 放置查询）+
+        `draw=23.741ms`（首次图集上传与软件光栅），`SLOW_LOOP` 的 `total=47.887ms`
+        含 `gate=10.971ms`（vsync 驻留，MUST 从慢循环判定中扣除），实际工作量
+        36.916ms 超过 30ms 阈值。属一次性冷路径，处置 MUST NOT 提高阈值或降级日志
+      - `Parcel` 1 条（`Expecting binder but got null!`）：平台 binder 事务的空返回，
+        调用方在平台一侧（与 08-52-39 同一条上游事实）
+- **AND** 同 UID 子进程的 136 条 MUST 全部归为内核审计与历史崩溃：135 条是
+      `type=1400 audit(...)` 行（`fish` 74、`git` 19、`login` 10、`yazi` 8、
+      `DefaultDispatch` 6、`bash` 4、`file` 4、`tokio-rt-worker` 4、`comma` 2、
+      `clear` 2、`hromium.thorium` 2，由用户 shell 读取 `/proc` 与装载 nix store
+      动态库所致），唯一的 `F` 是 2026-11-12 另一进程（PID 12237）的历史
+      `Device::poll` 崩溃，早于本次运行五天 <!-- nosemgrep: semgrep.no-prohibited-shells -->
+- **AND** 本份日志 MUST NOT 被当作闪烁已修的证据：它不携带开孔像素信息；修复的
+      判据取 `render-stability` 的开孔状态序列与模拟器仪器化用例
+- **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
+
 #### Scenario: 模拟器 debug 构建的聚合归因
 
 - **WHEN** 审计模拟器（x86_64）上 debug 构建的一次冷启动加一次真实 HOME 往返
