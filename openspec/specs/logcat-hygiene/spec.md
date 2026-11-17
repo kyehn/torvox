@@ -702,11 +702,11 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       - `Parcel` 1 条（`Expecting binder but got null!`）：平台 binder 事务的空返回，
         调用方在平台一侧（与 08-52-39 同一条上游事实）
 - **AND** 同 UID 子进程的 136 条 MUST 全部归为内核审计与历史崩溃：135 条是
-      `type=1400 audit(...)` 行（`fish` 74、`git` 19、`login` 10、`yazi` 8、
+      `type=1400 audit(...)` 行（`fish` 74、`git` 19、`login` 10、`yazi` 8、<!-- nosemgrep: semgrep.no-prohibited-shells -->
       `DefaultDispatch` 6、`bash` 4、`file` 4、`tokio-rt-worker` 4、`comma` 2、
-      `clear` 2、`hromium.thorium` 2，由用户 shell 读取 `/proc` 与装载 nix store
+      `clear` 2、`chromium.thorium` 2，由用户 shell 读取 `/proc` 与装载 nix store
       动态库所致），唯一的 `F` 是 2026-11-12 另一进程（PID 12237）的历史
-      `Device::poll` 崩溃，早于本次运行五天 <!-- nosemgrep: semgrep.no-prohibited-shells -->
+      `Device::poll` 崩溃，早于本次运行五天
 - **AND** 本份日志 MUST NOT 被当作闪烁已修的证据：它不携带开孔像素信息；修复的
       判据取 `render-stability` 的开孔状态序列与模拟器仪器化用例
 - **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
