@@ -49,6 +49,8 @@ fn cover_readback_returns_the_accumulator_pixels() {
         }
         context.queue.submit(Some(encoder.finish()));
     }
+    // 累加器里已有一帧**已渲染**的内容：回读的前提（与 warmup 呈现保留帧同一判据）。
+    context.frame_content_valid = true;
 
     let cover = context
         .cover_readback_source()
@@ -90,4 +92,22 @@ fn cover_readback_without_accumulator_yields_nothing() {
         "没有累加器时不得返回空遮罩"
     );
     let _ = Renderer::select_surface_format;
+}
+
+/// 累加器刚建好、内容未定义时不得回读：回读上来是未初始化的显存，
+/// 画进开孔比没有遮罩更糟（用户看到的是雪花而不是离开时的画面）。
+#[test]
+fn cover_readback_of_undefined_accumulator_yields_nothing() {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
+        panic!("requires GPU adapter but none available");
+    };
+    let mut context = setup_test_gpu_context(device, queue);
+    context.swapchain_copy_supported = true;
+    context
+        .ensure_frame_texture(4, 4, wgpu::TextureFormat::Rgba8Unorm)
+        .expect("累加器视图");
+    assert!(
+        context.cover_readback_source().is_none(),
+        "内容未定义的累加器不得被回读"
+    );
 }

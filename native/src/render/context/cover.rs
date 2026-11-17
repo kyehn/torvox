@@ -185,11 +185,24 @@ impl Renderer {
         {
             return None;
         }
+        // 累加器内容未定义时不得回读：纹理刚建好（尺寸或格式变化后重建）或已随
+        // surface 重建丢弃时，它的内容是未初始化的显存——回读上来是雪花，画进开孔
+        // 比没有遮罩更糟。`frame_content_valid` 正是「累加器里有一帧**已渲染**的
+        // 内容」这一事实（warmup 呈现保留帧用的是同一个判据，见
+        // `Renderer::retained_frame_presentable`）。
+        if !self.frame_content_valid {
+            return None;
+        }
         let texture = self.frame_texture.as_ref()?;
         let format = texture.format();
         if format != wgpu::TextureFormat::Rgba8Unorm {
             // 通道序不同则宿主的 RGBA 假设不成立：宁可不遮，也不要画错颜色。
-            log::warn!("read_cover_frame: 累加器格式 {format:?} 不是 Rgba8Unorm，放弃遮罩");
+            // 格式是设备属性，整进程只记一次：回读至多每 600ms 一次，逐次记会把
+            // logcat 刷成同一条告警。
+            static NON_RGBA_FORMAT_REPORTED: std::sync::Once = std::sync::Once::new();
+            NON_RGBA_FORMAT_REPORTED.call_once(|| {
+                log::warn!("read_cover_frame: 累加器格式 {format:?} 不是 Rgba8Unorm，放弃遮罩");
+            });
             return None;
         }
         let width = texture.width();

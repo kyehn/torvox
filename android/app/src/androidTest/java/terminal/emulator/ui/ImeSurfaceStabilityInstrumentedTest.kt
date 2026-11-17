@@ -69,7 +69,11 @@ class ImeSurfaceStabilityInstrumentedTest : ComposeTerminalLogcatTest() {
         // （实测误报过一次，当时应用进程刚起 1.0 秒）。
         Thread.sleep(SETTLE_MILLIS)
 
-        val holderBefore = onUiThread { (surface as android.view.SurfaceView).holder.surface }
+        // 测试前提：SurfaceView 必须已经拿到 surface。否则前后两次都拿到 null，
+        // `assertSame(null, null)` 恒成立，用例就成了空跑。
+        val holderBefore =
+            onUiThread { (surface as android.view.SurfaceView).holder.surface }
+                ?: throw AssertionError("测试前提：SurfaceView 必须已经拿到 surface")
         val togglesStartedAt = System.currentTimeMillis()
         // 基线：判定窗内已有的原生窗口交付行。显隐前已存在的实例不算「显隐交付了
         // 新窗口」；差分后仍出现就说明真的换了窗口。
@@ -83,11 +87,8 @@ class ImeSurfaceStabilityInstrumentedTest : ComposeTerminalLogcatTest() {
 
         val surfaceAfter = composeTestRule.findTerminalSurface()
         assertSame("输入法显隐不得重建 TerminalSurface 视图", surface, surfaceAfter)
-        assertSame(
-            "输入法显隐不得替换 SurfaceHolder 的 Surface",
-            holderBefore,
-            onUiThread { (surfaceAfter as android.view.SurfaceView).holder.surface },
-        )
+        val holderAfter = onUiThread { (surfaceAfter as android.view.SurfaceView).holder.surface }
+        assertSame("输入法显隐不得替换 SurfaceHolder 的 Surface", holderBefore, holderAfter)
 
         val attachLines = attachLinesSince(togglesStartedAt)
         assertEquals(

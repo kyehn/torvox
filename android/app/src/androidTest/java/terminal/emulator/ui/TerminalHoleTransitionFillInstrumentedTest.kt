@@ -24,6 +24,7 @@ import terminal.emulator.runtime.holeStateCycle
 import terminal.emulator.showCursor
 import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
+import java.util.Collections
 
 /**
  * 切后台过渡期间，**窗口缓冲里的开孔**必须已经被遮罩填满——直接量像素。
@@ -46,8 +47,9 @@ import terminal.emulator.waitForTerminalPixels
  *   要求：遮罩发布后 ≤500ms 内有一次「已画进窗口」的记录，且该记录早于平台拆
  *   surface 的记录（拆掉之后窗口不再有帧，画了也上不了屏）。
  * - **像素**取窗口缓冲：前台稳态必须是**透明**的（原生 surface 在下层供像素，
- *   遮罩若盖住活内容就是另一个 bug）；遮罩在位且原生无缓冲时必须**不透明**
- *   （那正是用户看到的一闪）；遮罩交回原生图层后必须重新透明。
+ *   遮罩若盖住活内容就是另一个 bug）；遮罩**画进窗口之后**，原生无缓冲期间必须
+ *   始终**不透明**（那正是用户看到的一闪）——发布到画进窗口之间的那一小段空档
+ *   由上面的时延判据单独兜住；遮罩交回原生图层后必须重新透明。
  *
  * 实测（模拟器，2026-11-17）：遮罩发布后同一帧内即被画进窗口，窗口缓冲里的开孔
  * 不透明占比随即跃到 1.000；原生无缓冲且遮罩在位的样本里没有一条是空开孔；
@@ -130,8 +132,20 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
         val coverPresent: Boolean,
     )
 
-    private val samples = mutableListOf<Sample>()
-    private var sampling = false
+    /**
+     * 采样序列。
+     *
+     * 写发生在主线程（`PixelCopy` 回调），读发生在测试线程：普通 `MutableList` 在
+     * 两边同时用会抛 `ConcurrentModificationException`，或读到写了一半的列表。
+     * 故用同步列表，读时整体加锁取快照。
+     */
+    private val samples = Collections.synchronizedList(mutableListOf<Sample>())
+
+    /** 采样开关：主线程读、测试线程写，必须可见，否则主线程会一直续采。 */
+    @Volatile private var sampling = false
+
+    /** 采样快照：与主线程的写入互斥。 */
+    private fun sampleSnapshot(): List<Sample> = synchronized(samples) { samples.toList() }
 
     /**
      * 连续采样窗口缓冲。
@@ -254,7 +268,7 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
         Thread.sleep(FOREGROUND_SAMPLE_MS)
 
         // 前台稳态：原生 surface 在下层供像素，窗口缓冲里的洞必须是透明的。
-        val foreground = samples.toList()
+        val foreground = sampleSnapshot()
         assertTrue("必须采到前台样本（实测 ${foreground.size} 条）", foreground.size >= 8)
         val filledInForeground = foreground.count { it.opaqueRatio >= OPAQUE_THRESHOLD }
         assertTrue(
@@ -314,15 +328,16 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
         // 判据取「发布之后（含发布本身）第一条达标的样本」：发布那一拍往往就已经
         // 填满（发布与视图重绘在同一帧内完成），要求「发布之后再出现一条」会把
         // 正常行为判红。
-        val publishIndex = samples.indexOfFirst { it.coverPresent }
-        assertTrue("必须采到遮罩发布的时刻（实测 ${samples.size} 条样本）", publishIndex >= 0)
-        val publishSample = samples[publishIndex]
+        val snapshot = sampleSnapshot()
+        val publishIndex = snapshot.indexOfFirst { it.coverPresent }
+        assertTrue("必须采到遮罩发布的时刻（实测 ${snapshot.size} 条样本）", publishIndex >= 0)
+        val publishSample = snapshot[publishIndex]
         val fillIndex =
-            samples.withIndex().indexOfFirst { (index, sample) ->
+            snapshot.withIndex().indexOfFirst { (index, sample) ->
                 index >= publishIndex && sample.opaqueRatio >= OPAQUE_THRESHOLD
             }
         assertTrue(
-            "遮罩在位期间开孔 MUST 被填满（实测 ${samples.size} 条样本，无一条达到不透明占比 $OPAQUE_THRESHOLD）\n" +
+            "遮罩在位期间开孔 MUST 被填满（实测 ${snapshot.size} 条样本，无一条达到不透明占比 $OPAQUE_THRESHOLD）\n" +
                 dumpSamples(publishSample.stampMs),
             fillIndex >= 0,
         )
@@ -331,7 +346,11 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
         //
         // 原生**有**缓冲时开孔是透明的：那不是闪——原生图层在下层供像素，洞里透出
         // 的是终端内容，不是桌面。故只判「无缓冲且遮罩在位」这一种组合。
-        val uncovered = samples.filter {
+        //
+        // 只判「首次填满之后」的样本：发布与真正画进窗口之间隔着一次重绘（十几毫秒），
+        // 这一小段里状态已是「遮罩在位」而窗口缓冲还是旧的空开孔——那是**过渡时延**，
+        // 由上面的时限判据单独兜住，不该在这里当成「闪」。
+        val uncovered = snapshot.drop(fillIndex).filter {
             !it.bufferPresent && it.coverPresent && it.opaqueRatio <= TRANSPARENT_THRESHOLD
         }
         assertTrue(
@@ -341,7 +360,7 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
         )
 
         // 交回原生图层后开孔 MUST 重新透明：遮罩是补救，不是常驻底色。
-        val handedBack = samples.any {
+        val handedBack = snapshot.any {
             !it.coverPresent && it.bufferPresent && it.opaqueRatio <= TRANSPARENT_THRESHOLD
         }
         assertTrue(
