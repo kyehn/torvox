@@ -189,8 +189,12 @@ class KittyRealClientIcatTest : ComposeTerminalLogcatTest() {
                 // sources.list.d 目录在引导包里不一定存在，先建再写。
                 "mkdir -p ${File(x11SourcePath).parent} && " +
                     "printf '%s\\n' '$X11_REPOSITORY' > $x11SourcePath && " +
-                    "apt update > ${homeDirectory.absolutePath}/$INSTALL_LOG_NAME 2>&1 && " +
-                    "apt install -y kitty >> ${homeDirectory.absolutePath}/$INSTALL_LOG_NAME 2>&1",
+                    // 镜像在同步中时会给出与实际文件不符的索引尺寸（实测 apt 报
+                    // 「File has unexpected size (591770 != 591650)」），那是传输与
+                    // 索引的瞬时不一致，不是「装不上」。给 apt 有界重试，装不上仍是硬失败。
+                    "apt -o Acquire::Retries=5 update > ${homeDirectory.absolutePath}/$INSTALL_LOG_NAME 2>&1 && " +
+                    "apt -o Acquire::Retries=5 install -y kitty " +
+                    ">> ${homeDirectory.absolutePath}/$INSTALL_LOG_NAME 2>&1",
                 INSTALL_RESULT_NAME,
                 INSTALL_TIMEOUT_MS,
             )
