@@ -13,9 +13,9 @@ def main [--release, --debug, --nix] {
     }
 
     let targets = [
-        { name: "release", build: $build_release, task: ":app:assembleRelease" },
-        { name: "debug",   build: $build_debug,   task: ":app:assembleDebug"   },
-        { name: "nix",     build: $build_nix,     task: ":app:assembleNix"     },
+        {name: "release", build: $build_release, task: ":app:assembleRelease"}
+        {name: "debug", build: $build_debug, task: ":app:assembleDebug"}
+        {name: "nix", build: $build_nix, task: ":app:assembleNix"}
     ]
 
     for target in $targets {
