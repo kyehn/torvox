@@ -25,30 +25,23 @@ import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
 
 /**
- * 切后台过渡期间，**窗口缓冲里的开孔**必须已经被遮罩填满——直接量像素。
- *
- * 与既有两个用例的分工：`BackgroundResumeFlickerInstrumentedTest` 量产品自己的开孔
- * 状态转换序列（不丢事件，但那是状态不是像素）；`TerminalHoleCoverInstrumentedTest` 量
- * 「遮罩画出来的那一帧就是离开时的画面」（注入 surface 失效后的稳态）。本用例量的是
- * **过渡期那一拍**：平台拆掉 surface 之前，窗口自己的缓冲里那个洞到底有没有被填上。
+ * 原生 surface 无缓冲期间，**窗口缓冲里的开孔**必须被终端底色填满——直接量像素。
  *
  * 为什么必须量窗口缓冲而不是截图：`SurfaceView` 的原生 surface 位于窗口**之下**，用户
  * 看到的是「窗口缓冲 + 下层 surface」的合成结果。开孔漏了内容时，截图里看到的是后方
  * 桌面（一两帧的闪），但窗口缓冲本身仍然是「洞里什么都没有」——只有直接读窗口缓冲才
  * 分得清「洞是空的」与「洞被填了但填的是别的东西」。
  *
- * 判据（实测值来自模拟器，2026-11-15）：
+ * 判据：
  *
- * - 前台稳态：开孔在窗口缓冲里是**透明**的（原生 surface 在下层供像素），不透明占比
- *   实测 0.000。遮罩若在这时画上去就是盖住活内容，必须为 0。
- * - 切后台：遮罩发布后实测 **79~98ms** 内开孔被填满（不透明占比跃到 1.000），其后到
- *   平台拆 surface 之前整段过渡都保持填满（实测未填满样本占比 1.2%~3.7%）。
- * - 反向对照（去掉「遮罩发布即重绘」与「暂停期间照画遮罩」两处）：遮罩发布后整个过渡
- *   段（实测 72~88 帧、约 380ms）开孔**一直透明**，直到回前台才被填上——那就是用户
- *   看到的「切后台时窗口里的洞透出桌面」。
+ * - 前台稳态：开孔在窗口缓冲里是**透明**的（原生 surface 在下层供像素）。底色若在这时
+ *   画上去就是盖住活内容，必须为 0。
+ * - 回前台后：样本要么「有缓冲」（原生图层供像素），要么开孔已被底色填满；两者都
+ *   不成立的那一帧就是用户看到的「透出桌面」。
+ * - 回前台终态：交回原生图层，洞口重新透明——底色留在洞上会把活内容盖住。
  *
- * 故上限取 500ms（实测最差 98ms 的五倍余量）与 20% 未填满占比（实测最差 3.7% 的五倍
- * 余量）；反向对照的实测值是 2000ms 级与 82%~100%，两侧余量都够。
+ * 后台期间平台拆掉窗口，`PixelCopy` 采不到（采样循环跳过），故判据从「采样间隔突变」
+ * （回前台重建窗口上屏实证可达 1 秒级）之后起算。
  */
 @RunWith(JUnit4::class)
 class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
@@ -59,13 +52,7 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
         /** 认定「开孔是空的（透出后方）」的不透明占比上限。 */
         private const val TRANSPARENT_THRESHOLD = 0.5
 
-        /** 遮罩发布后开孔必须被填满的时限（毫秒）。 */
-        private const val MAX_FILL_LATENCY_MS = 500L
-
-        /** 过渡段里允许的未填满样本占比上限。 */
-        private const val MAX_UNFILLED_RATIO = 0.2
-
-        /** 后台停留时长：必须长于填满时限，反向对照的「迟到填满」才无从混入。 */
+        /** 后台停留时长。 */
         private const val BACKGROUND_HOLD_MS = 2_000L
 
         /** 前台稳态的采样时长。 */
@@ -121,8 +108,6 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
         val opaqueRatio: Double,
         /** 原生 surface 是否已有缓冲。 */
         val bufferPresent: Boolean,
-        /** 开孔遮罩是否在位。 */
-        val coverPresent: Boolean,
     )
 
     private val samples = mutableListOf<Sample>()
@@ -197,7 +182,6 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
                 stampMs = android.os.SystemClock.uptimeMillis(),
                 opaqueRatio = opaque.toDouble() / total,
                 bufferPresent = runtime.surfaceBufferPresent.value,
-                coverPresent = runtime.coverFrame.value != null,
             ),
         )
     }
@@ -259,58 +243,35 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
         Thread.sleep(200)
 
         // —— 判据 ——
-        val publishIndex = samples.indexOfFirst { it.coverPresent }
-        assertTrue("必须采到遮罩发布的时刻（实测 ${samples.size} 条样本）", publishIndex >= 0)
-        val publish = samples[publishIndex]
-        val fillIndex =
-            samples.withIndex().indexOfFirst { (index, sample) ->
-                index > publishIndex && sample.opaqueRatio >= OPAQUE_THRESHOLD
-            }
-        assertTrue(
-            "遮罩发布后开孔 MUST 被填满（实测 ${samples.size} 条样本，无一条达到不透明占比 $OPAQUE_THRESHOLD）",
-            fillIndex > publishIndex,
-        )
-        val latency = samples[fillIndex].stampMs - publish.stampMs
-        assertTrue(
-            "遮罩发布后开孔 MUST 在 $MAX_FILL_LATENCY_MS 毫秒内被填满（实测 $latency 毫秒）",
-            latency <= MAX_FILL_LATENCY_MS,
-        )
+        // 采样只在窗口真有 backing surface 时成功（后台期间平台拆掉窗口，PixelCopy 失败
+        // 即跳过），故「采样间隔突变」就是回前台那一刻：`am start` + 重建窗口上屏实测
+        // 可达 1 秒级，远超采样周期。此后的样本才是用户能看到的画面。
+        val resumeIndex =
+            samples.zipWithNext().maxByOrNull { (previous, next) -> next.stampMs - previous.stampMs }
+                ?.let { (previous, _) -> samples.indexOf(previous) + 1 }
+                ?: 0
+        val afterResume = samples.drop(resumeIndex)
+        assertTrue("必须采到回前台后的样本（实测 ${afterResume.size} 条）", afterResume.size >= 4)
 
-        // 填满 MUST 发生在平台拆 surface 之前：拆掉之后窗口不再有帧，画了也上不了屏。
-        val teardownIndex =
-            samples.withIndex().indexOfFirst { (index, sample) ->
-                index > publishIndex && !sample.bufferPresent
-            }
-        if (teardownIndex > publishIndex) {
-            assertTrue(
-                "开孔 MUST 在平台拆 surface 之前就被填满（填满于第 $fillIndex 条，" +
-                    "拆 surface 于第 $teardownIndex 条）",
-                fillIndex < teardownIndex,
-            )
-        }
-
-        // 过渡段（遮罩在位）不得长时间留着空开孔。
-        val clearIndex =
-            samples.withIndex().indexOfFirst { (index, sample) ->
-                index > publishIndex && !sample.coverPresent
-            }
-        val segmentEnd = if (clearIndex > publishIndex) clearIndex else samples.size
-        val segment = samples.subList(publishIndex, segmentEnd)
-        val unfilled = segment.count { it.opaqueRatio <= TRANSPARENT_THRESHOLD }
-        val ratio = unfilled.toDouble() / segment.size
-        assertTrue(
-            "过渡段里的空开孔占比 MUST NOT 超过 $MAX_UNFILLED_RATIO（实测 $ratio，" +
-                "共 ${segment.size} 条样本、其中未填满 $unfilled 条）",
-            ratio <= MAX_UNFILLED_RATIO,
-        )
-
-        // 原生无缓冲时开孔 MUST NOT 露出后方：那正是用户看到的一闪。
-        val uncovered = samples.filter {
-            !it.bufferPresent && it.coverPresent && it.opaqueRatio <= TRANSPARENT_THRESHOLD
+        // 核心判据：前台期间「有缓冲」与「洞被填满」二者至少有一个成立。两者都不成立
+        // 的那一帧，用户看到的就是透出桌面——正是闪烁本体。
+        val emptyHoles = afterResume.filter {
+            !it.bufferPresent && it.opaqueRatio <= TRANSPARENT_THRESHOLD
         }
         assertTrue(
-            "原生无缓冲且遮罩在位时开孔 MUST 被填满（实测 ${uncovered.size} 条样本是空开孔）",
-            uncovered.isEmpty(),
+            "回前台后开孔 MUST NOT 同时「无缓冲」且「未填满」（实测 ${emptyHoles.size} 条空开孔：$emptyHoles）",
+            emptyHoles.isEmpty(),
+        )
+
+        // 回前台终态必须交回原生图层：底色若留在洞上，活内容就被盖住了。
+        val resumed = samples.last()
+        assertTrue(
+            "回前台终态必须是「有缓冲」（实测 ${resumed.bufferPresent}）",
+            resumed.bufferPresent,
+        )
+        assertTrue(
+            "回前台终态的开孔 MUST 重新透明（实测不透明占比 ${resumed.opaqueRatio}）",
+            resumed.opaqueRatio <= TRANSPARENT_THRESHOLD,
         )
     }
 }

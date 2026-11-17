@@ -1,7 +1,5 @@
 //! wgpu 后端初始化：适配器选择与设备创建。
 
-use std::sync::Arc;
-
 use crate::render::GpuError;
 
 // 后端固定为 Vulkan（见 initialize_wgpu），不读取环境变量。
@@ -165,10 +163,8 @@ pub(crate) async fn initialize_wgpu()
         .await
         .map_err(|request_error| GpuError::DeviceRequest(request_error.to_string()))?;
 
-    device.on_uncaptured_error(Arc::new(|error| {
-        crate::render::context::log_gpu_error(&error);
-    }));
-
+    // 未捕获错误与设备丢失回调都在 `gpu::init_gpu` 中注册：两者必须共用同一个
+    // 判死标志（设备世代身份），才能把旧设备的迟到错误与当前设备区分开。
     log::info!("GPU device created, queue ok");
     Ok((instance, adapter, device, queue))
 }

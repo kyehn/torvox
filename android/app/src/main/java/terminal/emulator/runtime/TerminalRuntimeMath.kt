@@ -720,28 +720,6 @@ private const val NATIVE_LIBRARY_LOAD_TIMEOUT_MS = 3_000L
 private const val NATIVE_LIBRARY_LOAD_POLL_INTERVAL_MS = 50L
 
 /**
- * 遮罩回读的安全取回：失败不致命，退回「没有遮罩」。
- *
- * 回读发生在渲染线程的**退出路径**上，所在的外层 try 只接 `InterruptedException`：
- * 这里的任何异常都会逃出渲染线程、掀掉整个进程（真机日志：切后台时遮罩帧回读
- * 撞上设备错误，进程 FATAL 退出并重启）。故异常在此就地兜住并如实上报——
- * 遮罩拿不到只是退回平底色（用户看到的是闪一下），而进程被掀掉是更坏的结果。
- *
- * `CancellationException` MUST 继续向上抛：那是协程取消信号，不是回读失败。
- *
- * @param read 取回遮罩帧；返回 null 表示没有可遮罩的内容。
- * @param onFailure 失败时的上报（异常照实交出，不静默吞掉）。
- */
-internal inline fun <T> readCoverFrameSafely(read: () -> T?, onFailure: (Exception) -> Unit): T? = try {
-    read()
-} catch (exception: CancellationException) {
-    throw exception
-} catch (exception: Exception) {
-    onFailure(exception)
-    null
-}
-
-/**
  * 等待原生库加载完成，最多等 [NATIVE_LIBRARY_LOAD_TIMEOUT_MS] 毫秒。
  *
  * 原生库由 NativeInit 线程后台装载，首帧 surface 就绪时可能尚未完成；等待而非直接
@@ -758,21 +736,3 @@ internal suspend fun awaitNativeLibraryLoad(isLoaded: () -> Boolean = { NativeBr
         }
         true
     } ?: false
-
-/**
- * 开孔状态日志的差分：本次往返新增的条目。
- *
- * 日志是环形缓冲，满了就挤掉最早的条目，故不能按条数差分——前后都满时差分恒为空，
- * 整段往返会被算成「什么都没发生」（实测全量仪器化套件里闪烁用例即如此判红）。
- * 序号单调递增且不受绕回影响，按序号取才是稳的。
- *
- * @param journalBefore 往返前的快照
- * @param journalAfter 往返后的快照
- */
-internal fun holeStateCycle(
-    journalBefore: List<TerminalRuntime.HoleStateEntry>,
-    journalAfter: List<TerminalRuntime.HoleStateEntry>,
-): List<TerminalRuntime.HoleStateEntry> {
-    val sequenceBefore = journalBefore.lastOrNull()?.sequence ?: 0L
-    return journalAfter.filter { it.sequence > sequenceBefore }
-}

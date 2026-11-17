@@ -152,12 +152,11 @@ fun TerminalScreen(
     val viewModelDayThemeName = settings.dayThemeName
     val viewModelNightThemeName = settings.nightThemeName
     val runtimeState by viewModel.runtime.state.collectAsStateWithLifecycle()
-    // 开孔遮罩（切后台时回读的上一帧）**不画在组合层**：窗口层的像素在平台给
-    // SurfaceView 打的洞之下，一律被抹掉（实测组合层涂的底色只在 SurfaceView 之外的
-    // 边距上可见，洞里始终是空的）。遮罩由视图自己在 `onDraw` 里画（见
-    // TerminalSurface.onDraw），视图直接订阅运行期的「缓冲/遮罩」两个事实并自行
-    // 失效——组合层的重组可能把 false→true 合并成一次，漏掉那次「该撤遮罩了」
-    // 的重绘就是用户看到的那一下闪。
+    // 开孔底色**不画在组合层**：窗口层的像素在平台给 SurfaceView 打的洞之下，
+    // 一律被抹掉（实测组合层涂的底色只在 SurfaceView 之外的边距上可见，洞里始终是
+    // 空的）。底色由视图自己在 `onDraw` 里画（见 TerminalSurface.onDraw），视图直接
+    // 订阅运行期的「原生已有缓冲」这一个事实并自行失效——组合层的重组可能把
+    // false→true 合并成一次，漏掉那次「该撤掉底色覆盖」的重绘就是用户看到的那一下闪。
     //
     // `~/.termux/termux.properties` 的解析结果。视图只读，不自己读文件——读取时机
     // （启动、设置变化）统一由运行期裁定。
@@ -721,8 +720,8 @@ fun TerminalScreen(
                             },
                             update = { surface ->
                                 surface.touchEnabled = !isOverlayVisible
-                                // 没有可复现的上一帧时铺的底色（终端底色）：主题变了就得换。
-                                surface.holeCoverBackground = terminalBackground.toArgb()
+                                // 没有原生缓冲时铺的底色（终端底色）：主题变了就得换。
+                                surface.holeFillBackground = terminalBackground.toArgb()
                                 // 组合状态是唯一真源：翻转后由这里推给视图，轻点路径才
                                 // 知道该不该拉起输入法。update 每次重组都跑，赋值幂等。
                                 surface.softKeyboardEnabled = softKeyboardEnabled

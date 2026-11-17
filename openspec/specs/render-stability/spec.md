@@ -521,25 +521,34 @@ Vulkan 设备被判死（`VK_ERROR_DEVICE_LOST`）后，MUST NOT 继续向死设
 wgpu 在致命 HAL 错误上先调设备丢失回调、再 panic，逐帧调用会逐条复现同一条 panic，
 而宿主换的新窗口仍挂在同一个死设备上，画面永久黑屏。
 
-进程级 `DEVICE_LOST` 原子位由三处汇入同一记账点（实现见
-`native/src/render/context/gpu.rs`）：wgpu 丢失回调、`DeviceError::Lost`
-（Display 为 `Parent device is lost`）与 `SurfaceError::DeviceLost` 的错误文字判据、
-仪器化注入。记账点 MUST 只在本进程第一次置位时记一条 error，余波阶段 MUST NOT
-逐条重复。
+进程的判死位 MUST 按**设备世代**归属：每个设备有与它同生共死的判死标志
+（实现见 `native/src/render/context/gpu.rs` 的 `mark_device_lost`）。丢失回调、
+未捕获错误与设备轮询只置位它们所属的那个设备；仅当它仍是槽位里的当前设备时，
+才置位全局 `DEVICE_LOST` 并记一条 error。旧设备迟到的回调或残留回读失败
+MUST NOT 把重建后的新设备判死（否则一次丢失会被放大成连续多轮重建）。
+
+仪器化注入也只作用于当前设备。丢失的第一次记账 MUST 只记一条 error，余波
+MUST NOT 逐条重复；旧世代的结局记 debug，如实保留原因，不吞。
 
 #### Scenario: 丢失后不再逐帧 panic
 
 - **WHEN** 设备被判死（丢失回调触发，或取纹理 panic 载荷含 `Parent device is lost`）
 - **THEN** 本进程只记一条 error，后续帧 MUST 在 GPU 调用前返回，MUST NOT 逐帧复现 panic
 
+#### Scenario: 旧设备迟到的丢失不得判死新设备
+
+- **WHEN** 设备已被重建替换，旧设备的丢失回调或残留回读轮询随后失败
+- **THEN** MUST NOT 置全局丢失位，MUST NOT 触发又一轮换窗口/重建，新设备照常出帧；
+      旧世代的失败原因以 debug 记录
+
 #### Scenario: 丢失后所有 GPU 入口先于 wgpu 返回
 
 - **WHEN** 进程已判定设备丢失
 - **THEN** `render_inner` MUST 返回 0（空闲），`read_cover_frame` MUST 返回 `None`，
-      `attach_surface` MUST 直接放弃；设备轮询 MUST 在判死位已置位时直接给出失败
-      结局、MUST NOT 再碰死设备（wgpu 在致命 HAL 错误上先调丢失回调、再 panic，
-      回调之后任何 `Device::poll` 都只会换来一道 panic）；宿主 MUST 发布运行期缓存的
-      遮罩，只有从未缓存过任何帧时才退化为平底色
+      `attach_surface` MUST 直接放弃；设备轮询 MUST 在被轮询设备自己的判死位已置位时
+      直接给出失败结局、MUST NOT 再碰死设备（wgpu 在致命 HAL 错误上先调丢失回调、再
+      panic，回调之后任何 `Device::poll` 都只会换来一道 panic）；宿主 MUST 发布运行期
+      缓存的遮罩，只有从未缓存过任何帧时才退化为平底色
 
 #### Scenario: 丢失判据不以错误类型为唯一条件
 

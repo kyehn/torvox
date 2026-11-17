@@ -13,7 +13,9 @@
 //! （不吞、不掩盖），只是不再让它掀桌子。取纹理的 `get_current_texture` 早先已按
 //! 同一思路兜住（见 `pass::acquire`），此处是同一规范的另一半。
 
-use super::gpu::{device_lost, one_line};
+use super::gpu::one_line;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 /// 一次设备轮询的原始结局：wgpu 返回的结果，或 wgpu 内部 panic 的载荷。
@@ -37,12 +39,18 @@ const DEVICE_LOST_REASON: &str = "device is lost";
 
 /// 轮询设备一次（最多等 `timeout`），把 wgpu 的结局归一成「继续 / 失败」。
 ///
-/// 已判死的设备**不再轮询**：wgpu 在致命 HAL 错误上先调设备丢失回调、再 panic，
-/// 回调置位后任何 GPU 调用都只会在 wgpu 内部换来一道 panic
-/// （2026-11-17 真机日志：切后台设备丢失后，遮罩回读撞上 `Device::poll` 的
-/// panic，整进程退出过一次）。判死位是进程级的，此时唯一该做的就是停下。
-pub(crate) fn poll_device_wait(device: &wgpu::Device, timeout: Duration) -> PollOutcome {
-    match lost_device_outcome(device_lost()) {
+/// `lost` 是**被轮询设备的**判死位（与设备同生共死的 `Arc`，见
+/// [`super::gpu::GlobalGpu::lost`]）：已判死就不再轮询：wgpu 在致命 HAL 错误上
+/// 先调设备丢失回调、再 panic，回调置位后任何 GPU 调用都只会在 wgpu 内部换来
+/// 一道 panic（2026-11-17 真机日志：遮罩回读撞上 `Device::poll` 的 panic）。
+/// 判死位按设备而非进程，旧设备的残留回读不会因为新设备还活着就继续捶死设备，
+/// 也不会因为自己被判死而把新设备一起拉下水。
+pub(crate) fn poll_device_wait(
+    device: &wgpu::Device,
+    lost: &Arc<AtomicBool>,
+    timeout: Duration,
+) -> PollOutcome {
+    match lost_device_outcome(lost.load(Ordering::Acquire)) {
         Some(outcome) => outcome,
         None => poll_outcome(|| {
             device.poll(wgpu::PollType::Wait {

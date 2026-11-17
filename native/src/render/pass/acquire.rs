@@ -254,9 +254,10 @@ impl Renderer {
                 let text = crate::panic_text(payload.as_ref());
                 if crate::render::context::is_device_loss_text(&text) {
                     // 丢失不必由这里报第二遍：标记点只记一条，渲染随即停在下一帧入口。
-                    crate::render::context::mark_device_lost(&crate::render::context::one_line(
-                        &text,
-                    ));
+                    crate::render::context::mark_device_lost(
+                        &self.lost,
+                        &crate::render::context::one_line(&text),
+                    );
                 } else if text.contains("not configured for presentation") {
                     // 上一次 `Surface::configure` 失败（真机/模拟器日志：`GpuWaitTimeout`）
                     // 会让 surface 停在未配置态，此后每次取纹理都按 validation 错误 panic。

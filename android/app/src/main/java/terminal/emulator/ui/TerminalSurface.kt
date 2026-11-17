@@ -1,13 +1,9 @@
 package terminal.emulator.ui
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
 import android.graphics.PixelFormat
-import android.graphics.Rect
-import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -19,7 +15,6 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.Magnifier
-import androidx.core.graphics.createBitmap
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -32,8 +27,6 @@ import terminal.emulator.runtime.DEFAULT_GRID_COLS
 import terminal.emulator.runtime.DEFAULT_GRID_ROWS
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
-import java.nio.ByteBuffer
-import kotlin.math.roundToInt
 
 class TerminalSurface
 @JvmOverloads
@@ -95,8 +88,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 否则换视图 / Activity 重建后终端会被上一份键盘高度上移（旋转不重建 Activity，
         // 由 `onSizeChanged` → `applyImeShift` 按新视口高度覆盖，不走这条路径）。
         ime.reset()
-        holeCoverJob?.cancel()
-        holeCoverJob = null
+        bufferPresentJob?.cancel()
+        bufferPresentJob = null
         if (translationY != 0f) translationY = 0f
         // 运行期那份也必须归零：它只由本视图的 insets 派发写入，而新视图（或复用后
         // 的本视图）的首次派发若发生在键盘已收起时，算出的 `reserved` 就是 0、与它
@@ -143,9 +136,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         super.onAttachedToWindow()
         // 与 [viewDetached] 成对：重新 attach 后才允许再建弹窗窗口。
         viewDetached = false
-        // 新窗口缓冲里没有旧遮罩：允许重画（见 paintedCover）。
-        paintedCover = null
-        coverHandoffFrames = 0
         // 同一实例可被重新 attach（见 inputBatchBuffer 注释）：重建已关闭的批缓冲。
         inputBatchBuffer = newInputBatchBuffer()
         // 排队钩子 MUST 随 attach 恢复：它在 detach 时被摘掉（批缓冲已关闭，留着会让
@@ -158,25 +148,22 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // ——网格再也不重排、主屏位移不再跟随内容。
         viewModel?.let { host ->
             ime.observeInputs(host)
-            observeHoleCover(host)
+            observeBufferPresent(host)
         }
     }
 
     /**
-     * 遮罩与「原生已有缓冲」这两个事实一变就重绘本视图。
+     * 「原生已有缓冲」一变就重绘本视图。
      *
-     * 两条都必须由视图直接订阅，不能等组合层转发：遮罩发布发生在渲染线程，
-     * 切后台那一刻没有任何别的失效源，漏这一次重绘，窗口留着的就是离开前的
-     * **空开孔**；缓冲翻转同理，回前台时 StateFlow 的中间态可能被组合层合并掉
-     * （实测 false→true 在一次重组内完成），视图就永远等不到那次「该撤遮罩了」
-     * 的重绘。见 [onDraw] 与 `recordHolePainted`。
+     * 必须由视图直接订阅，不能等组合层转发：缓冲翻转发生在渲染线程，回前台时
+     * StateFlow 的中间态可能被组合层合并掉（实测 false→true 在一次重组内完成），
+     * 视图就永远等不到那次「该撤掉底色覆盖」的重绘。见 [onDraw]。
      */
-    private fun observeHoleCover(host: TerminalViewModel) {
-        holeCoverJob?.cancel()
-        holeCoverJob =
+    private fun observeBufferPresent(host: TerminalViewModel) {
+        bufferPresentJob?.cancel()
+        bufferPresentJob =
             host.viewModelScope.launch {
-                launch { host.runtime.coverFrame.collect { invalidate() } }
-                launch { host.runtime.surfaceBufferPresent.collect { invalidate() } }
+                host.runtime.surfaceBufferPresent.collect { invalidate() }
             }
     }
 
@@ -222,8 +209,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     internal fun getAccentColor(): Int = viewModel?.runtime?.accentColor ?: 0xFF2196F3.toInt()
 
-    /** 遮罩失效订阅（见 [observeHoleCover]）：随 attach 建、随 detach 撤。 */
-    private var holeCoverJob: Job? = null
+    /** 缓冲状态订阅（见 [observeBufferPresent]）：随 attach 建、随 detach 撤。 */
+    private var bufferPresentJob: Job? = null
 
     @Volatile
     internal var viewModel: TerminalViewModel? = null
@@ -242,7 +229,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // 硬件按键与鼠标事件同样排到批缓冲（理由见 [bindActivePtyWriteQueue]）。
         bindActivePtyWriteQueue()
         ime.observeInputs(viewModel)
-        observeHoleCover(viewModel)
+        observeBufferPresent(viewModel)
     }
 
     @Volatile internal var rows: Int = DEFAULT_GRID_ROWS
@@ -590,9 +577,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         isFocusableInTouchMode = true
         // `SurfaceView` 构造时默认 `setWillNotDraw(true)`（`PFLAG_SKIP_DRAW`）：框架的
         // 绘制快路径据此**跳过 `onDraw`**，打洞的动作则挪到 `SurfaceView.dispatchDraw`。
-        // 开孔遮罩必须画在 `onDraw` 里（打洞在其之前，见「开孔遮罩」一节），故这里
+        // 开孔底色必须画在 `onDraw` 里（打洞在其之前，见「开孔底色」一节），故这里
         // 清掉该标志：`onDraw` 照常执行，打洞回到 `SurfaceView.draw` 里，顺序仍是
-        // 先打洞、后画遮罩。去掉这一行，遮罩一次都不会被调用——切后台返回即闪。
+        // 先打洞、后画底色。去掉这一行，底色一次都不会被调用——切后台返回即闪。
         setWillNotDraw(false)
         // 输入法遮挡高度的唯一来源：平台 insets 派发（见 installImeInsetListener）。
         ime.installImeInsetListener()
@@ -697,17 +684,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     override fun onWindowVisibilityChanged(visibility: Int) {
         super.onWindowVisibilityChanged(visibility)
         if (visibility == VISIBLE) {
-            // 平台重新挂窗口会给本视图一份**新的**窗口缓冲：旧窗里的遮罩随旧缓冲
-            // 一起没了，必须允许重画（见 [onDraw]）。
-            paintedCover = null
-            coverHandoffFrames = 0
             invalidate()
             ime.onWindowShown()
         } else {
             ime.onWindowHidden()
-            // 窗口不可见期间画进缓冲的帧不构成「上过屏」：交接计数必须归零，
-            // 否则回前台第一帧会被误判为已经画过，遮罩随即撤下（空开孔）。
-            coverHandoffFrames = 0
         }
     }
 
@@ -1043,77 +1023,35 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         ime.applyImeShift()
     }
 
-    // ── 开孔遮罩 ────────────────────────────────────────────────────────────
+    // ── 开孔底色 ────────────────────────────────────────────────────────────
     //
     // 平台在切后台后会拆掉本应用窗口的 surface（转场动画结束后立即拆除），
     // `SurfaceView` 的 surface 随之被拆；回前台时交换链必须重建，那几十毫秒里
     // 窗口的透明开孔没有缓冲——用户看到的就是「切后台返回终端闪烁」。
     //
-    // 遮罩只能由**本视图自己**画，且必须画在平台打洞**之后**：平台给窗口打洞的动作
+    // 底色只能由**本视图自己**画，且必须画在平台打洞**之后**：平台给窗口打洞的动作
     // 在 `SurfaceView.draw(Canvas)`（AOSP android-15 `SurfaceView.java:583`）里，
     // 随后 `View.draw(Canvas)` 才调 `onDraw`（同版本 `View.java:24842`）——两者之间的
-    // 顺序正是「先打洞、后画遮罩」，故遮罩画在 `onDraw` 里才会落进洞里、开孔才不会
+    // 顺序正是「先打洞、后画底色」，故底色画在 `onDraw` 里才会落进洞里、开孔才不会
     // 透出后方桌面。组合层（窗口层）画的则在洞**之下**，一律被平台的打洞抹掉（实测
     // 组合层涂的底色只在 SurfaceView 之外的边距上可见，洞里始终是空的）。
     //
     // 这套顺序依赖 `init` 里的 `setWillNotDraw(false)`：`SurfaceView` 构造时默认
     // `setWillNotDraw(true)`（`PFLAG_SKIP_DRAW`），那样框架的绘制快路径会**跳过
-    // `onDraw`**，打洞也随之挪到 `SurfaceView.dispatchDraw`（同版本 `:596`）——遮罩
+    // `onDraw`**，打洞也随之挪到 `SurfaceView.dispatchDraw`（同版本 `:596`）——底色
     // 一次都不会被调用。`setWillNotDraw(false)` 清掉该标志，打洞回到 `draw` 里，
     // `onDraw` 也照常执行。
     //
-    // 盖在原生 surface 之上意味着遮罩会把终端内容一起盖住，故只在该盖的窗口里画：
-    // 后台期间照画（转场里平台还没拆 surface，遮罩必须这时进窗口缓冲）；回前台
-    // 只在「当前窗口还没画过这份遮罩」时补一帧——原生侧提交过帧不等于窗口已可见，
-    // 旧窗口的缓冲可能已被平台连遮罩一起丢掉（见 onDraw）。遮罩内容是切后台时回读
-    // 到的离开画面（RGBA8 像素），与原生 warmup 呈现的那一帧同源，故撤下时画面不跳变。
+    // 只在「原生还没有缓冲」时画底色：盖在原生 surface 之上会把终端内容一起盖住。
+    // 原生侧的 warmup 会在新 surface 上先呈现保留的上一帧（见 native 的
+    // `resume_last_frame`），故底色只是一段过渡，帧一到就交回原生图层。
 
     /**
-     * 遮罩位图与其来源：来源换了才重建位图（像素拷贝不便宜）。
-     *
-     * 源是运行期发布的那一帧对象，身份变了才需要重新拷贝像素。
-     */
-    private var holeCoverBitmap: Bitmap? = null
-    private var holeCoverSource: Bridge.CoverFrame? = null
-
-    /**
-     * 当前窗口缓冲里已画过哪一份遮罩。
-     *
-     * 窗口可能被平台重挂（旧缓冲连同遮罩一起丢失，见 [onWindowVisibilityChanged]），
-     * 而原生提交帧发生在窗口可见之前，运行期无法替视图判断「这一帧有没有画过」。
-     * 以对象身份记账：同一份遮罩在同一个窗口里只画一次，换窗（置空）或换遮罩
-     * （身份不同）才需要重画。
-     */
-    private var paintedCover: Bridge.CoverFrame? = null
-
-    /**
-     * 当前这份遮罩是否已投递过撤下。
-     *
-     * 原生侧「有缓冲」只表示提交过帧，SurfaceFlinger 未必已经把它和窗口缓冲合成；
-     * 故首帧补画遮罩后投递一次撤下，让下一帧由原生 surface 供像素。每份遮罩只投递
-     * 一次（身份变化、窗口重挂、不可见时归零），避免逐帧重复投递。
-     */
-    private var coverHandoffFrames = 0
-
-    /**
-     * 遮罩的绘制画笔：开滤波，缩放时不出现马赛克。
-     *
-     * 遮罩帧与开孔不同尺寸时要缩放（输入法改高度），最近邻缩放会把字画成方块。
-     */
-    private val coverPaint = Paint().apply { isFilterBitmap = true }
-
-    /**
-     * 遮罩的绘制矩形：预先分配并复用，避免在绘制路径上每帧新建对象。
-     */
-    private val coverSourceRect = Rect()
-    private val coverDestRect = RectF()
-
-    /**
-     * 没有可复现的上一帧时铺的底色（终端底色）。
+     * 没有缓冲时铺的底色（终端底色）。
      *
      * 没有它，开孔会透出后方桌面——那正是「闪一下」的另一种样子。
      */
-    internal var holeCoverBackground: Int = Color.BLACK
+    internal var holeFillBackground: Int = Color.BLACK
         set(value) {
             if (field == value) return
             field = value
@@ -1123,88 +1061,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val runtime = viewModel?.runtime ?: return
-        val cover = runtime.coverFrame.value
-        // 遮罩帧与当前开孔的尺寸可以不同：输入法弹出/收起会改开孔高度，而遮罩帧
-        // 是离开画面时的旧尺寸。按宽度等比缩放、顶边对齐地贴上去（见 `coverFit`），
-        // 高出的裁掉、差下的由终端底色补——尺寸必须一致才画的话，输入法收起那一刻
-        // 遮罩整块作废，用户看到的就是「输入法弹出时切后台返回终端闪烁」。
-        val fit = cover?.let { coverFit(it.width, it.height, width, height) }
-        if (cover != null && fit != null) {
-            // 前台也可能走到这里：原生侧提交过帧，但**当前窗口**未必画过遮罩——
-            // 返回时窗口可能刚被平台重新挂上（onWindowVisibilityChanged 把
-            // paintedCover 清空），旧窗口的缓冲连同遮罩一起丢了。此时若照旧早退，
-            // 首个可见窗口帧就是空开孔（用户看到的一闪）。故以「本窗口是否画过
-            // 这份遮罩」为准：没画过就补一帧，画过才撤。
-            val foreground = runtime.surfaceBufferPresent.value && !runtime.isBackgroundPaused
-            val visible = windowVisibility == VISIBLE
-            val paintedThisDraw = visible && paintedCover !== cover
-            if (paintedCover !== cover) coverHandoffFrames = 0
-            if (!foreground || paintedThisDraw) {
-                val bitmap = coverBitmap(cover)
-                canvas.drawColor(holeCoverBackground)
-                coverSourceRect.set(0, 0, bitmap.width, fit.sourceHeight.roundToInt())
-                coverDestRect.set(0f, 0f, width.toFloat(), fit.destHeight)
-                canvas.drawBitmap(bitmap, coverSourceRect, coverDestRect, coverPaint)
-                if (visible) paintedCover = cover
-            }
-            if (visible) {
-                runtime.recordHolePainted()
-                if (foreground && coverHandoffFrames == 0) {
-                    // 首帧补画后投递一次撤下：本帧仍带遮罩上屏，下一帧由 collect 的
-                    // invalidate 带来无遮罩的原生帧。不能在 onDraw 里直接 invalidate
-                    // 等第二帧——实测那次 invalidate 不会产生第二次绘制（31 秒无帧），
-                    // 遮罩会一直留在开孔上。
-                    coverHandoffFrames = 1
-                    post {
-                        if (runtime.coverFrame.value === cover) runtime.clearCoverFrame()
-                    }
-                }
-            }
-            return
-        }
-        // 原生 surface 已有缓冲、且应用在前台、又没有可用遮罩：交给原生图层供像素。
-        if (runtime.surfaceBufferPresent.value && !runtime.isBackgroundPaused) {
-            // 位图也随之释放：此后的每一帧都从这里早退，缓存的那份会一直留到视图销毁。
-            releaseCoverBitmap()
-            return
-        }
-        // 没有可用遮罩（或遮罩已撤下）：铺终端底色。顺带释放缓存的位图——遮罩撤下后
-        // 它再无用处，留着白占几百 KB 直到视图销毁。
-        releaseCoverBitmap()
-        canvas.drawColor(holeCoverBackground)
-        runtime.recordHolePainted()
-    }
-
-    /** 释放缓存的遮罩位图与它的来源。 */
-    private fun releaseCoverBitmap() {
-        holeCoverBitmap = null
-        holeCoverSource = null
-    }
-
-    /**
-     * 取（必要时重建）遮罩位图。
-     *
-     * 位图与来源一一对应：来源是运行期发布的那一帧对象，身份变了才重建。
-     */
-    private fun coverBitmap(cover: Bridge.CoverFrame): Bitmap {
-        val cached = holeCoverBitmap
-        if (cached != null && holeCoverSource === cover) return cached
-        val bitmap = cover.toBitmap()
-        holeCoverSource = cover
-        holeCoverBitmap = bitmap
-        return bitmap
-    }
-
-    /**
-     * 把回读到的遮罩像素转成位图。
-     *
-     * 像素是 RGBA8，`ARGB_8888` 位图在内存里就是 R、G、B、A 的字节序，
-     * 故一次原始拷贝即可，不必逐像素换通道。
-     */
-    private fun Bridge.CoverFrame.toBitmap(): Bitmap {
-        val bitmap = createBitmap(width, height)
-        bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(pixels))
-        return bitmap
+        // 原生 surface 已有缓冲：开孔透出的是原生图层自己的画面，这里什么都不画
+        // ——画了就会盖住活内容。
+        if (runtime.surfaceBufferPresent.value) return
+        // 没有缓冲（surface 被拆、冷启动首帧未出）：铺终端底色。开孔区否则透出后方的
+        // 桌面/上一个应用，就是「切后台返回终端闪烁」。
+        canvas.drawColor(holeFillBackground)
     }
 
     // ══════════════════════════════════════════════════════════════════════

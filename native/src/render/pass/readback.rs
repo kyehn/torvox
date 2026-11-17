@@ -176,7 +176,9 @@ impl Renderer {
 
         // 设备轮询的失败形态不止 `Err`：wgpu 内部会在设备真出错时直接 panic。
         // 走统一封装，失败带原因上来，别让测试死于一道看不懂的 panic。
-        if let PollOutcome::Failed(reason) = poll_device_wait(&self.device, GPU_POLL_TIMEOUT) {
+        if let PollOutcome::Failed(reason) =
+            poll_device_wait(&self.device, &self.lost, GPU_POLL_TIMEOUT)
+        {
             return Err(GpuError::Readback(format!("device poll failed: {reason}")));
         }
 
@@ -189,7 +191,9 @@ impl Renderer {
         // 反复轮询直到 map 完成或超时。
         let poll_start = std::time::Instant::now();
         let mapped: Result<(), GpuError> = loop {
-            if let PollOutcome::Failed(reason) = poll_device_wait(&self.device, MAP_POLL_STEP) {
+            if let PollOutcome::Failed(reason) =
+                poll_device_wait(&self.device, &self.lost, MAP_POLL_STEP)
+            {
                 break Err(GpuError::Readback(format!("device poll failed: {reason}")));
             }
             match map_rx.try_recv() {

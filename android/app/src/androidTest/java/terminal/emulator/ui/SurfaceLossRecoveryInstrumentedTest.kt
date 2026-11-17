@@ -6,7 +6,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -58,7 +57,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
          * 单个像素与期望画面的通道差之和上限：色彩管理会让屏幕取色与帧内像素
          * 差一两级，仍远小于「透出别的画面」的差异（后者是几十以上）。
          */
-        private const val COVER_PIXEL_TOLERANCE = 24
+        private const val HOLE_PIXEL_TOLERANCE = 24
 
         /**
          * 开孔区域与期望画面的不符像素占比上限（百分比）。
@@ -66,7 +65,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
          * 留一点余量：期望画面是切后台时回读的帧，期间终端可能又输出过内容，
          * 少量行会与帧内像素不同。
          */
-        private const val MAX_COVER_MISMATCH_PERCENT = 20
+        private const val MAX_HOLE_MISMATCH_PERCENT = 20
     }
 
     /**
@@ -372,10 +371,10 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
                     !runtime.surfaceBufferPresent.value
                 },
             )
-            // 视图自己订阅「缓冲/遮罩」两个事实（见 TerminalSurface.observeHoleCover），
+            // 视图自己订阅「原生已有缓冲」这一个事实（见 TerminalSurface.observeBufferPresent），
             // 不再经组合层转发；换视图后它会在自己的 `onDraw` 里补画底色（开孔只能由
             // SurfaceView 自己填）。事实推达之前截到的画面是平台在洞里留的空白——
-            // 透出的是后方桌面，不是应用画的遮罩。
+            // 透出的是后方桌面，不是应用画的底色。
             // 像素证据要在「注入仍生效」的这一瞬抓；换视图、合盖推送都是多异步源，
             // 一次性截图会抓到「事实已写、视图还没画」的过渡帧——故轮询到开孔稳定
             // 为本应用像素为止。关掉注入之后再截图测的是活画面，跟保留帧比必然
@@ -390,18 +389,17 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
                     val currentSurface = findTerminalSurface(composeTestRule.activity)
                     val currentLocation = IntArray(2)
                     currentSurface.getLocationOnScreen(currentLocation)
-                    val current =
-                        coverMismatchRatio(shot, currentLocation, currentSurface, runtime.coverFrame.value)
-                    if (current <= MAX_COVER_MISMATCH_PERCENT) {
+                    val current = holeMismatchRatio(shot, currentLocation, currentSurface)
+                    if (current <= MAX_HOLE_MISMATCH_PERCENT) {
                         mismatch = current
                         true
                     } else {
                         false
                     }
                 }
-            UxTestUtils.metric("cover_mismatch_percent", mismatch.toLong())
+            UxTestUtils.metric("hole_mismatch_percent", mismatch.toLong())
             assertNotNull(
-                "无缓冲区期间开孔区域必须显示终端自己的画面（保留帧或终端底色），" +
+                "无缓冲区期间开孔区域必须显示终端底色，" +
                     "实测与期望不符的像素占 $mismatch%，否则就是透出了后方画面",
                 converged,
             )
@@ -464,78 +462,12 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
     }
 
     /**
-     * 切后台时必须把离开时的画面回读成开孔遮罩。
+     * 开孔区域与终端底色的逐像素不符比例（百分比）。
      *
-     * 平台在切后台后会拆掉本应用窗口的 surface（转场动画结束后立即拆除），
-     * 回前台时交换链必须重建，那几十毫秒里窗口的透明开孔没有缓冲：没有遮罩时
-     * 开孔透出后方桌面（有平底色遮罩时是一块平底色），用户看到的都是
-     * 「切后台返回闪一下」。遮罩把离开时的画面留在开孔里。
-     *
-     * 断言两件事：遮罩已发布（状态），且它装的是**画面**而非单色——单色遮罩与
-     * 现有的平底色遮罩没有区别，闪烁照旧。
+     * 无缓冲区期间窗口层铺的只能是终端底色：其它颜色都是「透出了别的画面」。
+     * 色彩管理会让屏幕取色与期望值差一两级，故单像素偏差在阈值内即算一致。
      */
-    @Test
-    fun backgroundStopPublishesTheLastFrameAsHoleCover() {
-        val runtime = composeTestRule.activity.terminalViewModel.runtime
-        composeTestRule.waitForIdle()
-        assertNotNull(
-            "正常出帧后必须报告「已有缓冲区」",
-            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                runtime.surfaceBufferPresent.value
-            },
-        )
-        // 画面里要有墨迹：纯空白的终端回读出来也是单色，测不出「装的是画面」。
-        composeTestRule.requireBridge().writeToPty("echo COVER_FRAME_MARK\n".toByteArray(Charsets.UTF_8))
-        composeTestRule.pumpedTerminalText()
-
-        composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
-        assertNotNull(
-            "切后台后必须回读出开孔遮罩",
-            UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
-                runtime.coverFrame.value != null
-            },
-        )
-        val cover = checkNotNull(runtime.coverFrame.value) { "切后台后必须回读出开孔遮罩" }
-        assertTrue(
-            "遮罩尺寸必须与 surface 尺寸一致（宽 ${cover.width}）",
-            cover.width > 0 && cover.height > 0,
-        )
-        assertEquals(
-            "遮罩像素数必须等于宽×高×4",
-            cover.width.toLong() * cover.height.toLong() * 4L,
-            cover.pixels.size.toLong(),
-        )
-        // 画面必须不是单色：单色遮罩与平底色遮罩无异，闪烁照旧。
-        val distinct = cover.pixels.toHashSet()
-        assertTrue(
-            "遮罩必须装的是画面（实测只有 ${distinct.size} 种像素值，单色即等于没遮）",
-            distinct.size > 4,
-        )
-
-        composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
-        assertNotNull(
-            "切回前台后新帧到达必须撤掉遮罩",
-            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
-            },
-        )
-    }
-
-    /**
-     * 开孔区域与期望画面的逐像素不符比例（百分比）。
-     *
-     * 期望画面取「保留帧」（切后台时回读的那一帧，有则优先）或终端底色：
-     * 两者都是终端自己的画面，都不是后方桌面。保留帧是 RGBA8 像素，坐标与
-     * surface 一一对应（帧的左上角即 surface 的左上角）。
-     *
-     * 色彩管理会让屏幕取色与帧内像素差一两级，故单像素偏差在阈值内即算一致。
-     */
-    private fun coverMismatchRatio(
-        bitmap: android.graphics.Bitmap,
-        location: IntArray,
-        surface: View,
-        cover: terminal.emulator.bridge.Bridge.CoverFrame?,
-    ): Int {
+    private fun holeMismatchRatio(bitmap: android.graphics.Bitmap, location: IntArray, surface: View): Int {
         val left = location[0].coerceIn(0, bitmap.width - 1)
         val top = location[1].coerceIn(0, bitmap.height - 1)
         val right = (left + surface.width).coerceIn(left + 1, bitmap.width)
@@ -547,9 +479,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
             var x = left
             while (x < right) {
                 total++
-                val actual = bitmap.getPixel(x, y)
-                val expected = expectedHolePixel(x - location[0], y - location[1], cover)
-                if (expected == null || colorDistance(actual, expected) > COVER_PIXEL_TOLERANCE) {
+                if (colorDistance(bitmap.getPixel(x, y), terminalBackgroundArgb) > HOLE_PIXEL_TOLERANCE) {
                     mismatched++
                 }
                 x += INK_SAMPLE_STEP_PX
@@ -557,21 +487,6 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
             y += INK_SAMPLE_STEP_PX
         }
         return if (total == 0) 100 else mismatched * 100 / total
-    }
-
-    /** 期望画面在 (x, y) 处的颜色：保留帧优先，其次终端底色；取不到即 null。 */
-    private fun expectedHolePixel(x: Int, y: Int, cover: terminal.emulator.bridge.Bridge.CoverFrame?): Int? {
-        if (cover != null) {
-            val index = (y * cover.width + x) * 4
-            if (x in 0 until cover.width && y in 0 until cover.height && index + 3 < cover.pixels.size) {
-                val red = cover.pixels[index].toInt() and 0xFF
-                val green = cover.pixels[index + 1].toInt() and 0xFF
-                val blue = cover.pixels[index + 2].toInt() and 0xFF
-                return 0xFF000000.toInt() or (red shl 16) or (green shl 8) or blue
-            }
-            return null
-        }
-        return terminalBackgroundArgb
     }
 
     /** 两个颜色的通道差之和：色彩管理带来的一两级偏差在容忍范围内。 */
@@ -592,9 +507,9 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
     /**
      * 首帧提交只把缓冲排入队列，SurfaceFlinger 要到下一次 vsync 才锁存上屏。
      *
-     * 若在同一拍就撤掉开孔遮罩，回前台会有一拍「既无旧画面、也无新画面」的底色
+     * 若在同一拍就撤掉底色覆盖，回前台会有一拍「既无旧画面、也无新画面」的底色
      * ——就是用户看到的闪烁。故 true 的发布必须延后一个显示帧；false（surface
-     * 被拆）必须立即生效，遮罩马上回来。
+     * 被拆）必须立即生效，底色覆盖马上回来。
      */
     @Test
     fun bufferPresentIsPublishedOneDisplayFrameLate() {
@@ -603,9 +518,9 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
             runtime.publishSurfaceBufferPresent(false)
             assertTrue("surface 被拆时必须立即报「无缓冲区」", !runtime.surfaceBufferPresent.value)
             runtime.publishSurfaceBufferPresent(true)
-            // 同一主线程任务内帧回调还没机会执行：遮罩必须仍然在。
+            // 同一主线程任务内帧回调还没机会执行：底色覆盖必须仍然在。
             assertTrue(
-                "首帧提交后同一拍不得撤遮罩，否则开孔会露出一拍底色",
+                "首帧提交后同一拍不得撤底色覆盖，否则开孔会露出一拍底色",
                 !runtime.surfaceBufferPresent.value,
             )
         }
@@ -621,8 +536,8 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
      * 渲染途中开孔被拆：那一帧提交的是已被平台废弃的缓冲区。
      *
      * 渲染线程在进入原生渲染前取开孔世代，提交结果时一起带上（渲染循环与切会话
-     * 首帧两条路径）。若这期间 surface 被拆，上报的 true 必须丢弃——否则遮罩会被
-     * 撤掉，而新开孔还没有任何缓冲，开孔空着的那一段就是用户看到的闪烁。
+     * 首帧两条路径）。若这期间 surface 被拆，上报的 true 必须丢弃——否则底色覆盖
+     * 会被撤掉，而新开孔还没有任何缓冲，开孔空着的那一段就是用户看到的闪烁。
      */
     @Test
     fun staleBufferPresentFromDestroyedSurfaceIsDropped() {
@@ -636,7 +551,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
             runtime.publishSurfaceBufferPresent(true, staleEpoch)
         }
         assertNull(
-            "旧开孔的帧提交不得撤遮罩",
+            "旧开孔的帧提交不得撤底色覆盖",
             UxTestUtils.pollUntilTrue(timeoutMs = 500, intervalMs = 16) {
                 runtime.surfaceBufferPresent.value
             },
@@ -646,7 +561,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
             runtime.publishSurfaceBufferPresent(true, runtime.surfacePresentEpoch())
         }
         assertNotNull(
-            "当前开孔的帧提交必须撤遮罩",
+            "当前开孔的帧提交必须撤底色覆盖",
             UxTestUtils.pollUntilTrue(timeoutMs = 2_000, intervalMs = 16) {
                 runtime.surfaceBufferPresent.value
             },

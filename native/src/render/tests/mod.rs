@@ -365,13 +365,13 @@ fn build_single_cell_instance(
 
 #[cfg(test)]
 fn setup_test_gpu_context(device: wgpu::Device, queue: wgpu::Queue) -> Renderer {
-    let _gpu = crate::render::context::global_gpu_for_tests();
+    let gpu = crate::render::context::global_gpu_for_tests();
     let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Quad Vertex Buffer"),
         contents: bytemuck::cast_slice(QUAD_CORNERS),
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let mut context = Renderer::new_inner(device, queue, quad_vertex_buffer);
+    let mut context = Renderer::new_inner(device, gpu.lost.clone(), queue, quad_vertex_buffer);
     context.surface_config = Some(wgpu::SurfaceConfiguration {
         width: 50,
         height: 50,
@@ -458,6 +458,5 @@ fn snapshot_atlas_rect(bitmap: &[u8], atlas_width: usize, rect: (u32, u32, u32, 
 }
 
 mod cell_pipeline;
-mod cover;
 mod frame_and_atlas;
 mod gpu_core;

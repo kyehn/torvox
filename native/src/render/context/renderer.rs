@@ -223,11 +223,13 @@ pub(crate) fn rebuild_blocked_by_in_flight_surface(
 impl Renderer {
     pub(crate) fn new_inner(
         device: wgpu::Device,
+        lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
         queue: wgpu::Queue,
         quad_vertex_buffer: wgpu::Buffer,
     ) -> Self {
         Self {
             device,
+            lost,
             queue,
             surface: None,
             surface_config: None,
@@ -278,18 +280,22 @@ impl Renderer {
     /// 创建共享全局 wgpu instance/adapter/device 的 `Renderer`，适用于无窗口上下文。
     pub fn new_with_no_surface() -> Self {
         let gpu = global_gpu();
-        Self::new_with_device(gpu.device.clone(), gpu.queue.clone())
+        Self::new_with_device(gpu.device.clone(), gpu.lost.clone(), gpu.queue.clone())
     }
 
     /// 用给定设备/队列建 `Renderer`（首次初始化与设备丢失后重建共用）。
-    fn new_with_device(device: wgpu::Device, queue: wgpu::Queue) -> Self {
+    fn new_with_device(
+        device: wgpu::Device,
+        lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        queue: wgpu::Queue,
+    ) -> Self {
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Quad Vertex Buffer"),
             contents: bytemuck::cast_slice(QUAD_CORNERS),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        Self::new_inner(device, queue, quad_vertex_buffer)
+        Self::new_inner(device, lost, queue, quad_vertex_buffer)
     }
 
     /// 设备丢失后换到新设备上重建渲染资源（仅 `attachWindow` 的恢复路径调用）。
@@ -305,7 +311,7 @@ impl Renderer {
         let paused = self.render_paused;
         let background = self.background;
         let viewport_scroll_px = self.viewport_scroll_px;
-        *self = Self::new_with_device(gpu.device.clone(), gpu.queue.clone());
+        *self = Self::new_with_device(gpu.device.clone(), gpu.lost.clone(), gpu.queue.clone());
         self.render_paused = paused;
         self.background = background;
         self.viewport_scroll_px = viewport_scroll_px;

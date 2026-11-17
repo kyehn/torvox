@@ -767,9 +767,6 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                                     }
                                 }
                             }
-                            // 开孔遮罩已由运行期的回读循环缓存（TerminalRuntime.coverCaptureLoop），
-                            // 这里不再回读：渲染线程退出可能是设备丢失所致，死设备上回读
-                            // 必然失败，遮罩会空——那正是「切后台返回闪一下」。
                             entry.markRenderThreadExited()
                             LogUtil.debug("Runtime", "render thread stopped for session ${entry.sessionId}")
                         }

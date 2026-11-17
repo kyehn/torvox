@@ -63,7 +63,10 @@ pub(crate) fn gpu_error_is_surface_lost(error: &wgpu::Error) -> bool {
     }
 }
 
-pub(crate) fn log_gpu_error(error: &wgpu::Error) {
+pub(crate) fn log_gpu_error(
+    error: &wgpu::Error,
+    lost: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
     if gpu_error_is_surface_lost(error) {
         log::debug!("GPU_UNCAPTURED_ERROR (surface lost after window reclaim): {error:#?}");
         return;
@@ -71,7 +74,7 @@ pub(crate) fn log_gpu_error(error: &wgpu::Error) {
     let detail = format!("{error:#?}");
     // 设备丢失本身只在第一次记：余波阶段的每条错误都是同一次丢失。
     if is_device_loss_text(&detail) {
-        mark_device_lost(&one_line(&detail));
+        mark_device_lost(lost, &one_line(&detail));
     } else {
         log::error!("GPU_UNCAPTURED_ERROR: {detail}");
     }
@@ -134,8 +137,9 @@ pub(crate) struct GlobalGpu {
     /// 标志与设备**同生共死**：丢失回调注册时拿到同一份（见
     /// [`register_device_lost_callback`]），故旧设备的丢失回调迟到时不会把重建后的
     /// 新设备误判成判死。重建路径据此判定「槽位里那个还能不能用」
-    /// （见 [`gpu_slot_reusable`]）。
-    lost: Arc<std::sync::atomic::AtomicBool>,
+    /// （见 [`gpu_slot_reusable`]）。渲染器、遮罩回读也持有同一份，用来回答
+    /// 「我手里的还是当前那个设备吗」。
+    pub(crate) lost: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[cfg(test)]
@@ -180,22 +184,49 @@ pub(crate) fn clear_device_lost() {
 /// （[`register_device_lost_callback`]），以及回调覆盖不到的文本判据路径
 /// （[`is_device_loss_text`]）；仪器化用例也经这里注入。
 ///
-/// 文本判据路径拿不到设备身份，只能按「当前设备」置位：此刻正在用的就是出错的
-/// 那个。回调路径由 [`register_device_lost_callback`] 精确置位（置的是它自己那
-/// 一份标志），不在此处。
-pub(crate) fn mark_device_lost(detail: &str) {
-    if let Some(current) = current_gpu() {
-        current
-            .lost
-            .store(true, std::sync::atomic::Ordering::Release);
+/// 置位给定设备世代的判死位，并且只在它**仍是当前设备**时记账并停下渲染。
+///
+/// 丢失回调与文本判据都属于某一个设备，而不是「进程里那个设备」。
+/// 重建替换掉的旧设备迟到的回调/失败的轮询若照旧置全局位，会把已经装好的
+/// 新设备误判成判死，宿主于是再换窗口再重建——一轮丢失被放大成连续多轮
+/// （2026-11-17 真机日志：一次丢失后 3 秒内 13 轮重建）。
+///
+/// 故全局位只在设备仍是槽位里那一个时置位；旧世代的结局如实记 debug，不吞。
+pub(crate) fn mark_device_lost(lost: &Arc<std::sync::atomic::AtomicBool>, detail: &str) {
+    lost.store(true, std::sync::atomic::Ordering::Release);
+    if is_current_device(lost) {
+        record_device_loss(detail);
+    } else {
+        log::debug!("stale GPU device lost ignored (device already rebuilt): {detail}");
     }
-    record_device_loss(detail);
+}
+
+/// 当前设备是否就是 `lost` 所属的那一个。
+///
+/// 以 `Arc` 身份比较：判死位与设备同生共死（见 [`GlobalGpu::lost`]），
+/// 每建一个设备就有一个新的 `Arc`，故指针相同即同一世代。
+fn is_current_device(lost: &Arc<std::sync::atomic::AtomicBool>) -> bool {
+    same_device(current_gpu().as_ref().map(|gpu| &gpu.lost), lost)
+}
+
+/// 判死归属的纯判定：两个 `Arc` 指向同一份标志才说明是同一设备世代。
+fn same_device(
+    current: Option<&Arc<std::sync::atomic::AtomicBool>>,
+    lost: &Arc<std::sync::atomic::AtomicBool>,
+) -> bool {
+    current.is_some_and(|current| Arc::ptr_eq(current, lost))
+}
+
+/// 测试注入用：把**当前**设备判死（模拟器上设备不会真的丢失）。
+pub(crate) fn mark_current_device_lost(detail: &str) {
+    if let Some(current) = current_gpu() {
+        mark_device_lost(&current.lost, detail);
+    }
 }
 
 /// 判死记账：置全局丢失位，并且只在本进程**第一次**记账时记一条 error。
 ///
-/// 与 [`mark_device_lost`] 分开：丢失回调置的是**它那一个**设备的标志，若在此
-/// 再按「当前设备」置一次，旧设备的丢失回调迟到时会把重建后的新设备误判成判死。
+/// 调用方已确认 `lost` 属于当前设备（见 [`mark_device_lost`]）。
 fn record_device_loss(detail: &str) {
     if !DEVICE_LOST.swap(true, std::sync::atomic::Ordering::Release) {
         log::error!(
@@ -235,14 +266,10 @@ pub(crate) fn is_device_loss_text(text: &str) -> bool {
 ///
 /// 返回与设备同生共死的判死标志（见 [`GlobalGpu::lost`]）：回调置的是**这一个**
 /// 设备的标志，旧设备的丢失回调迟到时不会把重建后的新设备误判成判死。
-fn register_device_lost_callback(device: &wgpu::Device) -> Arc<std::sync::atomic::AtomicBool> {
-    let lost = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let flag = Arc::clone(&lost);
+fn register_device_lost_callback(device: &wgpu::Device, lost: Arc<std::sync::atomic::AtomicBool>) {
     device.set_device_lost_callback(move |reason, message| {
-        flag.store(true, std::sync::atomic::Ordering::Release);
-        record_device_loss(&format!("{reason:?}: {message}"));
+        mark_device_lost(&lost, &format!("{reason:?}: {message}"));
     });
-    lost
 }
 
 /// 初始化 Vulkan 全局对象；失败时按可操作的指引记账（原因只有这一处需要讲清）。
@@ -253,9 +280,16 @@ fn init_gpu() -> Result<GlobalGpu, GpuError> {
             // 计数必须如实反映「建成功几个设备」，否则重建后的那次不计数。
             #[cfg(test)]
             INITIALIZATION_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            // 判死位的身份必须与设备一起建：回调、未捕获错误与轮询都靠它区分
+            // 「当前设备」与「已被重建替换的旧设备」。
+            let lost = Arc::new(std::sync::atomic::AtomicBool::new(false));
             // 每个新设备（首次初始化与丢失后重建）都必须注册：wgpu 的回调随设备
             // 生灭，旧设备上的回调不会跟到新设备来。
-            let lost = register_device_lost_callback(&device);
+            register_device_lost_callback(&device, Arc::clone(&lost));
+            let error_flag = Arc::clone(&lost);
+            device.on_uncaptured_error(Arc::new(move |error| {
+                log_gpu_error(&error, &error_flag);
+            }));
             Ok(GlobalGpu {
                 #[cfg(target_os = "android")]
                 instance: _inst,
@@ -407,3 +441,32 @@ fn initialize_global_gpu() -> Result<Arc<GlobalGpu>, GpuError> {
 #[cfg(test)]
 pub(crate) static INITIALIZATION_COUNT: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(test)]
+mod tests {
+    use super::same_device;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+
+    /// 没有当前设备时，任何丢失都无从归属（初始化尚未完成）。
+    #[test]
+    fn missing_current_device_is_never_same() {
+        let lost = Arc::new(AtomicBool::new(true));
+        assert!(!same_device(None, &lost));
+    }
+
+    /// 同一份 `Arc` 才是同一世代：设备的判死位与设备同生共死。
+    #[test]
+    fn same_flag_is_same_device() {
+        let lost = Arc::new(AtomicBool::new(true));
+        assert!(same_device(Some(&lost), &lost));
+    }
+
+    /// 重建后的新设备是新的 `Arc`：旧世代的丢失（回调或轮询）不得算到它头上。
+    #[test]
+    fn rebuilt_flag_is_not_same_device() {
+        let old = Arc::new(AtomicBool::new(true));
+        let new = Arc::new(AtomicBool::new(false));
+        assert!(!same_device(Some(&new), &old));
+    }
+}
