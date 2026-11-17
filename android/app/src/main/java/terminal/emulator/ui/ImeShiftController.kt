@@ -99,9 +99,9 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
         ViewCompat.setOnApplyWindowInsetsListener(surface) { _, insets ->
             // 切后台期间 MUST NOT 采纳 insets：`ON_PAUSE` 自己调了
             // `hideSoftInputFromWindow`（平台也会收起输入法），派发回来的高度是 0，
-            // 照单收下就会把位移在用户看不见时归零。而原生保留的最后一帧是按**离开时**
-            // 的位移拍下的，回前台的首帧因此画在错误位置上，等输入法重新弹出再跳一次
-            // ——即「输入法弹出时切后台返回终端闪烁」。
+            // 照单收下就会把位移在用户看不见时归零。而开孔遮罩与原生保留的最后一帧
+            // 都是按**离开时**的位移拍下的，回前台的首帧因此画在错误位置上，等输入法
+            // 重新弹出再跳一次——即「输入法弹出时切后台返回终端闪烁」。
             //
             // 回前台的恢复期同样 MUST NOT 把「输入法已隐藏」当成用户收起：窗口重新
             // 可见的那一拍先派发的是隐藏态，而键盘要靠 [onWindowShown] 显式要回来，

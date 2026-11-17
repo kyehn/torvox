@@ -507,4 +507,60 @@ class SearchCenterViewportRowTest {
             screenY(viewportRow, 1200, 20.4f) - bandCenterYPx in -20.4f..20.4f,
         )
     }
+
+    // ── 开孔遮罩的贴合 ───────────────────────────────────────────────────────
+
+    /**
+     * 尺寸一致时按原样贴上（1:1，不缩放）。
+     */
+    @org.junit.Test
+    fun `cover fit keeps the frame as is when sizes match`() {
+        val fit = checkNotNull(coverFit(472, 819, 472, 819))
+        assertEquals(819f, fit.sourceHeight, 0.01f)
+        assertEquals(819f, fit.destHeight, 0.01f)
+    }
+
+    /**
+     * 输入法弹出后开孔变矮：遮罩帧按宽度等比缩放，超出部分裁掉。
+     *
+     * 判别力：尺寸不一致就整块作废的话，遮罩退回平底色——用户看到的是
+     * 「输入法弹出时切后台返回终端闪烁」。故必须给出贴合参数而不是 null。
+     */
+    @org.junit.Test
+    fun `cover fit crops a taller frame to the shorter hole`() {
+        val fit = checkNotNull(coverFit(472, 819, 472, 400))
+        assertEquals(400f, fit.sourceHeight, 0.01f)
+        assertEquals(400f, fit.destHeight, 0.01f)
+    }
+
+    /**
+     * 输入法收起后开孔变高：遮罩帧顶边对齐，差下的一段由终端底色补。
+     *
+     * 等比缩放不拉伸字形：宽度不变即缩放系数为 1，高度原样。
+     */
+    @org.junit.Test
+    fun `cover fit keeps a shorter frame top aligned`() {
+        val fit = checkNotNull(coverFit(472, 400, 472, 819))
+        assertEquals(400f, fit.sourceHeight, 0.01f)
+        assertEquals(400f, fit.destHeight, 0.01f)
+    }
+
+    /**
+     * 宽度不同的开孔（旋转等）：按宽度等比缩放，字形不被拉扁。
+     */
+    @org.junit.Test
+    fun `cover fit scales uniformly when the width differs`() {
+        val fit = checkNotNull(coverFit(472, 819, 944, 819))
+        assertEquals(2f, 819f / fit.sourceHeight, 0.01f)
+        assertEquals(819f, fit.destHeight, 0.01f)
+    }
+
+    /**
+     * 尺寸非法（退化开孔）时不给出贴合参数：调用方退回平底色。
+     */
+    @org.junit.Test
+    fun `cover fit rejects degenerate sizes`() {
+        assertEquals(null, coverFit(0, 819, 472, 819))
+        assertEquals(null, coverFit(472, 819, 472, 0))
+    }
 }

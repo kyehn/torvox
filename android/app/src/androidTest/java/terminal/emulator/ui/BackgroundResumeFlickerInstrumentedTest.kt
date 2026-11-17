@@ -5,6 +5,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -17,6 +18,8 @@ import terminal.emulator.findTerminalSurface
 import terminal.emulator.hideImeAndConfirm
 import terminal.emulator.isImeVisible
 import terminal.emulator.requireBridge
+import terminal.emulator.runtime.TerminalRuntime.HoleStateEntry
+import terminal.emulator.runtime.holeStateCycle
 import terminal.emulator.showCursor
 import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
@@ -26,18 +29,22 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * 切后台返回的闪烁验收：真实 HOME 往返期间开孔不露底，回来后画面与离开时一致。
+ * 切后台返回的闪烁验收：**真实** HOME 往返期间，开孔任何时刻都不得既无缓冲区又无遮罩。
  *
- * 判据分三层：
+ * 与 `TerminalHoleCoverInstrumentedTest` 的分工：后者注入 surface 失效并验证「遮罩
+ * 画出来的是离开时的画面」；本用例不注入，走用户真实的 HOME → 重新启动路径。
  *
- * 1. 切后台时平台必须拆掉 surface，且运行期必须报「无缓冲区」——窗口层据此铺终端
- *    底色（`TerminalSurface.onDraw`），开孔才不会透出桌面/上一个应用；
- * 2. 回前台必须重新出帧，且首帧是原生保留的最后一帧（`warmup` 的保留分支）而不是
- *    清屏——清屏那一拍开孔里没有内容；
- * 3. 终判：往返前后同一批像素一致，且条带里仍有内容像素（防止「一致」实为两帧空白）。
+ * 为什么不用截图/轮询采样做瞬态判定：闪烁只有一两帧，模拟器上一次
+ * `UiDevice.takeScreenshot()` 要 100ms 以上；轮询线程在后台会被进程冻结吞掉，回
+ * 前台的关键路径又会压过采样线程（实测采样序列从「CREATED/无缓冲/有遮罩」一步跳到
+ * 「RESUMED/有缓冲/无遮罩」，中间的瞬态一条都没采到）。故判据取产品自己的状态机：
+ * `TerminalRuntime` 在缓冲区与遮罩每次变化时记一条开孔状态，事件不丢、无采样竞态。
+ * 断言：
  *
- * 不用截图做瞬态判定：闪烁只有一两帧，模拟器上一次截图要 100ms 以上，轮询线程在
- * 后台又会被进程冻结吞掉。故瞬态看运行期状态（事件驱动的 StateFlow），终判看像素。
+ * 1. 切后台必须出现「无缓冲 + 有遮罩」——遮罩真的在开孔上；
+ * 2. 整段往返 MUST NOT 出现「无缓冲 + 无遮罩」——那一拍开孔透出桌面，就是闪烁；
+ * 3. 回前台首帧 MUST 是保留的最后一帧（原生 `warmup` 的保留分支），不是清屏；
+ * 4. 终判：往返前后同一批像素一致，且条带里仍有内容像素（防止「一致」实为两帧空白）。
  */
 @RunWith(JUnit4::class)
 class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
@@ -64,6 +71,9 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
 
         /**
          * 等输入法信号的上限。GBoard 首次构建键盘可能真的很慢（冷启动实测约 3 秒）。
+         * `after` 一侧的断言走 [imeShownSince] 的 `onShown` 锚点（强信号：键盘真的
+         * 画上才算）；`showImeAndSettle` 走 insets 可见门槛（弱信号但足够——内容区
+         * 排除输入法行，键盘画没画不影响比对口径）。
          */
         private const val IME_SHOWN_TIMEOUT_MS = 20_000L
 
@@ -218,7 +228,8 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
      * 内容比对的条带：排除被输入法覆盖的行。
      *
      * 键盘上画什么（布局、皮肤、文案）不属于应用可渲染的终端画面，且可以随往返
-     * 变化（实测同一次往返前后 GBoard 换了皮肤）。这些行不计入内容一致性。
+     * 变化（实测同一次往返前后 GBoard 换了皮肤）。这些行不计入内容一致性；
+     * 开孔行为本身由状态序列与遮罩断言覆盖。
      */
     private fun contentBand(band: Band, shotHeightPx: Int, imeInsetBottomPx: Int): Band =
         Band(band.top.coerceAtLeast(0), minOf(band.bottom, shotHeightPx - imeInsetBottomPx))
@@ -253,13 +264,12 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
     }
 
     /**
-     * 真实 HOME → `am start` 往返，并断言开孔在这条路径上的两个事实。
+     * 真实 HOME → `am start` 往返，并用开孔状态机自己的转换序列断言全程不露底。
      *
-     * @param expectRetainedWarmup 回前台首帧是否必须来自原生保留帧。注入设备丢失时
-     *   累加器随旧设备一起没了，首帧只能是清屏，故该用例传 false。
-     * @return 离开的时刻戳（供调用方附加日志断言）
+     * @param journalBefore 离开前的状态快照；差额即本次往返。
+     * @return 本次往返新增的转换记录，供调用方附加断言。
      */
-    private fun roundTrip(expectRetainedWarmup: Boolean): String {
+    private fun roundTripAndAssertNeverUncovered(journalBefore: List<HoleStateEntry>): List<HoleStateEntry> {
         val runtime = composeTestRule.activity.terminalViewModel.runtime
         val leaveStamp = wallClockStamp()
 
@@ -278,6 +288,12 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
                 !runtime.surfaceBufferPresent.value
             },
         )
+        assertNotNull(
+            "切后台必须回读出开孔遮罩",
+            UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 20) {
+                runtime.coverFrame.value != null
+            },
+        )
 
         UxTestUtils.runShellCommand("am start -n $packageName/terminal.emulator.MainActivity")
         assertNotNull(
@@ -287,32 +303,82 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             },
         )
         assertNotNull(
-            "回前台必须重新出帧（否则终端停在底色上）",
+            "回前台首帧上屏后遮罩必须撤下",
             UxTestUtils.pollUntilTrue(RESUME_TIMEOUT_MS, 20) {
-                runtime.surfaceBufferPresent.value
+                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
             },
         )
         Thread.sleep(SETTLE_MILLIS)
 
-        // 回前台首帧的来源：保留帧让开孔从离开时的画面接上，清屏那一拍没有内容。
+        // 1-2. 状态机自己的转换序列：本次往返新增的条目即整段后台往返。
+        // 差分按序号取：日志是环形缓冲，前后都满时按条数差分恒为空。
+        val cycle = holeStateCycle(journalBefore, runtime.holeStateJournal())
+        android.util.Log.i("FlickerTest", "开孔状态转换序列（buffer,cover）：$cycle")
+        assertTrue("本次往返必须产生开孔状态转换记录（实测 ${cycle.size} 条）", cycle.isNotEmpty())
+        assertTrue(
+            "切后台必须进入「无缓冲 + 有遮罩」：遮罩真的遮在开孔上（实测 $cycle）",
+            cycle.any { !it.bufferPresent && it.coverPresent },
+        )
+        assertTrue(
+            "回前台终态必须是「有缓冲 + 无遮罩」（实测 ${cycle.lastOrNull()}）",
+            cycle.last().bufferPresent && !cycle.last().coverPresent,
+        )
+        // 核心判据一：遮罩必须**真的画进窗口**，而且要在平台拆 surface 之前画完。
+        // 状态机里有遮罩不等于屏幕上有遮罩：遮罩发布发生在渲染线程，窗口不会自己
+        // 重绘；漏掉这次重绘，窗口留着的就是离开时那个空开孔。
+        assertTrue(
+            "切后台时遮罩 MUST 在 surface 仍在时画进窗口（实测 $cycle）",
+            cycle.any { it.painted && it.bufferPresent && it.coverPresent },
+        )
+        // 核心判据二：回前台这一侧，遮罩必须在**当前窗口**真的画过才撤。
+        // 原生侧提交帧可能早于窗口重新可见，旧窗口的缓冲（连同遮罩）已被平台丢弃；
+        // 若见「有缓冲」就撤遮罩，首个可见窗口帧就是空开孔——这正是闪烁。
+        val resumeCover = cycle.indexOfLast { it.bufferPresent && it.coverPresent }
+        val resumeCleared = cycle.indexOfLast { it.bufferPresent && !it.coverPresent }
+        assertTrue(
+            "回前台必须留下终态「有缓冲 + 无遮罩」（实测 $cycle）",
+            resumeCover >= 0 && resumeCleared > resumeCover,
+        )
+        assertTrue(
+            "回前台的遮罩 MUST 在当前窗口画过再撤（实测 $cycle）",
+            cycle.subList(resumeCover, resumeCleared).any { it.painted },
+        )
+        // 核心判据三：无覆盖的那段时间里既不得缺缓冲、也不得缺遮罩与底色——缺席的
+        // 那一拍开孔透出桌面。
+        val uncovered = cycle.filter { !it.bufferPresent && !it.coverPresent && !it.painted }
+        assertTrue(
+            "开孔 MUST NOT 在无缓冲区时同时无遮罩（实测 ${uncovered.size} 条：$cycle）",
+            uncovered.isEmpty(),
+        )
+
+        // 3. 回前台首帧必须是保留的最后一帧：清屏分支会让开孔空一拍。
         val warmup = warmupLinesSince(leaveStamp)
-        if (expectRetainedWarmup) {
-            assertTrue(
-                "回前台首帧 MUST 呈现保留的最后一帧（原生 warmup 无对应日志）",
-                warmup.any { it.contains(WARMUP_RETAINED) },
-            )
-            assertTrue(
-                "回前台首帧 MUST NOT 清屏（出现 `${WARMUP_CLEARED}`）",
-                warmup.none { it.contains(WARMUP_CLEARED) },
-            )
-        }
-        return leaveStamp
+        assertTrue(
+            "回前台首帧 MUST 呈现保留的最后一帧（原生 warmup 无对应日志）",
+            warmup.any { it.contains(WARMUP_RETAINED) },
+        )
+        assertTrue(
+            "回前台首帧 MUST NOT 清屏（出现 `${WARMUP_CLEARED}`）",
+            warmup.none { it.contains(WARMUP_CLEARED) },
+        )
+        return cycle
     }
 
-    /**
-     * 往返前后同一批像素的终判：内容一致且不是空白。
-     */
-    private fun assertContentUnchanged(before: android.graphics.Bitmap, band: Band) {
+    @Test
+    fun backgroundResumeNeverExposesUncoveredHole() {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
+        paintColoredContent()
+        hideImeAndSettle()
+        val band = holeBand()
+        val before = UxTestUtils.screenshot(device)
+        assertTrue(
+            "离开前条带必须有内容像素（否则「无闪烁」断言无意义）",
+            distinctColors(before, band) >= MIN_DISTINCT_COLORS,
+        )
+
+        roundTripAndAssertNeverUncovered(runtime.holeStateJournal())
+
+        // 4. 终判：往返前后同一批像素一致，且条带里仍有内容。
         val after = UxTestUtils.screenshot(device)
         assertTrue(
             "回前台后条带必须有内容（不得是桌面或空白）",
@@ -334,35 +400,21 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         )
     }
 
-    @Test
-    fun backgroundResumeKeepsTheTerminalContent() {
-        paintColoredContent()
-        hideImeAndSettle()
-        val band = holeBand()
-        val before = UxTestUtils.screenshot(device)
-        assertTrue(
-            "离开前条带必须有内容像素（否则「无闪烁」断言无意义）",
-            distinctColors(before, band) >= MIN_DISTINCT_COLORS,
-        )
-
-        roundTrip(expectRetainedWarmup = true)
-
-        assertContentUnchanged(before, band)
-    }
-
     /**
      * `docs/STATUS.md` 报的场景：**输入法在场**时切后台返回。
      *
-     * 键盘在场时开孔高度被子窗口/位移改过，回前台首帧必须画回离开时的位置：
-     * 位移若在后台被归零，同一批内容会整体错位——正是「输入法弹出时切后台返回
-     * 终端闪烁」。故本用例不收起键盘，另加「往返前后终端位移相同」。
+     * 键盘在场时开孔高度被子窗口/位移改过，遮罩与开孔尺寸不一致——那条路上整块放弃
+     * 遮罩就退回平底色，正是「大概率闪烁」。故本用例不收起键盘：状态序列判据与上
+     * 一用例相同，另加「往返前后终端位移相同」以保证像素比对的是同一批可见行。
      */
     @Test
-    fun backgroundResumeWithImeVisibleKeepsTheTerminalContent() {
+    fun backgroundResumeWithImeVisibleNeverExposesUncoveredHole() {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
         paintColoredContent()
         showImeAndSettle()
         val band = holeBand()
         val before = UxTestUtils.screenshot(device)
+        // 输入法的重现事件必须晚于这个时间点；往返前的键盘画在此前，不是往返后的证据。
         val tripStartStamp = wallClockStamp()
         val shiftBefore = surfaceShiftPx()
         assertTrue(
@@ -370,7 +422,7 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             distinctColors(before, band) >= MIN_DISTINCT_COLORS,
         )
 
-        roundTrip(expectRetainedWarmup = true)
+        roundTripAndAssertNeverUncovered(runtime.holeStateJournal())
 
         val shiftAfter = surfaceShiftPx()
         assertNotNull(
@@ -381,31 +433,94 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             "往返前后终端位移必须相同（否则像素比对不是同一批可见行：$shiftBefore → $shiftAfter）",
             shiftBefore == shiftAfter,
         )
-        assertContentUnchanged(before, band)
+        val after = UxTestUtils.screenshot(device)
+        assertTrue(
+            "键盘在场时回前台后条带必须有内容",
+            distinctColors(after, band) >= MIN_DISTINCT_COLORS,
+        )
+        val content = contentBand(band, after.height, imeInsetBottomPx())
+        val diff =
+            UxTestUtils.countDiffInBand(
+                before,
+                after,
+                content.top,
+                content.bottom,
+                PIXEL_SAMPLE_STEP_PX,
+                PIXEL_DELTA_THRESHOLD,
+            )
+        assertTrue(
+            "键盘在场时回前台后内容条带必须与离开时一致（输入法区域已排除；实测差 $diff 像素）",
+            diff <= MAX_STRIP_DIFF,
+        )
     }
 
     /**
-     * 设备丢失路径：渲染线程已死、帧累加器随旧设备一起没了。
+     * 设备丢失路径：渲染线程已死、无法再回读时，切后台仍必须把**已缓存**的画面
+     * 发布成开孔遮罩。
      *
-     * `docs/STATUS.md` 报的「输入法弹出时切后台返回大概率闪烁」在真机日志里的触发链
-     * 是：切后台时 Vulkan 设备丢失 → 重建后没有保留帧可呈现。本用例注入设备丢失，
-     * 要求回前台后照常重建、出帧，且画面与离开时一致——不允许停在底色上。
+     * `docs/STATUS.md` 报的「输入法弹出时切后台返回大概率闪烁」在 2026-11-17 真机
+     * 日志里的触发链是：切后台时 Vulkan 设备丢失 → 渲染线程退出路径上的遮罩回读
+     * 必然失败（`Parent device is lost`）→ 无遮罩 → 回前台首个窗口帧是空开孔。
+     * 回读必须在设备还活着时完成，切后台只发布缓存。
+     *
+     * 注入设备丢失后，旧实现（渲染线程退出时才回读）在这里拿不到任何遮罩帧；
+     * 新实现回读循环早已缓存了上一帧。判据不依赖截图：直接量状态机里的遮罩像素。
      */
     @Test
-    fun deviceLostInBackgroundStillRestoresTheTerminalContent() {
+    fun deviceLostInBackgroundStillPublishesStoredCoverFrame() {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
         paintColoredContent()
         hideImeAndSettle()
-        val band = holeBand()
-        val before = UxTestUtils.screenshot(device)
+        composeTestRule.waitForIdle()
+        assertNull("前置：前台不得留着上一轮的遮罩", runtime.coverFrame.value)
+        assertNotNull(
+            "出帧后必须已缓存一帧遮罩（回读循环未运行）",
+            UxTestUtils.pollUntilTrue(10_000, 100) { runtime.hasStoredCoverFrame() },
+        )
 
         val bridge = composeTestRule.requireBridge()
         bridge.setDeviceLostInjectedForTest(true)
         try {
-            roundTrip(expectRetainedWarmup = false)
+            device.pressHome()
+            assertNotNull(
+                "必须真的退到后台",
+                UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 50) {
+                    device.currentPackageName != packageName
+                },
+            )
+            assertNotNull(
+                "切后台后平台必须拆掉 surface",
+                UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 20) {
+                    !runtime.surfaceBufferPresent.value
+                },
+            )
+            assertNotNull(
+                "设备丢失时切后台必须发布缓存的遮罩（实测没有）",
+                UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 20) {
+                    runtime.coverFrame.value != null
+                },
+            )
+            val cover = checkNotNull(runtime.coverFrame.value)
+            assertTrue(
+                "遮罩必须是画面而非单色（实测 ${cover.pixels.toHashSet().size} 种像素值）",
+                cover.pixels.toHashSet().size > 4,
+            )
         } finally {
             bridge.setDeviceLostInjectedForTest(false)
         }
 
-        assertContentUnchanged(before, band)
+        UxTestUtils.runShellCommand("am start -n $packageName/terminal.emulator.MainActivity")
+        assertNotNull(
+            "必须回到前台",
+            UxTestUtils.pollUntilTrue(RESUME_TIMEOUT_MS, 50) {
+                device.currentPackageName == packageName
+            },
+        )
+        assertNotNull(
+            "设备丢失后回前台首帧必须重新出帧并撤下遮罩",
+            UxTestUtils.pollUntilTrue(RESUME_TIMEOUT_MS, 20) {
+                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
+            },
+        )
     }
 }

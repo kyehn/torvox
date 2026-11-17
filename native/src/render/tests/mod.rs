@@ -458,5 +458,6 @@ fn snapshot_atlas_rect(bitmap: &[u8], atlas_width: usize, rect: (u32, u32, u32, 
 }
 
 mod cell_pipeline;
+mod cover;
 mod frame_and_atlas;
 mod gpu_core;

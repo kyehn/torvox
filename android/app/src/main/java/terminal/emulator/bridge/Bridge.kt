@@ -252,6 +252,27 @@ class Bridge(private val config: TerminalConfig) {
     )
 
     /**
+     * 回读保留的上一帧（RGBA8 像素），供窗口开孔画遮罩。
+     *
+     * 平台在切后台后会拆掉本应用窗口的 surface，回前台时交换链必须重建，那几十
+     * 毫秒里窗口的透明开孔没有缓冲：把离开时的画面留在开孔里，用户看到的就
+     * 不是闪一下。
+     *
+     * 尺寸取自本 Bridge 记住的 surface 尺寸（与原生回读时的累加器尺寸同源）；
+     * 尺寸为 0 表示还没有挂过 surface，此时没有可遮罩的内容。
+     */
+    fun readCoverFrame(): CoverFrame? {
+        val width = lastSurfaceWidth
+        val height = lastSurfaceHeight
+        if (width <= 0 || height <= 0) return null
+        val pixels = NativeBridge.readCoverFrame(width, height) ?: return null
+        return CoverFrame(width, height, pixels)
+    }
+
+    /** 开孔遮罩的一帧：尺寸与 RGBA8 像素（每像素 4 字节，行首对齐）。 */
+    data class CoverFrame(val width: Int, val height: Int, val pixels: ByteArray)
+
+    /**
      * 请求本会话按当前状态重推一帧；会话已销毁时返回 false。
      *
      * 用于「新会话首帧迟迟未产出」的恢复：内容去重在 VT 侧随之失效，故终端毫无变化

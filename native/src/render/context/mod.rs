@@ -1,9 +1,11 @@
 //! GPU 上下文：把 wgpu 的 instance、adapter、device 与管线集中到单个 `Renderer` 结构。
 
 mod atlas;
+#[cfg(any(target_os = "android", test))]
+mod cover;
 mod gpu;
 
-#[cfg(test)]
+#[cfg(any(target_os = "android", test))]
 mod poll;
 mod renderer;
 mod surface;
@@ -20,7 +22,7 @@ pub(crate) use gpu::{
     clear_device_lost, device_lost, is_device_loss_text, mark_current_device_lost,
     mark_device_lost, one_line, try_global_gpu,
 };
-#[cfg(test)]
+#[cfg(any(target_os = "android", test))]
 pub(crate) use poll::{PollOutcome, poll_device_wait};
 #[cfg(test)]
 pub(crate) use renderer::{rebuild_blocked_by_in_flight_surface, reuse_attached_surface};

@@ -556,9 +556,9 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
      * 切后台期间输入法位移 MUST 冻结：回前台的首帧要画在离开时的位置上。
      *
      * `ON_PAUSE` 自己会收起键盘（平台也会收起），平台随后派发一次「输入法高度 0」。
-     * 若照单收下，位移会在用户看不见时归零；而原生保留的最后一帧是按离开时的位移
-     * 拍下的，回前台的首帧因此画在错误位置上，等输入法重新弹出再跳一次——STATUS
-     * 「输入法弹出时切后台返回终端闪烁」。
+     * 若照单收下，位移会在用户看不见时归零；而开孔遮罩与原生保留的最后一帧都是按
+     * 离开时的位移拍下的，回前台的首帧因此画在错误位置上，等输入法重新弹出再跳一次
+     * ——STATUS「输入法弹出时切后台返回终端闪烁」。
      */
     @Test
     fun imeShiftFrozenWhileBackgrounded() {
@@ -581,12 +581,12 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         val beforeShot = UxTestUtils.screenshot(device)
         val runtime = composeTestRule.activity.terminalViewModel.runtime
         composeTestRule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
-        // 切后台会拆掉 surface：开孔此时只能由窗口层铺的终端底色盖住（否则透出
-        // 桌面/上一个应用）。
+        // 离开前必须把最后一帧回读成开孔遮罩：回前台在新 surface 出帧前只靠它遮住
+        // 透明开孔，否则开孔透出桌面/上一个应用——与位移错位叠加就是用户看到的闪烁。
         assertNotNull(
-            "切后台后必须报告「无缓冲区」（窗口层据此铺底色）",
+            "切后台后必须回读出开孔遮罩",
             UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
-                !runtime.surfaceBufferPresent.value
+                runtime.coverFrame.value != null
             },
         )
         // 派发是异步的：留足窗口让「输入法已隐藏」到达主线程。
@@ -596,11 +596,11 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
             before == surfaceShiftPx(),
         )
         composeTestRule.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
-        // 新 surface 提交首帧后才撤下底色覆盖：撤早了那一拍开孔既无旧画面也无新画面。
+        // 新 surface 提交首帧后遮罩才允许撤下：撤早了那一拍开孔既无旧画面也无新画面。
         assertNotNull(
-            "回前台首帧上屏后底色覆盖必须撤下",
+            "回前台首帧上屏后遮罩必须撤下",
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                runtime.surfaceBufferPresent.value
+                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
             },
         )
         composeTestRule.waitForIdle()
@@ -609,7 +609,8 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
             "回前台后位移 MUST 与离开时一致 (离开时=$before 实测=${surfaceShiftPx()})",
             before == surfaceShiftPx(),
         )
-        // 往返一次后内容条带必须逐像素不变：这是「回前台的画面就是离开时的画面」的终判。
+        // 往返一次后内容条带必须逐像素不变：这是「回前台的画面就是离开时的画面」
+        // 的终判，也是开孔遮罩比对（TerminalHoleCoverInstrumentedTest）的另一半。
         // resume 滑窗/面板入场动画期间整屏带偏移（亚像素位移截图会被判据当成「停住」），
         // 故等回前台帧的条带像素等于离开帧为止——动画结束后内容必然落回同一批像素。
         val afterShot = waitForBandToMatchBefore(beforeShot, stripTop, stripTop + stripHeight, 15_000L)
