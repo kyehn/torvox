@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
-      - run: sudo rm --recursive --force /opt/hostedtoolcache /opt/google /opt/microsoft /var/lib/docker /snap /var/lib/snapd /usr/lib/snapd /usr/share/doc /usr/share/man /usr/share/info
+      - run: sudo rm --recursive --force /opt/hostedtoolcache /opt/google /opt/microsoft /var/lib/docker /usr/share/doc /usr/share/man /usr/share/info
       - uses: actions/checkout@main
       - uses: actions/checkout@main
         with:
