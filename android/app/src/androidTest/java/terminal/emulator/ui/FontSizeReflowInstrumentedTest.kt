@@ -69,7 +69,7 @@ class FontSizeReflowInstrumentedTest : ComposeTerminalLogcatTest() {
      *
      * 比例判据 MUST 用 `cellWidth`：它是字号的**严格线性**量
      * （`cell_width = advance × font_size / upem`，等宽分支无取整；原生日志实测
-     * 4sp → 2.4、96sp → 57.6，正好 24 倍）。`cellHeight` 不线性——同一组数据是
+     * 4sp → 2.4、97sp → 58.2，正好 24.25 倍）。`cellHeight` 不线性——同一组数据是
      * 5.0 → 113.0（22.6 倍），因为行高做了 `.ceil()`，跨量级时偏差累积成百分之几。
      * 注意这两个读数的量纲是**字号单位**，物理像素还要乘 `spToPxScale`。
      */
@@ -165,7 +165,7 @@ class FontSizeReflowInstrumentedTest : ComposeTerminalLogcatTest() {
      * （原生上界 ≥ 任一系数下由 Termux 换算出的可选上界）由 Rust 侧
      * `font_size_cap_tests::cap_never_rejects_a_selectable_font_size` 覆盖——它才能
      * 遍历 0.5..=8.0 的全系数区间。真机上若把原生上界退回旧的 100sp 魔数，本设备
-     * （density 2.625 ⇒ 上界 96sp）仍会通过该用例，所以两端都必须保留。
+     * （density 2.625 ⇒ 上界 97sp）仍会通过该用例，所以两端都必须保留。
      */
     @Test
     fun sliderEndpointsAreActuallyApplied() {

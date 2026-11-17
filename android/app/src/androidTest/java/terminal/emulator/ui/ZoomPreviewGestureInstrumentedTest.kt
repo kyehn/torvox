@@ -125,7 +125,7 @@ class ZoomPreviewGestureInstrumentedTest : ComposeTerminalLogcatTest() {
         assertTrue("基准字号必须为正, 实际: $baselineSize", baselineSize > 0)
         assertTrue("基准列数必须为正, 实际: $baselineCols", baselineCols > 0)
         // 手势界内取目标：上行空间不足则下行，保证尺寸真实变化。
-        // 生产手势给出的每一个字号都落在档位网格上（4sp 起、步长 2sp），故这里也
+        // 生产手势给出的每一个字号都落在档位网格上（4sp 起、步长 1sp），故这里也
         // 逐档走而不是线性插值：插值出的非档位值会被收敛入口挪到最近档位，
         // 断言「精确落在请求值上」将永远不成立。
         val maxSizeSp = fontSizeMaxSp()

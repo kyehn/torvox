@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use super::{
     Arc, BatchState, Command, CommandOutcome, CommandState, CursorStyle, DEFAULT_CELL_HEIGHT,
     DEFAULT_CELL_WIDTH, GridSnapshot, Ordering, RenderExtractors, RunConfig, Terminal,
@@ -92,14 +94,25 @@ impl super::GhosttyTerminal {
     ) {
         // 预处理本层代答的协议部分（DECSACE 与 Kitty 能力探测）：上游对这些序列
         // 一律记警告，属于日志噪声；代答的应答按协议写回 PTY，客户端据此回退。
+        // 上一块扣留的 APC 前缀先拼回来：判定一条探测要读完整的控制数据，
+        // 被 PTY 读边界拆开时上游会替本层处理它，并记两条 `W/kitty_gfx`。
+        let chunk = if state.vt_carry.is_empty() {
+            Cow::Borrowed(data)
+        } else {
+            let mut joined = std::mem::take(&mut state.vt_carry);
+            joined.extend_from_slice(data);
+            Cow::Owned(joined)
+        };
         let input_filter::FilteredInput {
             payload,
             responses,
             clears,
+            carry,
         } = input_filter::filter_input(
-            data,
+            &chunk,
             input_filter::MediaCapabilities::platform(config.kitty_temp_dir.as_deref()),
         );
+        state.vt_carry = carry.into_owned();
         for response in responses {
             match config.response_buffer.lock() {
                 Ok(mut guard) => guard.push(response),

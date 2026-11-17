@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Terminal</string>
+    <string name="app_name">Torvox</string>
 
     <!-- Settings screen -->
     <string name="settings">设置</string>

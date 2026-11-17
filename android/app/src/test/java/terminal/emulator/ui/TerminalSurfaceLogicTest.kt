@@ -204,7 +204,7 @@ class TerminalSurfaceLogicTest {
 
     @Test
     fun `zoom lands on the same detents as the settings slider`() {
-        // 手势给出的每一个字号都必须落在调节条的档位网格上（4sp 起、步长 2sp）：
+        // 手势给出的每一个字号都必须落在调节条的档位网格上（4sp 起、步长 1sp）：
         // 否则落盘的是调节条给不出的值（如 17.6sp），读数按整数打印（显示「18 SP」）
         // 而实际渲染 17.6，展示与生效分家，拇指还停在非档位位置。
         val step = SettingsRepository.FONT_SIZE_STEP_SP
@@ -280,9 +280,9 @@ class TerminalSurfaceLogicTest {
     fun `zoom clamp tightens with the system font scaling`() {
         // 系统「字体大小」放大时同一手势能给出的字号上界必须同步收紧：
         // 上界由 spToPxScale 决定，而 spToPxScale 含系统字体缩放。
-        // 系数放大到 2.625×1.3 = 3.4125（fontScale=1.3）后为 74sp。
+        // 系数放大到 2.625×1.3 = 3.4125（fontScale=1.3）后为 75sp。
         val spToPxScale = 2.625f
-        assertEquals(96f, zoomFontSize(16f, 100f, spToPxScale, zoomScreenWidthDp), 0.001f)
+        assertEquals(97f, zoomFontSize(16f, 100f, spToPxScale, zoomScreenWidthDp), 0.001f)
         assertEquals(
             SettingsRepository.fontSizeMaxSp(spToPxScale * 1.3f, zoomScreenWidthDp),
             zoomFontSize(16f, 100f, spToPxScale * 1.3f, zoomScreenWidthDp),

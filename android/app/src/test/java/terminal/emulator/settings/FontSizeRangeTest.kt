@@ -32,23 +32,24 @@ class FontSizeRangeTest {
 
     @Test
     fun detentsStartAtTermuxMinimumOnAStepGrid() {
-        // 逐点照 Termux 的档位表（4dip 起、步长 2sp）核对，而不是断言「步长恒等于
+        // 逐点照规范要求的 1sp 档位网格核对，而不是断言「步长恒等于
         // FONT_SIZE_STEP_SP」——档数按 span/STEP 反推，那条断言构造本身恒真，检不出缺陷。
-        // 360dp 手机、系数 2.625：上界 30sp（可用性那条更紧），共 14 档。
+        // 360dp 手机、系数 2.625：上界 30sp（可用性那条更紧），共 27 档。
         val phone = detents(2.625f, 360f)
         assertEquals(4f, phone.first(), 0.001f)
         assertEquals(30f, phone.last(), 0.001f)
-        assertEquals(14, phone.size)
+        assertEquals(27, phone.size)
         assertEquals(
-            listOf(4f, 6f, 8f, 28f, 30f),
+            listOf(4f, 5f, 6f, 29f, 30f),
             listOf(phone[0], phone[1], phone[2], phone[phone.size - 2], phone.last()),
         )
-        // 每档都落在 4dip 起、步长 2sp 的网格上：任一档偏离即为错位。
+        // 每档都落在 4dip 起、步长 1sp 的网格上：任一档偏离即为错位。
         listOf(0.75f, 1f, 1.5f, 2.625f, 3f, 4f).forEach { spToPxScale ->
             detents(spToPxScale, 360f).forEach { sizeSp ->
-                val steps = (sizeSp - SettingsRepository.FONT_SIZE_MIN_SP) / 2f
+                val steps = (sizeSp - SettingsRepository.FONT_SIZE_MIN_SP) /
+                    SettingsRepository.FONT_SIZE_STEP_SP
                 assertEquals(
-                    "spToPxScale=$spToPxScale 的档位 $sizeSp 不在 4dip 起、步长 2sp 的网格上",
+                    "spToPxScale=$spToPxScale 的档位 $sizeSp 不在 4dip 起、步长 1sp 的网格上",
                     steps,
                     steps.roundToInt().toFloat(),
                     0.001f,
@@ -84,12 +85,12 @@ class FontSizeRangeTest {
         // 与实现给出的上界逐台对照。
         data class Device(val widthDp: Float, val spToPxScale: Float, val expectedColumns: Int)
         listOf(
-            // 360dp / 系数 1.0：上界 floor(360/(0.6*20)/2)*2 = 30sp → 360/(30*0.6) = 20 列
+            // 360dp / 系数 1.0：上界 floor(360/(0.6*20)/1)*1 = 30sp → 360/(30*0.6) = 20 列
             Device(360f, 1f, 20),
-            // 411dp / 系数 2.625：Termux 那条 floor(256/2.625/2)*2 = 96sp，列数那条 34sp，
+            // 411dp / 系数 2.625：Termux 那条 floor(256/2.625/1)*1 = 97sp，列数那条 34sp，
             // 取紧者 34sp → 411/(34*0.6) = 20.1 列
             Device(411f, 2.625f, 20),
-            // 800dp 平板 / 系数 2.0：列数那条 floor(800/12/2)*2 = 66sp → 800/(66*0.6) = 20.2 列
+            // 800dp 平板 / 系数 2.0：列数那条 floor(800/12/1)*1 = 66sp → 800/(66*0.6) = 20.2 列
             Device(800f, 2f, 20),
             // 1200dp 大屏 / 系数 1.5：列数那条 100sp，Termux 那条 170sp →
             // 100sp → 1200/(100*0.6) = 20 列
@@ -109,15 +110,15 @@ class FontSizeRangeTest {
 
     @Test
     fun termuxCeilingIsTheTermuxConstantConverted() {
-        // 取 4080dp（usable=340sp，恰为全系数域内 Termux 那条的最大值），
-        // 于是列数约束在任
-        // 何系数下都更宽松，Kotlin 的上界就等于 Termux 像素上限的换算值。
+        // 取 8000dp：usable=666sp，比 Termux 那条在整个系数域（0.75–4.0，
+        // 换算值 64–341sp）都更宽松，于是 Kotlin 的上界就等于 Termux 像素上限的换算值。
         // 这条把 `FONT_SIZE_MAX_PX` 这个 Kotlin 私有常量与 Rust 侧
-        // `font_size_cap_tests` 用 Termux 真值（256px / 2sp）算出的上界绑在一起：
+        // `font_size_cap_tests` 用 Termux 真值（256px，按 1sp 步长取整）算出的上界绑在一起：
         // 任一侧改动都会让本用例与 Rust 用例谈的不是同一个 Termux，从而暴露漂移。
         listOf(0.75f, 1f, 2f, 2.625f, 3f, 4f).forEach { spToPxScale ->
-            val ceiling = SettingsRepository.fontSizeMaxSp(spToPxScale, 4080f)
-            val expected = kotlin.math.floor(256f / spToPxScale / 2f) * 2f
+            val ceiling = SettingsRepository.fontSizeMaxSp(spToPxScale, 8000f)
+            val expected = kotlin.math.floor(256f / spToPxScale / SettingsRepository.FONT_SIZE_STEP_SP) *
+                SettingsRepository.FONT_SIZE_STEP_SP
             assertEquals(
                 "系数 $spToPxScale 时 Kotlin 上界应为 Termux 256px 的换算值 $expected",
                 expected,
@@ -131,19 +132,19 @@ class FontSizeRangeTest {
     fun systemFontScalingShrinksTheCeiling() {
         // 系统「字体大小」> 1 时字形的实际像素尺寸随之上浮，若上限仍按仅显示密度
         // 计算，用户就能调到远超 Termux 像素上限的字号：fontScale=1.3
-        // （系数 2.625→3.4125）时 Termux 那条上界须从 96sp 降到 74sp。
+        // （系数 2.625→3.4125）时 Termux 那条上界须从 97sp 降到 75sp。
         // 屏宽取 1200dp：可用性上界 100sp 在两种系数下都更宽松，
         // 故收紧必须可见（窄屏幕上会是可用性那条先触顶，收紧被它掩盖）。
         val density = 2.625f
         val screenWidthDp = 1200f
-        assertEquals(96f, SettingsRepository.fontSizeMaxSp(density, screenWidthDp), 0.001f)
-        assertEquals(74f, SettingsRepository.fontSizeMaxSp(density * 1.3f, screenWidthDp), 0.001f)
+        assertEquals(97f, SettingsRepository.fontSizeMaxSp(density, screenWidthDp), 0.001f)
+        assertEquals(75f, SettingsRepository.fontSizeMaxSp(density * 1.3f, screenWidthDp), 0.001f)
     }
 
     @Test
     fun clampPullsStoredValuesIntoTheCurrentRange() {
-        // 区间不是常量：它随屏宽与系统字体缩放变化。宽屏（1200dp）上的 96sp 上界恰好
-        // 也是 96sp，旋转到 360dp 竖屏后只剩 30sp。存量值落在区间外时，Slider 只把拇指
+        // 区间不是常量：它随屏宽与系统字体缩放变化。宽屏（1200dp）上的 97sp 上界比
+        // 存量值 96sp 还宽，旋转到 360dp 竖屏后只剩 30sp。存量值落在区间外时，Slider 只把拇指
         // 钳到轨末、读数照旧打印 96，而原生按上界渲染——三者互相矛盾，首次触摸还会把
         // 上界写回。收敛是让「展示的字号」与「实际渲染的字号」同源的唯一办法。
         assertEquals(
@@ -173,9 +174,10 @@ class FontSizeRangeTest {
         // 调节条给不出 17.6sp，读数按整数打印（显示「18 SP」）而实际渲染 17.6sp，
         // 展示与生效分家；拇指停在非档位位置，用户触碰一次滑块还会被改写成档位值。
         assertEquals(18f, SettingsRepository.clampFontSize(17.6f, 2.625f, 1200f), 0f)
-        // 就近取整（不是一律向下）：16.9sp 归 16sp，17.1sp 归 18sp。
-        assertEquals(16f, SettingsRepository.clampFontSize(16.9f, 2.625f, 1200f), 0f)
-        assertEquals(18f, SettingsRepository.clampFontSize(17.1f, 2.625f, 1200f), 0f)
+        // 就近取整（不是一律向下）：16.9sp 与 17.1sp 都归 17sp，14.4sp 归 14sp。
+        assertEquals(17f, SettingsRepository.clampFontSize(16.9f, 2.625f, 1200f), 0f)
+        assertEquals(17f, SettingsRepository.clampFontSize(17.1f, 2.625f, 1200f), 0f)
+        assertEquals(14f, SettingsRepository.clampFontSize(14.4f, 2.625f, 1200f), 0f)
         // 收敛后必在档位网格上：逐点核对，不靠「钳位后仍合法」这种弱断言。
         listOf(0f, 4.1f, 9.9f, 15.38f, 23.7f, 96f).forEach { stored ->
             val size = SettingsRepository.clampFontSize(stored, 2.625f, 1200f)
@@ -247,21 +249,21 @@ class FontSizeRangeTest {
         // 检不出这条约束是否还在。字面值表才是外部锚点。
         // 取系数 1.0 使 Termux 那条恒为 256sp（比列数那条宽松），于是测的就是列数约束。
         listOf(
-            // 320dp → floor(320/12/2)*2 = 26sp
+            // 320dp → floor(320/12/1)*1 = 26sp
             320f to 26f,
-            // 360dp → floor(360/12/2)*2 = 30sp
+            // 360dp → floor(360/12/1)*1 = 30sp
             360f to 30f,
-            // 411dp → floor(411/12/2)*2 = 34sp
+            // 411dp → floor(411/12/1)*1 = 34sp
             411f to 34f,
-            // 480dp → floor(480/12/2)*2 = 40sp
+            // 480dp → floor(480/12/1)*1 = 40sp
             480f to 40f,
-            // 600dp → floor(600/12/2)*2 = 50sp
+            // 600dp → floor(600/12/1)*1 = 50sp
             600f to 50f,
-            // 900dp → floor(900/12/2)*2 = 74sp
-            900f to 74f,
-            // 1200dp → floor(1200/12/2)*2 = 100sp
+            // 900dp → floor(900/12/1)*1 = 75sp
+            900f to 75f,
+            // 1200dp → floor(1200/12/1)*1 = 100sp
             1200f to 100f,
-            // 2000dp → floor(2000/12/2)*2 = 166sp
+            // 2000dp → floor(2000/12/1)*1 = 166sp
             2000f to 166f,
         ).forEach { (widthDp, expectedCeiling) ->
             assertEquals(

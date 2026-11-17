@@ -19,8 +19,13 @@
 //! 可见放置会随旧行滚进回滚区，此后清屏不再撤下它们。撤下命令由调用方
 //! 依据终端里的放置状态生成（见 `kitty::clear_delete_commands`）。
 //!
-//! 三处都只在「本块内完整出现」时处理：序列跨块拆分时原样透传，交给上游的
-//! 增量解析器续接——宁可漏掉一次过滤，也不冒破坏字节流的风险。
+//! 两处（DECSACE 与清屏标记）都只在「本块内完整出现」时处理：CSI 跨块拆分时
+//! 原样透传，交给上游的增量解析器续接——宁可漏掉一次过滤，也不冒破坏字节流的风险。
+//!
+//! Kitty APC 是例外：判定它要读整条控制数据，而探测被 PTY 读边界拆开时上游
+//! 会为它记两条警告。故块尾未结束的 APC 前缀由 [`FilteredInput::carry`] 交给
+//! 调用方扣留，下一块拼接后重新判定（上限 [`KITTY_CARRY_LIMIT`]，超限即是
+//! 从不代答的 direct 大图，直接透传）。
 use std::borrow::Cow;
 
 use base64::Engine;
@@ -56,7 +61,17 @@ pub(crate) struct FilteredInput<'a> {
     pub(crate) responses: Vec<Vec<u8>>,
     /// 本块里的清屏序列及其在 `payload` 中的位置。
     pub(crate) clears: Vec<Clear>,
+    /// 块尾未完成的 Kitty APC 前缀：读线程 MUST 在下一块前拼回，再交给本层判定。
+    ///
+    /// 拼回去是判定能力的**前提**而不是优化：探测被 PTY 读边界拆开时，直接透传
+    /// 会让上游拿到一条本层没见过的探测——文件打不开的那条由上游记
+    /// `W/kitty_gfx failed to open image file` 与 `erroneous kitty graphics response`。
+    pub(crate) carry: Cow<'a, [u8]>,
 }
+
+/// 块尾扣留的上限：能力探测只有几十字节，超过这个长度仍未结束的 APC 必是
+/// direct 介质的大图（本层从不代答 direct），扣留只会把大图推迟到下一块才显示。
+const KITTY_CARRY_LIMIT: usize = 4096;
 
 /// 清屏序列的种类。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,11 +105,14 @@ pub(crate) fn filter_input<'a>(
             payload: Cow::Borrowed(data),
             responses: Vec::new(),
             clears: Vec::new(),
+            carry: Cow::Borrowed(&[][..]),
         };
     }
     let mut payload: Vec<u8> = Vec::with_capacity(data.len());
     let mut responses: Vec<Vec<u8>> = Vec::new();
     let mut clears: Vec<Clear> = Vec::new();
+    // 块尾扣留的字节：本块内没机会再判定的 APC 前缀。
+    let mut carry: &'a [u8] = &[];
     let mut index = 0usize;
     while index < data.len() {
         let byte = data[index];
@@ -105,8 +123,9 @@ pub(crate) fn filter_input<'a>(
         }
         match data.get(index + 1).copied() {
             None => {
-                payload.push(byte);
-                index += 1;
+                // 块尾的裸 ESC 可能正是 APC 的开头，留到下一块再判定。
+                carry = &data[index..];
+                index = data.len();
             }
             Some(b'[') => match parse_csi(data, index) {
                 Some((end, kind)) => {
@@ -156,7 +175,11 @@ pub(crate) fn filter_input<'a>(
                         index = end;
                     }
                     None => {
-                        payload.extend_from_slice(&data[index..]);
+                        if data.len() - index <= KITTY_CARRY_LIMIT {
+                            carry = &data[index..];
+                        } else {
+                            payload.extend_from_slice(&data[index..]);
+                        }
                         index = data.len();
                     }
                 }
@@ -165,6 +188,11 @@ pub(crate) fn filter_input<'a>(
                 Some(end) => {
                     payload.extend_from_slice(&data[index..end]);
                     index = end;
+                }
+                // 只剩引入符（`ESC _` 等）时下一块可能正是 `_G` 的后半，一并扣留。
+                None if data.len() - index <= 2 => {
+                    carry = &data[index..];
+                    index = data.len();
                 }
                 None => {
                     payload.extend_from_slice(&data[index..]);
@@ -181,6 +209,7 @@ pub(crate) fn filter_input<'a>(
         payload: Cow::Owned(payload),
         responses,
         clears,
+        carry: Cow::Borrowed(carry),
     }
 }
 
@@ -740,13 +769,24 @@ mod tests {
         );
     }
 
+    /// 块尾未结束的 APC 不再透传：半条探测漏给上游就是两条 `W/kitty_gfx`。
+    /// 这里只断言它被扣留且不凭空应答，拼接后的判定见
+    /// `split_kitty_probe_is_held_until_the_next_chunk`。
     #[test]
-    fn incomplete_kitty_apc_at_chunk_end_is_passed_through() {
-        let (payload, responses) = filter(b"\x1b_Ga=q,i=3,t=s;AAAA");
-        assert_eq!(payload, b"\x1b_Ga=q,i=3,t=s;AAAA");
+    fn incomplete_kitty_apc_at_chunk_end_is_held() {
+        let sequence = b"\x1b_Ga=q,i=3,t=s;AAAA";
+        let filtered = filter_input(
+            sequence,
+            MediaCapabilities {
+                shared_memory: false,
+                temp_dir: None,
+            },
+        );
+        assert!(filtered.payload.is_empty());
+        assert_eq!(filtered.carry.as_ref(), sequence);
         assert!(
-            responses.is_empty(),
-            "不完整 APC 未到达本层判定，应答不得凭空生成"
+            filtered.responses.is_empty(),
+            "半条 APC 未到达本层判定，应答不得凭空生成"
         );
     }
 
@@ -1120,6 +1160,74 @@ mod tests {
             responses,
             [b"\x1b_GI=13,p=7;EINVAL: unsupported medium\x1b\\".to_vec()]
         );
+    }
+
+    /// 探测被 PTY 读边界拆开时，半条 APC 必须扣留到下一块再判定。真机
+    /// 20:24:16 的两条 `W/kitty_gfx`（`failed to open image file` 与
+    /// `erroneous kitty graphics response`）正是漏掉的半条探测让上游处理的。
+    #[test]
+    fn split_kitty_probe_is_held_until_the_next_chunk() {
+        let sequence = b"\x1b_Ga=q,i=2,t=f;/ZGVmaW5pdGVseS9ub3QvaGVyZS5wbmc=\x1b\\";
+        let split = 12;
+        let first = filter_input(
+            &sequence[..split],
+            MediaCapabilities {
+                shared_memory: false,
+                temp_dir: None,
+            },
+        );
+        assert!(first.payload.is_empty(), "块尾的半条序列不得透传");
+        assert_eq!(first.carry.as_ref(), &sequence[..split]);
+        assert!(first.responses.is_empty());
+
+        let mut joined = first.carry.to_vec();
+        joined.extend_from_slice(&sequence[split..]);
+        let second = filter_input(
+            &joined,
+            MediaCapabilities {
+                shared_memory: false,
+                temp_dir: None,
+            },
+        );
+        assert!(second.payload.is_empty());
+        assert_eq!(
+            second.responses,
+            [b"\x1b_Gi=2;EINVAL: invalid data\x1b\\".to_vec()]
+        );
+        assert!(second.carry.is_empty(), "整条已判定，没有可扣留的尾巴");
+    }
+
+    /// 块尾只剩 `ESC` 或 `ESC _` 时同属「下一块可能正是 `_G` 的后半」，一并扣留；
+    /// 扣留不影响同一块里之前的普通输出。
+    #[test]
+    fn text_before_an_incomplete_apc_is_forwarded_while_the_tail_is_held() {
+        let filtered = filter_input(
+            b"text\x1b_",
+            MediaCapabilities {
+                shared_memory: false,
+                temp_dir: None,
+            },
+        );
+        assert_eq!(filtered.payload.as_ref(), b"text");
+        assert_eq!(filtered.carry.as_ref(), b"\x1b_");
+        assert!(filtered.responses.is_empty());
+    }
+
+    /// 超过扣留上限仍未结束的 APC 是 direct 介质的大图：本层从不代答它，
+    /// 扣留只会把大图推迟到下一块，故原样透传。
+    #[test]
+    fn oversized_incomplete_apc_is_forwarded_without_holding() {
+        let mut data = b"\x1b_Ga=T,f=100;".to_vec();
+        data.extend(std::iter::repeat_n(b'A', KITTY_CARRY_LIMIT));
+        let filtered = filter_input(
+            &data,
+            MediaCapabilities {
+                shared_memory: false,
+                temp_dir: None,
+            },
+        );
+        assert_eq!(filtered.payload.as_ref(), data.as_slice());
+        assert!(filtered.carry.is_empty());
     }
 
     #[test]

@@ -161,6 +161,11 @@ struct CommandState {
     /// 同步更新（模式 2026）的保持起点：引擎不会自行结束保持，
     /// 程序崩溃或忘记 ESU 时由这里超时解锁（见 `synchronized_output_hold`）。
     synchronized_output_held_since: Option<std::time::Instant>,
+    /// 上一块块尾未结束的 Kitty APC 前缀（见 `input_filter::FilteredInput::carry`）。
+    ///
+    /// 探测被 PTY 读边界拆开时，只有拼回整条才能判定介质；直接透传会让上游
+    /// 处理未过滤的探测并记 `W/kitty_gfx`。上限与扣留规则由输入过滤器裁决。
+    vt_carry: Vec<u8>,
 }
 
 impl CommandState {
@@ -175,6 +180,7 @@ impl CommandState {
             grid_dirty: true,
             cell_data_dirty: true,
             synchronized_output_held_since: None,
+            vt_carry: Vec::new(),
         }
     }
 }

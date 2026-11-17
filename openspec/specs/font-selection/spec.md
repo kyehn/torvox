@@ -223,7 +223,8 @@ MUST NOT 保留已无用途的日志初始化导出与调用方。
 用户可选字号上界 MUST **只有一处定义**，且 MUST 同时满足两条约束：
 
 1. Termux 像素上限（256px）按完整 sp→像素系数（显示密度 × 系统字体缩放，即推给
-   原生 `setRasterScale` 的同一值）换算后按 Termux 的调整步长向下取整；
+   原生 `setRasterScale` 的同一值）换算后按**本项目的调整步长**（`FONT_SIZE_STEP_SP`
+   = 1sp）向下取整；
 2. 「至少放得下 `MIN_USABLE_COLUMNS` 列」——字号与该列数成反比，按同一个列↔字号
    比例（`fontSizeForColumns`）反推。低于该列数时一条常见命令
    （`ls -la /usr/local/bin`、`systemctl status nginx` 各 21 列）都放不下，
@@ -294,7 +295,9 @@ Kotlin 侧的 `FONT_SIZE_MIN_SP` 独占（用户界面层的下限，原生不�
 
 - **WHEN** 任意合法 sp→px 系数（原生导出区间的全区间采样）下比较「图集边长 ÷ 光栅缩放」
   与按 Termux 换算出的可选上界
-- **THEN** 前者不小于后者，即滑块能划到的每个字号都被原生接受
+- **THEN** 前者不小于后者，即滑块能划到的每个字号都被原生接受；该不变量 MUST
+      按本项目的 1sp 档位网格校验——拿 Termux 自身的 2sp 步长换算上界会少算最顶
+      一档，使原生上界缺少一档覆盖
 
 #### Scenario: 钳位区间只有原生一处定义
 
@@ -495,7 +498,7 @@ MUST NOT 回写 DataStore：用户回到宽屏时原值仍然有效。
 ### Requirement: 可设字号落在步长档位网格上
 
 用户可设的字号 MUST 是**档位集合**，而不是连续区间：档位 MUST 由
-`FONT_SIZE_MIN_SP`（4sp）起、每档 `FONT_SIZE_STEP_SP`（2sp）构成，并与
+`FONT_SIZE_MIN_SP`（4sp）起、每档 `FONT_SIZE_STEP_SP`（1sp）构成，并与
 `fontSizeMaxSp` 给出的区间上界相交。
 
 调节条、捏合手势、缩放预览、落盘值的生效值与设置页展示 MUST 共用**同一处**收敛
@@ -512,7 +515,7 @@ MUST NOT 回写 DataStore：用户回到宽屏时原值仍然有效。
 #### Scenario: 捏合给出的每一档都在调节条档位网格上
 
 - **WHEN** 以任意基准字号与任意累计缩放因子做捏合换算
-- **THEN** 结果落在 4sp 起、步长 2sp 的网格上，且落在调节条区间内
+- **THEN** 结果落在 4sp 起、步长 1sp 的网格上，且落在调节条区间内
 
 #### Scenario: 捏合末端与调节条末端给出同一个值
 

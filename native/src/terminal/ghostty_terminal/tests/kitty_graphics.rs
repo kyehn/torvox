@@ -196,6 +196,37 @@ fn kitty_capability_probes_are_answered_with_their_image_ids() {
     );
 }
 
+/// 探测被拆成两次写入时（PTY 读边界），应答必须照旧产生：块尾的半条 APC
+/// 扣留到下一块再判定。真机 20:24:16 的两条 `W/kitty_gfx` 正是半条探测
+/// 原样漏给上游的结果——上游替本层处理了它，还回了一条本层本应代答的错误。
+#[test]
+fn split_capability_probe_is_answered_after_the_next_write() {
+    let mut terminal = terminal();
+    let probe = b"\x1b_Ga=q,t=f,i=1;L25vbmV4aXN0ZW50L3RvcnZveC1raXR0eS1wcm9iZQ==\x1b\\";
+    let split = 10;
+    terminal.pty_write(&probe[..split]);
+    terminal.flush();
+    assert!(
+        terminal.drain_pty_write_responses().is_empty(),
+        "半条探测不得凭空应答"
+    );
+
+    terminal.pty_write(&probe[split..]);
+    terminal.flush();
+    let responses: Vec<GraphicsResponse> = terminal
+        .drain_pty_write_responses()
+        .iter()
+        .flat_map(|bytes| parse_responses(bytes))
+        .collect();
+    assert_eq!(
+        responses
+            .iter()
+            .map(|response| (response.image_id, response.message.as_str()))
+            .collect::<Vec<_>>(),
+        [(1, "EINVAL: invalid data")]
+    );
+}
+
 /// 直接放置一幅图像（不经客户端模拟器）：撤除路径的用例只需一个可见放置。
 ///
 /// 走 `a=T` 直传通道，图像高度取一个单元格高，正好占一行。

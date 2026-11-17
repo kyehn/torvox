@@ -110,10 +110,13 @@ constructor(private val provider: SettingsDataStoreProvider) {
         const val ADAPTIVE_DEFAULT_MAX_SP = 24f
 
         /**
-         * 用户可选的字号范围与精度，取自 Termux
-         * `TermuxAppSharedPreferences.getDefaultFontSizes`（DESIGN.md 设置节字体大小项
-         * 「默认字号按屏宽自适应，调节条的步长和范围必须合理」）：下限 4dip；默认值 12dip 且取偶，
-         * 故最小调整步长为 2；上限写作 256**像素**而非 sp，故换算需除以 sp→px 系数。
+         * 用户可选的字号范围与精度：DESIGN.md 设置节字体大小项规定
+         * 「调节条与捏合缩放的精度和范围应当一致，精度 1 sp」，而下限与像素上限
+         * 取自 Termux 的 `TermuxAppSharedPreferences.getDefaultFontSizes`：下限 4dip；
+         * 上限写作 256**像素**而非 sp，故换算需除以 sp→px 系数。
+         *
+         * 步长取 1 而非 Termux 的偶数默认值 12dip 所暗示的 2：规范要求的是精度，
+         * 不是「与 Termux 的默认值同为偶数」。上限与下限仍按 Termux 的真值换算。
          *
          * 这是用户可选区间的**唯一**定义处。此前另有一份与原生
          * `setFontSizeInPlace` 守卫（`4.0..=100.0`）重复的 `NATIVE_FONT_SIZE_MAX_SP`，
@@ -125,7 +128,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
          */
         const val FONT_SIZE_MIN_SP = 4f
         const val FONT_SIZE_MAX_PX = 256f
-        const val FONT_SIZE_STEP_SP = 2f
+        const val FONT_SIZE_STEP_SP = 1f
 
         /**
          * 调节条能拖到的最大字号仍须容纳得下一行可用输出：低于这个列数，

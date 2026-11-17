@@ -1,18 +1,22 @@
 use super::font::{RASTER_SCALE_MAX, RASTER_SCALE_MIN, font_size_cap_sp, is_font_size_selectable};
 use super::render::ATLAS_SIZE;
 
-/// Kotlin `SettingsRepository.fontSizeMaxSp` 的**权威取值**，即 Termux 自身的
-/// 公开常量：像素上限 256、调整步长 2sp、下限 4sp。这里刻意写死外部数值而非
-/// 复刻 Kotlin 公式——后者会随 Kotlin 侧一起漂移，就等于没测。
+/// Kotlin `SettingsRepository.fontSizeMaxSp` 的**权威取值**：像素上限 256 与下限
+/// 4sp 取自 Termux 自身的公开常量，**调整步长取本项目的规范值 1sp**（DESIGN.md
+/// 字体大小项「精度 1 sp」，font-selection 规范同款档位网格）——Termux 自己的默认
+/// 步长是偶数 2sp，拿它当本项目的步长会让上界少一档：滑块实际能划到的最大字号
+/// 比本用例算出的上界高 1sp，原生「不拒收任何可选字号」这条不变量就少了最顶上
+/// 一档的覆盖。这里刻意写死外部数值而非复刻 Kotlin 公式——后者会随 Kotlin 侧
+/// 一起漂移，就等于没测。
 const TERMUX_MAX_PX: f32 = 256.0;
-const TERMUX_STEP_SP: f32 = 2.0;
+const SLIDER_STEP_SP: f32 = 1.0;
 const SLIDER_MIN_SP: f32 = 4.0;
 
-/// Termux 的可选上界（sp）：256px 换算后按步长向下取整。
-fn termux_selectable_max_sp(raster_scale: f32) -> f32 {
+/// 滑块的可选上界（sp）：256px 换算后按步长向下取整。
+fn slider_selectable_max_sp(raster_scale: f32) -> f32 {
     let raw = TERMUX_MAX_PX / raster_scale;
-    let stepped = (raw / TERMUX_STEP_SP).floor() * TERMUX_STEP_SP;
-    stepped.max(SLIDER_MIN_SP + TERMUX_STEP_SP)
+    let stepped = (raw / SLIDER_STEP_SP).floor() * SLIDER_STEP_SP;
+    stepped.max(SLIDER_MIN_SP + SLIDER_STEP_SP)
 }
 
 use super::font::is_raster_scale_acceptable;
@@ -61,7 +65,7 @@ fn cap_never_rejects_a_selectable_font_size() {
     for sample_index in 0..=RASTER_SCALE_SAMPLES {
         let scale = sampled_scale(sample_index);
         let cap = font_size_cap_sp(ATLAS_SIZE as f32, scale);
-        let selectable_max = termux_selectable_max_sp(scale);
+        let selectable_max = slider_selectable_max_sp(scale);
         assert!(
             is_font_size_selectable(selectable_max, cap),
             "raster_scale={scale}：滑块上界 {selectable_max}sp 超过原生上界 {cap}sp"
