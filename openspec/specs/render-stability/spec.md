@@ -142,7 +142,7 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
 平台在 `SurfaceView` 绘制时先给应用窗口打洞，洞里窗口层画过的像素一律被抹掉。
 
 遮罩 MUST 用**离开时的画面**（而非仅一块平底色）：平底色与桌面都是「闪一下」，只是
-闪成另一种颜色。
+闪成另一种颜色。该画面 MUST 在设备仍存活时缓存（见下场景）。
 
 发布遮罩 MUST 直接触发 `SurfaceView` 重绘，且这次重绘 MUST 落在平台拆 surface 之前。
 
@@ -176,17 +176,31 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
 - **WHEN** 平台在切后台后拆掉本应用**窗口**的 surface
 - **THEN** 返回前台时交换链 MUST 重建，开孔 MUST 由遮罩覆盖重建期间的空档
 
-#### Scenario: 切后台时把离开时的画面留作开孔遮罩
+#### Scenario: 运行期缓存离开时的画面作为开孔遮罩
 
-- **WHEN** 应用切到后台，渲染线程停下之前
-- **THEN** 终端 MUST 把保留的上一帧回读成 CPU 像素并发布为开孔遮罩
-- **AND** 回读 MUST 在渲染线程上完成（它是一次 GPU 同步等待），MUST NOT 放在主线程
+- **WHEN** 终端向 surface 呈现了一帧且设备仍存活
+- **THEN** 宿主 MUST 在渲染线程之外回读该帧并缓存为开孔遮罩：首帧立即回读，
+      其后至多每 `COVER_CAPTURE_INTERVAL_MS`（600ms）追赶一次，MUST NOT 把回读
+      变成逐帧的 GPU 同步等待
+- **AND** 回读 MUST NOT 在渲染线程与主线程上完成（它是一次 GPU 同步等待）
 - **AND** 回读 MUST NOT 在持有全局渲染锁时进行：锁内等待会把**所有**会话的渲染
       线程一起卡住（实测另一会话的渲染采样多花 38.98ms，触发 SLOW_FRAME 告警）。
       故锁内只取句柄快照，GPU 等待在锁外做
+- **AND** 切后台的路径 MUST 只发布已缓存的帧，MUST NOT 现场回读：设备可能在后台
+      丢失，那时 `read_cover_frame` 返回 `None`，遮罩就空了
+- **AND** 回读失败时 MUST 保留上一份缓存（旧一帧仍比平底色接近离开时的画面）
 - **AND** 遮罩与当前开孔的尺寸不一致时 MUST 按宽度等比缩放、顶边对齐地贴合
       （等比缩放不拉伸字形），MUST NOT 因尺寸不一致整块放弃：输入法弹出/收起
       会改开孔高度，整块放弃就退回平底色——即「输入法弹出时切后台返回终端闪烁」
+
+#### Scenario: 设备在后台丢失时仍发布缓存遮罩
+
+- **WHEN** 切后台前后 Vulkan 设备丢失（2026-11-17 真机日志：切后台时
+      `Unknown: Device is lost`）
+- **THEN** 宿主 MUST 发布缓存里最近一帧作为开孔遮罩，MUST NOT 因回读失败退回平底色
+- **AND** 仪器化用例 `BackgroundResumeFlickerInstrumentedTest#deviceLostInBackgroundStillPublishesStoredCoverFrame`
+      MUST 注入设备丢失复现该路径，断言切后台后发布出的遮罩像素不止一种颜色，
+      且回前台后重新出帧并撤下遮罩
 
 #### Scenario: 遮罩发布即重绘，且重绘在窗口可见期内
 
@@ -285,10 +299,11 @@ xterm 一致，MUST NOT 只更新仅供测试的快照。
       面板/键栏与内容的补帧结束（实测坐标一致时像素仍差 2000+）
 - **AND** 超时 MUST 带着真实差值落到断言而不是无限期等待或清空比对口径
 
-#### Scenario: 没有可回读的内容时不遮
+#### Scenario: 从没有过缓存时不遮
 
-- **WHEN** 回读失败、没有保留的帧或帧格式不是 RGBA8
+- **WHEN** 冷启动后尚未成功缓存任何一帧（无保留帧或帧格式不是 RGBA8）
 - **THEN** 宿主 MUST 沿用平底色遮罩，MUST NOT 以空遮罩代替（空遮罩等于一块黑）
+- **AND** 已有缓存时偶发一次回读失败 MUST NOT 清空缓存（见运行期缓存场景）
 
 ### Requirement: 设备轮询的失败形态必须归一
 
@@ -520,8 +535,11 @@ wgpu 在致命 HAL 错误上先调设备丢失回调、再 panic，逐帧调用�
 #### Scenario: 丢失后所有 GPU 入口先于 wgpu 返回
 
 - **WHEN** 进程已判定设备丢失
-- **THEN** `render_inner` MUST 返回 0（空闲），`read_cover_frame` MUST 返回 `None`
-      （遮罩退化为平底色），`attach_surface` MUST 直接放弃
+- **THEN** `render_inner` MUST 返回 0（空闲），`read_cover_frame` MUST 返回 `None`，
+      `attach_surface` MUST 直接放弃；设备轮询 MUST 在判死位已置位时直接给出失败
+      结局、MUST NOT 再碰死设备（wgpu 在致命 HAL 错误上先调丢失回调、再 panic，
+      回调之后任何 `Device::poll` 都只会换来一道 panic）；宿主 MUST 发布运行期缓存的
+      遮罩，只有从未缓存过任何帧时才退化为平底色
 
 #### Scenario: 丢失判据不以错误类型为唯一条件
 

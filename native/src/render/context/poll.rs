@@ -13,7 +13,7 @@
 //! （不吞、不掩盖），只是不再让它掀桌子。取纹理的 `get_current_texture` 早先已按
 //! 同一思路兜住（见 `pass::acquire`），此处是同一规范的另一半。
 
-use super::gpu::one_line;
+use super::gpu::{device_lost, one_line};
 use std::time::Duration;
 
 /// 一次设备轮询的原始结局：wgpu 返回的结果，或 wgpu 内部 panic 的载荷。
@@ -28,14 +28,36 @@ pub(crate) enum PollOutcome {
     Failed(String),
 }
 
+/// 设备已判死时给出的失败原因。
+///
+/// 取 wgpu 自己的措辞（`Device is lost`）的小写形式，使
+/// [`super::gpu::is_device_loss_text`] 能认出它：调用方据此把这次失败并入
+/// 设备丢失的记账点（只记一条 error），MUST NOT 再单记一条「轮询失败」。
+const DEVICE_LOST_REASON: &str = "device is lost";
+
 /// 轮询设备一次（最多等 `timeout`），把 wgpu 的结局归一成「继续 / 失败」。
+///
+/// 已判死的设备**不再轮询**：wgpu 在致命 HAL 错误上先调设备丢失回调、再 panic，
+/// 回调置位后任何 GPU 调用都只会在 wgpu 内部换来一道 panic
+/// （2026-11-17 真机日志：切后台设备丢失后，遮罩回读撞上 `Device::poll` 的
+/// panic，整进程退出过一次）。判死位是进程级的，此时唯一该做的就是停下。
 pub(crate) fn poll_device_wait(device: &wgpu::Device, timeout: Duration) -> PollOutcome {
-    poll_outcome(|| {
-        device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: Some(timeout),
-        })
-    })
+    match lost_device_outcome(device_lost()) {
+        Some(outcome) => outcome,
+        None => poll_outcome(|| {
+            device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(timeout),
+            })
+        }),
+    }
+}
+
+/// 判死设备的结局：已判死则不再触碰设备，直接给出失败结局。
+///
+/// 抽成纯函数以便单测覆盖，不必构造 GPU 设备也不必动进程级的判死位。
+fn lost_device_outcome(lost: bool) -> Option<PollOutcome> {
+    lost.then(|| PollOutcome::Failed(DEVICE_LOST_REASON.to_string()))
 }
 
 /// 把一次「可能 panic 的轮询」归一成结局。
@@ -63,8 +85,8 @@ fn classify(polled: PollAttempt) -> PollOutcome {
 
 #[cfg(test)]
 mod tests {
-    use super::super::gpu::one_line;
-    use super::{PollOutcome, classify, poll_outcome};
+    use super::super::gpu::{is_device_loss_text, one_line};
+    use super::{PollOutcome, classify, lost_device_outcome, poll_outcome};
 
     /// 轮询成功的两种形态都算「继续」。
     #[test]
@@ -131,5 +153,26 @@ mod tests {
             flattened,
             "Validation Error | Caused by: | Parent device is lost"
         );
+    }
+
+    /// 设备没判死时不得提前给出结局：那会把「设备活着」误报成「设备已死」。
+    #[test]
+    fn live_device_has_no_lost_outcome() {
+        assert!(lost_device_outcome(false).is_none());
+    }
+
+    /// 设备已判死时 MUST 不再触碰设备，直接给失败结局。
+    ///
+    /// 真机实测：切后台时 Vulkan 设备丢失，wgpu 先调丢失回调、再 panic；
+    /// 回调之后任何 `Device::poll` 都只会换来一道 panic（2026-11-17 真机日志）。
+    #[test]
+    fn lost_device_fails_without_polling() {
+        match lost_device_outcome(true) {
+            Some(PollOutcome::Failed(reason)) => {
+                assert!(is_device_loss_text(&reason), "{reason}");
+            }
+            Some(PollOutcome::Proceed) => panic!("判死的设备不得判成继续"),
+            None => panic!("判死的设备必须给出失败结局"),
+        }
     }
 }

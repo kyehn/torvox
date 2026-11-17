@@ -609,6 +609,59 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       `render-stability` 的「已涂满」判据单独取证（见该文件的开孔场景）
 - **AND** 该日志 MUST NOT 被当作闪烁已修的证据：它不携带开孔像素信息
 
+#### Scenario: 2026-11-17 运行日志（08-52-39 至 08-55-46）的聚合归因
+
+- **WHEN** 审计 `logcat_2026-11-17_08-55-53.txt`（真实设备，主进程 17091，运行约
+      3 分钟，含十次切后台往返）
+- **THEN** 应用进程 W/E 合计 MUST 为 120 条，逐条处置 MUST 为：
+      - `mali_gralloc` 88 条（`Requested R8 format is not supported with this
+        allocator` 44 + `ERROR: Unrecognized and/or unsupported format 0x38 and
+        usage 0xb00` 44）：十一次挂载 × 每次 4 次格式枚举 × 每枚举 2 行。枚举出自
+        AOSP `frameworks/native/vulkan/libvulkan/swapchain.cpp` 的
+        `GetPhysicalDeviceSurfaceFormatsKHR`：它以 `desc.format =
+        AHARDWAREBUFFER_FORMAT_R8_UNORM`（0x38）、`desc.usage = consumer_usage |
+        GPU_SAMPLED_IMAGE | GPU_FRAMEBUFFER` 调 `AHardwareBuffer_isSupported`；
+        `consumer_usage` 取自 `native_window_get_consumer_usage()`，SurfaceView 上为
+        `COMPOSER_OVERLAY`，故 usage 恒为 0xb00。探测对象是 1×1 能力位而非应用的
+        呈现缓冲，被拒后交换链仍以 `Rgba8Unorm` 建立，应用侧无 API 可关
+      - 慢帧 7 条（`SLOW_CELL_BUILD` 1、`SLOW_RENDER_INNER` 2、`SLOW_FRAME` 2、
+        `SLOW_LOOP` 2）：两次冷启动首帧（49.348ms 与 33.007ms）灌满一屏汉字，首屏
+        字形在 `warm_frame_glyphs` 里逐字光栅化（`SLOW_CELL_BUILD` 实测
+        build=25.257ms，1097 个单元 / 648 个实例），是串行冷字形成本；处置 MUST NOT
+        提高阈值或降级日志
+      - `wgpu_core::instance` 4 条：两次设备创建各一对 downlevel 提示（`Missing
+        downlevel flags: SURFACE_VIEW_FORMATS` 及其能力清单）。该告警在
+        `wgpu-core-30.0.2/src/instance.rs` 的 `request_adapter` 里对 PRIMARY 后端的
+        非 WebGPU 合规适配器无条件输出；该位在 `wgpu-hal-30.0.2/src/vulkan/adapter.rs`
+        由 `VK_KHR_swapchain_mutable_format` 是否可用决定，驱动未暴露该扩展，
+        应用侧无 API 可关
+      - `ziparchive` 4、`libc` 4、`FeatureOpt` 2、`Typeface` 1、`com.termux` 1
+        （debug 构建 jdwp 未启动）、`Parcel` 1：厂商框架与平台路径，均无应用栈
+      - `RemoteInputConnectionImpl` 3 条：输入法侧在失活连接上请求光标锚点，
+        见同文件的光标监视场景
+      - `kitty_gfx` 2 条：用户 shell 里的 kitty 图形辅助程序输出，与应用无关
+      - `native::render::context::gpu` 2 条：切后台时 Vulkan 设备丢失记一条 error
+        （`Unknown: Device is lost`）、回前台重建后记一条 warning，是本份日志里
+        「切后台返回闪烁」的直接成因（见 `render-stability` 的设备丢失场景）
+      - `native::android::logging` 1 条（`panic: ... Device::poll: Validation Error`）：
+        与上一条同一次设备丢失事件的第二份副本（panic 钩子）。根因已修：丢失回调
+        置位后不再轮询死设备（`poll.rs` 的 `lost_device_outcome`），切后台路径也
+        不再回读（遮罩改为运行期缓存），该 panic 在新实现下不再发生；panic 钩子
+        仍照常记录未被接住的 panic，MUST NOT 以过滤该 tag 处置
+- **AND** 本份日志 MUST 记下「切后台即设备丢失」这条因果链：`setRenderPaused:
+      paused=true` 后 7ms 出现 `GPU device lost`，再 53ms 后出现 `Device::poll`
+      的 panic；十次 `read_cover_frame: 已回读` 即十次切后台各现场回读一次。
+      遮罩若留在切后台路径上回读，这道 panic 之后遮罩为空，回前台首个窗口帧就是
+      空开孔——即「切后台返回闪烁」。故遮罩 MUST 在运行期缓存、切后台只发布缓存
+      （见 `render-stability` 的运行期缓存场景）
+- **AND** 同 UID 子进程的 93 条 MUST 全部归为内核审计与历史崩溃：92 条是
+      `type=1400 audit(...)` 行（`fish` 62、`git` 25、`login` 3、`DefaultDispatch` 2，<!-- nosemgrep: semgrep.no-prohibited-shells -->
+      由用户 shell 读取 `/proc` 与装载 nix store 动态库所致），唯一的 `F` 是
+      2026-11-12 另一进程（PID 12237）的历史 `Device::poll` 崩溃，早于本次运行五天
+- **AND** 本份日志 MUST NOT 被当作闪烁已修的证据：它不携带开孔像素信息；修复的
+      判据取 `render-stability` 的开孔状态序列与模拟器仪器化用例
+- **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
+
 #### Scenario: 模拟器 debug 构建的聚合归因
 
 - **WHEN** 审计模拟器（x86_64）上 debug 构建的一次冷启动加一次真实 HOME 往返

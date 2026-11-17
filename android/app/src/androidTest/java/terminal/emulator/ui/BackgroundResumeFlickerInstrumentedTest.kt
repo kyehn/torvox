@@ -5,6 +5,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -450,6 +451,76 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         assertTrue(
             "键盘在场时回前台后内容条带必须与离开时一致（输入法区域已排除；实测差 $diff 像素）",
             diff <= MAX_STRIP_DIFF,
+        )
+    }
+
+    /**
+     * 设备丢失路径：渲染线程已死、无法再回读时，切后台仍必须把**已缓存**的画面
+     * 发布成开孔遮罩。
+     *
+     * `docs/STATUS.md` 报的「输入法弹出时切后台返回大概率闪烁」在 2026-11-17 真机
+     * 日志里的触发链是：切后台时 Vulkan 设备丢失 → 渲染线程退出路径上的遮罩回读
+     * 必然失败（`Parent device is lost`）→ 无遮罩 → 回前台首个窗口帧是空开孔。
+     * 回读必须在设备还活着时完成，切后台只发布缓存。
+     *
+     * 注入设备丢失后，旧实现（渲染线程退出时才回读）在这里拿不到任何遮罩帧；
+     * 新实现回读循环早已缓存了上一帧。判据不依赖截图：直接量状态机里的遮罩像素。
+     */
+    @Test
+    fun deviceLostInBackgroundStillPublishesStoredCoverFrame() {
+        val runtime = composeTestRule.activity.terminalViewModel.runtime
+        paintColoredContent()
+        hideImeAndSettle()
+        composeTestRule.waitForIdle()
+        assertNull("前置：前台不得留着上一轮的遮罩", runtime.coverFrame.value)
+        assertNotNull(
+            "出帧后必须已缓存一帧遮罩（回读循环未运行）",
+            UxTestUtils.pollUntilTrue(10_000, 100) { runtime.hasStoredCoverFrame() },
+        )
+
+        val bridge = composeTestRule.requireBridge()
+        bridge.setDeviceLostInjectedForTest(true)
+        try {
+            device.pressHome()
+            assertNotNull(
+                "必须真的退到后台",
+                UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 50) {
+                    device.currentPackageName != packageName
+                },
+            )
+            assertNotNull(
+                "切后台后平台必须拆掉 surface",
+                UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 20) {
+                    !runtime.surfaceBufferPresent.value
+                },
+            )
+            assertNotNull(
+                "设备丢失时切后台必须发布缓存的遮罩（实测没有）",
+                UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 20) {
+                    runtime.coverFrame.value != null
+                },
+            )
+            val cover = checkNotNull(runtime.coverFrame.value)
+            assertTrue(
+                "遮罩必须是画面而非单色（实测 ${cover.pixels.toHashSet().size} 种像素值）",
+                cover.pixels.toHashSet().size > 4,
+            )
+        } finally {
+            bridge.setDeviceLostInjectedForTest(false)
+        }
+
+        UxTestUtils.runShellCommand("am start -n $packageName/terminal.emulator.MainActivity")
+        assertNotNull(
+            "必须回到前台",
+            UxTestUtils.pollUntilTrue(RESUME_TIMEOUT_MS, 50) {
+                device.currentPackageName == packageName
+            },
+        )
+        assertNotNull(
+            "设备丢失后回前台首帧必须重新出帧并撤下遮罩",
+            UxTestUtils.pollUntilTrue(RESUME_TIMEOUT_MS, 20) {
+                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
+            },
         )
     }
 }

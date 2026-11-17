@@ -17,6 +17,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.BuildConfig
 import terminal.emulator.R
 import terminal.emulator.TransientMessageChannel
@@ -78,6 +81,15 @@ internal const val RENDER_MAX_RESTART_ATTEMPTS = 5
 internal const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
 
 internal const val NANOS_PER_MILLI = 1_000_000.0
+
+/**
+ * 开孔遮罩回读的最短间隔。
+ *
+ * 首帧（缓冲区从无到有）会立即唤醒回读；连续输出时按本间隔追赶，避免把一次
+ * GPU 同步等待压在每一帧上。600ms 足够让「回前台后马上再切后台」拿到刚离开
+ * 的那一帧，也不会在长输出里堆积回读。
+ */
+internal const val COVER_CAPTURE_INTERVAL_MS = 600L
 
 internal const val NANOS_PER_SECOND = 1_000_000_000.0
 
@@ -243,6 +255,30 @@ constructor(
     private var surfacePresentFrameCallback: Choreographer.FrameCallback? = null
 
     /**
+     * 最近一次「已呈现帧」的序号：每有一帧提交进缓冲区就 +1（写入方是渲染线程，
+     * 见 [publishSurfaceBufferPresent]）。
+     *
+     * 遮罩回读在渲染线程**之外**（[coverCaptureLoop]）按它追赶：切后台时只发布
+     * 已缓存的帧，不在此时回读 GPU。设备丢失路径上回读必然失败，而渲染线程也已
+     * 不再按帧运行，只有周期回读才能保证那时手里有一帧可遮。
+     */
+    @Volatile private var coverFrameGeneration = 0L
+
+    /** 已回读并缓存的遮罩对应的 [coverFrameGeneration]；-1 = 从未回读。 */
+    @Volatile private var capturedCoverGeneration = -1L
+
+    /**
+     * 缓存的遮罩帧：最近一次成功回读的**已呈现帧**。
+     *
+     * 切后台只发布它（[publishStoredCoverFrame]），不现场回读：现场回读在设备丢失时
+     * 失败（`Parent device is lost`），开孔无遮罩，回前台首个窗口帧就是空开孔。
+     */
+    @Volatile private var storedCoverFrame: Bridge.CoverFrame? = null
+
+    /** 唤醒遮罩回读：首帧（缓冲区从无到有）立即回读一次，其后至多每 [COVER_CAPTURE_INTERVAL_MS] 一次。 */
+    private val coverCaptureSignal = Channel<Unit>(Channel.CONFLATED)
+
+    /**
      * 当前开孔的世代：开孔失效（surface 被拆或换了实例）时 +1。
      *
      * 渲染线程在进入原生渲染前取一次，提交结果时连同它上报（见
@@ -275,6 +311,12 @@ constructor(
         }
         synchronized(surfacePresentLock) {
             if (epoch != surfacePresentToken) return
+            // 新的一帧已呈现：遮罩回读的追赶起点。首帧（此前无缓冲区）立即唤醒回读，
+            // 回前台后用户马上再切后台时手里就有刚离开的那一帧。
+            coverFrameGeneration++
+            if (!surfaceBufferPresentFlow.value && !surfacePresentPending) {
+                coverCaptureSignal.trySend(Unit)
+            }
             if (surfaceBufferPresentFlow.value || surfacePresentPending) return
             surfacePresentPending = true
             surfacePresentDeferralFrames = SURFACE_PRESENT_DEFERRAL_FRAMES
@@ -459,30 +501,74 @@ constructor(
     }
 
     /**
-     * 回读保留的上一帧并发布为开孔遮罩（渲染线程调用）。
+     * 回读最近一帧并缓存为开孔遮罩（渲染线程之外的 IO 线程调用）。
      *
-     * 回读是一次 GPU 同步等待（约几毫秒），故只在渲染线程停下之前做一次，
-     * 绝不放在主线程上。没有可回读的内容（没有累加器、格式不支持、回读失败）
-     * 时什么都不做：开孔继续用平底色遮。
+     * 回读是一次 GPU 同步等待（实测数十毫秒），故绝不放在主线程；也不放在渲染
+     * 线程退出路径上——设备丢失后 `cover_readback_source` 直接放弃，那条路径上
+     * 回读必然失败（2026-11-17 真机日志：切后台时设备丢失，遮罩为空，回前台
+     * 首个窗口帧是空开孔，用户看到的就是闪烁）。周期回读在设备还活着时就备好一帧，
+     * 切后台只发布缓存，回读成败与后台路径无关。
+     *
+     * 没有可回读的内容（没有累加器、格式不支持、回读失败）时保留旧缓存：
+     * 旧一帧仍比平底色接近用户离开时的画面。
      */
-    internal fun captureCoverFrame(bridge: Bridge) {
+    private fun captureCoverFrame(sessionId: Long, bridge: Bridge) {
         val frame =
             readCoverFrameSafely(
                 read = { bridge.readCoverFrame() },
                 onFailure = { exception ->
                     LogUtil.warn(
                         RUNTIME_LOG_TAG,
-                        "captureCoverFrame: 遮罩回读失败，本次退回平底色遮罩",
+                        "captureCoverFrame: 遮罩回读失败，沿用上一份缓存",
                         exception,
                     )
                 },
             ) ?: return
+        // 回读期间可能已切换会话：别把旧会话的画面盖到新会话的开孔上。
+        if (sessionId != activeSessionId) return
+        storedCoverFrame = frame
+        capturedCoverGeneration = coverFrameGeneration
         LogUtil.debug(
             RUNTIME_LOG_TAG,
-            "captureCoverFrame: 已回读 ${frame.width}x${frame.height} 的开孔遮罩",
+            "captureCoverFrame: 已缓存 ${frame.width}x${frame.height} 的开孔遮罩",
         )
+    }
+
+    /** 有一帧尚未回读（或被首帧信号唤醒）时回读一次。 */
+    private fun captureCoverFrameIfNeeded() {
+        if (backgroundRenderPause.isPaused) return
+        val entry = sessions[activeSessionId] ?: return
+        if (coverFrameGeneration == capturedCoverGeneration) return
+        captureCoverFrame(entry.sessionId, entry.bridge)
+    }
+
+    /**
+     * 遮罩回读循环：首帧立即回读，连续输出时至多每 [COVER_CAPTURE_INTERVAL_MS]
+     * 回读一次（避免把 GPU 同步等待压在每一帧上）。
+     *
+     * 随进程存活：切后台时回读循环可能已被暂停（[backgroundRenderPause]），
+     * 恢复后由首帧信号重新唤醒。
+     */
+    private suspend fun coverCaptureLoop() {
+        while (currentCoroutineContext().isActive) {
+            withTimeoutOrNull(COVER_CAPTURE_INTERVAL_MS) { coverCaptureSignal.receive() }
+            captureCoverFrameIfNeeded()
+        }
+    }
+
+    /**
+     * 把缓存的开孔遮罩发布出去。
+     *
+     * 切后台与 Surface 销毁都走这里：此时只做一次状态发布，不碰 GPU。没有缓存
+     * （冷启动后从未出过帧）时不发布，开孔继续用平底色遮。
+     */
+    internal fun publishStoredCoverFrame() {
+        val frame = storedCoverFrame ?: return
         publishCoverFrame(frame)
     }
+
+    /** 仅供测试：缓存里是否已有一帧可发布的开孔遮罩。 */
+    internal fun hasStoredCoverFrame(): Boolean = storedCoverFrame != null
 
     /**
      * 冷启动度量：进程启动到「首帧上屏」与「首个 PTY 输出」的耗时。
@@ -881,6 +967,12 @@ constructor(
         get() = activeSessionIdValue
 
     private fun setActiveSessionId(value: Long) {
+        if (value != activeSessionIdValue) {
+            // 换会话：上一会话的遮罩帧不属于新会话的开孔。
+            storedCoverFrame = null
+            capturedCoverGeneration = -1L
+            clearCoverFrame()
+        }
         activeSessionIdValue = value
         publishActiveSessionState(sessions[value])
     }
@@ -3738,7 +3830,9 @@ constructor(
         // 并渲染出黑帧。整条记录（含尺寸）一并清空，否则重算网格会沿用已销毁尺寸。
         pendingSurface = null
         attachedSurface = null
-        // 开孔已随视图拆除，缓冲区不再存在：先盖上底色，等新 surface 的新帧。
+        // 开孔已随视图拆除：先发布缓存遮罩（只发状态、不碰 GPU，设备丢失时也有效），
+        // 再落回「无缓冲区」，开孔在首帧前一直有东西遮。
+        publishStoredCoverFrame()
         publishSurfaceBufferPresent(false)
         // 经账本领暂停而非直写全局布尔：直写的暂停不被任何持有者计数，
         // 别的来源归还时（视图 detach 归还防抖）会把它一并清掉——
@@ -3764,6 +3858,9 @@ constructor(
     /** 切后台：领一次渲染暂停并停止渲染线程。 */
     @MainThread
     fun pauseRenderingForBackground() {
+        // 先发布缓存遮罩，再停渲染线程：设备可能在后台丢失，停下后没有帧可回读；
+        // 缓存在切后台前就已按已呈现帧备好（见 coverCaptureLoop）。
+        publishStoredCoverFrame()
         backgroundRenderPause.onBackground()
         pauseRendering()
     }
@@ -3854,5 +3951,10 @@ constructor(
                 action()
             }
         }
+    }
+
+    init {
+        // 遮罩回读随进程存活：切后台只发布缓存，不在 GPU 可能已死的路径上现场回读。
+        scope.launch { coverCaptureLoop() }
     }
 }
