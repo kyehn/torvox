@@ -1304,3 +1304,44 @@ MUST 留在 warn，MUST NOT 由应用侧自行吞掉。
 
 - **WHEN** 应用位于前台且收到终端程序的桌面通知
 - **THEN** 通知 MUST 经应用内通道投递，平台 MUST NOT 出现提示窗口条目
+
+### Requirement: 仪器化运行期噪声必须逐类归因，不得当作产品缺陷或据此改阈值
+
+仪器化用例在模拟器上跑完整套件时，日志里出现的告警有一批来自测试环境与外部二进制，
+与真机产品路径无关。处置 MUST 是**写明归因**，MUST NOT 提高慢帧阈值、降级日志级别
+或加过滤器把它们藏起来。
+
+#### Scenario: 软件渲染下的高频慢帧
+
+- **WHEN** 模拟器无 rendernode（`Failed to open rendernode`），走 SwiftShader，
+      每帧约 33ms
+- **THEN** `SLOW_FRAME`／`SLOW_LOOP` 会成百条出现，MUST 归因为环境渲染性能；
+      阈值 `SLOW_FRAME_LOG_THRESHOLD_MS`（30ms）MUST 保持不变
+
+#### Scenario: 用例 teardown 拆队列
+
+- **WHEN** 用例结束、Activity 被强杀，平台在仍有 dequeued buffer 时拆掉队列
+- **THEN** `E/Surface freeAllBuffers`、`E/BufferQueueProducer … abandoned`、
+      `E/vulkan dequeueBuffer failed: No such device (-19)` MUST 归因为 teardown；
+      产品切后台由 surface 挂载门闸先暂停渲染，MUST NOT 出现在真机切后台路径
+
+#### Scenario: 失活输入连接上的文本请求
+
+- **WHEN** 输入法在应用侧 InputConnection 已失活后请求上下文
+- **THEN** `RemoteInputConnectionImpl` 的 `getSurroundingText` 与
+      `requestCursorAnchorInfo` MUST 归为同一族（调用方在输入法进程），
+      MUST NOT 由应用侧吞掉该日志
+
+#### Scenario: 外部 bootstrap 二进制
+
+- **WHEN** 引导安装运行预编译二进制
+- **THEN** `W/com.termux Unexpected CPU variant for x86: x86_64` 与
+      `SecondStageRunner coreutils postinst exited with code 139` MUST 归因为
+      外部二进制在模拟器的表现；安装器 MUST 保留既有重试兜底
+
+#### Scenario: 测试运行器扫描可选 runner
+
+- **WHEN** UTP 扫描 instrumentation APK
+- **THEN** `ScanningTestLoader Could not load class:
+      androidx.test.uiautomator.UiAutomatorInstrumentationTestRunner` MUST 归因为
+      可选 runner 类的探测失败，MUST NOT 当作用例失败
