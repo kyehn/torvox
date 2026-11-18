@@ -277,6 +277,20 @@ fun AndroidComposeTestRule<*, *>.hideImeAndAwaitHidden(timeoutMs: Long = 10_000L
     assertTrue("输入法必须收起（${timeoutMs}ms 内仍未隐藏）", hideImeAndConfirm(activity, timeoutMs))
 }
 
+/** 弹出输入法并确认已显示（与 [hideImeAndAwaitHidden] 对称，供主屏/备用屏对比用例复用）。 */
+fun AndroidComposeTestRule<*, *>.showImeAndAwaitShown(timeoutMs: Long = 10_000L) {
+    val shown =
+        UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 200) {
+            onUiThread {
+                val decor = activity.window.decorView
+                val visible = decor.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
+                if (!visible) decor.windowInsetsController?.show(WindowInsets.Type.ime())
+                visible
+            }
+        }
+    assertTrue("输入法必须弹出（${timeoutMs}ms 内仍未显示）", shown != null)
+}
+
 /**
  * 触摸一次让窗口真正拿到焦点，并清掉切换余波的抑制窗口。
  *

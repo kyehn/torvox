@@ -440,6 +440,7 @@ private const val KEY_PAGE_COUNT = TEXT_INPUT_PAGE_INDEX + 1
 @Composable
 private fun ModifierBarTextInputPage(
     buttonHeight: Dp,
+    rowCount: Int,
     textColor: Color,
     backgroundColor: Color,
     onSubmit: (String) -> Unit,
@@ -451,7 +452,9 @@ private fun ModifierBarTextInputPage(
         modifier =
         Modifier
             .fillMaxWidth()
-            .height(buttonHeight * 2)
+            // 文本页与按键页同高：预留高度按 extra-keys 行数算，文本页若固定两行，
+            // 单行布局下会多盖住终端一行（网格只扣了一行），且滑页时键栏高度跳动。
+            .height(buttonHeight * rowCount)
             .testTag("TextInputPage"),
         // 紧凑的修饰键栏文本输入页：用占位提示而非浮动标签，避免标签收缩后挤占
         // 输入区导致已输入文本显示过小。
@@ -595,7 +598,7 @@ fun ModifierBar(
     }
 
     Column(
-        modifier = modifier.fillMaxWidth().background(backgroundColor).testTag("ModifierBar"),
+        modifier = modifier.fillMaxWidth().background(backgroundColor),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         // 末页为文本输入页（termux TerminalToolbarViewPager 行为）：滑过按键页
@@ -607,6 +610,7 @@ fun ModifierBar(
             if (page == TEXT_INPUT_PAGE_INDEX) {
                 ModifierBarTextInputPage(
                     buttonHeight = buttonHeight,
+                    rowCount = rows.size.coerceAtLeast(1),
                     textColor = textColor,
                     backgroundColor = backgroundColor,
                     onSubmit = onSubmit,

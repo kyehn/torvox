@@ -52,3 +52,26 @@ MUST NOT 在取整之外再少算行数：整行空间留白就是「输入法�
 
 - **WHEN** 输入法隐藏，可用高度为 `Surface 高 − modifierBarHeightPx`
 - **THEN** `可用高度 − 行数 × 单元格高` 小于一个单元格高（模拟器 320×640 实测 10px / 17px）
+
+### Requirement: 键栏实际高度与预留高度一致
+
+网格算式扣减的是 `modifierBarHeightPx`，键栏布局的实际高度 MUST 与它一致
+（误差不超过 1px）。两者分叉时行数与平移仍按预留量计算，但屏幕上会多出或吞掉
+一段真实空间，且不会有任何异常或警告。
+
+#### Scenario: 输入法两种形态下高度一致
+
+- **WHEN** 输入法显示或隐藏
+- **THEN** `ModifierBar` 节点的实测高度等于 `runtime.modifierBarHeightPx`
+
+### Requirement: 主屏网格不随输入法变化
+
+`imeGridReserve()` 在主屏 MUST 恒为 0，主屏行数 MUST 在输入法显示与隐藏之间保持
+不变；只有备用屏按键盘高度缩行。主屏若跟着缩行，键盘收起后内容会停在屏幕中段，
+下方留下整段空白行，直到新输出把视口填满——这正是「键盘弹出与隐藏不一致」的
+表象。
+
+#### Scenario: 同一会话切换输入法
+
+- **WHEN** 同一主屏会话先收键盘再弹出键盘
+- **THEN** `surface.getRows()` 两次读数相同

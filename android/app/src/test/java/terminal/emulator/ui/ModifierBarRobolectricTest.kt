@@ -9,12 +9,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
+import androidx.compose.ui.unit.height
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -279,6 +281,40 @@ class ModifierBarRobolectricTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("TextInputPage").assertDoesNotExist()
         composeRule.onNodeWithTag("Key_ESC").assertIsDisplayed()
+    }
+
+    @Test
+    fun `text input page keeps the height of a single row key layout`() {
+        // 预留高度按 extra-keys 行数算；文本页若固定两行，单行布局下会多盖住
+        // 终端一行，滑页时键栏还会跳高。两条都从分页器高度直接量。
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onSubmit = {},
+                    onKeyboardClick = {},
+                    onKey = { _, _ -> false },
+                    layout =
+                    buildExtraKeySlots(
+                        listOf(listOf(ExtraKey("ESC"))),
+                        ExtraKeysStyle.DEFAULT,
+                        true,
+                    ),
+                )
+            }
+        }
+        val keyPageHeight =
+            composeRule.onNodeWithTag("ModifierBarPager").getUnclippedBoundsInRoot().height
+        composeRule.onNodeWithTag("ModifierBarPager").performTouchInput { swipeLeft() }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("TextInputPage").assertIsDisplayed()
+        val textPageHeight =
+            composeRule.onNodeWithTag("ModifierBarPager").getUnclippedBoundsInRoot().height
+        org.junit.Assert.assertEquals(
+            "文本页必须与单行按键页同高",
+            keyPageHeight.value,
+            textPageHeight.value,
+            0.5f,
+        )
     }
 
     @Test
