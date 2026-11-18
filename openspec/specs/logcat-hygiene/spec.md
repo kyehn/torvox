@@ -692,9 +692,17 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       - `wgpu_core::instance` 2 条：设备创建时上游对缺少 `SURFACE_VIEW_FORMATS`
         的无条件 downlevel 提示（与 08-52-39 同一条上游事实）
       - `kitty_gfx` 2 条（`failed to open image file` + `erroneous kitty graphics
-        response`）：PTY 读边界把用户 shell 的 kitty 图形探测（APC）劈成两半，半条
-        漏给上游解析器。已修：输入预处理器扣留块尾未结束的 APC（见 `vt` 的
-        Kitty APC 扣留用例）；本份日志早于该提交，故仍出现
+        response`）：这是**同一次真实文件介质传输**的两份日志，不是读边界劈开的
+        能力探测。20:24:16.182 同一 VT 线程先由上游 `src/terminal/kitty/
+        graphics_image.zig` 的 `cwd().openFile` 打开失败（`FileNotFound`）记第一条，
+        再由 `graphics_exec.zig` 把同一失败编成 `EINVAL: invalid data` 应答并记
+        第二条；两条是「一条请求 → 一份应答」的因果对。路径按**终端进程工作目录**
+        解析，客户端给出的路径来自它自己的工作目录（`comma` 进程在 110ms 前刚被
+        执行），两者不同或文件已不在时必然打不开。上游语义即「打开失败回
+        `EINVAL: invalid data`、客户端自行退到其它介质」，应用 MUST NOT 改写路径或
+        伪造文件存在（见 `kitty-graphics` 的媒体路径场景）；本层只代答 `a=q` 能力
+        探测，真实传输仍交上游处理。故这 2 条是上游如实报告客户端请求失败，
+        MUST NOT 记为应用侧缺陷，MUST NOT 用 APC 扣留或过滤 tag 处置
       - 慢帧 3 条（`SLOW_RENDER_INNER`／`SLOW_FRAME`／`SLOW_LOOP`）：同一次首帧
         kitty 放置（20:24:16），分段为 `query=10.744ms`（锁外 VT 放置查询）+
         `draw=23.741ms`（首次图集上传与软件光栅），`SLOW_LOOP` 的 `total=47.887ms`
