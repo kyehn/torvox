@@ -160,7 +160,7 @@ dependencies {
   implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.13.0")
 
   releaseImplementation("androidx.profileinstaller:profileinstaller:1.4.1")
-  testImplementation("org.robolectric:robolectric:4.18")
+  testImplementation("org.robolectric:robolectric:4.18.1")
   testImplementation(composeBom)
   testImplementation("androidx.compose.ui:ui-test-junit4")
   testImplementation("androidx.compose.ui:ui-test-manifest")
