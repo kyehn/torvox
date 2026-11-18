@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.lifecycle.Lifecycle
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -16,6 +17,7 @@ import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.findTerminalSurface
+import terminal.emulator.hideImeAndConfirm
 import terminal.emulator.pumpedTerminalText
 import terminal.emulator.requireBridge
 import terminal.emulator.util.runCatchingCancellable
@@ -30,7 +32,8 @@ import terminal.emulator.waitForTerminalPixels
  * 平台先在窗口上打洞、再走 `onDraw`，故 `onDraw` 画的内容落在洞**之后**，能被看见；
  * 组合层画的则相反——必然被洞抹掉（实测窗口层的底色只在 SurfaceView 之外的边距可见）。
  *
- * 遮罩的像素由原生侧在渲染线程停下前回读累加器得到（`TerminalRuntime.captureCoverFrame`）。
+ * 遮罩的像素由原生侧回读累加器得到：周期回读（每 600ms 至多一次，`TerminalRuntime.captureCoverFrame`）
+ * 在设备活着时备好一帧，切后台再强制回读一次最新帧替下缓存。
  * 本用例覆盖「画出来了」：**逐像素**比对开孔里的内容与遮罩帧——只要求「颜色够多」
  * 是不够的，一块带花纹的平底色也能通过那种判据。
  */
@@ -86,6 +89,9 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
         composeTestRule.waitForSession()
         composeTestRule.waitForTerminalPixels()
         composeTestRule.awaitBridge()
+        // 键盘在场会把开孔整体上移、改变它的屏幕位置：采样区会跑到屏幕外，逐像素
+        // 比对也失去意义。故先收起（同一个会话跨用例共用，前一个用例可能留着键盘）。
+        assertTrue("输入法必须收起", hideImeAndConfirm(composeTestRule.activity, 5_000))
     }
 
     /** 开孔的一次取样结果。 */
@@ -288,77 +294,88 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
             "失效注入必须被原生接受",
             composeTestRule.requireBridge().setSurfaceLossInjectedForTest(true),
         )
-        composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
-        assertNotNull(
-            "切后台后必须发布开孔遮罩",
-            UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
-                runtime.coverFrame.value != null
-            },
-        )
-        // 遮罩必须是**含标记色的那一帧**：周期回读被节流，缓存可能落后于最后一帧
-        // （实测：刚切后台时发布的是一块空白帧），切后台那一刻的强制回读取到最新
-        // 画面并替下它。故这里等的是「含标记色的遮罩」，而不是「有遮罩」。
-        assertNotNull(
-            "切后台后遮罩必须是含标记色的最新画面",
-            UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
-                runtime.coverFrame.value?.let { coverHasMarker(it) } == true
-            },
-        )
-        composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
-        composeTestRule.waitForIdle()
+        try {
+            composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+            assertNotNull(
+                "切后台后必须发布开孔遮罩",
+                UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
+                    runtime.coverFrame.value != null
+                },
+            )
+            // 遮罩必须是**含标记色的那一帧**：周期回读被节流，缓存可能落后于最后一帧
+            // （实测：刚切后台时发布的是一块空白帧），切后台那一刻的强制回读取到最新
+            // 画面并替下它。故这里等的是「含标记色的遮罩」，而不是「有遮罩」。
+            assertNotNull(
+                "切后台后遮罩必须是含标记色的最新画面",
+                UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
+                    runtime.coverFrame.value?.let { coverHasMarker(it) } == true
+                },
+            )
+            composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+            composeTestRule.waitForIdle()
 
-        // 遮罩挂在开孔上的窗口：无缓冲区、且遮罩帧还在。
-        assertNotNull(
-            "切回前台后遮罩必须挂在开孔上（无缓冲区且遮罩帧在）",
-            UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
-                composeTestRule.waitForIdle()
-                !runtime.surfaceBufferPresent.value && runtime.coverFrame.value != null
-            },
-        )
-        val cover = checkNotNull(runtime.coverFrame.value) { "切回前台后遮罩帧必须还在" }
-        // 开孔里画出来的那一帧必须**就是**遮罩帧。
-        val bitmap = checkNotNull(captureScreen()) { "开孔区必须截到屏（应用不在前台或截图失败）" }
-        val sample = checkNotNull(sampleHole(bitmap, cover)) { "开孔区必须取到样（截图或定位失败）" }
-        UxTestUtils.metric("hole_cover_match_ratio", (sample.matchRatio * 100).toLong())
-        UxTestUtils.metric("hole_distinct_colors", sample.distinct.toLong())
-        UxTestUtils.metric("hole_dominant_share", (sample.dominantShare * 100).toLong())
-        UxTestUtils.metric("hole_marker_pixels", sample.markerPixels.toLong())
-        val ratioOk = sample.matchRatio >= MIN_COVER_MATCH_RATIO
-        // 标记必须在开孔里：单靠「与遮罩吻合的比例」放不住平底色——终端画面绝大部分
-        // 是底色，平底色与遮罩的底色那一部分照样吻合，比例可能很高。故另钉一条：
-        // 开孔里必须看得见离开前铺的那几行红字——那证明装的是**画面**。
-        val markerOk = sample.markerPixels > 0
-        if (!ratioOk || !markerOk) {
-            // 断言要挂之前先把现场存下来：开孔里画的是什么，离线比对 PNG 比读日志快。
-            dumpForensics(bitmap, cover)
+            // 遮罩挂在开孔上的窗口：无缓冲区、且遮罩帧还在。
+            assertNotNull(
+                "切回前台后遮罩必须挂在开孔上（无缓冲区且遮罩帧在）",
+                UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
+                    composeTestRule.waitForIdle()
+                    !runtime.surfaceBufferPresent.value && runtime.coverFrame.value != null
+                },
+            )
+            val cover = checkNotNull(runtime.coverFrame.value) { "切回前台后遮罩帧必须还在" }
+            // 逐像素比对的前提：遮罩帧与开孔同尺寸、同原点。尺寸不同时取样会错位，
+            // 报出的吻合率与真实行为无关，故先钉住这个前提（键盘已收起、也没旋转）。
+            val surface = checkNotNull(findTerminalSurface(composeTestRule.activity)) { "终端 Surface 必须存在" }
+            assertEquals("开孔宽度必须与遮罩帧一致", cover.width, surface.width)
+            assertEquals("开孔高度必须与遮罩帧一致", cover.height, surface.height)
+            // 开孔里画出来的那一帧必须**就是**遮罩帧。
+            val bitmap = checkNotNull(captureScreen()) { "开孔区必须截到屏（应用不在前台或截图失败）" }
+            val sample = checkNotNull(sampleHole(bitmap, cover)) { "开孔区必须取到样（截图或定位失败）" }
+            UxTestUtils.metric("hole_cover_match_ratio", (sample.matchRatio * 100).toLong())
+            UxTestUtils.metric("hole_distinct_colors", sample.distinct.toLong())
+            UxTestUtils.metric("hole_dominant_share", (sample.dominantShare * 100).toLong())
+            UxTestUtils.metric("hole_marker_pixels", sample.markerPixels.toLong())
+            val ratioOk = sample.matchRatio >= MIN_COVER_MATCH_RATIO
+            // 标记必须在开孔里：单靠「与遮罩吻合的比例」放不住平底色——终端画面绝大部分
+            // 是底色，平底色与遮罩的底色那一部分照样吻合，比例可能很高。故另钉一条：
+            // 开孔里必须看得见离开前铺的那几行红字——那证明装的是**画面**。
+            val markerOk = sample.markerPixels > 0
+            if (!ratioOk || !markerOk) {
+                // 断言要挂之前先把现场存下来：开孔里画的是什么，离线比对 PNG 比读日志快。
+                dumpForensics(bitmap, cover)
+            }
+            assertTrue(
+                "开孔里画出来的那一帧必须就是遮罩帧，实测只有 ${sample.matchRatio * 100}% 的采样点" +
+                    "与遮罩一致（要求 ${MIN_COVER_MATCH_RATIO * 100}%；开孔 dominant=${sample.dominant} " +
+                    "占比 ${sample.dominantShare * 100}% 颜色种数 ${sample.distinct} 采样点 ${sample.sampled}）",
+                ratioOk,
+            )
+            assertTrue(
+                "开孔里必须画的是画面而不是一块平底色（实测开孔里只有 ${sample.markerPixels} 个标记红像素，" +
+                    "颜色种数 ${sample.distinct}）",
+                markerOk,
+            )
+
+            // 收尾：撤掉注入让帧恢复，遮罩随之撤下（否则后面的用例会带着遮罩跑）。
+            // 注入期间原生 surface 已判死，宿主要换一个新的 SurfaceView 才拿得到新窗口，
+            // 而换视图由组合重组驱动——只轮询不推进组合时钟，信号一直排在队列里。
+            assertTrue(
+                "关闭失效注入必须被原生接受",
+                composeTestRule.requireBridge().setSurfaceLossInjectedForTest(false),
+            )
+            assertNotNull(
+                "帧恢复后遮罩必须撤下",
+                UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
+                    composeTestRule.requireBridge().writeToPty("echo HOLE_COVER_END\n".toByteArray(Charsets.UTF_8))
+                    composeTestRule.pumpedTerminalText()
+                    composeTestRule.waitForIdle()
+                    runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
+                },
+            )
+        } finally {
+            // 断言失败时也必须撤掉注入：它是原生侧的全局开关，留着会让同批后继用例的
+            // surface 一直判死，根因被后一条红灯盖住（重复设 false 无副作用）。
+            runCatchingCancellable { composeTestRule.requireBridge().setSurfaceLossInjectedForTest(false) }
         }
-        assertTrue(
-            "开孔里画出来的那一帧必须就是遮罩帧，实测只有 ${sample.matchRatio * 100}% 的采样点" +
-                "与遮罩一致（要求 ${MIN_COVER_MATCH_RATIO * 100}%；开孔 dominant=${sample.dominant} " +
-                "占比 ${sample.dominantShare * 100}% 颜色种数 ${sample.distinct} 采样点 ${sample.sampled}）",
-            ratioOk,
-        )
-        assertTrue(
-            "开孔里必须画的是画面而不是一块平底色（实测开孔里只有 ${sample.markerPixels} 个标记红像素，" +
-                "颜色种数 ${sample.distinct}）",
-            markerOk,
-        )
-
-        // 收尾：撤掉注入让帧恢复，遮罩随之撤下（否则后面的用例会带着遮罩跑）。
-        // 注入期间原生 surface 已判死，宿主要换一个新的 SurfaceView 才拿得到新窗口，
-        // 而换视图由组合重组驱动——只轮询不推进组合时钟，信号一直排在队列里。
-        assertTrue(
-            "关闭失效注入必须被原生接受",
-            composeTestRule.requireBridge().setSurfaceLossInjectedForTest(false),
-        )
-        assertNotNull(
-            "帧恢复后遮罩必须撤下",
-            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                composeTestRule.requireBridge().writeToPty("echo HOLE_COVER_END\n".toByteArray(Charsets.UTF_8))
-                composeTestRule.pumpedTerminalText()
-                composeTestRule.waitForIdle()
-                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
-            },
-        )
     }
 }

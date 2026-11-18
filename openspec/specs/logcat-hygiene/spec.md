@@ -708,6 +708,17 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       `clear` 2、`chromium.thorium` 2，由用户 shell 读取 `/proc` 与装载 nix store
       动态库所致），唯一的 `F` 是 2026-11-12 另一进程（PID 12237）的历史
       `Device::poll` 崩溃，早于本次运行五天
+- **AND** `setRenderPaused` 的 19 次 `paused=true` 与 18 次 `paused=false` MUST 按
+      配对解释为「日志在末次暂停后结束」而非令牌泄漏：前 18 对逐对吻合，第 19 次
+      发生在 `destroySession id=2` 之后 53ms，此后日志仅剩 200ms；暂停由
+      `ON_PAUSE` 领用、`ON_RESUME` 与 `onDispose` 归还，三条路径在
+      `TerminalScreen` 中都有对应实现
+- **AND** 17 次 `attachWindow` MUST 拆成 15 次换窗口（新指针，各触发 4 次格式枚举，
+      与 `warmup` 15 条 = 13 条保留帧 + 2 条无保留帧吻合）与 2 次同窗口
+      `RECONFIGURE_SWAPCHAIN`（快路径，零枚举）；20:27:44 的
+      `warmup: no retained frame to present` 是**会话切换**（挂载的 session 1 与
+      表面原属的 session 2 不同，按设计不得把上一会话的画面闪给新会话），不是保留帧
+      丢失，与冷启动的首条同因
 - **AND** 本份日志 MUST NOT 被当作闪烁已修的证据：它不携带开孔像素信息；修复的
       判据取 `render-stability` 的开孔状态序列与模拟器仪器化用例
 - **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置

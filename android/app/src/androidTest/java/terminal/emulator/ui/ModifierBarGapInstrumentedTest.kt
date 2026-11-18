@@ -19,6 +19,10 @@ import terminal.emulator.requireBridge
  * 行数 = 该高度按单元高向下取整。若实现少算行数，剩余高度会以整行倍数留白，
  * 而滚动又按同一视口高度重算，于是「空白看着很大、滚一下又用上了」。
  * 这条用例对两种键盘形态取同一判据：余量必须落在 [0, 单行高) 内。
+ *
+ * 主屏的网格不随输入法变化（输入法只平移 Surface，见 ime-animation-smoothness），
+ * 故两种形态验的是同一份高度；「键栏底边恰好贴键盘顶边」由
+ * `ImePopupPixelInstrumentedTest` 与 `ImeSurfaceStabilityInstrumentedTest` 覆盖。
  */
 @RunWith(JUnit4::class)
 class ModifierBarGapInstrumentedTest : ComposeTerminalLogcatTest() {
@@ -68,7 +72,7 @@ class ModifierBarGapInstrumentedTest : ComposeTerminalLogcatTest() {
         val gap = available - gridHeight
         android.util.Log.i(
             "GapProbe",
-            "ime=$imeVisible view=$viewHeight bar=$barHeight imeInset=${onUiThread { surface.translationY.toInt() }}" +
+            "ime=$imeVisible view=$viewHeight bar=$barHeight shift=${onUiThread { surface.translationY.toInt() }}" +
                 " reserve=${runtime.imeGridReserve()} rows=$gridRows cell=$cellHeight gap=$gap",
         )
         assertTrue(

@@ -282,6 +282,42 @@ class ModifierBarRobolectricTest {
     }
 
     @Test
+    fun `switching layouts keeps the pager page and renders the new keys`() {
+        // `extra-keys` 改了以后键栏会换一批按键，但用户当时可能停在文本输入页：
+        // 换布局不能把分页状态弄丢，也不能画出上一批的按键。
+        var useCustomLayout by mutableStateOf(false)
+        val customLayout =
+            buildExtraKeySlots(listOf(listOf(ExtraKey("ESC"))), ExtraKeysStyle.DEFAULT, true)
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onSubmit = {},
+                    onKeyboardClick = {},
+                    onKey = { _, _ -> false },
+                    layout = if (useCustomLayout) customLayout else null,
+                )
+            }
+        }
+        composeRule.onNodeWithTag("ModifierBarPager").performTouchInput { swipeLeft() }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("TextInputPage").assertIsDisplayed()
+
+        useCustomLayout = true
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("TextInputPage").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("ModifierBarPager").performTouchInput { swipeRight() }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("Key_ESC").assertIsDisplayed()
+        composeRule.onNodeWithTag("Key_HOME").assertDoesNotExist()
+
+        useCustomLayout = false
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("Key_ESC").assertIsDisplayed()
+        composeRule.onNodeWithTag("Key_HOME").assertIsDisplayed()
+    }
+
+    @Test
     fun `drawer long press pastes clipboard`() {
         // Termux `popup: 'PASTE'`：DRAWER 长按必须粘贴，轻点仍开抽屉。
         val counters = DrawerCounters()
