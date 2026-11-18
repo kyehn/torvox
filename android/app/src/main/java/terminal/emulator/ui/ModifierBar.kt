@@ -545,7 +545,9 @@ fun ModifierBar(
     onTextInputPageLeft: () -> Unit = {},
 ) {
     val buttonHeight = buttonHeightDp(buttonHeightScale).dp
-    val rows = layout ?: remember { defaultExtraKeySlots() }
+    // remember 无条件调用：条件分支内的槽位顺序会随 layout 变化。
+    val defaultRows = remember { defaultExtraKeySlots() }
+    val rows = layout ?: defaultRows
     val drawerDescription = stringResource(R.string.open_session_drawer)
     // 第 0 页是按键页，第 1 页是文本输入页（DESIGN：左滑进入文本输入框）。
     val pagerState = rememberPagerState(pageCount = { KEY_PAGE_COUNT })
