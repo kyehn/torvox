@@ -379,6 +379,13 @@ wgpu 的 `Device::poll` 有三种失败形态，调用方的 `Result` 只接得�
 - **WHEN** 首帧尚未呈现、或 shell 尚未输出
 - **THEN** 对应度量保持为 null，MUST NOT 报 0 或其他占位值
 
+#### Scenario: 同一会话的首个输出只上报一次
+
+- **WHEN** 渲染线程因切后台／换 surface 重启，或同一会话继续输出
+- **THEN** 「进程启动 → 首个 PTY 输出」的度量 MUST 仍是**首次**输出的时刻，
+      `first output received` MUST NOT 被重复记录；判定 MUST 挂在会话条目上
+      （渲染线程重启会重建循环内的局部标志）
+
 ### Requirement: 启动屏与桌面图标共用单一图案源
 
 系统启动屏的图标 MUST 是**普通图形**（`@drawable/splash_icon`），MUST NOT 直接给自适应

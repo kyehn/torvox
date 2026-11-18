@@ -74,10 +74,6 @@ internal data class SessionEntry(
     // 按**会话**记，不按进程记：进程级的首帧标志在首个会话出帧后恒为真，无法反映
     // 后建会话是否出过帧——「新建会话一片空白」正是这样被掩盖的。
     @Volatile var firstFramePresented: Boolean = false,
-    // 本会话是否已记过首个 PTY 输出。渲染线程重启（切后台/换 surface）会重建局部变量，
-    // 故这个事实必须按会话存：否则每次恢复都会再记一次「first output received」，
-    // 并把启动耗时指标覆盖成恢复后的时间。
-    @Volatile var firstOutputReported: Boolean = false,
     // 本会话开始渲染的时刻（System.nanoTime）；0 = 尚未开始计时。
     //
     // 只在该会话**第一次**获得渲染线程时落定：渲染线程重启不重置它（重启不改变
@@ -96,6 +92,14 @@ internal data class SessionEntry(
     // （下次信号或周期帧节拍会重渲染）。信号合并天然允许此情形，逐信号队列在此属过度设计。
 
     val renderSignaled = AtomicBoolean(false)
+
+    // 本会话是否已记过首个 PTY 输出。渲染线程重启（切后台/换 surface）会重建循环内的局部变量，
+    // 故这个事实必须按会话存：否则每次恢复都会再记一次「first output received」，
+    // 并把启动耗时指标覆盖成恢复后的时间。CAS 让判定与置位同一原子步。
+    private val firstOutputConsumed = AtomicBoolean(false)
+
+    /** 消费「本会话首个 PTY 输出」这一次机会；非首次返回 false。 */
+    fun consumeFirstOutput(): Boolean = firstOutputConsumed.compareAndSet(false, true)
 
     @Volatile var forceRenderRequested: Boolean = false
 

@@ -500,8 +500,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                                         // 输出让会话重新活跃：帧回调链可能已因空闲停下，
                                         // 拉起它才能继续按 vsync 对齐出帧。
                                         runtime.ensureVsyncChainRunning()
-                                        if (!entry.firstOutputReported) {
-                                            entry.firstOutputReported = true
+                                        if (entry.consumeFirstOutput()) {
                                             LogUtil.info(
                                                 "Runtime",
                                                 "session ${entry.sessionId} first output received",
