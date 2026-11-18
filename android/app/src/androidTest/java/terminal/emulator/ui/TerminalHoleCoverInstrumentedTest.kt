@@ -60,13 +60,22 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
         private const val COLOR_TOLERANCE = 34
 
         /**
-         * 开孔里至少要有的颜色种数。
+         * 标记红的判定阈值：红通道够高、其余两通道够低。
          *
-         * 用来挡住「平底色」这一种蒙混过关的画法：终端画面绝大部分是底色，平底色
-         * 与遮罩的底色那一部分照样吻合，吻合比例可以很高；只有「颜色种数」这条能
-         * 把它区分开——遮罩帧里有文字，文字各有各的色。
+         * 合成管线对**开孔区域**做过一次色彩变换（实测 `screen = 0.878 × buffer + 31`），
+         * 故按区间判定而非精确相等：纯红 (255,0,0) 落到屏幕上是 (255,31,31)，
+         * 抗锯齿的边缘像素也在区间内；而终端底色（深灰）与文字（灰白）都不满足。
          */
-        private const val MIN_DISTINCT_COLORS = 8
+        private const val MARKER_RED_MIN = 140
+
+        /** 标记红判定里绿/蓝通道的上限。 */
+        private const val MARKER_OTHER_MAX = 100
+
+        /** 标记行数：多画几行，标记像素多，扫描稳。 */
+        private const val MARKER_LINES = 5
+
+        /** 等标记上屏的轮询上限（毫秒）。 */
+        private const val MARKER_ON_SCREEN_TIMEOUT_MS = 15_000L
     }
 
     private lateinit var device: UiDevice
@@ -91,7 +100,12 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
         val dominantShare: Double,
         /** 开孔区域里出现过的颜色种数。 */
         val distinct: Int,
+        /** 开孔区域里的标记红像素数。 */
+        val markerPixels: Int,
     )
+
+    /** 开孔在屏幕上的采样区域（像素坐标）。 */
+    private data class HoleRegion(val left: Int, val top: Int, val right: Int, val bottom: Int)
 
     /**
      * 截一张屏。
@@ -109,37 +123,46 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
         UxTestUtils.screenshot(device)
     }.getOrNull()
 
-    /** 取一次开孔的样，并**同时**与 [cover] 逐像素比对。 */
-    private fun sampleHole(bitmap: Bitmap, cover: Bridge.CoverFrame): HoleSample? = runCatchingCancellable {
+    /**
+     * 开孔在屏幕上的采样区域：只取开孔上半（避开输入法在场时被顶上去的部分），
+     * 并裁进截图范围。
+     */
+    private fun holeRegion(bitmap: Bitmap, cover: Bridge.CoverFrame): HoleRegion? = runCatchingCancellable {
         val surface = findTerminalSurface(composeTestRule.activity)
         val location = IntArray(2)
         surface.getLocationOnScreen(location)
         val left = location[0]
         val top = location[1]
+        val right = (left + cover.width).coerceAtMost(bitmap.width)
+        val bottom = (top + cover.height / 2).coerceAtMost(bitmap.height)
+        if (right <= left || bottom <= top) null else HoleRegion(left, top, right, bottom)
+    }.getOrNull()
+
+    /** 取一次开孔的样，并**同时**与 [cover] 逐像素比对。 */
+    private fun sampleHole(bitmap: Bitmap, cover: Bridge.CoverFrame): HoleSample? = runCatchingCancellable {
+        val region = holeRegion(bitmap, cover) ?: return@runCatchingCancellable null
         var matched = 0
         var sampled = 0
+        var markerPixels = 0
         val counts = HashMap<Int, Int>()
-        var y = 0
-        while (y < cover.height / 2) {
-            var x = 0
-            while (x < cover.width) {
-                val screenX = left + x
-                val screenY = top + y
-                if (screenX < bitmap.width && screenY < bitmap.height) {
-                    val screen = bitmap.getPixel(screenX, screenY)
-                    counts[screen] = (counts[screen] ?: 0) + 1
-                    val offset = (y * cover.width + x) * 4
-                    val deltaR = kotlin.math.abs((screen shr 16 and 0xFF) - (cover.pixels[offset].toInt() and 0xFF))
-                    val deltaG = kotlin.math.abs((screen shr 8 and 0xFF) - (cover.pixels[offset + 1].toInt() and 0xFF))
-                    val deltaB = kotlin.math.abs((screen and 0xFF) - (cover.pixels[offset + 2].toInt() and 0xFF))
-                    if (deltaR <= COLOR_TOLERANCE &&
-                        deltaG <= COLOR_TOLERANCE &&
-                        deltaB <= COLOR_TOLERANCE
-                    ) {
-                        matched += 1
-                    }
-                    sampled += 1
+        var y = region.top
+        while (y < region.bottom) {
+            var x = region.left
+            while (x < region.right) {
+                val screen = bitmap.getPixel(x, y)
+                counts[screen] = (counts[screen] ?: 0) + 1
+                if (isMarkerRed(screen)) markerPixels++
+                val offset = ((y - region.top) * cover.width + (x - region.left)) * 4
+                val deltaR = kotlin.math.abs((screen shr 16 and 0xFF) - (cover.pixels[offset].toInt() and 0xFF))
+                val deltaG = kotlin.math.abs((screen shr 8 and 0xFF) - (cover.pixels[offset + 1].toInt() and 0xFF))
+                val deltaB = kotlin.math.abs((screen and 0xFF) - (cover.pixels[offset + 2].toInt() and 0xFF))
+                if (deltaR <= COLOR_TOLERANCE &&
+                    deltaG <= COLOR_TOLERANCE &&
+                    deltaB <= COLOR_TOLERANCE
+                ) {
+                    matched += 1
                 }
+                sampled += 1
                 x += SAMPLE_STEP_PX
             }
             y += SAMPLE_STEP_PX
@@ -152,8 +175,71 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
             dominant = dominant.key,
             dominantShare = dominant.value.toDouble() / sampled,
             distinct = counts.size,
+            markerPixels = markerPixels,
         )
     }.getOrNull()
+
+    /** 是不是标记红（见 [MARKER_RED_MIN]）。 */
+    private fun isMarkerRed(color: Int): Boolean = (color shr 16 and 0xFF) >= MARKER_RED_MIN &&
+        (color shr 8 and 0xFF) <= MARKER_OTHER_MAX &&
+        (color and 0xFF) <= MARKER_OTHER_MAX
+
+    /** 遮罩帧里有没有标记红（RGBA 像素序）。 */
+    private fun coverHasMarker(cover: Bridge.CoverFrame): Boolean {
+        var y = 0
+        while (y < cover.height / 2) {
+            var x = 0
+            while (x < cover.width) {
+                val offset = (y * cover.width + x) * 4
+                val red = cover.pixels[offset].toInt() and 0xFF
+                val green = cover.pixels[offset + 1].toInt() and 0xFF
+                val blue = cover.pixels[offset + 2].toInt() and 0xFF
+                if (red >= MARKER_RED_MIN && green <= MARKER_OTHER_MAX && blue <= MARKER_OTHER_MAX) return true
+                x += SAMPLE_STEP_PX
+            }
+            y += SAMPLE_STEP_PX
+        }
+        return false
+    }
+
+    /** 铺几行纯红标记：遮罩里有没有它，一眼可辨。 */
+    private fun paintMarker() {
+        val payload =
+            buildString {
+                append("\u001b[2J\u001b[H")
+                repeat(MARKER_LINES) { index ->
+                    append("\u001b[31;1mHOLE_MARKER_$index\u001b[0m\r\n")
+                }
+            }
+        assertTrue(
+            "标记必须送进终端",
+            composeTestRule.requireBridge().feedTerminal(payload.toByteArray(Charsets.UTF_8)),
+        )
+    }
+
+    /**
+     * 屏幕上是否已经出现标记红。
+     *
+     * 遮罩取的是「最后一帧**已渲染**的画面」：标记还在 VT 里没渲染出来时，遮罩
+     * 里本就不该有它。故本用例先等标记真的上屏，再切后台。
+     */
+    private fun screenHasMarker(): Boolean = runCatchingCancellable {
+        val shot = UxTestUtils.screenshot(device)
+        val surface = findTerminalSurface(composeTestRule.activity)
+        val location = IntArray(2)
+        surface.getLocationOnScreen(location)
+        val bottom = (location[1] + surface.height / 2).coerceAtMost(shot.height)
+        var y = location[1]
+        while (y < bottom) {
+            var x = location[0]
+            while (x < (location[0] + surface.width).coerceAtMost(shot.width)) {
+                if (isMarkerRed(shot.getPixel(x, y))) return@runCatchingCancellable true
+                x += SAMPLE_STEP_PX
+            }
+            y += SAMPLE_STEP_PX
+        }
+        false
+    }.getOrDefault(false)
 
     /**
      * 把截屏与遮罩各自存成 PNG，便于离线比对。
@@ -187,8 +273,15 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
         val runtime = composeTestRule.activity.terminalViewModel.runtime
         composeTestRule.waitForIdle()
         awaitShellPrompt(composeTestRule.requireBridge())
-        composeTestRule.requireBridge().writeToPty("echo HOLE_COVER_MARK\n".toByteArray(Charsets.UTF_8))
-        composeTestRule.pumpedTerminalText()
+        paintMarker()
+        // 标记必须**已经上屏**：遮罩取的是「最后一帧**已渲染**的画面」，标记还在
+        // VT 里没渲染出来时，遮罩里本就不该有它（那不是遮罩的错）。
+        assertNotNull(
+            "标记必须已渲染上屏",
+            UxTestUtils.pollUntilTrue(timeoutMs = MARKER_ON_SCREEN_TIMEOUT_MS, intervalMs = 200) {
+                screenHasMarker()
+            },
+        )
         // 持续注入 surface 级失败：取纹理失败，宿主会换新的 SurfaceView，开孔稳定地
         // 没有新帧——「无缓冲区」成为稳定态，才量得到遮罩在开孔里的样子。
         assertTrue(
@@ -197,9 +290,18 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
         )
         composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
         assertNotNull(
-            "切后台后必须回读出开孔遮罩",
+            "切后台后必须发布开孔遮罩",
             UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
                 runtime.coverFrame.value != null
+            },
+        )
+        // 遮罩必须是**含标记色的那一帧**：周期回读被节流，缓存可能落后于最后一帧
+        // （实测：刚切后台时发布的是一块空白帧），切后台那一刻的强制回读取到最新
+        // 画面并替下它。故这里等的是「含标记色的遮罩」，而不是「有遮罩」。
+        assertNotNull(
+            "切后台后遮罩必须是含标记色的最新画面",
+            UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
+                runtime.coverFrame.value?.let { coverHasMarker(it) } == true
             },
         )
         composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
@@ -220,12 +322,13 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
         UxTestUtils.metric("hole_cover_match_ratio", (sample.matchRatio * 100).toLong())
         UxTestUtils.metric("hole_distinct_colors", sample.distinct.toLong())
         UxTestUtils.metric("hole_dominant_share", (sample.dominantShare * 100).toLong())
+        UxTestUtils.metric("hole_marker_pixels", sample.markerPixels.toLong())
         val ratioOk = sample.matchRatio >= MIN_COVER_MATCH_RATIO
-        // 颜色种数：单靠「与遮罩吻合的比例」放不住平底色——终端画面绝大部分是底色，
-        // 平底色与遮罩的底色那一部分照样吻合，比例可能很高。故另钉一条：开孔里必须
-        // 有多种颜色（遮罩帧里有文字，文字各有各的色）。
-        val colorsOk = sample.distinct >= MIN_DISTINCT_COLORS
-        if (!ratioOk || !colorsOk) {
+        // 标记必须在开孔里：单靠「与遮罩吻合的比例」放不住平底色——终端画面绝大部分
+        // 是底色，平底色与遮罩的底色那一部分照样吻合，比例可能很高。故另钉一条：
+        // 开孔里必须看得见离开前铺的那几行红字——那证明装的是**画面**。
+        val markerOk = sample.markerPixels > 0
+        if (!ratioOk || !markerOk) {
             // 断言要挂之前先把现场存下来：开孔里画的是什么，离线比对 PNG 比读日志快。
             dumpForensics(bitmap, cover)
         }
@@ -236,8 +339,9 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
             ratioOk,
         )
         assertTrue(
-            "开孔里必须画的是画面而不是一块平底色（实测只有 ${sample.distinct} 种颜色）",
-            colorsOk,
+            "开孔里必须画的是画面而不是一块平底色（实测开孔里只有 ${sample.markerPixels} 个标记红像素，" +
+                "颜色种数 ${sample.distinct}）",
+            markerOk,
         )
 
         // 收尾：撤掉注入让帧恢复，遮罩随之撤下（否则后面的用例会带着遮罩跑）。

@@ -653,14 +653,15 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
         「切后台返回闪烁」的直接成因（见 `render-stability` 的设备丢失场景）
       - `native::android::logging` 1 条（`panic: ... Device::poll: Validation Error`）：
         与上一条同一次设备丢失事件的第二份副本（panic 钩子）。根因已修：丢失回调
-        置位后不再轮询死设备（`poll.rs` 的 `lost_device_outcome`），切后台路径也
-        不再回读（遮罩改为运行期缓存），该 panic 在新实现下不再发生；panic 钩子
-        仍照常记录未被接住的 panic，MUST NOT 以过滤该 tag 处置
+        置位后不再轮询死设备（`poll.rs` 的 `lost_device_outcome`），渲染线程的退出
+        路径也不再回读（遮罩改为运行期缓存），该 panic 在新实现下不再发生；panic
+        钩子仍照常记录未被接住的 panic，MUST NOT 以过滤该 tag 处置
 - **AND** 本份日志 MUST 记下「切后台即设备丢失」这条因果链：`setRenderPaused:
       paused=true` 后 7ms 出现 `GPU device lost`，再 53ms 后出现 `Device::poll`
       的 panic；十次 `read_cover_frame: 已回读` 即十次切后台各现场回读一次。
-      遮罩若留在切后台路径上回读，这道 panic 之后遮罩为空，回前台首个窗口帧就是
-      空开孔——即「切后台返回闪烁」。故遮罩 MUST 在运行期缓存、切后台只发布缓存
+      遮罩若只靠切后台现场回读，这道 panic 之后遮罩为空，回前台首个窗口帧就是
+      空开孔——即「切后台返回闪烁」。故遮罩 MUST 在运行期缓存并**先**发布缓存；
+      切后台那一刻的强制回读只把已发布的遮罩换成更新的帧，失败不改变已发布内容
       （见 `render-stability` 的运行期缓存场景）
 - **AND** 同 UID 子进程的 93 条 MUST 全部归为内核审计与历史崩溃：92 条是
       `type=1400 audit(...)` 行（`fish` 62、`git` 25、`login` 3、`DefaultDispatch` 2，<!-- nosemgrep: semgrep.no-prohibited-shells -->

@@ -268,6 +268,22 @@ constructor(
     @Volatile private var capturedCoverGeneration = -1L
 
     /**
+     * 强制回读标志：绕开周期回读的节流与暂停检查。
+     *
+     * 用于「即将失去窗口缓冲」的那一刻（见 [requestForcedCoverCapture]）：周期
+     * 回读至多每 [COVER_CAPTURE_INTERVAL_MS] 一次，缓存可能落后于最后一帧。
+     */
+    @Volatile private var coverCaptureForced = false
+
+    /**
+     * 开孔当前是否**等着一份遮罩**：发布请求已发出、遮罩尚未被视图用掉。
+     *
+     * 强制回读落地时据此决定要不要发布：缓存为空（刚启动、还没回读过）时，遮罩
+     * 尚未发布，但回读到的这一帧正是此刻该填进开孔的内容。
+     */
+    @Volatile private var coverPublishRequested = false
+
+    /**
      * 缓存的遮罩帧：最近一次成功回读的**已呈现帧**。
      *
      * 切后台只发布它（[publishStoredCoverFrame]），不现场回读：现场回读在设备丢失时
@@ -477,6 +493,9 @@ constructor(
      *
      * [frame] 是回读到的上一帧（尺寸与 RGBA8 像素）；尺寸对不上时直接丢弃——
      * 错位的位图比没有遮罩更糟。
+     *
+     * 两个调用方：主线程的「窗口缓冲即将消失」路径（发布缓存），与 IO 线程的
+     * 强制回读路径（发布刚回读到的最新帧）。故本方法只碰线程安全的状态。
      */
     internal fun publishCoverFrame(frame: Bridge.CoverFrame) {
         val expected = frame.width.toLong() * frame.height.toLong() * 4L
@@ -501,6 +520,7 @@ constructor(
      * 重新可见，运行期无从判断「这一帧窗口到底有没有画过」。
      */
     internal fun clearCoverFrame() {
+        coverPublishRequested = false
         if (coverFrameFlow.value == null) return
         synchronized(holeJournalLock) { holePaintedForCover = false }
         coverFrameFlow.value = null
@@ -539,13 +559,25 @@ constructor(
             RUNTIME_LOG_TAG,
             "captureCoverFrame: 已缓存 ${frame.width}x${frame.height} 的开孔遮罩",
         )
+        // 开孔正等着一份遮罩（切后台那一刻发出的发布请求）：把刚回读到的新帧发布
+        // 出去。周期回读被节流，缓存可能落后于最后一帧；不换上去，遮罩里留的是旧
+        // 画面（实测：应用刚起、缓存还是 warmup 的空白帧时切后台，遮罩是一块空白，
+        // 与没有遮罩无异）。这里换上的正是「即将失去窗口缓冲」那一刻的画面。
+        if (coverPublishRequested) publishCoverFrame(frame)
     }
 
     /** 有一帧尚未回读（或被首帧信号唤醒）时回读一次。 */
     private fun captureCoverFrameIfNeeded() {
-        if (backgroundRenderPause.isPaused) return
+        val forced = coverCaptureForced
+        if (!forced) {
+            // 周期回读：暂停期间不碰 GPU（设备可能在后台丢失，回读必然失败），
+            // 且只在有新帧时才回读（没有新画面，回读到的还是同一帧）。
+            if (backgroundRenderPause.isPaused) return
+            if (coverFrameGeneration == capturedCoverGeneration) return
+        }
+        // 先清标志再取会话：会话已不在时这次强制回读作废，不留在标志里反复重试。
+        coverCaptureForced = false
         val entry = sessions[activeSessionId] ?: return
-        if (coverFrameGeneration == capturedCoverGeneration) return
         captureCoverFrame(entry.sessionId, entry.bridge)
     }
 
@@ -566,12 +598,35 @@ constructor(
     /**
      * 把缓存的开孔遮罩发布出去。
      *
-     * 切后台与 Surface 销毁都走这里：此时只做一次状态发布，不碰 GPU。没有缓存
-     * （冷启动后从未出过帧）时不发布，开孔继续用平底色遮。
+     * 切后台与 Surface 销毁都走这里：先把缓存发布出去（只发状态，不碰 GPU）。没有
+     * 缓存（冷启动后从未出过帧）时不发布，开孔继续用平底色遮。
+     *
+     * 切后台时还要**强制回读**一次（[refresh]）：周期回读至多每
+     * [COVER_CAPTURE_INTERVAL_MS] 一次，缓存可能落后于最后一帧（实测：应用刚起时
+     * 缓存还是 warmup 的空白帧，此刻切后台，遮罩里是一块空白——与没有遮罩无异）。
+     * 强制回读绕开节流，取到的就是「即将失去窗口缓冲」那一刻用户最后看到的画面，
+     * 随后替下已发布的旧帧。
+     *
+     * surface 销毁路径不刷新（[refresh] = false）：切后台那次已经在设备还活着时
+     * 刷过，此时设备往往已随 surface 一同丢失，再回读只会多一条失败日志。
      */
-    internal fun publishStoredCoverFrame() {
-        val frame = storedCoverFrame ?: return
-        publishCoverFrame(frame)
+    internal fun publishStoredCoverFrame(refresh: Boolean) {
+        coverPublishRequested = true
+        storedCoverFrame?.let { publishCoverFrame(it) }
+        if (refresh) requestForcedCoverCapture()
+    }
+
+    /**
+     * 请求一次强制回读：绕开周期回读的节流与暂停检查。
+     *
+     * 暂停检查也被绕开：回读只读累加器纹理（纯设备资源），不碰窗口表面；设备
+     * 若已在后台丢失，原生侧直接放弃（见 `cover_readback_source`），不产生 GPU
+     * 等待。故这一次回读与后台路径互不依赖——这正是它能救「设备随后丢失」那类
+     * 场景的原因。
+     */
+    private fun requestForcedCoverCapture() {
+        coverCaptureForced = true
+        coverCaptureSignal.trySend(Unit)
     }
 
     /** 仅供测试：缓存里是否已有一帧可发布的开孔遮罩。 */
@@ -3839,7 +3894,7 @@ constructor(
         attachedSurface = null
         // 开孔已随视图拆除：先发布缓存遮罩（只发状态、不碰 GPU，设备丢失时也有效），
         // 再落回「无缓冲区」，开孔在首帧前一直有东西遮。
-        publishStoredCoverFrame()
+        publishStoredCoverFrame(refresh = false)
         publishSurfaceBufferPresent(false)
         // 经账本领暂停而非直写全局布尔：直写的暂停不被任何持有者计数，
         // 别的来源归还时（视图 detach 归还防抖）会把它一并清掉——
@@ -3866,8 +3921,9 @@ constructor(
     @MainThread
     fun pauseRenderingForBackground() {
         // 先发布缓存遮罩，再停渲染线程：设备可能在后台丢失，停下后没有帧可回读；
-        // 缓存在切后台前就已按已呈现帧备好（见 coverCaptureLoop）。
-        publishStoredCoverFrame()
+        // 缓存在切后台前就已按已呈现帧备好（见 coverCaptureLoop）。设备还活着时
+        // 再强制回读一次，把遮罩换成离开前的最后一帧（见 publishStoredCoverFrame）。
+        publishStoredCoverFrame(refresh = true)
         backgroundRenderPause.onBackground()
         pauseRendering()
     }
