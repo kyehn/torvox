@@ -294,10 +294,6 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                             // 慢帧告警同样节流：滚动时每帧都超 30ms，逐帧写 logcat
                             // 会让诊断本身成为负担；帧时长统计窗口仍保留完整分布。
                             val slowFrameThrottle = CountedLogThrottle()
-                            // 本会话是否已收到 PTY 输出：首个输出即 shell 真的开始说话，
-                            // 它也是外部驱动（宏基准）判定「可以往终端敲键」的信号——
-                            // shell 就绪前写入会被 tty 初始化冲掉。
-                            var hasReceivedOutput = false
                             // 每线程帧时长统计：渲染线程重启时重置（新生涯，不带陈旧历史）。
                             val frameTiming = FrameTimingStats()
                             // 整循环周期统计（渲染 + pollAll + 事件派发 + waitOutput）：
@@ -504,18 +500,18 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                                         // 输出让会话重新活跃：帧回调链可能已因空闲停下，
                                         // 拉起它才能继续按 vsync 对齐出帧。
                                         runtime.ensureVsyncChainRunning()
-                                        if (!hasReceivedOutput) {
-                                            hasReceivedOutput = true
+                                        if (!entry.firstOutputReported) {
+                                            entry.firstOutputReported = true
                                             LogUtil.info(
                                                 "Runtime",
                                                 "session ${entry.sessionId} first output received",
                                             )
+                                            // 首个 PTY 输出 = shell 真的开始说话了（提示符已落格）：
+                                            // 「进程启动 → 这一刻」是用户口径的「shell 启动慢」。
+                                            runtime.publishStartupMetrics(
+                                                startupToFirstOutputMs = runtime.elapsedSinceProcessStartMs(),
+                                            )
                                         }
-                                        // 首个 PTY 输出 = shell 真的开始说话了（提示符已落格）：
-                                        // 「进程启动 → 这一刻」是用户口径的「shell 启动慢」。
-                                        runtime.publishStartupMetrics(
-                                            startupToFirstOutputMs = runtime.elapsedSinceProcessStartMs(),
-                                        )
                                         // 滚动语义（termux onScreenUpdated 对等）：消费原生 new_output
                                         // 标志（PTY 摄入的旁路标志，而非同样统计空闲重绘的
                                         // render() 计数），且仅在无选区/拖拽、SCROLL 锁关闭、
