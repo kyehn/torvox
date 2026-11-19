@@ -17,10 +17,8 @@
     慢重试（每 5s 一次），渲染成功后由 RenderSupervisor 复位；设备丢失余波（panic 副本、
     cell metrics、render skipped）不再各记一条 error。
   - 未解决（平台/根因）：
-    - Mali-G57 首帧后约 6ms 设备丢失的确切成因未能定位（无内核/驱动日志，无法本地复现）；
-      应用侧缓解只限制重建次数，不能避免丢失本身。
-    - `SLOW_CELL_BUILD`（997 单元 / 575 实例，build≈22ms）出现在滚动输出后的首屏重输出帧；
-      未优化，需要真机 profiler 数据，盲改风险高于收益。
+    - Mali-G57 首帧后约 6ms 设备丢失的确切成因未能定位（本机无真实 Mali：mobile-mcp 列出仅 `test_avd` 模拟器，不能复现）；应用侧缓解只限制重建次数，不能避免丢失本身。
+    - `SLOW_CELL_BUILD`（997 单元 / 575 实例，build≈22ms）出现在滚动输出后的首屏重输出帧；本机热路径 `cell_builder` bench ≈0.358ms、端到端预热路径 3.0ms/帧，无算法回归，仍需真机 profiler 再决定是否优化。
     - `mali_gralloc` R8 探测、`wgpu_core::instance` downlevel 提示、`Parcel` binder null、
       `libc` 属性、`ziparchive`、`FeatureOpt`、ZTE `Typeface`、debug jdwp 等均为平台/厂商/
       debug 条目，归因为平台，未降级、未过滤、未改阈值。

@@ -838,15 +838,17 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 - **WHEN** 深入核查 `logcat_2026-11-19_17-51-20.txt` 中应用侧无法消除的条目
 - **THEN** 每一项 MUST 满足下述判定之一：
       - `Mali-G57` 设备丢失（两簇：冷启动首帧后约 6ms，10 次；17:46:03 滚动重输出前后，
-        5 次）：根因未能定位——无内核/驱动日志，两簇后应用照常出帧（之后数分钟
+        5 次）：根因未能定位——无内核/驱动日志；Android Studio 设备清单仅 `test_avd` 模拟器
+        （SwiftShader，不能复现 Mali `Device lost`），两簇后应用照常出帧（之后数分钟
         `≈60fps` 正常），`PowerPreference=HighPerformance`、`Mailbox`、
         `ANativeWindow_setBuffersGeometry` 在本日志与 15-46-03 日志下表现一致，无证据
         表明具体应用配置为成因。应用侧只能有界恢复（快试 5 次 ≥500ms、慢重试 5s、
         渲染成功后由 RenderSupervisor 复位），MUST NOT 以降低重试频率或隐藏日志处置
       - `SLOW_CELL_BUILD` build=22.097ms（997 单元 / 575 实例，`partial=true`）：出现在
-        滚动重输出后的首屏重输出帧；大约每分钟出现一次或更少（此前 133 窗口无同级
-        告警）。优化要依据真机 profiler 的 build 段（CPU 实例构建）数据；无该证据即
-        盲改细胞构建缓存会破坏全量/脏带一致性（见 `partial_frame_bands` 的代际门控注释）
+        滚动重输出后的首屏重输出帧；本机 `cargo bench --bench cell_builder -- --quick`
+        热路径为 0.358ms，`bench_end_to_end_cpu_pipeline_latency` 预热后为 3.0ms/帧，
+        无算法回归证据；该条目只能是新建首批字形光栅化成本，不能盲改缓存（见
+        `partial_frame_bands` 代际门控），需真机 profiler 区分新建字形数与实例发射成本后再定
       - `Parcel Expecting binder but got null!`（13 条，偶发成对）：平台窗口/输入法事务的 binder
         日志，无应用栈、不携带应用堆；15-46-03 日志仅 2 条、17-51-20 为 13 条。该条目
         的触发次数与进行中的事务相关，应用侧无产生/抑制 API；换视图预算复位修复可削减
