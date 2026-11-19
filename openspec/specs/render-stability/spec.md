@@ -535,6 +535,9 @@ MUST 换新的 `SurfaceView` 以取得新的原生窗口，且请求 MUST 受间
 - **AND** 否则每次 attach 都把 5 次快试上限重置，限流永不生效：实测 2026-11-19
       17:44 的启动设备丢失连发 15 次，2.8s 内换掉 15 个 `SurfaceView`、
       每 ~50ms 重建一次 `VkInstance`，既拖慢恢复又给驱动施加压力
+- **AND** 应用侧 MUST 如实记录：本次设备丢失的底层根因（Mali-G57 两簇丢失）未能定位，
+      应用配置（`PowerPreference`／present mode／`ANativeWindow_setBuffersGeometry`）
+      均无证据为成因；有界恢复是缓解而非消除，MUST NOT 在规范中表述为「已解决」
 
 ### Requirement: 设备丢失后停止向死设备提交
 
