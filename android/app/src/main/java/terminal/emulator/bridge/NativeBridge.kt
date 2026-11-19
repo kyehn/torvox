@@ -2,6 +2,7 @@ package terminal.emulator.bridge
 
 import terminal.emulator.runtime.LogUtil
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.CountDownLatch
 
 /**
@@ -71,11 +72,14 @@ object NativeBridge {
 
     /** 实际解析到的 `libnative.so` 路径（从 `/proc/self/maps` 取值），读不到返回 null。 */
     private fun resolvedLibraryPath(): String? {
-        val line =
-            runCatching {
-                File("/proc/self/maps").readLines().firstOrNull { it.contains("libnative.so") }
-            }.getOrNull() ?: return null
-        return line.substringAfterLast(' ').takeIf { it.isNotEmpty() }
+        val line = try {
+            File("/proc/self/maps").readLines().firstOrNull { it.contains("libnative.so") }
+        } catch (_: IOException) {
+            return null
+        } catch (_: SecurityException) {
+            return null
+        }
+        return line?.substringAfterLast(' ')?.takeIf { it.isNotEmpty() }
     }
 
     /**
