@@ -1,0 +1,11 @@
+# 原生构建的 zig 口径。
+#
+# `ZIG` 指向只在崩溃信号下重试的包装脚本：zig 0.17.1 的 build runner 偶发在
+# 包拉取/解包阶段 SIGABRT（上游缺陷），重试不改变编译错误与正常失败的上抛。
+#
+# 包缓存落到 `native/target/zig-global-cache`：CI 的 actions/cache 已覆盖
+# `native/target/`，缓存恢复后不再联网拉包，短路掉会崩溃的那段路径；同时
+# 不污染 `~/.cache/zig`。调用方显式设置同名环境变量时以调用方为准。
+[env]
+ZIG = { value = "tools/zig-build", relative = true }
+ZIG_GLOBAL_CACHE_DIR = { value = "target/zig-global-cache", relative = true }

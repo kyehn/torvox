@@ -1,0 +1,31 @@
+#!/bin/sh
+# zig 0.17.1 的 build runner 偶发在包拉取/解包阶段以 SIGABRT 退出（日志为
+# `General protection exception (no address available)`）。这是上游缺陷，
+# 同一提交在不同 attempt 上冷缓存可复现、热缓存不复现。
+#
+# 只在子进程被崩溃信号杀死时重试：编译错误、参数错误、正常失败一律原样上抛，
+# 不掩盖真实问题；HUP/INT/TERM 是调用方取消，也不重试。每次重试把信号打到
+# stderr，连续 attempts 次仍崩溃则带着最后一次的状态退出。
+attempts=3
+n=0
+while :; do
+    n=$((n + 1))
+    zig "$@"
+    status=$?
+    if [ "$status" -eq 0 ]; then
+        exit 0
+    fi
+    # 128+N 表示被信号 N 杀死；其余都是 zig 自己的退出码。
+    if [ "$status" -lt 128 ] || [ "$status" -gt 159 ]; then
+        exit "$status"
+    fi
+    signal=$((status - 128))
+    case "$signal" in
+        1 | 2 | 15) exit "$status" ;;
+    esac
+    if [ "$n" -ge "$attempts" ]; then
+        echo "zig-build: zig 被信号 $signal 终止，已尝试 $n 次，放弃" >&2
+        exit "$status"
+    fi
+    echo "zig-build: zig 被信号 $signal 终止（第 $n 次尝试），重试" >&2
+done

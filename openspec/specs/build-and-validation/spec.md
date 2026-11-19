@@ -39,6 +39,37 @@ Rust 最低版本 MUST 为 1.99，`edition` 最低为 2024。
 - **WHEN** 审阅 Gradle 与 Rust 的 Android 构建配置
 - **THEN** 目标架构只有 `arm64-v8a` 和 `x86_64`
 
+### Requirement: zig 崩溃按信号有界重试
+
+原生库构建使用的 Zig MUST 经 `native/tools/zig-build` 包装。包装脚本 MUST 仅在子进程
+被崩溃信号（SIGILL、SIGTRAP、SIGABRT、SIGBUS、SIGFPE、SIGSEGV）杀死时重试，最多 3 次；
+编译错误、参数错误、普通失败、调用方取消（SIGHUP/SIGINT/SIGTERM）与被 SIGKILL
+杀死（含 OOM）MUST 立即原样上抛。每次重试 MUST 把信号写到 stderr；连续 3 次仍崩溃时
+MUST 带最后一次的状态失败，MUST NOT 静默降级或吞掉日志。
+
+Zig 的包缓存 MUST 落在 `native/target/zig-global-cache`，使 CI 的 `native/target/`
+缓存恢复后不再联网拉包；调用方显式设置同名环境变量时 MUST 以调用方为准。
+
+#### Scenario: 冷缓存崩溃后重试成功
+
+- **WHEN** `zig build` 在包拉取阶段被 SIGABRT 杀死一次，下一次成功
+- **THEN** 构建继续，stderr 记录一次重试与信号号
+
+#### Scenario: 编译错误不重试
+
+- **WHEN** ghostty 构建返回普通编译错误
+- **THEN** 包装脚本只运行一次并原样返回该退出码
+
+#### Scenario: 外部终止不重试
+
+- **WHEN** 子进程被 SIGKILL（如 OOM 杀手）或 SIGHUP/SIGINT/SIGTERM 终止
+- **THEN** 包装脚本只运行一次并原样返回 128+N 的状态，MUST NOT 重试
+
+#### Scenario: 连续崩溃有界失败
+
+- **WHEN** `zig build` 连续 3 次被同一崩溃信号杀死
+- **THEN** 包装脚本返回最后一次的状态，构建失败并保留日志
+
 ### Requirement: 共存构建
 
 `nix` build type MUST 与 release 使用相同的构建配置，`applicationId` MUST 为
