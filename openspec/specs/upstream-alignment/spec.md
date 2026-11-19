@@ -1024,7 +1024,7 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   - `android/app/src/main/java/terminal/emulator/ui/SettingsAppearanceSection.kt:124` — slider-value-range：range 由实际数据构造并收敛，陷阱成立。
   - `android/app/src/main/java/terminal/emulator/ui/SettingsComponents.kt:122` — slider-value-range：共享组件，范围由调用方数据约束，陷阱成立。
   - `android/app/src/main/java/terminal/emulator/ui/SettingsScreen.kt:96` — pointer-input-unit：gesture 不读状态，陷阱成立。
-  - 已修复（shape hit 消失）：`FontManager.refreshFontList` 补 `fontLoadJob?.cancel()`（, commit 788e6fec），`RenderWatchDog.start` 补 `watchJob?.cancel()`（f2b231a5）。
+  - 已修复（shape hit 消失）：`FontManager.refreshFontList` 补 `fontLoadJob?.cancel()`，`RenderWatchDog.start` 补 `watchJob?.cancel()`（同一轮 job 生命周期加固）。
 - **rapidocr**：`flake.nix` 引导调用 `scripts/download-rapidocr-models.nu` 把模型
   下载到 `/tmp/.rapidocr-models`，模型环境已就绪；该下载与其他 shellHook 初始化步骤
   （AOSP testkey、`/tmp/alacritty-theme` 克隆）共享同一把排他锁，多个 shell 并发进入
