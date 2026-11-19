@@ -32,7 +32,10 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCell
         // 与 prefetchRenderState 同口径：GPU 失败可重试、只记账，字体库不可用才致命；
         // 真无 GPU 的设备仍在首帧由渲染路径给出明确错误。
         if let Err(initialization_error) = crate::render::context::try_global_gpu() {
-            log::error!("cell metrics query skipped: {initialization_error}");
+            // GPU 不可用（未初始化或设备已丢失）时返回 0，Kotlin 侧保留旧度量或退回
+            // config 默认网格。设备丢失本身已由 mark_device_lost 记一条 error，
+            // 这里是同一事件的余波，按 debug 记，避免每次 attach 再刷一条 error。
+            log::debug!("cell metrics query skipped: {initialization_error}");
             return Ok(0);
         }
         let state = render_state_mut();

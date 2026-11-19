@@ -361,7 +361,9 @@ pub(super) fn render_inner(session_id: u64) -> jint {
     // 宿主经 `surface_invalidated()` 收到同一信号并换新窗口，重建发生在 attach 路径。
     if crate::render::context::device_lost() {
         if let Some(skipped_calls) = DEVICE_LOST_RENDER_THROTTLE.record() {
-            log::error!(
+            // 丢失本身已由 mark_device_lost 记一条 error；这里是同一事件的余波，
+            // 按 warn 限频（不逐帧刷 error）。设备丢失期间渲染线程本就不再出帧。
+            log::warn!(
                 "render skipped: GPU device is lost; waiting for a fresh surface attach to rebuild it (skipped_calls={skipped_calls})"
             );
         }

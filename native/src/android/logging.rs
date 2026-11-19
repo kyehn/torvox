@@ -115,6 +115,12 @@ pub(crate) fn init() {
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         let backtrace = std::backtrace::Backtrace::force_capture();
-        log::error!("panic: {info}\n{backtrace}");
+        // 被 `poll_outcome` 接住的 wgpu panic 是设备丢失的副本：丢失本身已记一条
+        // error，这里按 debug 保留全文（不吞、不滤 tag），避免同一事件刷两条 error。
+        if crate::take_expected_panic() {
+            log::debug!("panic (expected, classified by caller): {info}\n{backtrace}");
+        } else {
+            log::error!("panic: {info}\n{backtrace}");
+        }
     }));
 }
