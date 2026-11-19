@@ -399,6 +399,12 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 - **WHEN** 某一诊断记录的是热路径上的单次取值
 - **THEN** 该诊断 MUST 记为 trace，MUST NOT 以 debug 逐次输出
 
+#### Scenario: 搜索 needle 的逐键取值只留 trace
+
+- **WHEN** 用户在搜索框逐键输入，触发 `searchSetNeedle`
+- **THEN** 该诊断 MUST 记为 trace，MUST NOT 在 info 级按每次击键输出
+- **AND** MUST NOT 记录 needle 原文（用户输入不落日志），只记长度与命中数
+
 #### Scenario: 诊断行的字段不得互相冒充
 
 - **WHEN** 同一行给出多个取值不同的字段（如是否部分帧与脏带数）
@@ -730,6 +736,102 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 - **AND** 本份日志 MUST NOT 被当作闪烁已修的证据：它不携带开孔像素信息；修复的
       判据取 `render-stability` 的开孔状态序列与模拟器仪器化用例
 - **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
+
+#### Scenario: 2026-11-19 运行日志（15-39-42 至 15-45-29）的聚合归因
+
+- **WHEN** 审计 `logcat_2026-11-19_15-46-03.txt`（真实设备，主进程 16905，运行约
+      5 分 47 秒，含一次新建会话、四次快速换窗与多次切后台）
+- **THEN** 应用进程 W/E 合计 MUST 为 81 条，逐条处置 MUST 为：
+      - `mali_gralloc` 56 条（`Requested R8 format is not supported with this
+        allocator` 28 + `ERROR: Unrecognized and/or unsupported format 0x38 and
+        usage 0xb00` 28）：七次新窗口配置（1 次冷启动 + 6 次 `ANativeWindow
+        changed`）× 每次 4 次格式枚举 × 每枚举 2 行；两次
+        `RECONFIGURE_SWAPCHAIN` 同窗口重挂一次枚举都不做。归因与 08-52-39 相同：
+        平台 `GetPhysicalDeviceSurfaceFormatsKHR` 的 R8 能力探测，应用实际请求
+        `Rgba8Unorm`，应用侧无 API 可关
+      - `RemoteInputConnectionImpl` 9 条：输入法侧在失活连接上请求光标锚点，成
+        1–2 条一组分布在搜索操作期间的六个时间点（15:39:55、15:39:59、
+        15:40:03、15:40:10、15:40:54、15:40:58），判据见同文件的光标监视场景
+      - `ziparchive` 4、`libc` 4、`FeatureOpt` 2、`Typeface` 1、`com.termux` 1：
+        厂商框架与平台路径（Unisoc dex 元数据、ZTE 折叠态开关、厂商属性读取、
+        debug 构建 jdwp 未启动），均无应用栈
+      - `wgpu_core::instance` 2 条：设备创建时上游对缺少 `SURFACE_VIEW_FORMATS`
+        的无条件 downlevel 提示（与 08-52-39 同一条上游事实）
+      - `Parcel` 2 条（15:39:43.107、15:40:45.788）：平台窗口事务的空 Binder 返回
+- **AND** 本份日志发现并修复两处应用侧重复工作，二者都属「无状态变化」：
+      - `loadFontFile` 2 条（冷启动与新建会话各一次）装载同一
+        `~/.termux/font.ttf`：进程级字体库只有一份，第二次装载会追加不可回收的面。
+        修复后进程内按路径 + 大小 + mtime 缓存，见同文件的用户字体覆盖需求
+      - `log level set to INFO` 5 条 = 启动 1 条 + 无关设置写入触发的 4 条重复下发。
+        修复取 `logLevel` 视图的 `distinctUntilChanged`，见同文件的无关设置场景
+- **AND** `searchSetNeedle` 3 条（needle 为 `"h"`、`"ho"` 与空串）MUST 归为逐键取值
+      诊断：修复前在 info 级记录查询原文，修复后只留 trace 且只记长度与命中数
+- **AND** `attachWindow surface attached` 9 条 MUST 拆成 7 次新窗口（1 次冷启动 + 6 次换窗）与
+      2 次同窗口 `RECONFIGURE_SWAPCHAIN`；`warmup` 7 条 = 5 条保留帧 + 2 条无保留帧，
+      两次无保留帧分别是冷启动与会话切换（15:42:10 挂载 session 2 时上一帧属于
+      已销毁的 session 1）
+- **AND** `setRenderPaused` 的 14 次 `paused=true` 与 13 次 `paused=false` MUST 按
+      配对解释为「日志在末次暂停后结束」而非令牌泄漏：前 13 对逐对吻合，第 14 次
+      发生在 `destroySession id=2` 之后 72ms，此后日志仅剩 192ms
+- **AND** 同 UID 子进程的 63 条 MUST 全部归为内核审计：58 条 `granted` 是放行记录
+      （`fish` 18、`git` 12、`eza` 8、`yazi` 7、`bash` 4、`file` 4、<!-- nosemgrep: semgrep.no-prohibited-shells -->
+      `DefaultDispatch` 2、`clear` 2、`login` 1，由用户 shell 读取 `/proc`
+      与装载 nix store 动态库所致），5 条 `denied` 是子进程探测 `/proc/modules`、
+      `/proc/bus/pci/devices`（`login` 2）与 `/proc/partitions`、已删除的
+      `/proc/<pid>/mounts`（`tokio-rt-worker` 3）；应用是检查的主体而非成因
+- **AND** 本份日志 MUST NOT 被当作性能缺陷的证据：151 条 `loop timing window` 与
+      151 条 `frame timing window` 均为 info 级窗口汇总，无一条 `SLOW_*` 告警；
+      最低 fps（≈1fps、≈7fps、≈23fps）出现在 `setRenderPaused` 的主动等待窗口内，
+      按慢循环口径 MUST NOT 计为渲染慢
+- **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
+
+#### Scenario: 2026-11-19 运行日志（17-44-20 至 17-51-20）的聚合归因
+
+- **WHEN** 审计 `logcat_2026-11-19_17-51-20.txt`（真实设备，主进程 21412，运行约 7 分钟，
+      冷启动即遭遇两次 Vulkan 设备丢失风暴，第二次发生在 17:46:03 的滚动重输出期间）
+- **THEN** 应用进程 W/E 合计 MUST 为 303 条（修复前），逐条处置 MUST 为：
+      - `mali_gralloc` 176 条（`Requested R8 format is not supported...` 88 + `ERROR:
+        Unrecognized and/or unsupported format 0x38 and usage 0xb00` 88）：16 次设备创建
+        （`GPU device created` 恰 16 条、`attach_surface: configured` 22 条，含 6 次同窗口
+        `RECONFIGURE_SWAPCHAIN` 不做格式枚举）；归因与 15-46-03 相同，应用侧无 API 可关
+      - `wgpu_core::instance` 32 条：16 次设备创建各一对上游 downlevel 提示（与 08-52-39
+        同一条上游事实）
+      - `native::render::context::gpu` 15 条 `GPU device lost` error（每次设备丢失记一条，
+        丢失原因 `Unknown: Device is lost`）+ 15 条 `GPU rebuilt after device loss` warn
+        （`attach_surface` 重建设备时提示调用方换新窗口）
+      - `native::android::ffi::state` 15 条 `cell metrics query skipped`：修复前为 error，
+        修复后记 **debug**
+      - `native::android::logging` 15 条（`panic: panicked at .../wgpu_core.rs:1924:30:
+        Error in Device::poll: Validation Error`）：每次设备丢失时 wgpu 内部 panic 的副本，
+        被 `poll_outcome` 接住；修复后 panic 钩子对预期内接住的 panic 记 **debug**
+      - `native::android::ffi::render::frame` 6 条 `render skipped`（改 warn 限频，修复前
+        为 error）+ 1 条 `SLOW_RENDER_INNER`（一次首屏重输出 draw=31.8ms）
+      - `native::render::pass::frame` 1 条（`SLOW_CELL_BUILD` 22.097ms，997 单元 / 575
+        实例，17:51:06 滚动输出路径上的一次首屏冷字形批量）
+      - `Runtime` 2 条（`SLOW_FRAME` render=32.177ms、`SLOW_LOOP` total=36.2ms，同批输出
+        帧，阈值 30ms 保持不变）
+      - `Parcel` 13 条、`libc` 4 条、`ziparchive` 4 条、`FeatureOpt` 2 条、`Typeface` 1、
+        `com.termux` 1（jdwp 未加载，debug 构建）、`native::render::context::gpu` 15 warn：
+        平台/厂商/debug 路径，无应用栈
+- **AND** 本份日志暴露并修复三处应用侧问题：
+      - 换视图预算在每次 `surfaceCreated`/`resumeRendering` 都被清零，使快试 5 次上限
+        形同虚设：2.8s 内换掉 15 个 SurfaceView、每 ~50ms 重建一次 VkInstance。修复后
+        预算只在回到前台（`ON_RESUME` / `resumeRenderingFromBackground`）清零，同一前台
+        设备内不再复位；快试 5 次后转慢重试（5s），渲染成功由 RenderSupervisor 复位
+      - 设备丢失的 panic 副本以 error 重复记 15 次、`cell metrics query skipped` 以
+        error 15 次：修复后分别降为 debug / warn（`render skipped`）
+      - `docs/STATUS.md` 所记「软件启动从出现背景到 shell 需要较久时间，概率性发生」
+        的成因正是本次设备丢失风暴：首帧 17:44:20.989 已呈现，shell 输出 21.245，
+        但因 15 次重建风暴首个稳定帧延迟至 17:44:23.084（约 1.9s）
+- **AND** 同 UID 子进程的 87 条 MUST 全部归为内核审计（`fish` 57、`git` 21、
+      `patch2pr` 5、`coreutils` 4，均为 `type=1400 avc` 的 granted 或 open denied 探测
+      记录，应用是检查的主体而非成因）
+- **AND** 本份日志 MUST NOT 被当作性能缺陷的证据：134 条 `loop timing window` 与
+      134 条 `frame timing window` 均为 info；唯一一次 `SLOW_LOOP` 36ms 出现在首屏
+      重输出批量，不构成慢渲染
+- **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置（`render skipped` 与
+      `cell metrics` 两处的降级针对的是「同一丢失事件的余波」，不是平台条目，且都按
+      warn/debug 保留全文）
 
 #### Scenario: 模拟器 debug 构建的聚合归因
 
@@ -1212,6 +1314,13 @@ Kitty 图像协议的「文件」与「临时文件」介质 MUST 由上游按**
 - **WHEN** 下发的字族不在渲染字体库中
 - **THEN** 终端 MUST 记录告警，MUST NOT 因去重而沉默
 
+#### Scenario: 无关设置变化不得重复下发日志等级
+
+- **WHEN** 用户修改字号、主题等与日志等级无关的设置，设置快照重新发射
+- **THEN** 终端 MUST NOT 把同一日志等级重新下发给 Kotlin 与原生两侧，MUST NOT 逐次
+      记录 `log level set`
+- **AND** 用户显式选择新的等级时 MUST 照常下发并记录
+
 ### Requirement: 系统等宽字族的重复下发不得重复解析
 
 系统等宽字族被重复下发且当前字面已是系统等宽面时，MUST NOT 重新解析系统等宽面，
@@ -1229,6 +1338,30 @@ MUST NOT 重复记录该选择：重扫字体库得到的是同一个面，重�
 
 - **WHEN** 字族换成用户字族后又换回系统等宽字族
 - **THEN** 终端 MUST 重新解析并选中系统等宽面，MUST 记录该次切换
+
+### Requirement: 用户字体覆盖在同一进程内不得重复装载
+
+`~/.termux/font.*`（及 `~/.config/termux/font.*`）的探测结果按进程缓存：原生渲染
+字体库在进程内只有一份，`loadFontFile` 会把文件追加为一个面且不可回收。同一进程内
+新建会话、重复下发字族时 MUST 复用已解析的字族，MUST NOT 再次调用 `loadFontFile`。
+
+去重判据 MUST 包含文件大小与 mtime，MUST NOT 只看路径：用户原地替换同名字体后
+MUST 重新装载。文件不存在时 MUST 清除缓存，使删除覆盖后恢复系统字体。
+
+#### Scenario: 新建会话不重复装载同一覆盖
+
+- **WHEN** 进程内已有会话装载过 `~/.termux/font.ttf`，随后新建会话再次下发字族
+- **THEN** 终端 MUST 复用上次解析出的字族，MUST NOT 再次调用 `loadFontFile`
+
+#### Scenario: 原地替换字体后重新装载
+
+- **WHEN** 字体文件路径不变，但大小或 mtime 变化
+- **THEN** 终端 MUST 重新装载并返回新的字族
+
+#### Scenario: 删除覆盖后恢复系统字体
+
+- **WHEN** `~/.termux/font.*` 被删除
+- **THEN** 终端 MUST 清除进程缓存并按设置里的字族下发
 
 ### Requirement: 渲染线程的中断是关闭信号而非渲染错误
 
