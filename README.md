@@ -15,12 +15,19 @@
 ## 重新生成
 
 ```sh
-nix develop --command cargo ndk -t x86_64 build --release
-cp native/target/x86_64-linux-android/release/libnative.so android/app/src/main/jniLibs/x86_64/
-(cd android && ./gradlew :app:connectedDebugAndroidTest \
+# 原生库（x86_64，模拟器用；arm64 由 CI 或真机走 arm64-v8a）
+nix develop . --command nu scripts/build-android-libs.nu x86_64
+# 预览截图（真实 prefix + 真实 fastfetch 安装）
+nix develop . --command nu scripts/setup-emulator.nu
+(cd android && nix develop .. --command ./gradlew :app:connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=terminal.emulator.ui.PreviewScreenshotTest)
 adb pull /data/local/tmp/termux-preview-screenshots ./screenshots
-(cd android && ./gradlew :app:generateBaselineProfile)
+# baseline profile（需模拟器在线；采集走 BaselineProfileGenerator 的真实路径）
+(cd android && nix develop .. --command ./gradlew :app:generateBaselineProfile)
+# dexopt 产物：先出 release APK，再从 APK 的 assets/dexopt 抽出
+nix develop . --command nu scripts/build-apk.nu
+unzip -p android/app/build/outputs/apk/release/app-release.apk assets/dexopt/baseline.prof > baselineprofile/baseline.prof
+unzip -p android/app/build/outputs/apk/release/app-release.apk assets/dexopt/baseline.profm > baselineprofile/baseline.profm
 ```
 
 `generateBaselineProfile` 的采集产物落在 `android/app/src/release/generated/baselineProfiles/`，
