@@ -28,6 +28,9 @@ dependencies {
 android {
   namespace = "terminal.emulator"
   compileSdk = 37
+  // Compose 2026.11.01 的 ui-android 1.13.0 要求编译于 API 37.1 及以上：
+  // android-37.1 仍是 API 37（同一 API 级别的小版本），故只补次版本号。
+  compileSdkMinor = 1
 
   signingConfigs {
     create("testkey") {
@@ -123,15 +126,15 @@ configurations {
 }
 
 dependencies {
-  val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
+  val composeBom = platform("androidx.compose:compose-bom:2026.11.01")
   implementation(composeBom)
 
   implementation("androidx.core:core-ktx:1.19.1")
   implementation("androidx.core:core-splashscreen:1.2.0")
   implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.5.2")
-  implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.12.0-alpha05")
-  implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.12.0-alpha05")
-  implementation("androidx.lifecycle:lifecycle-runtime-compose:2.12.0-alpha05")
+  implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.12.0-alpha06")
+  implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.12.0-alpha06")
+  implementation("androidx.lifecycle:lifecycle-runtime-compose:2.12.0-alpha06")
   implementation("androidx.activity:activity-compose:1.14.0-alpha03")
 
   implementation("androidx.compose.ui:ui")
