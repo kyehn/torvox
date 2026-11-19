@@ -183,11 +183,10 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getPwd<
     session_id: jlong,
 ) -> jstring {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let Some(query_tx) = session_query_channel(session_id as u64) else {
+        let Some(pwd) = session_pwd(session_id as u64) else {
             throw_session_missing(env, "getPwd");
             return Ok(std::ptr::null_mut());
         };
-        let pwd = crate::terminal::ghostty_terminal::GhosttyTerminal::pwd_on(&query_tx);
         string_to_jstring(env, &pwd)
     })
 }
