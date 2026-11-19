@@ -9,8 +9,8 @@ plugins {
   id("com.google.devtools.ksp") version "2.3.14" apply false
   id("com.diffplug.spotless") version "8.11.0" apply false
   id("dev.detekt") version "2.0.0-alpha.6" apply false
-  id("androidx.benchmark") version "1.5.0" apply false
-  id("androidx.baselineprofile") version "1.5.0" apply false
+  id("androidx.benchmark") version "1.6.0-alpha02" apply false
+  id("androidx.baselineprofile") version "1.6.0-alpha02" apply false
   id("io.github.ben-manes.versions") version "0.67.0" apply false
   id("com.ncorti.ktfmt.gradle") version "0.28.0" apply false
   id("org.jlleitschuh.gradle.ktlint") version "14.2.0" apply false
