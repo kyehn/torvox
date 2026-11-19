@@ -383,6 +383,7 @@ pub(super) fn render_inner(session_id: u64) -> jint {
     // 代码必须先释放注册表与会话锁（`setSelection`/`setTheme` 同款作用域写法）。
     // 按新数据/空闲分支——空闲路径引用 `last_frame` 而不克隆，省去整帧克隆
     // （CellData 96B×行列数）。
+    let is_new_frame = matches!(&frame_data, FrameData::New(_));
     let outcome = match frame_data {
         FrameData::New(new_frame) => render_new_frame(session_id, new_frame),
         FrameData::Idle => render_idle_frame(session_id),
@@ -391,6 +392,14 @@ pub(super) fn render_inner(session_id: u64) -> jint {
         Ok(outcome) => outcome,
         Err(exit_code) => return exit_code,
     };
+    // 只在「新数据帧真正呈现完成」后计数：取帧阶段发布的光标可能早于呈现数百毫秒，
+    // 仪器化测试据此区分「内容已上屏」与「只是被渲染线程取走」。
+    if is_new_frame
+        && count > 0
+        && let Some(entry) = rlock_session_registry().get(&session_id)
+    {
+        entry.presented_frame_seq.fetch_add(1, Ordering::Release);
+    }
     let total = timing.render_done.duration_since(render_start);
     // 限频：持续慢时逐帧都会命中，逐帧记会把 logcat 刷成慢帧洪水
     //（实测软件 Vulkan 上一轮采集里此类条目占应用侧 W 级绝大多数）。

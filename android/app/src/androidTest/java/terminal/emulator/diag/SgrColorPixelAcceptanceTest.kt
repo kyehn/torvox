@@ -51,19 +51,22 @@ class SgrColorPixelAcceptanceTest : ComposeTerminalLogcatTest() {
     }
 
     /**
-     * 写标记并等渲染帧真正带上它。
+     * 写标记并等**呈现完成**的新帧带上它。
      *
      * 直写 VT 不置脏：[placeTextAtRow] 的判据是 **VT 光标**（同步查询），
-     * 光标到位不等于已经上屏，截图可能仍是旧帧。故这里再等**最近一帧的光标**
-     * 落到目标格——该值只由渲染线程在真正出帧时发布，等到了就说明这一帧已
-     * 带上标记。光标闪烁时该值为 -1，轮询会继续，直到撞上可见相位。
+     * 光标到位不等于已经上屏，截图可能仍是旧帧。故这里先记下已呈现帧计数，
+     * 再写标记，然后同时等「计数增长」与「最近一帧光标落到目标格」——计数只在
+     * 呈现完成后递增，光标在取帧阶段发布，两者同时成立即内容确已上屏。
+     * 光标闪烁时该值为 -1，轮询会继续，直到撞上可见相位。
      */
     private fun placeAndAwaitFrame(bridge: Bridge, row: Int, text: String, visibleLength: Int) {
+        val presentedBefore = bridge.presentedFrameSeq()
         placeTextAtRow(bridge, row, text)
         val target = (row.toLong() shl 32) or visibleLength.toLong()
         val rendered =
             UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 50) {
-                bridge.renderedCursorPacked() == target
+                bridge.presentedFrameSeq() > presentedBefore &&
+                    bridge.renderedCursorPacked() == target
             }
         assertNotNull("标记必须已随帧上屏 (行=$row)", rendered)
     }

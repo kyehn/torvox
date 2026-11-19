@@ -247,6 +247,10 @@ struct SessionEntry {
     /// 同一帧的视口顶行绝对行号（锚在内容上）。搜索高亮与选区手柄按它折算行号：
     /// 浏览期间新输出只把活动区底边推远，视口顶行不动。
     rendered_viewport_row: AtomicI32,
+    /// 已**呈现**的新数据帧计数。只在帧真正走完呈现后才 `fetch_add`；仪器化测试
+    /// 据此确认「写进 VT 的内容已经上屏」——[`Self::rendered_cursor`] 在取帧阶段
+    /// 就发布，取帧到呈现之间可能隔着数十到数百毫秒的绘制，慢帧下截图会早于呈现。
+    presented_frame_seq: AtomicU64,
     /// PTY 摄入标志的共享镜像。渲染线程每帧读清它；放在注册表而非会话里，
     /// 是因为取会话锁可能被 VT 解析按住数十毫秒。
     new_output: Arc<AtomicBool>,
@@ -292,6 +296,7 @@ impl SessionEntry {
             rendered_cursor: AtomicI64::new(RENDERED_CURSOR_NONE),
             rendered_scrollback: AtomicI32::new(RENDERED_SCROLLBACK_NONE),
             rendered_viewport_row: AtomicI32::new(RENDERED_SCROLLBACK_NONE),
+            presented_frame_seq: AtomicU64::new(0),
             new_output,
             alt_screen_active,
             mouse_tracking_active,
@@ -336,6 +341,14 @@ fn rendered_viewport_row(session_id: u64) -> Option<i32> {
     let registry = rlock_session_registry();
     let entry = registry.get(&session_id)?;
     Some(entry.rendered_viewport_row.load(Ordering::Acquire))
+}
+
+/// 读某会话已呈现的新数据帧计数；会话未登记时返回 `None`。计数只在呈现完成后写入，
+/// 故读方等到它变化即「内容确已上屏」，而非仅「已被渲染线程取走」。
+fn presented_frame_seq(session_id: u64) -> Option<u64> {
+    let registry = rlock_session_registry();
+    let entry = registry.get(&session_id)?;
+    Some(entry.presented_frame_seq.load(Ordering::Acquire))
 }
 
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =

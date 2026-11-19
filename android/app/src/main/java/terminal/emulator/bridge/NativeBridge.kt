@@ -364,6 +364,12 @@ object NativeBridge {
      */
     @JvmStatic external fun getRenderedCursorPacked(sessionId: Long): Long
 
+    /**
+     * 已**呈现**的新数据帧计数（0 起）；未知会话抛异常，首次呈现前为 0。
+     * 一次原子读，不等待 VT。
+     */
+    @JvmStatic external fun getPresentedFrameSeq(sessionId: Long): Long
+
     /** 可视区与回滚文本以换行连接。 */
     @JvmStatic external fun getTerminalText(sessionId: Long): String?
 

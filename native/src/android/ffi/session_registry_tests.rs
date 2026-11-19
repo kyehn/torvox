@@ -4,7 +4,7 @@ use super::render::pump_sessions;
 use super::{
     ACTIVE_SESSION_ID, MAX_FLOOD_SHED_ANSWERS_PER_FRAME,
     MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION, Ordering, RENDERED_CURSOR_NONE,
-    RENDERED_SCROLLBACK_NONE, RenderWake, SessionEntry, pack_rendered_cursor,
+    RENDERED_SCROLLBACK_NONE, RenderWake, SessionEntry, pack_rendered_cursor, presented_frame_seq,
     rendered_cursor_packed, rendered_scrollback, wlock_session_registry,
 };
 use crate::terminal::session::Session;
@@ -90,6 +90,32 @@ fn rendered_cursor_reads_published_cell_and_separates_unknown_session() {
     );
 
     assert_eq!(rendered_cursor_packed(session_id + 1), None);
+
+    wlock_session_registry().remove(&session_id);
+}
+
+/// 已呈现帧计数：首帧前为 0，写入后按序读回，未知会话 → `None`。
+/// 判别力：把「还没呈现过」与「未知会话」塌缩成同一个返回值时，测试无法区分
+/// 「刚建会话首帧未到」与「会话已消失」——前者该继续等，后者该报错。
+#[test]
+fn presented_frame_seq_reads_count_and_separates_unknown_session() {
+    let _access = REGISTRY_ACCESS.lock();
+    let (session, _handle) = crate::terminal::mock_pty::mock_arc_session();
+    let session_id = 0x5EED_F4A0_u64;
+    wlock_session_registry().insert(
+        session_id,
+        SessionEntry::new(session, Arc::new(RenderWake::default())),
+    );
+
+    assert_eq!(presented_frame_seq(session_id), Some(0));
+    wlock_session_registry()
+        .get(&session_id)
+        .expect("entry must be registered")
+        .presented_frame_seq
+        .fetch_add(1, Ordering::Release);
+    assert_eq!(presented_frame_seq(session_id), Some(1));
+
+    assert_eq!(presented_frame_seq(session_id + 1), None);
 
     wlock_session_registry().remove(&session_id);
 }

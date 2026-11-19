@@ -3,8 +3,8 @@ use super::session::read_jni_string;
 use super::{
     Arc, Env, EnvUnowned, GhosttyTerminal, JClass, JString, Mutex, RENDERED_CURSOR_NONE,
     RENDERED_SCROLLBACK_NONE, Session, ThrowRuntimeExAndFailure, jboolean, jint, jintArray, jlong,
-    jlongArray, jstring, rendered_cursor_packed, rendered_scrollback, rlock_session_registry,
-    throw_session_missing,
+    jlongArray, jstring, presented_frame_seq, rendered_cursor_packed, rendered_scrollback,
+    rlock_session_registry, throw_session_missing,
 };
 
 // ── 文本与滚动查询 ──────────────────────────────────────────────
@@ -71,6 +71,23 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getRend
             return Ok(RENDERED_CURSOR_NONE);
         };
         packed
+    })
+}
+
+/// 已**呈现**的新数据帧计数（0 起）。计数只在呈现完成后写入，故读到变化即「内容确已
+/// 上屏」，而非仅「已被渲染线程取走」；未知会话抛异常（与光标载体一致）。
+#[unsafe(no_mangle)]
+pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getPresentedFrameSeq(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass<'_>,
+    session_id: jlong,
+) -> jlong {
+    jni_export_guard!(&mut unowned_env, -1, |env| {
+        let Some(seq) = presented_frame_seq(session_id as u64) else {
+            throw_session_missing(env, "getPresentedFrameSeq");
+            return Ok(-1);
+        };
+        i64::try_from(seq).unwrap_or(i64::MAX)
     })
 }
 

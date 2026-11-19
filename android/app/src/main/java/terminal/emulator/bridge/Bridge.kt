@@ -779,6 +779,15 @@ class Bridge(private val config: TerminalConfig) {
         queryPort.renderedCursorPacked()
     }
 
+    /**
+     * 已**呈现**的新数据帧计数；未知会话为 -1。计数只在呈现完成后递增，故「写进 VT
+     * 再等它变化」等于等到内容上屏——[renderedCursorPacked] 在取帧阶段就发布，
+     * 慢帧下截图可能仍早于呈现。
+     */
+    fun presentedFrameSeq(): Long = onQuery("presentedFrameSeq", -1L) {
+        queryPort.presentedFrameSeq()
+    }
+
     fun searchSetNeedle(needle: String): Int = onQuery("searchSetNeedle", 0) { queryPort.searchSetNeedle(needle) }
 
     fun searchSelect(forward: Boolean): SearchSelection? = onQuery("searchSelect", null) {
