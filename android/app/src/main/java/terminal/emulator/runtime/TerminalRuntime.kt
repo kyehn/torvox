@@ -3273,17 +3273,7 @@ constructor(
             // （会自行停机的条件是没有会话，而此时恒有会话）。
             stopSessionPump()
             synchronized(sessionLock) {
-                // 恢复即重置换视图预算：ON_RESUME 之后平台会重新交付 Surface，
-                // 这正是一次全新的机会。此前预算只在「渲染成功」时清零，而切后台
-                // 往返期间预算会在过渡抖动里被 5 次请求迅速耗尽（实测 2.5s 内耗尽，
-                // 随后每次都停在 exhausted），真正的换视图要等到 ~20s 后的
-                // surfaceCreated 才发生——于是终端长时间空白。
-                //
-                // 保留原有「恢复渲染时清零」也无妨，两处语义一致。
-                sessions.values.forEach { entry ->
-                    entry.surfaceInvalidated = false
-                    entry.surfaceRecreateBudget.set(SessionEntry.SurfaceRecreateBudget())
-                }
+                sessions.values.forEach { entry -> entry.surfaceInvalidated = false }
                 // 只有活动会话渲染（见 switchSessionInternal）；
                 // 为每个会话启动线程会创建单一全局原生事件队列的多个消费者，
                 // 退出事件可能因此被错误的会话线程处理（关闭掉无辜的会话）。
@@ -3932,6 +3922,15 @@ constructor(
     @MainThread
     fun resumeRenderingFromBackground() {
         backgroundRenderPause.onForeground()
+        // 回到前台才重置换视图预算：这是一次全新的机会。预算若随每次 surfaceCreated
+        // 清零，同一前台会话内的设备丢失会连成一片——每次 attach 都重置 5 次快试上限，
+        // 实测 2.8s 内换掉 15 个 SurfaceView、每 ~50ms 重建一次 VkInstance，
+        // 既拖慢恢复又给驱动施加压力。慢重试（每 5s 一次）此时才真正生效。
+        synchronized(sessionLock) {
+            sessions.values.forEach { entry ->
+                entry.surfaceRecreateBudget.set(SessionEntry.SurfaceRecreateBudget())
+            }
+        }
     }
 
     /**
