@@ -405,9 +405,10 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchS
             &query_tx, &needle,
         );
         // 逐键调用：只留 trace，且不记录查询内容（用户输入不该落到日志里）。
+        // 长度按字符计：needle 是 UTF-8 字符串，字节数对中文查询会偏大。
         log::trace!(
-            "searchSetNeedle: needle_len={} matches={total}",
-            needle.len()
+            "searchSetNeedle: needle_chars={} matches={total}",
+            needle.chars().count()
         );
         total as jint
     })
