@@ -847,10 +847,10 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
         滚动重输出后的首屏重输出帧；大约每分钟出现一次或更少（此前 133 窗口无同级
         告警）。优化要依据真机 profiler 的 build 段（CPU 实例构建）数据；无该证据即
         盲改细胞构建缓存会破坏全量/脏带一致性（见 `partial_frame_bands` 的代际门控注释）
-      - `Parcel Expecting binder but got null!`（13 条）：平台窗口/输入法事务的 binder 日志，
-        无应用栈、不携带应用堆；三轮日志中该条目分别为 2/13 行，随换视图频次增长（15:46-03
-        为少量、17:51-20 为 13 对）。换视图预算复位修复可削减触发次数，但无法从应用侧
-        消除平台条目本身，MUST NOT 过滤该 tag
+      - `Parcel Expecting binder but got null!`（13 条，偶发成对）：平台窗口/输入法事务的 binder
+        日志，无应用栈、不携带应用堆；15-46-03 日志仅 2 条、17-51-20 为 13 条。该条目
+        的触发次数与进行中的事务相关，应用侧无产生/抑制 API；换视图预算复位修复可削减
+        重建次数，但无法确证每一条的归属或消除该平台条目本身，MUST NOT 过滤该 tag
       - `mali_gralloc`（R8 探测 `format 0x38`）、`wgpu_core::instance`（缺
         `SURFACE_VIEW_FORMATS`）、`libc` 属性 denial、`ziparchive` dex 元数据、`FeatureOpt`
         折叠态、ZTE `Typeface`、debug jdwp、`com.termux`（jdwp 未加载）：平台/厂商/debug
