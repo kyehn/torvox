@@ -40,29 +40,6 @@ pub(crate) fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     "non-string panic payload".to_string()
 }
 
-// ── 预期 panic 的线程标记 ─────────────────────────────────────────────
-// `Device::poll` 在设备真出错时由 wgpu 内部 panic（见 `render::context::poll`）。
-// 该 panic 会被 `catch_unwind` 接住并归一成设备丢失结局；panic 钩子据此把这条
-// 副本记为 debug：丢失本身已由 `mark_device_lost` 记一条 error，钩子再记一条
-// error 只是同一事件的重复（`render-stability` 要求只记一条）。未被接住的 panic
-// 仍记 error，不吞、不滤 tag。
-#[cfg(any(target_os = "android", test))]
-thread_local! {
-    static EXPECTED_PANIC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// 标记当前线程接下来这次 panic 是调用方有意接住的（`poll_outcome` 专用）。
-#[cfg(any(target_os = "android", test))]
-pub(crate) fn expect_panic() {
-    EXPECTED_PANIC.with(|flag| flag.set(true));
-}
-
-/// 取出并清除「预期 panic」标记：panic 钩子与 `poll_outcome` 收尾共用。
-#[cfg(any(target_os = "android", test))]
-pub(crate) fn take_expected_panic() -> bool {
-    EXPECTED_PANIC.with(|flag| flag.replace(false))
-}
-
 /// 进程内单调时钟读数（纳秒，自进程首次调用起算）。
 ///
 /// 忙标记（VT 忙、输出投递忙）存的是「自忙起时刻」的读数，判定方取一次当前读数
