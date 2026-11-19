@@ -906,18 +906,19 @@ internal fun unpackCellSize(packed: Long): Pair<Float, Float> {
  * 第二次 `loadFontFile` 即此）。
  */
 internal class FontProbeCache {
-    private val cached = AtomicReference<Pair<String, String?>?>(null)
+    // 键与族名成对读写：方法整体同步，拆成两个字段不会出现「键已更新、族名还是旧的」。
+    private var cached: Pair<String, String?>? = null
 
     /** 探测 [file] 的字族；文件不存在时清空缓存。 */
     @Synchronized
     fun familyOf(file: File?, loadFamily: (String) -> String?): String? {
         if (file == null) {
-            cached.set(null)
+            cached = null
             return null
         }
         val key = "${file.absolutePath}:${file.lastModified()}:${file.length()}"
-        val hit = cached.get()
+        val hit = cached
         if (hit != null && hit.first == key) return hit.second
-        return loadFamily(file.absolutePath).also { cached.set(key to it) }
+        return loadFamily(file.absolutePath).also { cached = key to it }
     }
 }
