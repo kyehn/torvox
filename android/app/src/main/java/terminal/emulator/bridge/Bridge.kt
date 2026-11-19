@@ -10,6 +10,7 @@ import terminal.emulator.runtime.LogUtil
 import terminal.emulator.termuxDefaultFontFile
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
+import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 
 /** 终端会话的 shell 配置。 */
@@ -483,25 +484,8 @@ class Bridge(private val config: TerminalConfig) {
         onSession("setExtraFontPaths", Unit) { NativeBridge.setExtraFontPaths(it, paths.toTypedArray()) }
     }
 
-    // font.ttf 覆盖探测缓存：native 每次加载都会追加字体条目，
-    // 同一文件只探测一次，内容变化才重新探测。
-    // 键与族名成对出现，用一个原子引用整体替换：拆成两个可变字段会出现
-    // 「键已更新、族名还是旧的」这种撕裂状态。
-    private val defaultFontProbe = AtomicReference<Pair<String?, String?>?>(null)
-
-    private fun probeDefaultFontFile(): String? {
-        val file = termuxDefaultFontFile(config.home)
-        if (file == null) {
-            defaultFontProbe.set(null)
-            return null
-        }
-        val key = "${file.absolutePath}:${file.lastModified()}:${file.length()}"
-        val cached = defaultFontProbe.get()
-        if (cached != null && cached.first == key) return cached.second
-        val family = loadFontFile(file.absolutePath)
-        defaultFontProbe.set(key to family)
-        return family
-    }
+    private fun probeDefaultFontFile(): String? =
+        defaultFontProbe.familyOf(termuxDefaultFontFile(config.home)) { loadFontFile(it) }
 
     /**
      * 设置字族。
@@ -836,6 +820,12 @@ class Bridge(private val config: TerminalConfig) {
     companion object {
         private const val TAG = "Bridge"
 
+        // font.ttf 覆盖探测缓存：native 每次加载都会向渲染字体库追加面，
+        // 同一文件只探测一次，内容变化才重新探测。
+        // 缓存必须是**进程级**：Bridge 按会话创建，挂在实例上会让每次新建会话
+        // 都把同一个 font.ttf 再装一遍，重复面在进程内不可回收。
+        private val defaultFontProbe = FontProbeCache()
+
         /**
          * 虚拟键盘的按键字符映射表：进程内取一次。
          *
@@ -905,4 +895,29 @@ internal fun decodeRenderResult(packed: Long): Bridge.RenderResult {
 internal fun unpackCellSize(packed: Long): Pair<Float, Float> {
     val width = Float.fromBits((packed and Bridge.LOW_32_BITS).toInt())
     return Pair(width, Float.fromBits((packed shr 32).toInt()))
+}
+
+/**
+ * `~/.termux/font.ttf` 覆盖探测的进程级缓存。
+ *
+ * 原生渲染字体库在进程内只有一份，装入字体会向库内追加面且不可回收，故同一
+ * 路径、大小与修改时间只探测一次；并发建会话时也只装载一次。缓存若挂在
+ * [Bridge] 实例上，每次新建会话都会重复装入同一文件（2026-11-19 运行日志里
+ * 第二次 `loadFontFile` 即此）。
+ */
+internal class FontProbeCache {
+    private val cached = AtomicReference<Pair<String, String?>?>(null)
+
+    /** 探测 [file] 的字族；文件不存在时清空缓存。 */
+    @Synchronized
+    fun familyOf(file: File?, loadFamily: (String) -> String?): String? {
+        if (file == null) {
+            cached.set(null)
+            return null
+        }
+        val key = "${file.absolutePath}:${file.lastModified()}:${file.length()}"
+        val hit = cached.get()
+        if (hit != null && hit.first == key) return hit.second
+        return loadFamily(file.absolutePath).also { cached.set(key to it) }
+    }
 }
