@@ -404,7 +404,11 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchS
         let total = crate::terminal::ghostty_terminal::GhosttyTerminal::search_set_needle_on(
             &query_tx, &needle,
         );
-        log::info!("searchSetNeedle: needle={needle:?} matches={total}");
+        // 逐键调用：只留 trace，且不记录查询内容（用户输入不该落到日志里）。
+        log::trace!(
+            "searchSetNeedle: needle_len={} matches={total}",
+            needle.len()
+        );
         total as jint
     })
 }
