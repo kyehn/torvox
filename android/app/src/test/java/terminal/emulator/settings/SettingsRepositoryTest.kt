@@ -26,6 +26,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import terminal.emulator.runtime.LogLevel
 import terminal.emulator.ui.theme.ThemeRepository
 import java.io.File
 
@@ -134,6 +135,18 @@ class SettingsRepositoryTest {
         }
         repository.themeName.test {
             assertEquals("Solarized Dark", awaitItem())
+        }
+    }
+
+    @Test
+    fun `log level is not re-applied when an unrelated setting changes`() = runTest {
+        repository.logLevel.test {
+            assertEquals(LogLevel.DEFAULT.ordinal, awaitItem())
+            // 任意设置写入都会让 settings 重新发射；未去重时下一次 awaitItem 会先拿到
+            // 同一个等级，与期望的 WARN 不符。
+            repository.setFontSize(22f)
+            repository.setLogLevel(LogLevel.WARN.ordinal)
+            assertEquals(LogLevel.WARN.ordinal, awaitItem())
         }
     }
 

@@ -14,6 +14,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -297,8 +298,13 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     val bootstrapUrl: Flow<String> = settings.map { it.bootstrapUrl }
 
-    /** 日志等级（`LogLevel` 的序号）。 */
-    val logLevel: Flow<Int> = settings.map { it.logLevel }
+    /**
+     * 日志等级（`LogLevel` 的序号）。
+     *
+     * 去重：设置项的任意写入都会让 `settings` 重新发射，若不过滤，改字号等无关操作
+     * 也会把同一等级重新应用到两侧并逐次记日志。
+     */
+    val logLevel: Flow<Int> = settings.map { it.logLevel }.distinctUntilChanged()
 
     suspend fun setFontSize(size: Float) = put(Keys.FONT_SIZE, size)
 
