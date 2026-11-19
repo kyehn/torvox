@@ -74,9 +74,7 @@ fn lost_device_outcome(lost: bool) -> Option<PollOutcome> {
 /// 真机上正是这道 panic 掀掉了整个进程，而它只在设备真出错时才出现，
 /// 没法在测试里稳定复现。
 fn poll_outcome(poll: impl FnOnce() -> Result<wgpu::PollStatus, wgpu::PollError>) -> PollOutcome {
-    crate::expect_panic();
     let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(poll));
-    crate::take_expected_panic();
     classify(polled)
 }
 

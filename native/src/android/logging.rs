@@ -112,12 +112,20 @@ pub(crate) fn init() {
 /// 的 panic 只进 stderr，在 Android 上不可见：线程静默死亡且丢失崩溃现场；
 /// Kotlin 的 `Thread.setDefaultUncaughtExceptionHandler` 不覆盖 Rust 线程。
 /// `Backtrace::force_capture()` 在 release 构建下无需 `RUST_BACKTRACE` 亦生效。
+/// wgpu 在 `Device::poll` 真出错时内部 panic 的消息前缀。
+///
+/// 来自上游 `wgpu_core::backend::wgpu_core::handle_error_fatal`：`panic!("Error in {operation}: {f}")`，
+/// 其中 `operation` 固定为 `"Device::poll"`（`wgpu-30.0.2` 的 `wgpu_core.rs`）。该 panic
+/// 会被 `render::context::poll::poll_outcome` 的 `catch_unwind` 接住并归一成设备丢失结局；
+/// 丢失本身已由 `mark_device_lost` 记一条 error，钩子再记一条 error 只是同一事件的
+/// 副本（`render-stability` 要求只记一条）。其余 panic 均记 error，不吞、不滤 tag。
+const EXPECTED_POLL_PANIC_PREFIX: &str = "Error in Device::poll: ";
+
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         let backtrace = std::backtrace::Backtrace::force_capture();
-        // 被 `poll_outcome` 接住的 wgpu panic 是设备丢失的副本：丢失本身已记一条
-        // error，这里按 debug 保留全文（不吞、不滤 tag），避免同一事件刷两条 error。
-        if crate::take_expected_panic() {
+        let payload_text = crate::panic_text(info.payload());
+        if payload_text.starts_with(EXPECTED_POLL_PANIC_PREFIX) {
             log::debug!("panic (expected, classified by caller): {info}\n{backtrace}");
         } else {
             log::error!("panic: {info}\n{backtrace}");
