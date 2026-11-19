@@ -1,6 +1,7 @@
 package terminal.emulator
 
 import android.annotation.SuppressLint
+import androidx.compose.material3.Text
 import com.ms.square.debugoverlay.DebugOverlay
 import com.ms.square.debugoverlay.DebugTab
 import com.ms.square.debugoverlay.OverlayMode
@@ -35,37 +36,13 @@ class TerminalAppDebug : TerminalApp() {
             } catch (_: Throwable) {
                 false
             }
+        val customTabs = listOf(buildInfoTab())
         DebugOverlay.configure {
             overlayMode =
                 if (overlayFull) {
-                    OverlayMode.FullMetrics(
-                        customTabs =
-                        listOf(
-                            DebugTab(title = "Build Info") {
-                                androidx.compose.material3.Text(
-                                    text =
-                                    "version=${BuildConfig.VERSION_NAME}\n" +
-                                        "code=${BuildConfig.VERSION_CODE}\n" +
-                                        "debug=${BuildConfig.DEBUG}",
-                                )
-                            },
-                        ),
-                        showThermal = false,
-                    )
+                    OverlayMode.FullMetrics(customTabs = customTabs, showThermal = false)
                 } else {
-                    OverlayMode.Hidden(
-                        customTabs =
-                        listOf(
-                            DebugTab(title = "Build Info") {
-                                androidx.compose.material3.Text(
-                                    text =
-                                    "version=${BuildConfig.VERSION_NAME}\n" +
-                                        "code=${BuildConfig.VERSION_CODE}\n" +
-                                        "debug=${BuildConfig.DEBUG}",
-                                )
-                            },
-                        ),
-                    )
+                    OverlayMode.Hidden(customTabs = customTabs)
                 }
         }
         DebugOverlay.addBugReportContributor(
@@ -80,5 +57,17 @@ class TerminalAppDebug : TerminalApp() {
             },
         )
         super.onCreate()
+    }
+}
+
+private fun buildInfoTab(): DebugTab {
+    val info =
+        buildString {
+            appendLine("version=${BuildConfig.VERSION_NAME}")
+            appendLine("code=${BuildConfig.VERSION_CODE}")
+            append("debug=${BuildConfig.DEBUG}")
+        }
+    return DebugTab(title = "Build Info") {
+        Text(text = info)
     }
 }

@@ -23,8 +23,11 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -114,13 +117,24 @@ fun SettingsSliderRow(
                 color = colors.secondaryText.copy(alpha = if (enabled) 1f else 0.5f),
             )
         }
+        // 新版 Material3 的滑块以状态承载刻度与区间：外部值（拖动结果、设置改写）
+        // 必须写回状态，否则拇指停在旧值。区间或步数变化时重建状态——状态只在首次
+        // 组合时记下刻度与区间，屏幕尺寸变化改了上界后旧区间会继续生效。
+        val sliderState =
+            key(valueRange, steps) {
+                rememberSliderState(value = value, steps = steps, trackRange = valueRange)
+            }
+        LaunchedEffect(value) { sliderState.value = value }
         Slider(
-            value = value,
+            state = sliderState,
             enabled = enabled,
-            onValueChange = { newValue: Float -> if (enabled) onValueChange(newValue) },
+            onValueChange = { newValue: Float ->
+                if (enabled) {
+                    sliderState.value = newValue
+                    onValueChange(newValue)
+                }
+            },
             onValueChangeFinished = { if (enabled) onValueChangeFinished() },
-            valueRange = valueRange,
-            steps = steps,
             colors = SliderDefaults.colors(thumbColor = colors.accentColor, activeTrackColor = colors.accentColor),
         )
     }
