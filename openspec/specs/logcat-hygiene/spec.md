@@ -823,7 +823,7 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       - `docs/STATUS.md` 所记「软件启动从出现背景到 shell 需要较久时间，概率性发生」
         的成因正是本次设备丢失风暴：首帧 17:44:20.989 已呈现，shell 输出 21.245，
         但因 15 次重建风暴首个稳定帧延迟至 17:44:23.084（约 1.9s）
-- **AND** 同 UID 子进程的 87 条 MUST 全部归为内核审计（`fish` 57、`git` 21、
+- **AND** 同 UID 子进程的 87 条 MUST 全部归为内核审计（`fish` 57、`git` 21、<!-- nosemgrep: semgrep.no-prohibited-shells -->
       `patch2pr` 5、`coreutils` 4，均为 `type=1400 avc` 的 granted 或 open denied 探测
       记录，应用是检查的主体而非成因）
 - **AND** 本份日志 MUST NOT 被当作性能缺陷的证据：134 条 `loop timing window` 与
