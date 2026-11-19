@@ -1,6 +1,7 @@
 package terminal.emulator.bridge
 
 import terminal.emulator.runtime.LogUtil
+import java.io.File
 import java.util.concurrent.CountDownLatch
 
 /**
@@ -53,7 +54,11 @@ object NativeBridge {
         try {
             System.loadLibrary("native")
             nativeLoaded = true
-            LogUtil.info(TAG, "Native library loaded: native on $loaderThreadName")
+            LogUtil.info(
+                TAG,
+                "Native library loaded: native on $loaderThreadName" +
+                    resolvedLibraryPath()?.let { ", path=$it" }.orEmpty(),
+            )
             // 偏好紧接装载之后交给原生侧：适配器只在 GPU 初始化时选一次，那时
             // 偏好必须已经就位（见 hostPowerPreference 的说明）。
             setPowerPreference(hostPowerPreference)
@@ -63,6 +68,15 @@ object NativeBridge {
     }
 
     fun isNativeLoaded(): Boolean = nativeLoaded
+
+    /** 实际解析到的 `libnative.so` 路径（从 `/proc/self/maps` 取值），读不到返回 null。 */
+    private fun resolvedLibraryPath(): String? {
+        val line =
+            runCatching {
+                File("/proc/self/maps").readLines().firstOrNull { it.contains("libnative.so") }
+            }.getOrNull() ?: return null
+        return line.substringAfterLast(' ').takeIf { it.isNotEmpty() }
+    }
 
     /**
      * 冷启动预热：调用方 MUST 在后台线程触碰本对象，使 [System.loadLibrary] 的数百毫秒

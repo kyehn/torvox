@@ -54,6 +54,8 @@ class RenderWatchDog(
         synchronized(fireLock) {
             if (watchJob?.isActive == true) return
             val ownGeneration = ++generation
+            // guard 时 job 非活跃（活跃即早退）：cancel 无副作用，让孤儿形状明确。
+            watchJob?.cancel()
             watchJob = scope.launch { watchLoop(ownGeneration) }
         }
     }

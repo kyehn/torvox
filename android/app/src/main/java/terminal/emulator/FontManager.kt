@@ -121,12 +121,19 @@ internal class FontManager(
      *
      * 进程内只跑一轮（DESIGN：字体列表被缓存直到应用关闭）：`fonts.xml` 与用户
      * 投放目录在进程存活期间不会变，重跑只会反复走一遍 JNI 列举与目录注册。
+     *
+     * 整方法同步，使 guard 与 launch 原子：否则两个并发调用会都通过
+     * `fontLoadJob?.isActive` 检查，各自派发一个 job，前一个 job 被字段
+     * 指向后不再可达却仍在运行——重复列举与重复注册。
      */
+    @Synchronized
     fun refreshFontList() {
         // 并发闩只管「别并发起多轮」；缓存闩只在**真的枚举完成**后置位——
         // 提前置位会让「会话尚未就绪」这一次早退把整进程都锁成空列表，
         // 之后再点开选择框也不再重试。
         if (fontListLoaded || fontLoadJob?.isActive == true) return
+        // 旧 job 已非活跃（guard 为真即早退）；置空让孤儿不再持有字段，cancel 为保险。
+        fontLoadJob?.cancel()
         fontLoadJob = scope.launch(TerminalDispatchers.inputOutput) {
             try {
                 val bridge = runtime.bridge()
