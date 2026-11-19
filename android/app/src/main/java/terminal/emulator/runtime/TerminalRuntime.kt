@@ -516,7 +516,7 @@ constructor(
     /**
      * 遮罩已在**当前窗口**画进开孔：使命完成，撤掉并释放像素。
      *
-     * 只由视图的可见绘制调用（[TerminalSurface.onDraw]）：原生侧提交帧早于窗口
+     * 只由视图的可见绘制调用（`TerminalSurface.onDraw`）：原生侧提交帧早于窗口
      * 重新可见，运行期无从判断「这一帧窗口到底有没有画过」。
      */
     internal fun clearCoverFrame() {
