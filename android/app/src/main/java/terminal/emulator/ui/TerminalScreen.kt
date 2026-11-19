@@ -833,7 +833,9 @@ fun TerminalScreen(
                                     }
                                 }
                             } else {
-                                LaunchedEffect(Unit) { menuSurface.hideSelectionMenu("noMenuSurface") }
+                                // 此处 Surface 一定非空（外层已判），关闭原因是选区已标记
+                                // `menuDismissed`（动作已执行或拖动开始），不是「无 Surface」。
+                                LaunchedEffect(Unit) { menuSurface.hideSelectionMenu("menuDismissed") }
                             }
                         } else {
                             LaunchedEffect(selectionActive) {
