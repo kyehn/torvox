@@ -527,6 +527,15 @@ MUST 换新的 `SurfaceView` 以取得新的原生窗口，且请求 MUST 受间
       用尽后 MUST 转为慢重试（间隔 ≥ 5s）并只告警一次，MUST NOT 永久停止请求——
       平台迟迟不交付新窗口时，停止请求等于把渲染线程钉在死窗口上，用户看到永久空白
 
+#### Scenario: 换视图预算只在回到前台时清零
+
+- **WHEN** 同一前台会话内连续发生设备丢失并触发多次 `surfaceCreated`/`resumeRendering`
+- **THEN** 预算 MUST NOT 随每次 `surfaceCreated`/`resumeRendering` 清零；
+      只有 `resumeRenderingFromBackground`（`ON_RESUME`）MUST 清零
+- **AND** 否则每次 attach 都把 5 次快试上限重置，限流永不生效：实测 2026-11-19
+      17:44 的启动设备丢失连发 15 次，2.8s 内换掉 15 个 `SurfaceView`、
+      每 ~50ms 重建一次 `VkInstance`，既拖慢恢复又给驱动施加压力
+
 ### Requirement: 设备丢失后停止向死设备提交
 
 Vulkan 设备被判死（`VK_ERROR_DEVICE_LOST`）后，MUST NOT 继续向死设备提交调用：
@@ -546,6 +555,14 @@ MUST NOT 逐条重复；旧世代的结局记 debug，如实保留原因，不�
 
 - **WHEN** 设备被判死（丢失回调触发，或取纹理 panic 载荷含 `Parent device is lost`）
 - **THEN** 本进程只记一条 error，后续帧 MUST 在 GPU 调用前返回，MUST NOT 逐帧复现 panic
+
+#### Scenario: 丢失余波不得再记 error
+
+- **WHEN** 设备丢失已记一条 error，后续帧、度量查询与回读继续失败
+- **THEN** 被 `poll_outcome` 接住的 `Device::poll` panic MUST 由 panic 钩子记 **debug**
+      （全文保留，MUST NOT 过滤 tag）；`render skipped` MUST 记 **warn** 并限频；
+      `cell metrics query skipped` MUST 记 **debug**
+- **AND** 同一事件 MUST NOT 产生第二条 error（规范「只记一条 error」）
 
 #### Scenario: 旧设备迟到的丢失不得判死新设备
 
