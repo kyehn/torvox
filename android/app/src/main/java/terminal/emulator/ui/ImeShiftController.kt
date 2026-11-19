@@ -367,6 +367,10 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
         imeVisibleAtWindowHide = false
         cancelKeyboardRestoreDeadline()
         cancelGridResize()
+        // 防抖被取消时它领的那次渲染暂停必须一并归还：`cancelGridResize` 只撤
+        // runnable，凭证仍在本类手里。不归还则持有者数停在 1，共享渲染器被永久
+        // 暂停（终端全黑）。归还幂等——已被 `cancelDebounceHolds` 还过的那次是空操作。
+        releaseGridResizePause()
         imeShiftJob?.cancel()
         imeShiftJob = null
     }

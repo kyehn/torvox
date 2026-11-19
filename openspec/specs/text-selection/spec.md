@@ -56,6 +56,11 @@
 
 DESIGN 不支持双击/三击/多击选择：多次快速轻击 MUST NOT 触发选词/选行/全选；单击消除选择后 MUST NOT 保留多击计数。
 
+实现：`SurfaceInput` 的「刚经历过长按」标记 MUST 按**手势**复位（`onDown` 归零），MUST NOT
+只在 `onSingleTapUp` 里复位——长按抬手时 `GestureDetector` 以长按取代轻击、不回调
+`onSingleTapUp`，该标记会跨手势残留，把长按后的**首次**轻击吞掉（选区不被消除）。
+长按拖动的抬手另有独立的时限抑制窗口（300ms），两者职责不同、不可互相替代。
+
 #### Scenario: 快速多次轻击不选词
 
 - **WHEN** 在文本上快速连击多次

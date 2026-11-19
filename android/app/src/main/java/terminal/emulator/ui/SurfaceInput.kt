@@ -174,6 +174,12 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
             override fun onDown(motionEvent: MotionEvent): Boolean {
                 // 手势开始时重置滚轮转发标记：惯性段只属于做出转发的那次手势。
                 wheelForwarded = false
+                // 手势开始时重置「刚经历过长按」标记：长按抬手时 `GestureDetector`
+                // 不回调 `onSingleTapUp`（长按取代轻击），故 `onSingleTapUp` 里那次
+                // 复位不会发生——标记会跨手势残留，把**下一次**轻击吞掉（长按选词后
+                // 的第一下点击无反应）。每次手势从干净状态开始，与 `wheelForwarded`
+                // 同理。
+                isAfterLongPress = false
                 // 手势开始时重置亚单元格累加器，使首次 onScroll 距离从干净的起点算起。
                 // 同步本地偏移与运行时真源：渲染线程回底后本地仍旧值，下次手势若从旧值起算会跳变。
                 surface.viewModel?.runtime?.activeSessionScrollOffset()?.let {
