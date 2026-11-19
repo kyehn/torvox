@@ -791,9 +791,12 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       冷启动即遭遇两次 Vulkan 设备丢失风暴，第二次发生在 17:46:03 的滚动重输出期间）
 - **THEN** 应用进程 W/E 合计 MUST 为 303 条（修复前），逐条处置 MUST 为：
       - `mali_gralloc` 176 条（`Requested R8 format is not supported...` 88 + `ERROR:
-        Unrecognized and/or unsupported format 0x38 and usage 0xb00` 88）：16 次设备创建
-        （`GPU device created` 恰 16 条、`attach_surface: configured` 22 条，含 6 次同窗口
-        `RECONFIGURE_SWAPCHAIN` 不做格式枚举）；归因与 15-46-03 相同，应用侧无 API 可关
+        Unrecognized and/or unsupported format 0x38 and usage 0xb00` 88）：22 次慢路径挂载
+        （`attach_surface: configured` 恰 22 条）× 每次 4 次格式枚举 × 每枚举 2 行。其中
+        16 次伴随设备重建（`GPU device created` 恰 16 条 = 冷启动 1 次 + 设备丢失后重建
+        15 次），另 6 次是同会话换新窗口的重挂（`ANativeWindow changed` 与
+        `same-session reattach` 各 6 条），只重建 surface、不重建设备；本份日志无
+        `RECONFIGURE_SWAPCHAIN` 快路径记录。归因与 15-46-03 相同，应用侧无 API 可关
       - `wgpu_core::instance` 32 条：16 次设备创建各一对上游 downlevel 提示（与 08-52-39
         同一条上游事实）
       - `native::render::context::gpu` 15 条 `GPU device lost` error（每次设备丢失记一条，
@@ -814,15 +817,18 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
         `com.termux` 1（jdwp 未加载，debug 构建）、`native::render::context::gpu` 15 warn：
         平台/厂商/debug 路径，无应用栈
 - **AND** 本份日志暴露并修复三处应用侧问题：
-      - 换视图预算在每次 `surfaceCreated`/`resumeRendering` 都被清零，使快试 5 次上限
-        形同虚设：2.8s 内换掉 15 个 SurfaceView、每 ~50ms 重建一次 VkInstance。修复后
-        预算只在回到前台（`ON_RESUME` / `resumeRenderingFromBackground`）清零，同一前台
-        设备内不再复位；快试 5 次后转慢重试（5s），渲染成功由 RenderSupervisor 复位
+      - 换视图预算在每次 `surfaceCreated`/`resumeRendering` 都被清零，`attempts` 与
+        `lastRequestNanos` 一并归零，使快试 5 次上限与 500ms 最小请求间隔同时失效：
+        15 次设备丢失连成 15 次换窗（请求全部记为 `attempt 1/5`），17:44 簇 1.8s 内
+        10 次、17:46:03 簇 0.8s 内 5 次，均约 190ms 重建一次 VkInstance。修复后预算只在
+        回到前台（`ON_RESUME` / `resumeRenderingFromBackground`）清零，同一前台设备内不再
+        复位；快试 5 次后转慢重试（5s），渲染成功由 RenderSupervisor 复位
       - 设备丢失的 panic 副本以 error 重复记 15 次、`cell metrics query skipped` 以
         error 15 次：修复后分别降为 debug / warn（`render skipped`）
       - `docs/STATUS.md` 所记「软件启动从出现背景到 shell 需要较久时间，概率性发生」
-        的成因正是本次设备丢失风暴：首帧 17:44:20.989 已呈现，shell 输出 21.245，
-        但因 15 次重建风暴首个稳定帧延迟至 17:44:23.084（约 1.9s）
+        的成因正是本次设备丢失风暴：首帧 17:44:20.989 已呈现，shell 首个输出
+        17:44:21.245 已到，但冷启动簇的 10 次设备丢失重建风暴把稳定帧拖到
+        17:44:23.084（距首帧约 2.1s，距 shell 输出约 1.8s）
 - **AND** 同 UID 子进程的 87 条 MUST 全部归为内核审计（`fish` 57、`git` 21、<!-- nosemgrep: semgrep.no-prohibited-shells -->
       `patch2pr` 5、`coreutils` 4，均为 `type=1400 avc` 的 granted 或 open denied 探测
       记录，应用是检查的主体而非成因）

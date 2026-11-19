@@ -532,9 +532,10 @@ MUST 换新的 `SurfaceView` 以取得新的原生窗口，且请求 MUST 受间
 - **WHEN** 同一前台会话内连续发生设备丢失并触发多次 `surfaceCreated`/`resumeRendering`
 - **THEN** 预算 MUST NOT 随每次 `surfaceCreated`/`resumeRendering` 清零；
       只有 `resumeRenderingFromBackground`（`ON_RESUME`）MUST 清零
-- **AND** 否则每次 attach 都把 5 次快试上限重置，限流永不生效：实测 2026-11-19
-      17:44 的启动设备丢失连发 15 次，2.8s 内换掉 15 个 `SurfaceView`、
-      每 ~50ms 重建一次 `VkInstance`，既拖慢恢复又给驱动施加压力
+- **AND** 否则每次 attach 都把 5 次快试上限与 500ms 最小请求间隔一并重置，限流永不生效：
+      实测 2026-11-19 设备丢失两簇共 15 次（17:44 簇 10 次、17:46:03 簇 5 次），每次都
+      换掉一个 `SurfaceView` 并重建一次 `VkInstance`，请求全部记为 `attempt 1/5`；17:44 簇
+      1.8s 内 10 次、17:46:03 簇 0.8s 内 5 次，均约 190ms 一次，既拖慢恢复又给驱动施加压力
 - **AND** 应用侧 MUST 如实记录：本次设备丢失的底层根因（Mali-G57 两簇丢失）未能定位，
       应用配置（`PowerPreference`／present mode／`ANativeWindow_setBuffersGeometry`）
       均无证据为成因；有界恢复是缓解而非消除，MUST NOT 在规范中表述为「已解决」

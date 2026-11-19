@@ -3923,9 +3923,10 @@ constructor(
     fun resumeRenderingFromBackground() {
         backgroundRenderPause.onForeground()
         // 回到前台才重置换视图预算：这是一次全新的机会。预算若随每次 surfaceCreated
-        // 清零，同一前台会话内的设备丢失会连成一片——每次 attach 都重置 5 次快试上限，
-        // 实测 2.8s 内换掉 15 个 SurfaceView、每 ~50ms 重建一次 VkInstance，
-        // 既拖慢恢复又给驱动施加压力。慢重试（每 5s 一次）此时才真正生效。
+        // 清零，同一前台会话内的设备丢失会连成一片——attempts 与 lastRequestNanos
+        // 一起归零，5 次快试上限与 500ms 最小请求间隔同时失效：2026-11-19 实测
+        // 15 次设备丢失连成 15 次换窗（每次都记 attempt 1/5），每 ~190ms 重建一次
+        // VkInstance，既拖慢恢复又给驱动施加压力。慢重试（每 5s 一次）此时才真正生效。
         synchronized(sessionLock) {
             sessions.values.forEach { entry ->
                 entry.surfaceRecreateBudget.set(SessionEntry.SurfaceRecreateBudget())
