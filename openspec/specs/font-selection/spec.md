@@ -417,6 +417,12 @@ MUST NOT 回写 DataStore：用户回到宽屏时原值仍然有效。
 - **WHEN** 用户首次打开字体选择对话框
 - **THEN** 枚举一次并把结果缓存到进程结束
 
+#### Scenario: 并发触发只派发一轮枚举
+
+- **WHEN** 两个并发调用同时到达 `refreshFontList`
+- **THEN** 判定已派发的检查与派发 MUST 原子生效
+- **AND** MUST NOT 出现两个 job，前者被覆盖后仍运行
+
 ### Requirement: 字体来源未变时不得重建字体管线
 
 登记额外字体路径（`setExtraFontPaths`）与装载字体文件（`loadFontFile`）MUST NOT
