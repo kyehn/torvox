@@ -46,3 +46,5 @@ mutants.out/
 *.p12
 .longgraph/
 logcat_*.txt
+*.sh
+*.fish

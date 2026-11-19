@@ -424,14 +424,15 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
 
         roundTripAndAssertNeverUncovered(runtime.holeStateJournal())
 
-        val shiftAfter = surfaceShiftPx()
         assertNotNull(
             "回前台后输入法必须画上（ImeTracker onShown）",
             UxTestUtils.pollUntilTrue(IME_SHOWN_TIMEOUT_MS, 200) { imeShownSince(tripStartStamp) },
         )
-        assertTrue(
-            "往返前后终端位移必须相同（否则像素比对不是同一批可见行：$shiftBefore → $shiftAfter）",
-            shiftBefore == shiftAfter,
+        // 位移由输入法 insets 派发驱动：键盘画上之前采样只会读到后台归零的 0，
+        // 像素比对随即错位一整段键盘高度。等位移真的回到离开时的值再取样。
+        assertNotNull(
+            "回前台后终端位移必须回到离开时的 $shiftBefore px（实测 ${surfaceShiftPx()}）",
+            UxTestUtils.pollUntilTrue(IME_SHOWN_TIMEOUT_MS, 100) { surfaceShiftPx() == shiftBefore },
         )
         val after = UxTestUtils.screenshot(device)
         assertTrue(
