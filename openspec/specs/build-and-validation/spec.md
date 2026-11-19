@@ -163,3 +163,22 @@ debug 变种，没有这条验证时「变种装不上引导包」无人可知�
 - **WHEN** 整轮仪器化报「进程崩溃」
 - **THEN** 归因 MUST 查 logcat 同刻是否出现「设置调试应用」的强杀记录
 - **AND** 有强杀记录时 MUST 判为并发跑造成，MUST NOT 判为应用缺陷
+
+### Requirement: Gradle 直接依赖锁更新与验证
+
+`android/build.gradle.kts` 与子模块 `app/benchmark/build.gradle.kts`、
+`app/baselineprofile/build.gradle.kts` 等声明的 Gradle 直接依赖版本 MUST 与
+`dependencyUpdates` 审计发现的稳定里程碑版本对齐（稳定 + 里程碑；RC/dev 不做为默认更新基线）。
+更新后 MUST 通过
+`nix develop --command ./gradlew --no-daemon :app:compileDebugKotlin :app:compileDebugUnitTestKotlin`
+验证为 BUILD SUCCESSFUL；提交说明记录行号与版本映射。
+
+#### Scenario: 发现稳定里程碑更新
+
+- **WHEN** dependencyUpdates 审计发现稳定里程碑行
+- **THEN** 变更 MUST 更新声明版本并通过上述编译验证，提交说明记录映射
+
+#### Scenario: 基线为 RC/dev 行
+
+- **WHEN** 审计仅发现 RC/dev 版本行
+- **THEN** 变更记录 MUST 说明保留理由（非安全默认），且不新增此类直接依赖

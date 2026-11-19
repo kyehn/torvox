@@ -1016,6 +1016,15 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   验收判据：重复率 MUST NOT 高于该基线；新增克隆 MUST 逐处给出
   「不修」的具体理由（被测行为不同、脚手架样板、或传状态必需的形参列表），
   MUST NOT 以「先记着」放行。
+- **footgun-scan（第 7 次运行，-, ：0 确认；历史 8 次运行，已修复 2 项 shape hit，残余 7 项逐条判定合理）：**
+  - `android/app/src/main/java/terminal/emulator/bridge/NativeBridge.kt:56` — native-load：已改为读 `/proc/self/maps` 记录实际解析路径，陷阱条件已实现（命中信息即工厂产物），非缺陷。
+  - `android/app/src/main/java/terminal/emulator/installer/BootstrapInstallService.kt:65` — run-blocking：处于非 main 的启动期等待路径，陷阱成立。
+  - `android/app/src/main/java/terminal/emulator/runtime/RenderSupervisor.kt:278` — run-blocking：off-main，陷阱成立。
+  - `android/app/src/main/java/terminal/emulator/ui/ModifierBar.kt:897` — pointer-input-unit：gesture 仅读状态，经 `rememberUpdatedState`，陷阱成立。
+  - `android/app/src/main/java/terminal/emulator/ui/SettingsAppearanceSection.kt:124` — slider-value-range：range 由实际数据构造并收敛，陷阱成立。
+  - `android/app/src/main/java/terminal/emulator/ui/SettingsComponents.kt:122` — slider-value-range：共享组件，范围由调用方数据约束，陷阱成立。
+  - `android/app/src/main/java/terminal/emulator/ui/SettingsScreen.kt:96` — pointer-input-unit：gesture 不读状态，陷阱成立。
+  - 已修复（shape hit 消失）：`FontManager.refreshFontList` 补 `fontLoadJob?.cancel()`（, commit 788e6fec），`RenderWatchDog.start` 补 `watchJob?.cancel()`（f2b231a5）。
 - **rapidocr**：`flake.nix` 引导调用 `scripts/download-rapidocr-models.nu` 把模型
   下载到 `/tmp/.rapidocr-models`，模型环境已就绪；该下载与其他 shellHook 初始化步骤
   （AOSP testkey、`/tmp/alacritty-theme` 克隆）共享同一把排他锁，多个 shell 并发进入
