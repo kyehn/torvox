@@ -28,6 +28,44 @@ class ZoomPreviewGestureInstrumentedTest : ComposeTerminalLogcatTest() {
         private const val SIZE_EPSILON_SP = 0.15f
     }
 
+    /** 新建一个会话并等它成为活动会话。缩放风暴要在一个确定无前台任务的 shell 里量。 */
+    private fun createFreshSession(): Long {
+        var beforeIds = emptySet<Long>()
+        composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+            beforeIds = activity.terminalViewModel.runtime.state.value.sessionIds.toSet()
+            activity.terminalViewModel.createSession()
+        }
+        var created: Long? = null
+        val appeared =
+            UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
+                var ids = emptySet<Long>()
+                var active = 0L
+                composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+                    ids = activity.terminalViewModel.runtime.state.value.sessionIds.toSet()
+                    active = activity.terminalViewModel.runtime.state.value.activeSessionId
+                }
+                created = (ids - beforeIds).maxOrNull()?.takeIf { active == it }
+                created != null
+            }
+        assertNotNull("新建的会话必须成为活动会话", appeared)
+        return requireNotNull(created) { "新建的会话必须成为活动会话" }
+    }
+
+    private fun closeFreshSession(sessionId: Long) {
+        composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+            activity.terminalViewModel.closeSession(sessionId)
+        }
+        val closed =
+            UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
+                var ids = emptySet<Long>()
+                composeTestRule.activityRule.scenario.onActivity { activity: MainActivity ->
+                    ids = activity.terminalViewModel.runtime.state.value.sessionIds.toSet()
+                }
+                sessionId !in ids
+            }
+        assertNotNull("测试创建的会话必须关闭 (id=$sessionId)", closed)
+    }
+
     private fun readGridState(): Triple<Float, Int, Int> {
         var appliedSize = 0f
         var rowCount = 0
@@ -112,6 +150,9 @@ class ZoomPreviewGestureInstrumentedTest : ComposeTerminalLogcatTest() {
     @Test
     fun zoomGestureTicksPreviewThenFinalizeReflowsAndShellSurvives() {
         composeTestRule.waitForSession()
+        // 不复用前序用例留下的会话：它可能正停在 `[Process completed]` 或某个
+        // 前台程序里，`echo` 永远等不到回显。新建会话给出确定的 shell 提示符。
+        val createdSessionId = createFreshSession()
         val bridgeReady =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 200) {
                 var ready = false
@@ -207,6 +248,7 @@ class ZoomPreviewGestureInstrumentedTest : ComposeTerminalLogcatTest() {
                     kotlin.math.abs(readGridState().first - startSize) < SIZE_EPSILON_SP
                 }
             assertNotNull("字号必须恢复基准 $startSize", restored)
+            closeFreshSession(createdSessionId)
         }
     }
 }
