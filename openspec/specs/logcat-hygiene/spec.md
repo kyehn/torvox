@@ -833,6 +833,32 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       `cell metrics` 两处的降级针对的是「同一丢失事件的余波」，不是平台条目，且都按
       warn/debug 保留全文）
 
+#### Scenario: 2026-11-19 17-51-20 日志中未被应用侧消除项的逐条结论
+
+- **WHEN** 深入核查 `logcat_2026-11-19_17-51-20.txt` 中应用侧无法消除的条目
+- **THEN** 每一项 MUST 满足下述判定之一：
+      - `Mali-G57` 设备丢失（两簇：冷启动首帧后约 6ms，10 次；17:46:03 滚动重输出前后，
+        5 次）：根因未能定位——无内核/驱动日志，两簇后应用照常出帧（之后数分钟
+        `≈60fps` 正常），`PowerPreference=HighPerformance`、`Mailbox`、
+        `ANativeWindow_setBuffersGeometry` 在本日志与 15-46-03 日志下表现一致，无证据
+        表明具体应用配置为成因。应用侧只能有界恢复（快试 5 次 ≥500ms、慢重试 5s、
+        渲染成功后由 RenderSupervisor 复位），MUST NOT 以降低重试频率或隐藏日志处置
+      - `SLOW_CELL_BUILD` build=22.097ms（997 单元 / 575 实例，`partial=true`）：出现在
+        滚动重输出后的首屏重输出帧；大约每分钟出现一次或更少（此前 133 窗口无同级
+        告警）。优化要依据真机 profiler 的 build 段（CPU 实例构建）数据；无该证据即
+        盲改细胞构建缓存会破坏全量/脏带一致性（见 `partial_frame_bands` 的代际门控注释）
+      - `Parcel Expecting binder but got null!`（13 条）：平台窗口/输入法事务的 binder 日志，
+        无应用栈、不携带应用堆；三轮日志中该条目分别为 2/13 行，随换视图频次增长（15:46-03
+        为少量、17:51-20 为 13 对）。换视图预算复位修复可削减触发次数，但无法从应用侧
+        消除平台条目本身，MUST NOT 过滤该 tag
+      - `mali_gralloc`（R8 探测 `format 0x38`）、`wgpu_core::instance`（缺
+        `SURFACE_VIEW_FORMATS`）、`libc` 属性 denial、`ziparchive` dex 元数据、`FeatureOpt`
+        折叠态、ZTE `Typeface`、debug jdwp、`com.termux`（jdwp 未加载）：平台/厂商/debug
+        路径条目，无应用栈；MUST NOT 记为应用缺陷，MUST NOT 降级、过滤
+- **AND** 上述条目与「应用自身 W/E 合计 303」中的可修复部分（字体覆盖重复装载、
+      logLevel 重复下发、needle 查询原文、panic 副本重复 error、cell metrics /
+      render skipped 级别、换视图预算复位）共存，修复与归因都 MUST 见同文件的其余场景
+
 #### Scenario: 模拟器 debug 构建的聚合归因
 
 - **WHEN** 审计模拟器（x86_64）上 debug 构建的一次冷启动加一次真实 HOME 往返
