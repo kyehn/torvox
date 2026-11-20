@@ -86,6 +86,12 @@ Termux 自身也被 fork 删过 `doDcs`／`sixel`）；会话不随 Activity 走
 - **WHEN** 为某报告补索引行
 - **THEN** 该行 MUST 引用既有判定，MUST NOT 借索引重开已裁定的能力面或改写门槛
 
+#### Scenario: 在库报告的登记与计数
+
+- **WHEN** 研究报告以文件形式入库
+- **THEN** 该报告 MUST 在同批改动内补上以文件名为键的索引行与补齐行，索引完整 MUST 仍是其日后删除的前置条件
+- **AND** 计数 MUST 分列已退役与在库两份，已退役 112 份的索引表仍是那批研究的唯一常驻载体
+
 索引表如下。
 
 | 报告 | 实质 | 判定 | 依据 |
@@ -99,6 +105,7 @@ Termux 自身也被 fork 删过 `doDcs`／`sixel`）；会话不随 Activity 走
 | `8dmusichannels-star-terminator.md` | Kotlin/Compose 自研 VT 子集 + C PTY 桥 | 不采纳：零测试资产且 CI 虚假绿灯；其 OSC 注释清单作生态参照面，OSC 52 安全姿态归 OSC 52 条款；其 `NativePty.c` 一类 C PTY 桥无落点——本仓 PTY 在 Rust 侧（`nix::pty`），仓内无 C 源；多击选词／OSC 8 白名单／提交构建产物三做法属不得反向采纳 | 「Android 侧终端项目的复查台账」terminator 行；「OSC 覆盖逐项核对」；「OSC 52 读取请求的收割与应答须对每个会话有界」；「不得反向采纳的做法」三行 |
 | `DanteAlighierin-foot.md` | C/Wayland 自研 VT 极简终端 | 不采纳：仓内无 VT／网格语料（「无资产」而非门槛违反）；自研 C 解析器违单一来源，box-drawing／组合宽度只作结构对照 | 「已复查结论台账」foot 行 |
 | `extensibility-research.md` | 本仓自产的可扩展性研究：终端引擎库化交付、会话传输接口扩展点、远程后端（Herdr／Rex）选型，附五个候选项目形态与上游扩展机制对比 | 已核结，全部不采纳：应用内插件运行时／脚本加载、Model Context Protocol、Termux:API 兼容层撞 `PROHIBITED.md` 明禁；库化拆分（拆 crate 与 Gradle library 模块）须改受保护 `Cargo.toml`／`settings.gradle.kts`／`build.gradle.kts`，未获用户明确同意不动；远程后端属产品决策且 `DESIGN.md` 未声明该功能面。报告本体按本 Requirement 的可移除性条款退役（索引行为唯一常驻载体） | `PROHIBITED.md`（插件体系、Model Context Protocol、Termux:API、内建命令）；`DESIGN.md`「不做不必要功能」「不实现未在 docs/specification/ 声明的功能/逻辑」；`STYLE.md`「不得定义任何 crate features」；AGENTS.md 受保护文件约束 |
+| `extensibility-and-remote-backends-2026.md` | 扩展形态选择（应用内插件 vs 组件库化 vs 传输适配器）与五个外部项目（RexPocket／Rexling／Bellterm／Herdr Mobile Relay／Whip）评估，另附 Termux 分层与 termlib 库化对标 | 已核结，结论为「先做会话传输接缝，不做插件运行时与库化」：插件运行时零收益且撞既有明禁与未声明裁定；库化交付须改受保护 `Cargo.toml`／`settings.gradle.kts`／`build.gradle.kts`，在无外部使用者前提下收益近零；远程后端的技术前置是拆出字节源与生命周期契约（`Pty` trait 当前混合 pid／winsize ioctl／fd 等本地 OS 能力，`Session::spawn_with_pty` 为 `pub(super)`，`Session::request_exit` 走本地进程组信号）；外部项目只作形态与纪律参照（Bellterm／Whip 的世代 fencing 与控制流／字节流分离、Rexling 的双通道与有界快照、RexPocket 的协议／渲染分层但协议真值置于 Kotlin、Herdr Mobile Relay 仅协议治理），Herdr 的 surface 模式与本仓 Ghostty 模拟器重复须先裁决 | `PROHIBITED.md`；`DESIGN.md`（无远程／网络终端声明）；`STYLE.md`（未声明功能不实现、文档不写 git 提交号）；AGENTS.md 受保护文件约束；`upstream-alignment`「能力裁定补齐行」的插件系统行／WebSocket 与网络终端形态行／远程会话行；本仓 `native/src/terminal/pty.rs`、`native/src/terminal/session/spawn.rs`、`native/src/terminal/session/lifecycle.rs`、`native/Cargo.toml`、`android/settings.gradle.kts` |
 | `GlobalTechInfo-RedTerm.md` | 复用 Termux jar 的 proot 发行版运行器 | 不采纳（门槛 3）：仓内无本仓组件，329 例属 SSH/SFTP/proot 面；16KB 页对齐登记禁改区 | 台账不可采纳行；「禁改区待维护者裁定项台账」；参照面「搜索高亮两层透明度」归 `text-search`，备份「完成后替换 + 孤儿清理」归「参照面与反面做法收敛补齐行」 |
 | `JetBrains-jediterm.md` | JVM/Swing 可嵌入终端库（自研 VT + Pty4J） | 不采纳（门槛 1）：before/after 期望即其自身输出；vttest 派生子集按输入分流逐例判定 | 「已复查结论台账」vttest 行；「按输入是否格式合规分流采纳」 |
 | `KDE-konsole.md` | C++/Qt 桌面终端（Vt102Emulation） | 不采纳：桌面 C++ 自研 VT；profile/session 编辑撞 PROHIBITED，DBus／i18n／tysend 未声明 | 「能力裁定补齐行」DBus 远程控制行、界面多语言/i18n 组织行与 ZMODEM/tysend 类文件传输行；「语料判定补齐行」konsole 行；「不得反向采纳的做法」 |
@@ -422,3 +429,7 @@ MUST NOT 攒批后一次补写。整批研究收敛为 105 个键、187 行，�
 | `vercel-labs-wterm.md` | 全篇（概况、结构、对比、可复用库、可借鉴项、可改用的设计、测试数据、设计模式、许可、结论） | 已处置：整体不采纳（Web/WASM＋DOM 形态，见索引行）；逐项去向——「Pluggable core：`TerminalCore` 接口＋Zig/WASM 与 Ghostty WASM 两套后端」正是单一来源的反面，不采纳（本仓已直接使用 Rust 绑定）；`@wterm/ghostty` 的 Ghostty 封装层内存管理，其中 WASM 线性内存「页面零初始化」修复属 WASM 形态专属、无 Android 落点，其分配器／Stream／screen pages／pin tracking 一类同引擎 FFI 模式已由本仓 wrapper 覆盖（同引擎第四家口径）；无障碍／文本捕获（`readText`）未声明不立项（朗读形态另撞明禁）；WebSocket 传输的背压与重连、框架绑定、`just-bash`／`markdown` 包均属未声明面，仅在日后开网络终端时参考；`check-wasm`／CI 二进制比对的借鉴登记在禁改区候选行（`.github/` 待维护者裁定，本轮不改）；Kitty 图像、OSC 序列、软换行元数据与跨 scrollback 搜索归上游或本仓已有；§「测试数据」Vitest 矩阵、Playwright e2e 与文档站场景按门槛 3 不采纳，报告自陈期望值皆 Web／DOM 行为；Ghostty 封装的 Zig 0.15.2 版本矩阵与本仓工具链无关；Apache-2.0 无引入动作，亦不 vendor 其 Zig 片段 |
 | `wilsonglasser-oryxis.md` | 全篇（概况、结构、对比、可复用库、可借鉴项、可改用的设计、测试数据、设计模式、许可、结论） | 已处置：整体不采纳（iced 桌面 SSH 客户端＋alacritty 核，见索引行）；逐项去向——SSH／SFTP／serial／telnet／mosh 协议面与 FIDO2 无本仓落点（本仓为 local-only 用户终端）；「config vault 与跨设备同步」撞会话持久化明禁且含隐私面，不立项；crate tests（含 alacritty VT 套件）按门槛 1＋未编目不采纳；ZMODEM 类文件传输按未声明不立项；iced/wgpu 终端 widget 不移植（本仓 wgpu 渲染自持、UI 为 Compose）；「app＋core＋terminal」分层与本仓既有分层同构，无改动；报告自陈 `oryxis-terminal` 的渲染器耦合关系未判定，不作断言；AGPL-3.0 无引入动作 |
 | `z-hunter-Scanline-term.md` | 全篇（概况、代码要点、可直接用、间接有用、可改用的设计、测试数据、设计模式、对比、结论） | 已处置：整体不采纳（Tauri＋React＋xterm.js 桌面 Web 终端，见索引行）；逐项去向——xterm.js／React／WebGL 渲染替换路线违第三方渲染与单一来源两条，且无 Android 落点；`conpty-oxide` 与随包 Windows ConPTY 动态库属平台专有且撞 `BUILD.md`「可以从外部下载可以自动处理的文件不得 vendor」，不移植；`mcp.rs` 的 agent 终端桥（`terminal-n` 句柄、生命周期错误面）撞 MCP 明禁，AI 助手／agent 请求面归 AI 集成未声明口径；会话恢复与多 tab 分属会话持久化明禁与未声明；集成浏览器标签页、preset／home 控制器、CRT 特效分别按未声明与视觉特效未声明不立项；`scanline-virtual-screen` 宿主与模拟器属 Web 渲染器形态，ConPTY 状态机读写仅在日后增平台时有参照意义；§「测试数据」vitest 前端测试按无 VT 资产不采纳（报告自陈断言未编目、无 conformance 套件、无测试矩阵、无性能资产）；`outputs/readme` 的「超轻量、即时读取」设计原则与「文档仍属可用设计空间」仅作参照；报告自陈仓内 `AGENTS.md` 非项目专用，不作依据；MIT 无引入动作 |
+| `extensibility-and-remote-backends-2026.md` | 建议的「会话字节传输与生命周期契约」抽象面 | 未声明，不立项：`DESIGN.md` 无远程／网络终端面，`STYLE.md` 禁止实现未声明功能；须先补声明再实现，接口形态限于字节源（写、读、尺寸协商）与生命周期（请求退出、取退出码）两组契约，本地 pid／winsize ioctl／fd 能力留在本地实现侧 |
+| `extensibility-and-remote-backends-2026.md` | 建议的 Rust crate 发布元数据与 Android library 交付 | 不采纳（待产品决策）：须改受保护 `Cargo.toml`／`settings.gradle.kts`／`build.gradle.kts`，未获明确同意；且无外部使用者前提下收益近零，与「代码量最小」相悖 |
+| `extensibility-and-remote-backends-2026.md` | 外部项目的可复用资产（世代 fencing、控制流与字节流分离、双通道、有界快照缓冲、协议 crate 分层） | 仅参照，不引入代码：能力面未声明；相关纪律归 `upstream-alignment`「能力裁定补齐行」的远程会话行与 WebSocket 行（未声明不立项）；本仓若日后立项远程后端，按此纪律设计 |
+| `extensibility-and-remote-backends-2026.md` | Herdr 的服务端渲染 surface 模式与本仓 Ghostty 模拟器重复 | 仅参照：服务端权威渲染属未声明面；本仓终端状态单一来源不设服务端渲染后端；若日后接 Herdr，须先在字节流模式与服务端渲染模式之间裁决 |
