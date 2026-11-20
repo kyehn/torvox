@@ -987,7 +987,7 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   **与上一列基线的偏差来源**：上一列唯一 `file-too-large` 命中在
   `internal/input_filter.rs`（1159 行），其主体是 `#[cfg(test)] mod tests`（646 行）；
   用例已移到同目录 `input_filter/tests.rs`（与 `pty.rs` / `pty/tests.rs` 同一形状），
-  生产文件回到 622 行、测试文件 643 行，均低于该工具 1100 行的告警阈，
+  生产文件回到 622 行、测试文件 641 行，均低于该工具 1100 行的告警阈，
   命中随之归零（`function-too-long` 仍为 0）。更早一次偏移是
   `public_api.rs`（1123 行）按职责拆成 `public_api/` 目录模块。`supportedFiles`
   由 115 升至 116 是新增该测试文件所致。
