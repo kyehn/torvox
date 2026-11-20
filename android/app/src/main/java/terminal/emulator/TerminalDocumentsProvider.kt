@@ -17,6 +17,7 @@ import terminal.emulator.runtime.LogUtil
 import java.io.File
 import java.io.FileNotFoundException
 import java.nio.file.Files
+import java.util.Locale
 
 class TerminalDocumentsProvider : DocumentsProvider() {
     companion object {
@@ -582,10 +583,12 @@ class TerminalDocumentsProvider : DocumentsProvider() {
     override fun querySearchDocuments(rootId: String, query: String, projection: Array<out String>?): Cursor? {
         // 与 Termux 一致的按文件名搜索：迭代遍历、上限截断、符号链接
         // 不得跳出 home。查询词双向小写，修正 Termux 仅小写文件名的遗漏。
+        // Locale.ROOT：跟随系统区域会让 I/i 等字符按区域规则折叠（土耳其语
+        // I→ı），文件名搜索在切换系统语言后漏掉结果。
         val columns = projection ?: DOC_PROJECTION
         val rootDir = queries.rootDir()
         val rootPath = rootDir.canonicalPath
-        val needle = query.lowercase()
+        val needle = query.lowercase(Locale.ROOT)
         val pending = ArrayDeque<File>()
         // 搜索根越出根目录时回 null 游标：同 queryDocument，框架把异常吞成同样的 null。
         val searchRoot =
@@ -612,7 +615,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             if (!Files
                     .isSymbolicLink(current.toPath()) && current.isDirectory
             ) {
-                if (canonical != rootPath && current.name.lowercase().contains(needle)) {
+                if (canonical != rootPath && current.name.lowercase(Locale.ROOT).contains(needle)) {
                     queries.addDocRow(cursor, current, rootDir, columns)
                 }
                 val children = current.listFiles()
@@ -623,7 +626,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
                 } else {
                     children.forEach { pending.addLast(it) }
                 }
-            } else if (current.name.lowercase().contains(needle)) {
+            } else if (current.name.lowercase(Locale.ROOT).contains(needle)) {
                 queries.addDocRow(cursor, current, rootDir, columns)
             }
         }
