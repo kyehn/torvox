@@ -166,6 +166,11 @@ class BootstrapDownloader(
                     }
                     Result.success(cachedFile)
                 }
+            } catch (cancelled: CancellationException) {
+                // 取消不是「下载失败」：用户中止安装属正常路径，MUST NOT 留下 error 级
+                // 日志（见 logcat-hygiene）。原样抛给结构化并发，与编排器同一口径
+                // （`BootstrapOrchestrator` 同样先捕取消再捕异常）。
+                throw cancelled
             } catch (exception: Exception) {
                 // 只记录异常类名而非异常本身：HTTP 错误消息会嵌入完整 URL
                 // （含任何 token/查询参数），而此日志可能被崩溃报告器采集。
