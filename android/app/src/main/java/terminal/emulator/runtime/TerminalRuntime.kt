@@ -1173,7 +1173,7 @@ constructor(
         }
         LogUtil.info(
             "Runtime",
-            "session ${entry.sessionId} exited with code $exitCode; showing [Process completed] prompt",
+            "session ${entry.sessionId} shell exited with code $exitCode; showing [Process completed] prompt",
         )
         feedProcessCompletedPrompt(entry, exitCode)
         return true
@@ -1194,7 +1194,7 @@ constructor(
         // 提示上按 Enter 后的确认关闭（渲染循环重新派发）；确认关闭时跳过提示路径。
         val confirmedClose = entry.processCompletedConfirmed
         if (!confirmedClose && maybeShowProcessCompletedPrompt(entry, exitCode)) return
-        LogUtil.info("Runtime", "session ${entry.sessionId} exited with code $exitCode")
+        LogUtil.info("Runtime", "session ${entry.sessionId} closed (shell exit code $exitCode)")
         // 阶段 1（加锁）：捕获可能挂起的线程；实际 join 在下方不持锁执行
         // （最长 THREAD_JOIN_TIMEOUT_MS），使挂起的 GPU 线程不阻塞所有会话操作。
         val hungThreadToJoin: Thread?
