@@ -1017,15 +1017,8 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   验收判据：重复率 MUST NOT 高于该基线；新增克隆 MUST 逐处给出
   「不修」的具体理由（被测行为不同、脚手架样板、或传状态必需的形参列表），
   MUST NOT 以「先记着」放行。
-- **footgun-scan（第 7 次运行，-, ：0 确认；历史 8 次运行，已修复 2 项 shape hit，残余 7 项逐条判定合理）：**
-  - `android/app/src/main/java/terminal/emulator/bridge/NativeBridge.kt:56` — native-load：已改为读 `/proc/self/maps` 记录实际解析路径，陷阱条件已实现（命中信息即工厂产物），非缺陷。
-  - `android/app/src/main/java/terminal/emulator/installer/BootstrapInstallService.kt:65` — run-blocking：处于非 main 的启动期等待路径，陷阱成立。
-  - `android/app/src/main/java/terminal/emulator/runtime/RenderSupervisor.kt:278` — run-blocking：off-main，陷阱成立。
-  - `android/app/src/main/java/terminal/emulator/ui/ModifierBar.kt:897` — pointer-input-unit：gesture 仅读状态，经 `rememberUpdatedState`，陷阱成立。
-  - `android/app/src/main/java/terminal/emulator/ui/SettingsAppearanceSection.kt:124` — slider-value-range：range 由实际数据构造并收敛，陷阱成立。
-  - `android/app/src/main/java/terminal/emulator/ui/SettingsComponents.kt:122` — slider-value-range：共享组件，范围由调用方数据约束，陷阱成立。
-  - `android/app/src/main/java/terminal/emulator/ui/SettingsScreen.kt:96` — pointer-input-unit：gesture 不读状态，陷阱成立。
-  - 已修复（shape hit 消失）：`FontManager.refreshFontList` 补 `fontLoadJob?.cancel()`，`RenderWatchDog.start` 补 `watchJob?.cancel()`（同一轮 job 生命周期加固）。
+- **footgun-scan**（累计 9 次运行，0 确认缺陷）：2026-11-20 重扫实测的主源码集、单测源码集与
+  仪器测试源码集的文件数、命中数与逐处判定见下方「静态形状扫描」表。
 - **rapidocr**：`flake.nix` 引导调用 `scripts/download-rapidocr-models.nu` 把模型
   下载到 `/tmp/.rapidocr-models`，模型环境已就绪；该下载与其他 shellHook 初始化步骤
   （AOSP testkey、`/tmp/alacritty-theme` 克隆）共享同一把排他锁，多个 shell 并发进入
@@ -1079,25 +1072,26 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 - 参数：`python3 <footgun-scan>/scripts/scan.py --all <目录>`，逐行扫描受版本控制的文件；
   目录取 `android/app/src/main`、`android/app/src/test` 与 `android/app/src/androidTest`。
-- 当日实测（2026-11-14）：主源码集 119 个文件 / 9 处命中，单测源码集 137 个文件 /
-  1 处命中，仪器测试源码集 87 个文件 / 0 处命中；全仓 368 个文件 / 10 处命中，全部为
-  `look` 级形状提示，无 `likely` 级命中。
-- 同日复核（文件数随新增源码与用例增长，命中位置与判定不变）：主源码集 119 个文件 /
-  9 处命中，单测源码集 137 个文件 / 1 处命中，仪器测试源码集 87 个文件 / 0 处命中；
-  全仓 368 个文件 / 10 处命中，与下表的逐处判定一一对应。
+- 当日实测（2026-11-20）：主源码集 119 个文件 / 6 处命中，单测源码集 143 个文件 /
+  3 处命中，仪器测试源码集 91 个文件 / 0 处命中；全仓 353 个文件 / 9 处命中，全部为
+  `look` 级形状提示，无 `likely` 级命中，与下表的逐处判定一一对应。
 
 | 位置 | 命中形状 | 判定 | 依据 |
 | --- | --- | --- | --- |
-| `FontManager.kt` 的 `refreshFontList` | `job-relaunched-without-cancel` | 驳回 | 陷阱指认的形态是「赋值前不取消仍在跑的旧作业」。此处的启动点在同一条语句序列上带并发闩 `fontListLoaded \|\| fontLoadJob?.isActive == true`：旧作业仍活跃时根本不启动第二个；`fontListLoaded` 是 `@Volatile`，跨 IO 线程与主线程可见；字段只有一个赋值点，唯一调用方在主线程（设置页打开字体选择框那一刻）。旧作业已结束时无「仍在跑的旧作业」可取消 |
 | `NativeBridge.kt` 的类初始化块（`System.loadLibrary("native")`） | `native-load` | 驳回 | 陷阱讲的是 JNA：同名库可能被系统副本抢先加载，故须打印实际打开的路径。本仓走 Android 的 JNI `System.loadLibrary`，装载路径由应用自身的 native 库目录决定，不存在同名系统副本兜底装载；失败路径把平台链接器给出的 `UnsatisfiedLinkError` 消息全文记入日志；构建侧保证 `.so` 打进 APK 的 `jniLibs`（`BUILD.md` 明确不设计运行时兜底） |
 | `NativeBridgeSmokeTest.kt` 的 `loadNativeLibrary` | `native-load` | 驳回 | 走 `System.load(绝对路径)`：路径是常量（宿主编译产物），不经名字解析，缺失时 `System.load` 自身抛错，不存在「同名副本被抢先加载」的场景 |
 | `BootstrapInstallService.kt` 的 `install` | `run-blocking` | 驳回 | `runBlocking` 在 `install()` 内，而 `install()` 由 `onStartCommand` 里显式 `Thread { … }.start()` 调用，全程在后台线程，不在主线程 |
 | `RenderSupervisor.kt` 的 `startRenderThread` | `run-blocking` | 驳回 | `runBlocking` 在渲染线程的 `Thread { … }` 体（专用渲染线程）内，不在主线程 |
-| `RenderWatchDog.kt` 的 `start` | `job-relaunched-without-cancel` | 驳回 | 「检查是否活跃」与「启动」在同一个 `synchronized(fireLock)` 临界区，两个并发调用者不会各跑一个 2s 轮询循环；`stop()` 推进代次并取消后清空字段；代次单调递增使陈旧循环无权回调 |
 | `ModifierBar.kt` 的按键手势 `pointerInput(Unit)` | `pointer-input-unit` | 驳回 | 陷阱指认的是「以 Unit 为键时块内捕获的普通值不再更新」。此处块内读到的可变值全部经 `rememberUpdatedState`（按键几何、手势区、点击、重复、次要动作），没有裸捕获；以 Unit 为键是刻意选择：改用 lambda 实例作键会在长按期间的任何重组上取消并重启手势协程，静默杀死自动重复 |
 | `SettingsAppearanceSection.kt` 的 `FontSizeSlider` | `slider-value-range` | 驳回 | 传入滑块的值是 `sliderFontSize`，初值经 `SettingsRepository.clampFontSize` 收敛，区间收紧时由 `LaunchedEffect(fontSizeUpperBound)` 再次收敛；区间上界与收敛入口同源（`SettingsRepository.fontSizeMaxSp`），故值恒在区间内 |
-| `SettingsComponents.kt` 的 `SettingsSliderRow` | `slider-value-range` | 驳回 | 通用滑块行只透传调用方给的区间与值，唯一调用方即上条，值已在区间内 |
 | `SettingsScreen.kt` 的设置页遮罩层 `pointerInput(Unit)` | `pointer-input-unit` | 驳回 | 块体是 `detectTapGestures(onTap = {})`，不读任何状态，无可失效的捕获值 |
+| `SettingsSliderRowRobolectricTest.kt` 的两处 `valueRange =` | `slider-value-range` | 驳回 | 测试调用点的具名实参：传入值恒在区间内（区间 8f..24f 或 8f..16f，值 12f），不构成「存量值落在区间外」；该用例正是要验证区间与步数变化时重建状态，区间取自用例自身而非设置数据 |
+
+表内不含已消失的命中：`FontManager.refreshFontList` 与 `RenderWatchDog.start` 补上
+`cancel()` 后 `job-relaunched-without-cancel` 形状消失；`SettingsSliderRow` 改用
+`key(valueRange, steps)` 承载区间与步数后，组件内的 `valueRange =` 实参移到调用点，
+形状命中随之从该文件移到调用点（即上表的 `SettingsAppearanceSection.FontSizeSlider`
+与 `SettingsSliderRowRobolectricTest` 两行）。
 
 **显示节拍的帧率声明与省电模式分支**（`code-health`「显示节拍禁止使用固定帧率和省电模式
 分支」要求的审查留档，2026-11-15 实测）：
