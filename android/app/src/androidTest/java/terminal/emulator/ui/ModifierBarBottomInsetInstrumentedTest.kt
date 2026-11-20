@@ -11,12 +11,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.awaitBridge
+import terminal.emulator.awaitTerminalReady
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.hideImeAndConfirm
 import terminal.emulator.isImeVisible
-import terminal.emulator.waitForSession
-import terminal.emulator.waitForTerminalPixels
 
 /**
  * 键栏底部内缩口径验收（STATUS「输入法未弹出时，修饰键栏底部存在过高的空区域背景」）。
@@ -50,9 +48,7 @@ class ModifierBarBottomInsetInstrumentedTest : ComposeTerminalLogcatTest() {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
-        composeTestRule.awaitBridge()
+        composeTestRule.awaitTerminalReady()
         hideImeAndSettle()
     }
 

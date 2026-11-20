@@ -16,8 +16,8 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
-import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
+import terminal.emulator.awaitTerminalReady
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.pumpedTerminalText
 import terminal.emulator.requireBridge
@@ -25,8 +25,6 @@ import terminal.emulator.ui.theme.ThemeRepository
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.runCatchingCancellable
-import terminal.emulator.waitForSession
-import terminal.emulator.waitForTerminalPixels
 
 /**
  * 原生 surface 失效后的自愈：持续注入 surface 级失败 → 原生判死并上报 →
@@ -112,11 +110,9 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        composeTestRule.waitForSession()
-        // 本类量像素墨迹（`inkPixels` 采样），须再等原生 Surface 挂上，否则量到全零——
-        // 判红原因与被测的 Surface 丢失恢复行为无关。见 waitForTerminalPixels。
-        composeTestRule.waitForTerminalPixels()
-        composeTestRule.awaitBridge()
+        // 本类量像素墨迹（`inkPixels` 采样），就绪门槛须等原生 Surface 挂上，否则量到
+        // 全零——判红原因与被测的 Surface 丢失恢复行为无关。见 awaitTerminalReady。
+        composeTestRule.awaitTerminalReady()
     }
 
     /** 经 shell 打印一行，回显重发至多 3 次（冷 stdin 竞态，同其他用例口径）。 */

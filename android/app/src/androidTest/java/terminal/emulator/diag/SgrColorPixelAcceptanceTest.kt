@@ -8,14 +8,13 @@ import org.junit.Before
 import org.junit.Test
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitBridge
+import terminal.emulator.awaitTerminalReady
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.countBluishPixels
 import terminal.emulator.countGreenishPixels
 import terminal.emulator.countReddishPixels
-import terminal.emulator.getBridge
 import terminal.emulator.placeTextAtRow
-import terminal.emulator.waitForSession
-import terminal.emulator.waitForTerminalPixels
 
 /**
  * 颜色像素验收：SGR 彩色文本必须在屏幕上产生对应色相的主导像素，
@@ -34,20 +33,7 @@ class SgrColorPixelAcceptanceTest : ComposeTerminalLogcatTest() {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
-    }
-
-    private fun awaitBridge(): Bridge {
-        // 会话孵化中桥为 null：确定性轮询就绪，而非单次读取碰运气。
-        var ready: Bridge? = null
-        val seen =
-            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
-                ready = composeTestRule.getBridge()
-                ready != null
-            }
-        assertNotNull("运行时桥必须就绪", seen)
-        return requireNotNull(ready) { "运行时桥必须就绪" }
+        composeTestRule.awaitTerminalReady()
     }
 
     /**
@@ -73,7 +59,7 @@ class SgrColorPixelAcceptanceTest : ComposeTerminalLogcatTest() {
 
     @Test
     fun sgrRedTextProducesRedPixels() {
-        val bridge = awaitBridge()
+        val bridge = composeTestRule.awaitBridge()
         // 三色各占一行：同行的三段在小网格（CI 模拟器仅 25 列）上必折行，
         // 折行后行内位置随网格变化。行号取视口上部，任何后续输出滚动视口都
         // 不会把它们推出可见区。

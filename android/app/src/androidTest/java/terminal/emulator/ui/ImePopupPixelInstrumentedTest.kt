@@ -12,8 +12,8 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
-import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
+import terminal.emulator.awaitTerminalReady
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.hideImeAndConfirm
 import terminal.emulator.injectTap
@@ -21,7 +21,6 @@ import terminal.emulator.isImeVisible
 import terminal.emulator.pumpedTerminalText
 import terminal.emulator.requireBridge
 import terminal.emulator.waitForSession
-import terminal.emulator.waitForTerminalPixels
 import kotlin.math.roundToInt
 
 /**
@@ -71,9 +70,7 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
-        composeTestRule.awaitBridge()
+        composeTestRule.awaitTerminalReady()
     }
 
     /** 等 shell 提示符就绪后经 shell 打印输出（writeToPty 口径），回显重发防冷 stdin 丢失。 */

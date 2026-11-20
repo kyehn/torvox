@@ -15,11 +15,9 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
-import terminal.emulator.awaitBridge
+import terminal.emulator.awaitTerminalReady
 import terminal.emulator.hideImeAndConfirm
 import terminal.emulator.isImeVisible
-import terminal.emulator.waitForSession
-import terminal.emulator.waitForTerminalPixels
 
 /**
  * 修饰键栏底边那排按键的按下反馈必须看得见（STATUS「修饰键底部列触发无动画反馈」）。
@@ -102,9 +100,7 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
-        composeTestRule.awaitBridge()
+        composeTestRule.awaitTerminalReady()
         // 启动期自动弹键盘会与本用例竞态：键盘把键栏顶上去，量到的不是底边那排。
         // 收键盘可能赶在输入法弹出之前，先确认一次，失败再复核最终状态。
         if (!hideImeAndConfirm(composeTestRule.activity, IME_HIDDEN_TIMEOUT_MS)) {

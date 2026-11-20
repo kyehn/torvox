@@ -8,10 +8,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.awaitBridge
+import terminal.emulator.awaitTerminalReady
 import terminal.emulator.openDrawer
-import terminal.emulator.waitForSession
-import terminal.emulator.waitForTerminalPixels
 
 /**
  * 会话抽屉宽度验收：抽屉 MUST NOT 宽于可用宽度。
@@ -37,9 +35,7 @@ class DrawerWidthInstrumentedTest : ComposeTerminalLogcatTest() {
 
     @Before
     fun setUp() {
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
-        composeTestRule.awaitBridge()
+        composeTestRule.awaitTerminalReady()
     }
 
     @Test

@@ -9,10 +9,9 @@ import org.junit.Test
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
+import terminal.emulator.awaitTerminalReady
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.placeTextAtRow
-import terminal.emulator.waitForSession
-import terminal.emulator.waitForTerminalPixels
 
 /**
  * 斜体像素验收：SGR 3 斜体文本必须产生与正体不同的字形像素，
@@ -32,8 +31,7 @@ class SgrItalicPixelAcceptanceTest : ComposeTerminalLogcatTest() {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
+        composeTestRule.awaitTerminalReady()
     }
 
     /** 呈现是异步的（运行时循环/VSync 节拍）：轮询截图直到与 [plain] 出现差异。 */
