@@ -98,6 +98,28 @@ fn handoff_never_hands_the_result_out_twice() {
     assert!(handoff.abandon(&receiver).is_none());
 }
 
+/// 并发交接：渲染线程放弃与工作线程回送同时发生时，结果 MUST 恰好被一方取走。
+///
+/// 协议的全部价值在「互斥」二字：两边都取到会让同一张纹理被归还两次，两边都没
+/// 取到则纹理随通道析构而无人归还（Vulkan 后端丢弃未呈现纹理是空实现，那张交换链
+/// 图像永不归还，累积后终端永久停帧）。上面两条用例只覆盖了两种固定先后次序，
+/// 本用例以真实线程反复制造这个交错，把「恰好一方取走」钉成并发下的不变量。
+#[test]
+fn handoff_gives_the_result_to_exactly_one_side_under_concurrency() {
+    for _ in 0..1000 {
+        let handoff = std::sync::Arc::new(ResultHandoff::new());
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let worker_handoff = std::sync::Arc::clone(&handoff);
+        let worker = std::thread::spawn(move || worker_handoff.deliver(&sender, 7u32).is_err());
+        let render_thread_took = handoff.abandon(&receiver).is_some();
+        let worker_took = worker.join().expect("worker thread joins");
+        assert_ne!(
+            render_thread_took, worker_took,
+            "结果必须恰好被一方取走：渲染线程取到={render_thread_took}，工作线程取到={worker_took}"
+        );
+    }
+}
+
 // ── should_render_partial 判定表 ──
 
 /// `(ready, invalidated, bands, kgp) -> partial`

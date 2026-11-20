@@ -19,12 +19,11 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
     private val authority = "com.termux.documents"
 
     /**
-     * 登记目录列表观察者：返回观察者与通知标志。
+     * 构造只置标志的观察者：返回观察者与通知标志。
      *
-     * 目录变更经提供者的真实 inotify 通道到达，观察者只置标志——通知本身由
-     * `ContentResolver` 派发到主线程。
+     * 观察者不判定内容，只把「收到通知」这一事实记成标志，由调用方轮询。
      */
-    private fun registerListingObserver(context: Context, childrenUri: Uri): Pair<ContentObserver, AtomicBoolean> {
+    private fun newNotifyingObserver(): Pair<ContentObserver, AtomicBoolean> {
         val notified = AtomicBoolean(false)
         val observer =
             object : ContentObserver(Handler(Looper.getMainLooper())) {
@@ -32,6 +31,17 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
                     notified.set(true)
                 }
             }
+        return observer to notified
+    }
+
+    /**
+     * 登记目录列表观察者：返回观察者与通知标志。
+     *
+     * 目录变更经提供者的真实 inotify 通道到达，观察者只置标志——通知本身由
+     * `ContentResolver` 派发到主线程。
+     */
+    private fun registerListingObserver(context: Context, childrenUri: Uri): Pair<ContentObserver, AtomicBoolean> {
+        val (observer, notified) = newNotifyingObserver()
         context.contentResolver.registerContentObserver(childrenUri, true, observer)
         return observer to notified
     }
@@ -547,15 +557,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
                 DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, "terminal_home/prefixed-observe")
             val cursor = context.contentResolver.query(childrenViaTree, null, null, null, null)
             requireNotNull(cursor) { "前缀寻址的子项查询必须成功" }
-            val notified =
-                java.util.concurrent.atomic
-                    .AtomicBoolean(false)
-            val observer =
-                object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
-                    override fun onChange(selfChange: Boolean) {
-                        notified.set(true)
-                    }
-                }
+            val (observer, notified) = newNotifyingObserver()
             cursor.registerContentObserver(observer)
             try {
                 // 终端侧改动：绕过提供者直接落盘，等价于 shell 里的 touch/解压。
@@ -603,15 +605,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
                     null,
                 )?.use { assertTrue("探测目录的子项查询必须成功", it.count == 1) }
             val documentUri = DocumentsContract.buildDocumentUri(authority, "modify-probe/appended.log")
-            val notified =
-                java.util.concurrent.atomic
-                    .AtomicBoolean(false)
-            val observer =
-                object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
-                    override fun onChange(selfChange: Boolean) {
-                        notified.set(true)
-                    }
-                }
+            val (observer, notified) = newNotifyingObserver()
             context.contentResolver.registerContentObserver(documentUri, true, observer)
             try {
                 // 追加写：inode 不变，内核只报 MODIFY。

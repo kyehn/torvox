@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
-import terminal.emulator.awaitBridge
+import terminal.emulator.awaitTerminalReady
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.hideImeAndConfirm
 import terminal.emulator.isImeVisible
@@ -21,8 +21,6 @@ import terminal.emulator.requireBridge
 import terminal.emulator.runtime.TerminalRuntime.HoleStateEntry
 import terminal.emulator.runtime.holeStateCycle
 import terminal.emulator.showCursor
-import terminal.emulator.waitForSession
-import terminal.emulator.waitForTerminalPixels
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -96,9 +94,7 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         packageName = InstrumentationRegistry.getInstrumentation().targetContext.packageName
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
-        composeTestRule.awaitBridge()
+        composeTestRule.awaitTerminalReady()
     }
 
     /**

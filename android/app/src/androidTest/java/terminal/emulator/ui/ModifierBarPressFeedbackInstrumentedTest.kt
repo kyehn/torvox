@@ -1,8 +1,10 @@
 package terminal.emulator.ui
 
+import android.graphics.Bitmap
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
@@ -13,11 +15,9 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
-import terminal.emulator.awaitBridge
+import terminal.emulator.awaitTerminalReady
 import terminal.emulator.hideImeAndConfirm
 import terminal.emulator.isImeVisible
-import terminal.emulator.waitForSession
-import terminal.emulator.waitForTerminalPixels
 
 /**
  * 修饰键栏底边那排按键的按下反馈必须看得见（STATUS「修饰键底部列触发无动画反馈」）。
@@ -100,9 +100,7 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
-        composeTestRule.awaitBridge()
+        composeTestRule.awaitTerminalReady()
         // 启动期自动弹键盘会与本用例竞态：键盘把键栏顶上去，量到的不是底边那排。
         // 收键盘可能赶在输入法弹出之前，先确认一次，失败再复核最终状态。
         if (!hideImeAndConfirm(composeTestRule.activity, IME_HIDDEN_TIMEOUT_MS)) {
@@ -123,7 +121,7 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
     }
 
     /** 取一块矩形里的像素（行优先）。 */
-    private fun sampleBand(bitmap: android.graphics.Bitmap, left: Int, right: Int, top: Int, bottom: Int): IntArray {
+    private fun sampleBand(bitmap: Bitmap, left: Int, right: Int, top: Int, bottom: Int): IntArray {
         val width = (right - left).coerceAtLeast(0)
         val height = (bottom - top).coerceAtLeast(0)
         val pixels = IntArray(width * height)
@@ -136,20 +134,37 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
         return pixels
     }
 
-    @Test
-    fun bottomRowKeyGivesVisiblePressFeedback() {
-        // PGDN 不切换状态：按下前后按键自身的颜色只会被「按下反馈」改变。
-        val node = composeTestRule.onNodeWithTag("Key_PGDN", useUnmergedTree = true)
-        val bounds = node.fetchSemanticsNode().boundsInRoot
+    /**
+     * 按键的取样目标：按键边界、取样区，以及按下前的像素采样。
+     *
+     * 取样区由按键的语义边界内缩推出（躲开圆角）。[sample] 直接给出该区的像素行，
+     * 调用点不再各自复算一遍矩形。
+     */
+    private class KeyTarget(val bounds: Rect, val before: IntArray, val sample: (Bitmap) -> IntArray)
+
+    /** 定位按键并取按下前的像素采样。 */
+    private fun keyTarget(tag: String): KeyTarget {
+        val bounds = composeTestRule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val left = bounds.left.toInt() + SAMPLE_INSET_PX
         val right = bounds.right.toInt() - SAMPLE_INSET_PX
         val top = bounds.top.toInt() + SAMPLE_INSET_PX
         val bottom = bounds.bottom.toInt() - SAMPLE_INSET_PX
-        val pressX = bounds.left.toInt() + PRESS_OFFSET_FROM_LEFT_PX
-        val pressY = bounds.bottom.toInt() - PRESS_OFFSET_FROM_BOTTOM_PX
-
         val before = sampleBand(UxTestUtils.screenshot(device), left, right, top, bottom)
-        assertTrue("按键底部必须取到样（截图或定位失败）", before.isNotEmpty())
+        assertTrue("$tag 必须取到样（截图或定位失败）", before.isNotEmpty())
+        return KeyTarget(
+            bounds = bounds,
+            before = before,
+            sample = { bitmap -> sampleBand(bitmap, left, right, top, bottom) },
+        )
+    }
+
+    @Test
+    fun bottomRowKeyGivesVisiblePressFeedback() {
+        // PGDN 不切换状态：按下前后按键自身的颜色只会被「按下反馈」改变。
+        val target = keyTarget("Key_PGDN")
+        val before = target.before
+        val pressX = target.bounds.left.toInt() + PRESS_OFFSET_FROM_LEFT_PX
+        val pressY = target.bounds.bottom.toInt() - PRESS_OFFSET_FROM_BOTTOM_PX
 
         // 底边那排按键落在系统手势区内：按下反馈不是立即给的，而是「按住不动
         // 达到阈值」才亮起（系统认领上滑的时机没有上界，按下即亮会被慢速起滑
@@ -171,7 +186,7 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
             ) {
                 composeTestRule.mainClock.advanceTimeBy(CLOCK_STEP_MS)
                 composeTestRule.waitForIdle()
-                val band = sampleBand(UxTestUtils.screenshot(device), left, right, top, bottom)
+                val band = target.sample(UxTestUtils.screenshot(device))
                 if (band.contentEquals(before)) {
                     false
                 } else {
@@ -181,7 +196,7 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
             }
             val band = checkNotNull(during) {
                 "键栏底边那排按键的按下反馈必须看得见：按住 $FEEDBACK_TIMEOUT_MS ms 内该区域" +
-                    "逐像素无变化（按下点 ($pressX, $pressY)，按键底边 y=${bounds.bottom.toInt()}）"
+                    "逐像素无变化（按下点 ($pressX, $pressY)，按键底边 y=${target.bounds.bottom.toInt()}）"
             }
             UxTestUtils.metric("modifier_press_feedback_latency_ms", elapsed ?: -1L)
             val changed = before.indices.count { before[it] != band[it] }
@@ -214,18 +229,11 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
     @Test
     fun bottomRowKeySwipeUpDoesNotTriggerPressFeedback() {
         // TAB 在底排且非连发键：连发键走的是另一条分支（自动重复），断言不覆盖它。
-        val node = composeTestRule.onNodeWithTag("Key_TAB", useUnmergedTree = true)
-        val bounds = node.fetchSemanticsNode().boundsInRoot
-        val left = bounds.left.toInt() + SAMPLE_INSET_PX
-        val right = bounds.right.toInt() - SAMPLE_INSET_PX
-        val top = bounds.top.toInt() + SAMPLE_INSET_PX
-        val bottom = bounds.bottom.toInt() - SAMPLE_INSET_PX
+        val target = keyTarget("Key_TAB")
+        val before = target.before
         // 按点取按键右侧：避开左侧 back 手势带，只留底部 home 手势带这一条路径。
-        val pressX = bounds.right.toInt() - PRESS_OFFSET_FROM_RIGHT_PX
-        val pressY = bounds.bottom.toInt() - PRESS_OFFSET_FROM_BOTTOM_PX
-
-        val before = sampleBand(UxTestUtils.screenshot(device), left, right, top, bottom)
-        assertTrue("按键底部必须取到样（截图或定位失败）", before.isNotEmpty())
+        val pressX = target.bounds.right.toInt() - PRESS_OFFSET_FROM_RIGHT_PX
+        val pressY = target.bounds.bottom.toInt() - PRESS_OFFSET_FROM_BOTTOM_PX
 
         // 反馈的动画挂在组合时钟上，故推进时钟需要手动驱动。
         composeTestRule.mainClock.autoAdvance = false
@@ -241,7 +249,7 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
             composeTestRule.waitForIdle()
             composeTestRule.mainClock.advanceTimeBy(CLOCK_STEP_MS)
             composeTestRule.waitForIdle()
-            val band = sampleBand(UxTestUtils.screenshot(device), left, right, top, bottom)
+            val band = target.sample(UxTestUtils.screenshot(device))
             val changed = before.indices.count { before[it] != band[it] }
             UxTestUtils.metric("modifier_swipe_changed_ratio", changed * 100 / before.size)
             assertTrue(
@@ -298,17 +306,10 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
      * @return 变化像素数与采样总数（供断言与指标使用）。
      */
     private fun pressFeedbackSample(tag: String, expectFeedback: Boolean): FeedbackSample {
-        val node = composeTestRule.onNodeWithTag(tag, useUnmergedTree = true)
-        val bounds = node.fetchSemanticsNode().boundsInRoot
-        val left = bounds.left.toInt() + SAMPLE_INSET_PX
-        val right = bounds.right.toInt() - SAMPLE_INSET_PX
-        val top = bounds.top.toInt() + SAMPLE_INSET_PX
-        val bottom = bounds.bottom.toInt() - SAMPLE_INSET_PX
-        val pressX = bounds.left.toInt() + PRESS_OFFSET_FROM_LEFT_PX
-        val pressY = bounds.bottom.toInt() - PRESS_OFFSET_FROM_BOTTOM_PX
-
-        val before = sampleBand(UxTestUtils.screenshot(device), left, right, top, bottom)
-        assertTrue("$tag 必须取到样（截图或定位失败）", before.isNotEmpty())
+        val target = keyTarget(tag)
+        val before = target.before
+        val pressX = target.bounds.left.toInt() + PRESS_OFFSET_FROM_LEFT_PX
+        val pressY = target.bounds.bottom.toInt() - PRESS_OFFSET_FROM_BOTTOM_PX
 
         val downTime = SystemClock.uptimeMillis()
         dispatchMotion(downTime, MotionEvent.ACTION_DOWN, pressX.toFloat(), pressY.toFloat())
@@ -317,7 +318,7 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
             composeTestRule.waitForIdle()
             composeTestRule.mainClock.advanceTimeBy(CLOCK_STEP_MS)
             composeTestRule.waitForIdle()
-            val band = sampleBand(UxTestUtils.screenshot(device), left, right, top, bottom)
+            val band = target.sample(UxTestUtils.screenshot(device))
             val changed = before.indices.count { before[it] != band[it] }
             // 采样必须发生在带内静止按住的期限之内，否则量的已不是「按下瞬间」。
             val elapsedWallMs = SystemClock.uptimeMillis() - downTime

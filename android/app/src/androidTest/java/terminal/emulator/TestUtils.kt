@@ -208,6 +208,22 @@ fun AndroidComposeTestRule<*, *>.awaitBridge(timeoutMs: Long = BRIDGE_READY_TIME
 }
 
 /**
+ * 仪器化用例的通用就绪门槛：会话节点就绪 → 原生 Surface 已出像素 → 运行时桥就绪。
+ *
+ * 三个门槛各有其因，且先后有序：界面节点在 Compose 组合完成时就存在（早于
+ * SurfaceView 拿到有效 Surface），桥又晚于 Surface 才孵化。少等一个，像素类用例
+ * 量到全零、需要读写会话的用例拿到 null 桥——判红原因与被测行为无关。
+ *
+ * 各门槛的超时沿用其原函数的默认值（会话与像素各 60s、桥 30s），与调用点原先
+ * 逐个调用时一致。
+ */
+fun AndroidComposeTestRule<*, *>.awaitTerminalReady() {
+    waitForSession()
+    waitForTerminalPixels()
+    awaitBridge()
+}
+
+/**
  * 运行时桥（要求已就绪）。
  *
  * 与 [awaitBridge] 的区别是**不等待**：调用点已过就绪门槛（setUp 或用例内显式

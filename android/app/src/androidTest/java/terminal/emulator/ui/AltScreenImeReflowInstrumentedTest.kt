@@ -9,12 +9,10 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
-import terminal.emulator.awaitBridge
+import terminal.emulator.awaitTerminalReady
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.requireBridge
-import terminal.emulator.waitForSession
-import terminal.emulator.waitForTerminalPixels
 
 /**
  * 备用屏（全屏 TUI）在输入法弹出时**随窗口自适应**（DESIGN：输入法弹出时终端
@@ -234,9 +232,7 @@ class AltScreenImeReflowInstrumentedTest : ComposeTerminalLogcatTest() {
      */
     @Test
     fun startingTuiWhileImeIsUpStillShrinksGrid() {
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
-        composeTestRule.awaitBridge()
+        composeTestRule.awaitTerminalReady()
         val (rowsBefore, _) = gridRowsCols()
         try {
             showImeAndSettle()
@@ -267,9 +263,7 @@ class AltScreenImeReflowInstrumentedTest : ComposeTerminalLogcatTest() {
      */
     @Test
     fun leavingAltScreenWhileImeIsUpRestoresFullHeightRows() {
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
-        composeTestRule.awaitBridge()
+        composeTestRule.awaitTerminalReady()
         val (rowsBefore, colsBefore) = gridRowsCols()
         try {
             enterAltScreenAndAwaitPublished()
@@ -291,9 +285,7 @@ class AltScreenImeReflowInstrumentedTest : ComposeTerminalLogcatTest() {
 
     @Test
     fun altScreenGridShrinksToVisibleHeightWhileImeIsUp() {
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
-        composeTestRule.awaitBridge()
+        composeTestRule.awaitTerminalReady()
         val (rowsBefore, colsBefore) = gridRowsCols()
         try {
             assertTrue("前置网格行列必须为正，实际 ${rowsBefore}x$colsBefore", rowsBefore > 0 && colsBefore > 0)
@@ -355,9 +347,7 @@ class AltScreenImeReflowInstrumentedTest : ComposeTerminalLogcatTest() {
      */
     @Test
     fun hidingImeWhileOnAltScreenRestoresFullHeightRows() {
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
-        composeTestRule.awaitBridge()
+        composeTestRule.awaitTerminalReady()
         val (rowsBefore, colsBefore) = gridRowsCols()
         try {
             enterAltScreenAndAwaitPublished()

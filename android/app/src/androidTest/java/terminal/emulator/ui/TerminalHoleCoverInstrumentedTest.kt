@@ -13,16 +13,14 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.UxTestUtils
-import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
+import terminal.emulator.awaitTerminalReady
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.hideImeAndConfirm
 import terminal.emulator.pumpedTerminalText
 import terminal.emulator.requireBridge
 import terminal.emulator.util.runCatchingCancellable
-import terminal.emulator.waitForSession
-import terminal.emulator.waitForTerminalPixels
 
 /**
  * 切后台返回时，终端开孔里必须是**离开时的画面**，而不是一块平底色。
@@ -86,9 +84,7 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        composeTestRule.waitForSession()
-        composeTestRule.waitForTerminalPixels()
-        composeTestRule.awaitBridge()
+        composeTestRule.awaitTerminalReady()
         // 键盘在场会把开孔整体上移、改变它的屏幕位置：采样区会跑到屏幕外，逐像素
         // 比对也失去意义。故先收起（同一个会话跨用例共用，前一个用例可能留着键盘）。
         assertTrue("输入法必须收起", hideImeAndConfirm(composeTestRule.activity, 5_000))

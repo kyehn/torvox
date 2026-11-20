@@ -41,6 +41,9 @@ class ScrollBehaviorQuantifiedTest : ComposeTerminalLogcatTest() {
          * 555ms/帧的软渲染设备需要 33s，留一倍余量。
          */
         private const val WINDOW_WAIT_TIMEOUT_MS = 60_000L
+
+        /** 等运行时桥孵化的上限（毫秒）：会话建立后桥异步就绪，首读必为 null。 */
+        private const val BRIDGE_WAIT_TIMEOUT_MS = 15_000L
     }
 
     private lateinit var device: UiDevice
@@ -90,14 +93,7 @@ class ScrollBehaviorQuantifiedTest : ComposeTerminalLogcatTest() {
 
     @Test
     fun enter_snaps_viewport_to_bottom_within_budget() {
-        var bridge: terminal.emulator.bridge.Bridge? = null
-        val deadline = System.currentTimeMillis() + 15000
-        while (System.currentTimeMillis() < deadline) {
-            bridge = composeTestRule.getBridge()
-            if (bridge != null) break
-            Thread.sleep(500)
-        }
-        val activeBridge = bridge ?: throw AssertionError("bridge null after wait")
+        val activeBridge = composeTestRule.awaitBridge(BRIDGE_WAIT_TIMEOUT_MS)
         seedScrollback(activeBridge)
         val view = surface()
 
@@ -263,14 +259,7 @@ class ScrollBehaviorQuantifiedTest : ComposeTerminalLogcatTest() {
      */
     @Test
     fun drag_loop_frame_pacing_stays_smooth() {
-        var bridge: Bridge? = null
-        val deadline = System.currentTimeMillis() + 15000
-        while (System.currentTimeMillis() < deadline) {
-            bridge = composeTestRule.getBridge()
-            if (bridge != null) break
-            Thread.sleep(500)
-        }
-        val activeBridge = bridge ?: throw AssertionError("bridge null after wait")
+        val activeBridge = composeTestRule.awaitBridge(BRIDGE_WAIT_TIMEOUT_MS)
         seedScrollback(activeBridge)
         val view = surface()
         val centerX = device.displayWidth / 2f

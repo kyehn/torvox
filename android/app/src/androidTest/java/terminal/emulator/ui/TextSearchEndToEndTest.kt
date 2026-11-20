@@ -27,10 +27,10 @@ import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.MainActivity
 import terminal.emulator.R
 import terminal.emulator.UxTestUtils
+import terminal.emulator.awaitBridge
 import terminal.emulator.awaitShellPrompt
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.cleanUpTerminalState
-import terminal.emulator.getBridge
 import terminal.emulator.openDrawer
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSession
@@ -92,17 +92,6 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
         }
         // 落格门控替代裸睡：慢模拟器上 200 行回显滞后，内容未齐即搜即错。
         awaitTerminalContains(bridge, marker)
-    }
-
-    private fun awaitBridge(): Bridge {
-        // 会话孵化慢于 UI 呈现：waitForSession 只等界面节点，桥可能仍为 null
-        // （Osc52 同门控）。单次直读必竞态。
-        val ready =
-            terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
-                composeTestRule.getBridge() != null
-            }
-        assertNotNull("运行时桥必须就绪（30s 未孵化）", ready)
-        return composeTestRule.getBridge() ?: throw AssertionError("bridge null")
     }
 
     /** 等标记落格到终端文本：命令回显与命令输出都算命中。 */
@@ -258,7 +247,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
     @Test
     fun searchFindsAndHighlightsMatches() {
         composeTestRule.waitForSession()
-        val bridge = awaitBridge()
+        val bridge = composeTestRule.awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         // Verify marker exists in terminal
@@ -294,7 +283,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
     @Test
     fun searchNavigatesWithScroll() {
         composeTestRule.waitForSession()
-        val bridge = awaitBridge()
+        val bridge = composeTestRule.awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         openSearchAndType(uniqueMarker)
@@ -325,7 +314,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
     @Test
     fun lowercaseQueryMatchesUppercaseContent() {
         composeTestRule.waitForSession()
-        val bridge = awaitBridge()
+        val bridge = composeTestRule.awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         // 小写查询命中大写内容：搜索由上游 search::Search 承担，仅 ASCII 字母折叠大小写，
@@ -342,7 +331,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
     @Test
     fun closeSearchRestoresModifierBar() {
         composeTestRule.waitForSession()
-        val bridge = awaitBridge()
+        val bridge = composeTestRule.awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         openSearchAndType(uniqueMarker)
@@ -370,7 +359,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
     @Test
     fun multiLineSearch() {
         composeTestRule.waitForSession()
-        val bridge = awaitBridge()
+        val bridge = composeTestRule.awaitBridge()
 
         // Generate content on multiple lines
         for (i in 1..30) {
@@ -414,7 +403,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
     @Test
     fun noResultsIndicator() {
         composeTestRule.waitForSession()
-        val bridge = awaitBridge()
+        val bridge = composeTestRule.awaitBridge()
 
         // 先让界面上有命中：计数文案此时是「共 N 个」。
         val marker = "NOMATCH_${java.util.UUID.randomUUID().toString().take(6).uppercase()}"
@@ -442,7 +431,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
     @Test
     fun searchBarNotObscuredByIme() {
         composeTestRule.waitForSession()
-        val bridge = awaitBridge()
+        val bridge = composeTestRule.awaitBridge()
 
         openSearchAndType(uniqueMarker)
 
@@ -477,7 +466,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
     @Test
     fun searchHighlightColors() {
         composeTestRule.waitForSession()
-        val bridge = awaitBridge()
+        val bridge = composeTestRule.awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         openSearchAndType(uniqueMarker)
