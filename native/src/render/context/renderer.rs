@@ -99,9 +99,8 @@ impl Renderer {
         let tex_size = output.texture.size();
         if tex_size.width != config_width || tex_size.height != config_height {
             // 尺寸不一致：surface 已被 SurfaceFlinger 缩放，而当前配置仍是旧尺寸。
-            // 按纹理实际尺寸重配并丢弃本次纹理、跳过本帧——绝不拿旧尺寸纹理渲染，
-            // 那会把帧画进尺寸已不合脚的 swapchain；跳过也保证刚取得的 SurfaceTexture
-            // 不被丢弃而不 present，交换链不丢缓冲区。下一帧取得的纹理尺寸即与配置一致。
+            // 按纹理实际尺寸重配并跳过本帧——绝不拿旧尺寸纹理渲染，那会把帧画进
+            // 尺寸已不合脚的 swapchain。下一帧取得的纹理尺寸即与配置一致。
             if SIZE_MISMATCH_THROTTLE.should_log() {
                 log::warn!(
                     "begin_frame: size mismatch! config={}x{} texture={}x{}; reconfiguring and skipping frame",
@@ -111,13 +110,22 @@ impl Renderer {
                     tex_size.height
                 );
             }
+            // 刚取得的纹理必须**呈现**归还，不能直接丢弃：wgpu-hal 的 Vulkan 后端
+            // 丢弃未呈现纹理时是空实现（上游 TODO），那张交换链图像永不归还，
+            // 累积几帧后交换链再也拿不到可用图像，终端就此永久停帧。
+            // 归还必须在重配之前：重配会销毁旧交换链，届时再呈现就是悬垂图像。
+            crate::render::pass::release_acquired_texture(
+                &self.device,
+                &self.queue,
+                output,
+                self.background,
+            );
             if let Some(mut new_config) = self.surface_config.take() {
                 new_config.width = tex_size.width;
                 new_config.height = tex_size.height;
                 surface.configure(&self.device, &new_config);
                 self.surface_config = Some(new_config);
             }
-            // 丢弃 `output`（不 present）后返回：下一帧按新配置重新取纹理。
             self.frame_invalidated = true;
             return None;
         }

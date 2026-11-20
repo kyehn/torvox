@@ -63,7 +63,8 @@ fn test_cell_cursor(visible: bool) -> CellCursor {
 
 /// Helper: create a wgpu instance + adapter + device for testing.
 /// Returns None when no suitable GPU is available.
-fn create_test_device() -> Option<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
+pub(crate) fn create_test_device()
+-> Option<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN,
         flags: wgpu::InstanceFlags::empty(),

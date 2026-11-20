@@ -35,6 +35,53 @@ pub(crate) const ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::fro
 pub(crate) const ACQUIRE_DRAIN_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(2000);
 type AcquireResult = Result<wgpu::CurrentSurfaceTexture, Box<dyn std::any::Any + Send>>;
+
+/// 把已取到但本帧不再使用的交换链纹理清成背景色并呈现，让它回到交换链的缓冲区池。
+///
+/// **为什么必须呈现而不是丢弃**：wgpu-hal 的 Vulkan 后端在纹理未呈现即被丢弃时，
+/// `discard_texture` 是空实现（上游 TODO）。那张交换链图像于是既不呈现、也不归还：
+/// 累积几帧后 `vkAcquireNextImageKHR` 永远等不到可用图像，终端就此永久停帧
+/// （模拟器实测：取纹理超时后持续 `dequeueBuffer timed out`，画面停在旧帧，
+/// 帧循环每 600ms 报一次瞬时渲染错误，几十秒内毫无恢复）。
+pub(crate) fn release_acquired_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: wgpu::SurfaceTexture,
+    background: wgpu::Color,
+) {
+    let command_buffer = clear_to_background(device, &texture.texture, background);
+    queue.submit(std::iter::once(command_buffer));
+    queue.present(texture);
+}
+
+/// 把纹理清成背景色：归还前必须清一次，否则屏幕会闪过未定义内容。
+pub(super) fn clear_to_background(
+    device: &wgpu::Device,
+    texture: &wgpu::Texture,
+    background: wgpu::Color,
+) -> wgpu::CommandBuffer {
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Release Texture Encoder"),
+    });
+    {
+        let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Release Texture Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(background),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+    }
+    encoder.finish()
+}
+
 /// 在途取帧的记账：回答「工作线程现在是否仍持有某个 surface 的 `Arc` 克隆」。
 ///
 /// 排干（drain）语义的必要性：克隆存活期间其下的 Vulkan surface 不销毁；此时在
@@ -121,6 +168,10 @@ pub(super) struct AcquireRequest {
     surface: std::sync::Arc<wgpu::Surface<'static>>,
     response: std::sync::mpsc::SyncSender<AcquireResult>,
     lane: std::sync::Arc<AcquireLane>,
+    /// 归还迟到纹理所需：工作线程替已放弃本帧的渲染线程把纹理清空后呈现。
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    background: wgpu::Color,
 }
 
 fn spawn_acquire_worker() -> SyncSender<AcquireRequest> {
@@ -133,6 +184,9 @@ fn spawn_acquire_worker() -> SyncSender<AcquireRequest> {
                     surface,
                     response,
                     lane,
+                    device,
+                    queue,
+                    background,
                 } = request;
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     surface.get_current_texture()
@@ -141,11 +195,28 @@ fn spawn_acquire_worker() -> SyncSender<AcquireRequest> {
                 // 再 finish。反过来会让排干方在克隆仍在途时就被唤醒，同窗口重建照旧
                 // 撞上 ERROR_NATIVE_WINDOW_IN_USE_KHR。
                 drop(surface);
+                // 回送结果。渲染线程可能已超时放弃（通道接收端已销毁）：此时由工作
+                // 线程亲自把纹理清空后呈现——丢弃会让那张交换链图像永不归还，
+                // 交换链很快便再也拿不到可用图像（终端永久停帧，见
+                // `release_acquired_texture`）。
+                //
+                // 销账放在回送之后：在途记账覆盖「纹理尚未归还」的整个窗口，
+                // 排干方（释放 surface 前）据此保证交换链销毁前纹理已被呈现或丢弃。
+                if let Err(send_error) = response.send(result)
+                    && let Ok(
+                        wgpu::CurrentSurfaceTexture::Success(texture)
+                        | wgpu::CurrentSurfaceTexture::Suboptimal(texture),
+                    ) = send_error.0
+                {
+                    // 归还本身也须防 panic：工作线程死掉会让后续每帧都只能报
+                    // 「worker busy or dead」，且该线程是进程级单例、无法重建。
+                    // 设备丢失时 wgpu 会先调丢失回调用再 panic，这里的失败不影响
+                    // 既有的设备重建链。
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        release_acquired_texture(&device, &queue, texture, background);
+                    }));
+                }
                 lane.finish();
-                // 销账之后才回送结果：`send` 可能因接收端已超时退出通道而被阻塞，
-                // 若把它排在 finish 之前，排干方就要替通道背压买单（最多一帧
-                // `ACQUIRE_TIMEOUT`），而它只该关心克隆有没有放下。
-                let _ = response.send(result);
             }
         })
         .unwrap_or_else(|spawn_error| {
@@ -226,6 +297,9 @@ impl Renderer {
             surface: std::sync::Arc::clone(surface),
             response: response_sender,
             lane: std::sync::Arc::clone(lane),
+            device: self.device.clone(),
+            queue: self.queue.clone(),
+            background: self.background,
         };
         // 通道满 = 上一帧的请求仍卡在工作线程里（Mali GPU 专有卡死），此时**绝不能**
         // 退回渲染线程就地取纹理：那正是本模块存在的理由所要避免的无超时阻塞，
