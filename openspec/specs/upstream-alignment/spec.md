@@ -969,35 +969,36 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 实测基线（本轮实跑所得，工具版本可能前进，重跑 MUST 以当日实测覆盖本列）：
 
-- **aislop**（须以 `npx aislop@latest` 调用，本仓 nix 环境未内置该可执行文件）：
-  `npx aislop@latest scan --json native/src` 退出码 0，`score` 100、label `Healthy`、
-  `coverage.supportedFiles` 115、`unsupportedFiles` 0，`summary` 0 errors /
-  1 warning / 0 fixable；唯一 `diagnostics` 为 `complexity/file-too-large`
-  （`terminal/ghostty_terminal/internal/input_filter.rs`，1159 行），
-  `findingAssessment.byKind` 为 `style-policy` 1 / `confirmed-defect` 0。
-  全仓扫描 `npx aislop@latest scan --json` 同为 0 errors / 1 warning，
-  `coverage.supportedFiles` 116、`unsupportedFiles` 204、
+- **aislop**（须以 `npx aislop@latest` 调用，本仓 nix 环境未内置该可执行文件。
+  2026-11-20 实测时 `latest` 解析到 registry 上 tarball 缺失的 0.22.2（`npm error 404`），
+  `npx aislop@0.22.1` 仍可用，故本次基线取自 0.22.1）：
+  `npx aislop@0.22.1 scan --json native/src` 退出码 0，`score` 100、label `Healthy`、
+  `coverage.supportedFiles` 116、`unsupportedFiles` 0，`summary` 0 errors /
+  0 warnings / 0 fixable，`diagnostics` 为空；
+  `findingAssessment.byKind` 为 `style-policy` 0 / `confirmed-defect` 0。
+  全仓扫描同版本同为 0 errors / 0 warnings，
+  `coverage.supportedFiles` 117、`unsupportedFiles` 208、
   `dominantUnsupported` 为 `Kotlin`、`scoreable` 为真。
   **覆盖面限制**：该工具扫不到本仓 Android 侧 Kotlin 代码，
   故本项 MUST NOT 被当作全仓门禁；它只对 Rust 侧有判别力。
   **评分可用性**：该工具仅在 `unsupportedFiles < 10` 或
-  `unsupportedFiles ≤ supportedFiles × 3` 时给出分数；本仓当前 204 ≤ 116 × 3，
+  `unsupportedFiles ≤ supportedFiles × 3` 时给出分数；本仓当前 208 ≤ 117 × 3，
   全仓扫描亦可评分，但分数基线仍 MUST 取 Rust 子目录扫描。
-  **与上一列基线的偏差来源**：上一列记的唯一 `file-too-large` 命中在
-  `terminal/ghostty_terminal/public_api.rs`（1123 行），该文件已按职责拆成
-  `terminal/ghostty_terminal/public_api/` 目录模块，命中位置随之迁移到
-  `internal/input_filter.rs`；命中条数仍为 1（`function-too-long` 仍为 0），
-  未上升，故不触发「条数 MUST NOT 上升」的验收判据。`supportedFiles` 由 105 升至 115
-  是新增 Rust 源文件所致（2026-11-15 重测：命中条数、判定与 `score` 均未变，
-  命中文件行数由 1146 增至 1159——kitty 静默等级修复为其新增了回归用例）。
+  **与上一列基线的偏差来源**：上一列唯一 `file-too-large` 命中在
+  `internal/input_filter.rs`（1159 行），其主体是 `#[cfg(test)] mod tests`（646 行）；
+  用例已移到同目录 `input_filter/tests.rs`（与 `pty.rs` / `pty/tests.rs` 同一形状），
+  生产文件回到 622 行、测试文件 643 行，均低于该工具 1100 行的告警阈，
+  命中随之归零（`function-too-long` 仍为 0）。更早一次偏移是
+  `public_api.rs`（1123 行）按职责拆成 `public_api/` 目录模块。`supportedFiles`
+  由 115 升至 116 是新增该测试文件所致。
   验收判据：接入后 `confirmed-defect` 与 `errors` MUST 维持 0，
-  `file-too-large` / `function-too-long` 的条数 MUST NOT 上升（基线 1 / 0）；
+  `file-too-large` / `function-too-long` 的条数 MUST NOT 上升（基线 0 / 0）；
   该工具归类为 style-policy 的项 MUST NOT 阻断构建，
   只有 error 级或 `confirmed-defect` 才阻断。
 - **jscpd**：`jscpd --min-lines 8 --min-tokens 60` 对 `native/src` 与
-  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，涉 258 个文件
-  （2026-11-15 重测：克隆数、重复行数、重复率与残留位置均与上一列基线同值，
-  文件数随新增源文件而变）。
+  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，涉 259 个文件
+  （2026-11-20 重测：克隆数、重复行数、重复率与残留位置均与上一列基线同值，
+  文件数随新增源文件而变——本次是 `input_filter/tests.rs`）。
   测量取自已提交的树快照，不取工作区状态（工作区可能同时存在他人进行中的改动）。
   前一列基线为 2 处克隆 / 26 行重复 / 0.04% / 115 个文件：其第二处
   `native/src/terminal/ghostty_terminal/internal/mod.rs` 内 `process_query` 与
