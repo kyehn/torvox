@@ -1,4 +1,6 @@
-use super::acquire::{AcquireLane, acquire_worker_tx, drain_in_flight_acquires};
+use super::acquire::{
+    AcquireLane, acquire_worker_tx, clear_to_background, drain_in_flight_acquires,
+};
 use super::bands::{instance_upload_layout, partial_frame_bands, partial_instance_uploads};
 use crate::render::Renderer;
 
@@ -590,4 +592,110 @@ fn retained_frame_is_rejected_while_surface_loss_is_injected() {
         Some((314, 592, wgpu::TextureFormat::Rgba8Unorm)),
         (314, 592, wgpu::TextureFormat::Rgba8Unorm),
     )));
+}
+
+// ── 归还交换链纹理（未呈现即丢弃会让交换链永久少一张图像） ──
+
+/// 归还的纹理必须先清成背景色：呈现未定义内容会让屏幕闪一帧垃圾。
+#[test]
+fn returned_texture_is_cleared_to_the_background() {
+    let Some((_instance, _adapter, device, queue)) = crate::render::tests::create_test_device()
+    else {
+        panic!("requires GPU adapter but none available");
+    };
+    let background = wgpu::Color {
+        r: 0.25,
+        g: 0.5,
+        b: 0.75,
+        a: 1.0,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Release Clear Test"),
+        size: wgpu::Extent3d {
+            width: 2,
+            height: 2,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    queue.submit(std::iter::once(clear_to_background(
+        &device, &texture, background,
+    )));
+
+    let bytes_per_row = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Release Clear Readback"),
+        size: u64::from(bytes_per_row) * 2,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Release Clear Copy"),
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: Some(2),
+            },
+        },
+        wgpu::Extent3d {
+            width: 2,
+            height: 2,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(std::iter::once(encoder.finish()));
+
+    let slice = buffer.slice(..);
+    let (map_sender, map_receiver) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |map_result| {
+        let _ = map_sender.send(map_result);
+    });
+    let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    assert!(
+        matches!(
+            crate::render::context::poll_device_wait(
+                &device,
+                &lost,
+                std::time::Duration::from_secs(2)
+            ),
+            crate::render::context::PollOutcome::Proceed
+        ),
+        "device poll must proceed"
+    );
+    map_receiver
+        .try_recv()
+        .expect("map callback must have run by the time poll returns")
+        .expect("map must succeed");
+
+    let expected = [
+        (background.r * 255.0).round() as u8,
+        (background.g * 255.0).round() as u8,
+        (background.b * 255.0).round() as u8,
+        (background.a * 255.0).round() as u8,
+    ];
+    let data = slice.get_mapped_range().expect("mapped range");
+    assert_eq!(&data[0..4], &expected, "first pixel must be the background");
+    let second_row = bytes_per_row as usize;
+    assert_eq!(
+        &data[second_row..second_row + 4],
+        &expected,
+        "second row must be the background"
+    );
+    drop(data);
+    buffer.unmap();
 }
