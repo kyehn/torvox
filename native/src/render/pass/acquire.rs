@@ -263,6 +263,20 @@ fn acquire_lane() -> &'static std::sync::Arc<AcquireLane> {
 pub(crate) fn drain_in_flight_acquires(timeout: std::time::Duration) -> bool {
     acquire_lane().drain(timeout)
 }
+
+/// 请求入队失败时的销账：先销毁退回的请求，再销账。
+///
+/// 退回的请求里带着本帧的 surface 克隆。克隆必须先于计数归零消失——顺序与工作
+/// 线程一致（先放下克隆、后 [AcquireLane::finish]）：反过来会让排干方在克隆仍存活
+/// 时看到计数归零，于是同窗口重建撞上 `ERROR_NATIVE_WINDOW_IN_USE_KHR`（wgpu-hal
+/// 对该错误直接 `expect()` panic），整轮渲染就此 FATAL。
+///
+/// 泛型参数只为让这条顺序可被单测钉住：测试用带析构探针的值替代真实请求。
+pub(super) fn discard_unqueued_request<T>(lane: &AcquireLane, request: T) {
+    drop(request);
+    lane.finish();
+}
+
 pub(super) struct AcquireRequest {
     surface: std::sync::Arc<wgpu::Surface<'static>>,
     response: std::sync::mpsc::SyncSender<AcquireResult>,
@@ -303,11 +317,13 @@ fn spawn_acquire_worker() -> SyncSender<AcquireRequest> {
                 // 交接协议保证「放弃」与「回送」互斥：渲染线程超时后纹理绝不会既
                 // 无人归还、又躺在通道里随通道析构。
                 //
-                // 销账放在回送之后：在途记账覆盖「纹理尚未归还」的整个窗口，
-                // 排干方（释放 surface 前）据此保证交换链销毁前纹理已被呈现或丢弃。
+                // 销账放在回送之后：在途记账覆盖「工作线程尚未归还纹理」的窗口，
+                // 排干方（释放 surface 前）据此保证交换链销毁前那张迟到纹理已被呈现。
+                // 渲染线程自己持有的纹理由渲染状态锁覆盖：帧路径与排干点同锁，
+                // 二者不可能重叠。
                 if let Err(result) = handoff.deliver(&response, result) {
                     // 归还本身也须防 panic：工作线程死掉会让后续每帧都只能报
-                    // 「worker busy or dead」，且该线程是进程级单例、无法重建。
+                    // 「acquire worker unavailable」，且该线程是进程级单例、无法重建。
                     // 设备丢失时 wgpu 会先调丢失回调用再 panic，这里的失败不影响
                     // 既有的设备重建链。
                     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -405,11 +421,17 @@ impl Renderer {
         // 退回渲染线程就地取纹理：那正是本模块存在的理由所要避免的无超时阻塞，
         // 会让渲染线程永久挂死。本帧跳过，下一帧重试。
         if let Err(error) = acquire_worker_tx().try_send(request) {
-            // 请求从未进入工作线程（退回的请求里没有本帧的在途克隆），
-            // 立刻销账，避免排干方白等一个不存在的在途取帧。
-            lane.finish();
+            // 请求从未进入工作线程，但退回的请求里仍带着本帧的 surface 克隆：
+            // 克隆必须先于计数归零消失，故先销毁请求、再销账（见 discard_unqueued_request）。
+            let worker_state = match &error {
+                std::sync::mpsc::TrySendError::Full(_) => "request channel full",
+                std::sync::mpsc::TrySendError::Disconnected(_) => "request channel disconnected",
+            };
+            discard_unqueued_request(lane, error);
             if ACQUIRE_BUSY_THROTTLE.should_log() {
-                log::warn!("acquire_texture: worker busy or dead ({error}); frame skipped");
+                log::warn!(
+                    "acquire_texture: acquire worker unavailable ({worker_state}); frame skipped"
+                );
             }
             return AcquireOutcome::Skipped;
         }
