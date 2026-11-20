@@ -10,6 +10,13 @@
 //! 与 `native/src/render/tests/cell_pipeline.rs` 的 `bench_*` 用例互补：那边是
 //! CI 门禁的硬阈值，这边是 `cargo bench` 自身的兜底。
 
+/// 独立采样轮数：取各轮均值里最好的一轮。
+///
+/// 单次调度抖动若落在 32 次采样窗口内，仍会把均值整体抬高（实测同一份代码
+/// 在 CI 连跑时偶发 0.5ms → 1.09ms，单独跑稳定 0.5ms）。多轮取最好既保留
+/// 「持续退化必然判红」，又不让一阵与代码无关的机器噪声误伤提交。
+const MEASUREMENT_ROUNDS: u32 = 3;
+
 /// 单次操作耗时上限（毫秒）。
 ///
 /// 用「单次耗时」而非「每秒次数」表达，读起来与基准名同尺度；也避免除零。
@@ -44,18 +51,22 @@ impl Floor {
     )]
     pub(crate) fn assert_within(&self, iterations: u32, mut operation: impl FnMut()) {
         operation();
-        let start = std::time::Instant::now();
-        for _ in 0..iterations {
-            operation();
+        let mut best_millis = f64::INFINITY;
+        for _ in 0..MEASUREMENT_ROUNDS {
+            let start = std::time::Instant::now();
+            for _ in 0..iterations {
+                operation();
+            }
+            let average_millis = start.elapsed().as_secs_f64() * 1000.0 / f64::from(iterations);
+            best_millis = best_millis.min(average_millis);
         }
-        let average_millis = start.elapsed().as_secs_f64() * 1000.0 / f64::from(iterations);
         println!(
-            "[floor] {}: {:.3}ms average over {iterations} runs (limit {:.3}ms)",
-            self.what, average_millis, self.max_millis,
+            "[floor] {}: {:.3}ms average over {iterations} runs (best of {MEASUREMENT_ROUNDS}, limit {:.3}ms)",
+            self.what, best_millis, self.max_millis,
         );
         assert!(
-            average_millis <= self.max_millis,
-            "{}：单次平均 {average_millis:.3}ms，超出上限 {:.3}ms（{iterations} 次采样）",
+            best_millis <= self.max_millis,
+            "{}：单次平均 {best_millis:.3}ms，超出上限 {:.3}ms（{iterations} 次采样 × {MEASUREMENT_ROUNDS} 轮）",
             self.what,
             self.max_millis,
         );
