@@ -482,6 +482,16 @@ rules:
     severity: ERROR
     languages:
       - rust
+  # ── JNI 边界：导出函数必须把 panic 转成 Java 异常 ──
+  - id: jni-export-must-use-panic-guard
+    pattern-regex: '#\[unsafe\(no_mangle\)\]\s*pub(?:\([^)]*\))?\s*(?:unsafe\s+)?extern "system" fn Java_\w+\([^)]*\)\s*(?:->\s*[^{]+)?\{(?![^}]*jni_export_guard!)'
+    paths:
+      include:
+        - "**/native/src/**/*.rs"
+    message: "JNI 导出 MUST 经 `jni_export_guard!` 把 panic 转成 Java 异常：panic 越过 `extern \"system\"` 边界会 abort 整个进程（无 Java 异常、无崩溃处理器，现场只剩 tombstone）。"
+    severity: ERROR
+    languages:
+      - generic
   # ── Kotlin 代码禁令：跳过测试、协程逃逸、空断言与不受管构建 ──
   - id: no-junit-ignore
     pattern-regex: '@Ignore\b'
