@@ -22,9 +22,10 @@ instance/device，不复用判死设备）、恢复（会话状态搬运、重�
 
 日志能确定的只有「驱动在首帧呈现后 5ms 异步上报了设备丢失」：
 
-- 丢失由 **GPU 轮询线程**上的设备丢失回调上报（`native::render::context::gpu` 的
-  `register_device_lost_callback`），不是渲染线程的取帧/提交返回错误——即驱动主动
-  报的 `VK_ERROR_DEVICE_LOST`，不是应用侧调用序列的返回值。
+- 丢失由 **设备丢失回调**上报（`native::render::context::gpu` 的
+  `register_device_lost_callback`），该次落在非渲染线程 tid 7885 上；渲染线程 tid 7887
+  同期只记了首帧呈现与随后的 `render skipped`，即不是渲染线程的取帧/提交返回错误——
+  是驱动主动报的 `VK_ERROR_DEVICE_LOST`，不是应用侧调用序列的返回值。
 - 丢失发生在**冷启动的正常渲染路径**上：交换链已配置（`attach_surface: configured
   472x819 format=Rgba8Unorm present=Mailbox latency=2`）、管线已建好、首帧已呈现，
   与 2026-11-19 的切后台/换窗簇形态不同。

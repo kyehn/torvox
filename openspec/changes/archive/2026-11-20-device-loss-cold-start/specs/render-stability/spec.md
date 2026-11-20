@@ -37,7 +37,8 @@
 
 - **WHEN** 2026-11-20 12-45-04 真机日志（Mali-G57）出现冷启动首帧后的设备丢失：
       `first frame presented`（12:38:40.352）→ `GPU device lost`（12:38:40.357，
-      首帧后 5ms，由 GPU 轮询线程上的设备丢失回调上报）→ `render skipped`
+      首帧后 5ms；该条 error 由设备丢失回调在非渲染线程 tid 7885 上记出，
+      渲染线程 tid 7887 同期只记了首帧呈现与随后的 `render skipped`）→ `render skipped`
       （12:38:40.369）→ `surface invalidated (attempt 1/5)`（12:38:40.370）→
       新窗口 `attachWindow`（12:38:40.476）→ `GPU rebuilt after device loss`
       （12:38:40.538）→ 新 surface 挂载（12:38:40.618）
