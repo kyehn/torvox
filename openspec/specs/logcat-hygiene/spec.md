@@ -517,12 +517,18 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       `fish`／`coreutils`／`file`／`comma`／`kitten`／`which` 读取 `/proc` 的结果；此处 `fish` 是审计观察到的进程名，不是应用代码使用的 shell），<!-- nosemgrep: semgrep.no-prohibited-shells -->
       唯一的 `F` 是 2026-11-12 另一进程（PID 12237）的历史 `Device::poll` 崩溃
       ——该日志早于本次运行三天，已被 `poll_device_wait` 的 panic 捕获接住
-- **AND** 本次审计新增的可修项只有一项：渲染循环的 lambda 体被 ART 编译成
-      约 4.9MB／5.8MB 的单方法（`I/com.termux: Compiler allocated ...`，2.5 分钟内
-      4 次）。处置是按职责把循环体内的退出回收、慢循环诊断与计时窗口三块抽成独立
-      方法（`RenderSupervisor.reapExitedSessions`／`logSlowLoop`／`logLoopTiming`），
-      判据是编译产物的字节数而非行数阈值（`code-health` 明禁按行数拆分）；
-      该行是 info 级、不属应用侧错误，MUST NOT 以过滤它作为处置
+- **AND** 该审计当时唯一的新增可修项是渲染循环的待编译方法体量：ART 把整条循环
+      编成一个方法（`RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend`），
+      其编译期 arena 工作内存达 4.9MB／5.8MB（`I/com.termux: Compiler allocated ...`，
+      2.5 分钟内 4 次）。该数字是**编译期 arena 工作内存**而非编译产物的字节数
+      （判据为 AOSP `runtime/jit/jit.cc` 的 `Jit::AddMemoryUsage` 与
+      `compiler/optimizing/optimizing_compiler.cc` 的 `ArenaAllocator::BytesUsed`，
+      阈值 4MiB）。当时的处置只把循环体内的退出回收、慢循环诊断与计时窗口三块抽成
+      独立方法（`RenderSupervisor.reapExitedSessions`／`logSlowLoop`／`logLoopTiming`），
+      方法体量并未降到阈值以下——2026-11-20 的日志里同一方法仍以 4232KB／4972KB
+      出现 6 次，故当时的处置并未完成，现由同文件的「渲染循环的待编译方法必须保持
+      小体量」要求接管。判据是编译 arena 的体量而非行数阈值（`code-health` 明禁按
+      行数拆分）；该行是 info 级、不属应用侧错误，MUST NOT 以过滤它作为处置
 - **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
 
 #### Scenario: 2026-11-15 第二份运行日志（13:25-24）的聚合归因
@@ -896,6 +902,46 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 - **WHEN** 日志出现上游 VT 解析器对 VT420 矩形区域属性（DECCARA／DECSACE）的未实现告警
 - **THEN** 归因 MUST 记录该序列的协议名与发出方（客户端的屏幕清理序列），MUST 说明应用
        在 VT 输入预处理中丢弃该序列，且不自创协议未定义的应答
+
+#### Scenario: 2026-11-20 运行日志（12-45-04）的聚合归因
+
+- **WHEN** 审计 `logcat_2026-11-20_12-45-04.txt`（主进程 7807，冷启动到 12:45:01，
+      跨 6 次原生窗口创建、1 次设备丢失重建与 3 次会话退出）
+- **THEN** 应用进程 W/E 合计 MUST 为 70 条，逐条处置 MUST 为：
+      - `mali_gralloc` 48 条（`Requested R8 format is not supported with this allocator`
+        24 + `ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00` 24）：
+        即 6 次新窗口 × 8 条（每次 12 次格式探测 × 2 行），源头与 13:25-24 相同
+        （AOSP `vulkan/libvulkan/swapchain.cpp` 对 `VK_FORMAT_R8_UNORM` 的
+        `AHardwareBuffer_isSupported` 探测，厂商 HIDL 分配器不支持 R8 故回这条错），
+        应用侧无 API 可改，MUST NOT 以换 surface 格式或过滤该 tag 处置；
+      - `libc` 4、`ziparchive` 4、`FeatureOpt` 2、`Typeface` 1：厂商框架的属性读取
+        拒绝、dex 元数据探测、特性开关与标字体，均无应用栈，MUST NOT 记为应用缺陷；
+      - `wgpu_core::instance` 4：两次适配器枚举（冷启动 + 设备丢失后重建）各 2 条，
+        判据与 11-16 相同，应用侧无 API 可关；
+      - `Parcel` 2：平台编组路径读 null binder，MUST NOT 记为应用缺陷；
+      - `com.termux` 2：1 条 debug 构建 jdwp 未启动、1 条 finalizer 依赖告警
+        （`Cleared Reference was only reachable from finalizer`），均无应用栈；
+      - `native::render::context::gpu` 2：1 条 error（首帧呈现后 5ms 的设备丢失）
+        与 1 条 warn（设备丢失后的重建完成），成因在 `render-stability` 的设备丢失
+        场景逐条留档；
+      - `native::android::ffi::render::frame` 1：设备丢失当帧的一次 `render skipped`，
+        与设备丢失同源，MUST NOT 以过滤该 tag 处置
+- **AND** 同 UID 子进程的 50 条 MUST 全部归为用户 shell 的内核审计与程序输出：
+      `git` 34、用户 shell 11、`login` 3、`DefaultDispatch` 2，无应用栈
+- **AND** 本份日志 MUST 记下首帧与设备丢失的时序：`first frame presented`
+      （12:38:40.352）→ `GPU device lost`（12:38:40.357）→ `render skipped`
+      （12:38:40.369）→ `surface invalidated (attempt 1/5)`（12:38:40.370）→
+      `GPU rebuilt after device loss`（12:38:40.538），即设备丢失发生在首帧呈现后
+      5ms，其后的换窗与设备重建在 186ms 内完成，应用侧无需人工干预即恢复
+- **AND** 本份日志的 6 条 `I/com.termux: Compiler allocated ...` MUST 记为渲染循环
+      的待编译方法体量越线（`RenderSupervisor$startRenderThread$renderThread$1$1
+      .invokeSuspend`，4232KB × 3 与 4972KB × 3，三对分布于 12:38:41 至 12:39:26）：
+      该数字是编译期的 arena 工作内存而非编译产物字节数（判据见 AOSP
+      `runtime/jit/jit.cc` 的 `Jit::AddMemoryUsage` 与
+      `compiler/optimizing/optimizing_compiler.cc` 的 `ArenaAllocator::BytesUsed`），
+      MUST NOT 写成「单方法被编译成 4.9MB／5.8MB」；处置见同文件的
+      「渲染循环的待编译方法必须保持小体量」要求
+- **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
 
 ### Requirement: 未捕获 GPU 错误必须按来源分级
 
@@ -1520,3 +1566,26 @@ MUST 留在 warn，MUST NOT 由应用侧自行吞掉。
 - **THEN** `ScanningTestLoader Could not load class:
       androidx.test.uiautomator.UiAutomatorInstrumentationTestRunner` MUST 归因为
       可选 runner 类的探测失败，MUST NOT 当作用例失败
+
+### Requirement: 渲染循环的待编译方法必须保持小体量
+
+渲染循环的各段职责 MUST 各自成方法，循环体 MUST 只做流程编排：MUST NOT 把整条
+循环（唤醒门控、视口推送、渲染发布、输出消费、失败处置、事件泵送、诊断发布与
+循环计时）留在一个方法里。
+
+判据是 ART 编译期的 arena 工作内存：应用自身的渲染循环方法 MUST NOT 触发
+`Compiler allocated` 行（阈值 4MiB）。该行是 info 级，MUST NOT 以过滤它作为处置；
+其数字 MUST 写明是编译期工作内存而非编译产物的字节数。
+
+#### Scenario: ART 编译 arena 越线
+
+- **WHEN** 日志出现 `Compiler allocated <大小> to compile ...RenderSupervisor...`
+- **THEN** MUST 按职责继续拆分渲染循环，使该行不再出现；MUST NOT 以过滤该行、
+      降级日志或调高 ART 阈值作为处置
+
+#### Scenario: 编译 arena 的口径
+
+- **WHEN** 记录该行的数字
+- **THEN** MUST 写明它是编译期 arena 工作内存（判据为 AOSP `runtime/jit/jit.cc`
+      的 `Jit::AddMemoryUsage` 与 `compiler/optimizing/optimizing_compiler.cc` 的
+      `ArenaAllocator::BytesUsed()`），MUST NOT 写成编译产物的字节数
