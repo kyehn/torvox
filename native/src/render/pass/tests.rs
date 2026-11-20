@@ -1,5 +1,6 @@
 use super::acquire::{
-    AcquireLane, ResultHandoff, acquire_worker_tx, clear_to_background, drain_in_flight_acquires,
+    AcquireLane, ResultHandoff, acquire_worker_tx, clear_to_background, discard_unqueued_request,
+    drain_in_flight_acquires,
 };
 use super::bands::{instance_upload_layout, partial_frame_bands, partial_instance_uploads};
 use crate::render::Renderer;
@@ -61,6 +62,41 @@ fn global_lane_is_drained_before_any_acquire() {
     assert!(drain_in_flight_acquires(std::time::Duration::from_millis(
         0
     )));
+}
+
+/// 退回的请求必须先于在途计数归零被销毁：克隆还在时计数就归零，排干方会以为
+/// 「没有克隆在途」而放行同窗口重建，随即撞上 `ERROR_NATIVE_WINDOW_IN_USE_KHR`。
+///
+/// 判别力：把销毁与销账两行对调，探针析构时看到的计数即为 0，断言立刻判红。
+#[test]
+fn unqueued_request_is_destroyed_before_the_lane_count_drops() {
+    /// 析构时检查在途计数的探针：请求被销毁的那一刻，计数必须仍为 1。
+    struct DropProbe {
+        lane: std::sync::Arc<AcquireLane>,
+    }
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            let in_flight = self
+                .lane
+                .in_flight
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            assert_eq!(
+                *in_flight, 1,
+                "请求销毁时在途计数必须仍为 1：克隆尚未消失，计数不得先归零"
+            );
+        }
+    }
+
+    let lane = std::sync::Arc::new(idle_lane());
+    lane.begin();
+    discard_unqueued_request(
+        &lane,
+        DropProbe {
+            lane: std::sync::Arc::clone(&lane),
+        },
+    );
+    assert!(lane.drain(std::time::Duration::from_millis(0)));
 }
 
 // ── 取纹理结果的交接（ResultHandoff）──
