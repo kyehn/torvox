@@ -19,7 +19,8 @@
 索引完整是本仓删除研究文档的**前置条件**：任取一份报告，其全部可执行项的去向
 MUST 已在索引行内可读到；满足该条件后报告本体 MUST 可被删除而不丢失任何仍需遵守的结论。
 全部 111 份报告（编号文档集 31 份 + 逐仓报告 73 份 + `ecosystem.md` + 6 份综合研究报告）
-已整体删除，索引表是这批研究的**唯一常驻载体**；6 份综合研究报告的索引行 MUST 承接
+已整体删除，本仓自产的 `extensibility-research.md` 亦按同一协议登记后删除（第 112 份）；
+索引表是这批研究的**唯一常驻载体**；6 份综合研究报告的索引行 MUST 承接
 其全部仍需遵守的结论——文档在库时索引行是这些报告结论的登记处，文档删除后由同键索引行
 承接，MUST NOT 因文档已删而让结论失去落点。
 
@@ -97,6 +98,7 @@ Termux 自身也被 fork 删过 `doDcs`／`sixel`）；会话不随 Activity 走
 | `termux-app.md` | termux-app（v0.119.0-beta.3）深研：四模块结构、终端会话三线程与双向队列、bootstrap 安装流程、修饰键栏三态、前台服务与测试基座 | 已核结，结论为「DESIGN 依 Termux 定规的条目本仓已对齐」：已对齐项逐条在位（修饰键栏布局与粘滞语义、2 行 7 列、回滚 2K 行、默认块状光标与可选样式、`TERM=xterm-256color` 与 `COLORTERM=truecolor`、bootstrap zip + `SYMLINKS.txt` + staging + 原子 rename、通知常驻「会话数量 + 申请唤醒锁 + 退出按钮」、applicationId `com.termux`、AOSP testkey 签名）；可参考点五项已核结（`KEYCODE_BREAK` → `key::Key::Pause` 补齐归 `key-input-encoding`，auto-repeat 阈值改取 `ViewConfiguration` 系统值归 `modifier-bar-auto-repeat`，双 client 生命周期归 Rust 侧会话归属与 LeakCanary 用例，主线程消息泵由渲染线程 latch 等价承担，`TerminalTestCase` 式直测由 `ghostty_terminal/tests/` 承担）；不适用：插件体系（`PROHIBITED.md` 明禁 Termux:API、termux-exec、Termux:Tasker、Termux:Boot，其余插件属 `DESIGN.md` 未声明不立项）、上游 `termux.properties` 的完整设置项体系（本仓只按 `termux-configuration` 与 `docs/specification/CONFIG.md` 解析声明的允许键；应用启动时读取一次，不解析 `colors.properties` 与 `termux.float.properties`）、F-Droid／GitHub 双分发签名管理（本仓单 testkey）、sharedUserId 与多 APK 签名兼容约束 | 本表 `02-termux-termux-app.md` 行；`key-input-encoding`；`modifier-bar-auto-repeat`；`bootstrap-install`；`session-list` |
 | `8dmusichannels-star-terminator.md` | Kotlin/Compose 自研 VT 子集 + C PTY 桥 | 不采纳：零测试资产且 CI 虚假绿灯；其 OSC 注释清单作生态参照面，OSC 52 安全姿态归 OSC 52 条款；其 `NativePty.c` 一类 C PTY 桥无落点——本仓 PTY 在 Rust 侧（`nix::pty`），仓内无 C 源；多击选词／OSC 8 白名单／提交构建产物三做法属不得反向采纳 | 「Android 侧终端项目的复查台账」terminator 行；「OSC 覆盖逐项核对」；「OSC 52 读取请求的收割与应答须对每个会话有界」；「不得反向采纳的做法」三行 |
 | `DanteAlighierin-foot.md` | C/Wayland 自研 VT 极简终端 | 不采纳：仓内无 VT／网格语料（「无资产」而非门槛违反）；自研 C 解析器违单一来源，box-drawing／组合宽度只作结构对照 | 「已复查结论台账」foot 行 |
+| `extensibility-research.md` | 本仓自产的可扩展性研究：终端引擎库化交付、会话传输接口扩展点、远程后端（Herdr／Rex）选型，附五个候选项目形态与上游扩展机制对比 | 已核结，全部不采纳：应用内插件运行时／脚本加载、Model Context Protocol、Termux:API 兼容层撞 `PROHIBITED.md` 明禁；库化拆分（拆 crate 与 Gradle library 模块）须改受保护 `Cargo.toml`／`settings.gradle.kts`／`build.gradle.kts`，未获用户明确同意不动；远程后端属产品决策且 `DESIGN.md` 未声明该功能面。报告本体按本 Requirement 的可移除性条款退役（索引行为唯一常驻载体） | `PROHIBITED.md`（插件体系、Model Context Protocol、Termux:API、内建命令）；`DESIGN.md`「不做不必要功能」「不实现未在 docs/specification/ 声明的功能/逻辑」；`STYLE.md`「不得定义任何 crate features」；AGENTS.md 受保护文件约束 |
 | `GlobalTechInfo-RedTerm.md` | 复用 Termux jar 的 proot 发行版运行器 | 不采纳（门槛 3）：仓内无本仓组件，329 例属 SSH/SFTP/proot 面；16KB 页对齐登记禁改区 | 台账不可采纳行；「禁改区待维护者裁定项台账」；参照面「搜索高亮两层透明度」归 `text-search`，备份「完成后替换 + 孤儿清理」归「参照面与反面做法收敛补齐行」 |
 | `JetBrains-jediterm.md` | JVM/Swing 可嵌入终端库（自研 VT + Pty4J） | 不采纳（门槛 1）：before/after 期望即其自身输出；vttest 派生子集按输入分流逐例判定 | 「已复查结论台账」vttest 行；「按输入是否格式合规分流采纳」 |
 | `KDE-konsole.md` | C++/Qt 桌面终端（Vt102Emulation） | 不采纳：桌面 C++ 自研 VT；profile/session 编辑撞 PROHIBITED，DBus／i18n／tysend 未声明 | 「能力裁定补齐行」DBus 远程控制行、界面多语言/i18n 组织行与 ZMODEM/tysend 类文件传输行；「语料判定补齐行」konsole 行；「不得反向采纳的做法」 |
