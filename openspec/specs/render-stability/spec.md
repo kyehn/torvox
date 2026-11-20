@@ -621,6 +621,22 @@ MUST NOT 逐条重复；旧世代的结局记 debug，如实保留原因，不�
       MUST NOT 挂到丢失前的死设备上（`SurfaceLossRecoveryInstrumentedTest`
       在恢复后新建会话并断言墨迹）
 
+#### Scenario: 冷启动首帧后的设备丢失按有界恢复自愈
+
+- **WHEN** 2026-11-20 12-45-04 真机日志（Mali-G57）出现冷启动首帧后的设备丢失：
+      `first frame presented`（12:38:40.352）→ `GPU device lost`（12:38:40.357，
+      首帧后 5ms；该条 error 由设备丢失回调在非渲染线程 tid 7885 上记出，
+      渲染线程 tid 7887 同期只记了首帧呈现与随后的 `render skipped`）→ `render skipped`
+      （12:38:40.369）→ `surface invalidated (attempt 1/5)`（12:38:40.370）→
+      新窗口 `attachWindow`（12:38:40.476）→ `GPU rebuilt after device loss`
+      （12:38:40.538）→ 新 surface 挂载（12:38:40.618）
+- **THEN** 该次丢失 MUST 按有界恢复链自愈（换新 `SurfaceView` → 重建 instance/device →
+      恢复出帧），从丢失到恢复出帧实测 261ms，MUST NOT 依赖人工干预或进程重启
+- **AND** 本次丢失的底层根因 MUST 记为未定位：它发生在冷启动的正常渲染路径上
+      （非切后台/换窗簇），应用配置（`PowerPreference`／present mode／
+      `ANativeWindow_setBuffersGeometry`）仍无证据为成因；恢复是有界缓解而非消除，
+      MUST NOT 表述为「已解决」
+
 ### Requirement: 判死的设备不得被复用
 
 判死后的重建 MUST 换掉判死的那个设备：全局槽位里若还是判死的设备，MUST 新建
