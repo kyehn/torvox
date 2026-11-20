@@ -23,4 +23,6 @@
 - [x] `openspec validate --all --strict`：通过
 - [x] 模拟器（API 35 / SwiftShader）实测：冷启动、输入、旋转后持续出帧，本应用 0 条 W/E，
       无「取纹理超时」与停帧
+- [x] 模拟器仪器化回归：`SurfaceLossRecoveryInstrumentedTest`、
+      `SurfaceRedrawAsyncInstrumentedTest`、`TerminalHoleCoverInstrumentedTest` 共 10 例全过
 - [x] `scripts/check.nu` 全量门禁：通过
