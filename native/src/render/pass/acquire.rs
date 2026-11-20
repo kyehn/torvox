@@ -2,7 +2,7 @@
 use crate::render::Renderer;
 use crate::slow_log::SlowLogThrottle;
 use std::sync::OnceLock;
-use std::sync::mpsc::SyncSender;
+use std::sync::mpsc::{Receiver, SyncSender};
 
 /// 取纹理请求被拒（工作线程忙或已死）的限频闸门。
 ///
@@ -54,6 +54,22 @@ pub(crate) fn release_acquired_texture(
     queue.present(texture);
 }
 
+/// 归还取纹理结果里的交换链纹理；结果里没有纹理（错误、Lost/Outdated）时无事可做。
+pub(super) fn release_acquired_result(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    result: AcquireResult,
+    background: wgpu::Color,
+) {
+    if let Ok(
+        wgpu::CurrentSurfaceTexture::Success(texture)
+        | wgpu::CurrentSurfaceTexture::Suboptimal(texture),
+    ) = result
+    {
+        release_acquired_texture(device, queue, texture, background);
+    }
+}
+
 /// 把纹理清成背景色：归还前必须清一次，否则屏幕会闪过未定义内容。
 pub(super) fn clear_to_background(
     device: &wgpu::Device,
@@ -80,6 +96,89 @@ pub(super) fn clear_to_background(
         });
     }
     encoder.finish()
+}
+
+/// 取纹理结果的交接状态。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HandoffState {
+    /// 工作线程尚未回送结果。
+    Pending,
+    /// 工作线程已把结果送进通道（持有锁期间完成）。
+    Sent,
+    /// 渲染线程已超时放弃：工作线程须自行归还结果里的交换链纹理。
+    Abandoned,
+}
+
+/// 取纹理结果的交接协议：渲染线程超时放弃后，迟到结果必须有人归还。
+///
+/// **竞态**：渲染线程的 `recv_timeout` 超时返回后，接收端要活到函数返回；工作线程
+/// 若恰在这个窗口里把纹理送进通道，纹理会随通道一起被丢弃——wgpu 的 Vulkan 后端
+/// 丢弃未呈现纹理是空实现（见 [`release_acquired_texture`]），那张交换链图像永不
+/// 归还，累积几帧后终端永久停帧。故「放弃」与「回送」必须互斥：
+///
+/// - 渲染线程先放弃：工作线程拿到结果后自行归还，不再回送；
+/// - 工作线程先回送：渲染线程在锁内看到已回送，从通道取回结果并自行归还。
+///
+/// 两种顺序都恰好有一方归还纹理：既不漏（无人归还 → 图像永不归还），也不重复
+/// （同一张纹理被归还两次）。
+pub(super) struct ResultHandoff {
+    state: std::sync::Mutex<HandoffState>,
+}
+
+impl ResultHandoff {
+    pub(super) fn new() -> Self {
+        Self {
+            state: std::sync::Mutex::new(HandoffState::Pending),
+        }
+    }
+
+    /// 工作线程回送结果。
+    ///
+    /// `Err(result)` = 渲染线程已放弃本帧，结果（含交换链纹理）须由调用方自行归还。
+    pub(super) fn deliver<T>(&self, response: &SyncSender<T>, result: T) -> Result<(), T> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *state == HandoffState::Abandoned {
+            return Err(result);
+        }
+        // 回送必须在锁内完成：「已回送」与渲染线程的「取回」之间不得有空隙，
+        // 否则渲染线程会看到「尚未回送」而让工作线程归还，两边都不归还纹理。
+        // 通道容量为 1 且每请求只回送一次，`try_send` 不会阻塞。
+        match response.try_send(result) {
+            Ok(()) => {
+                *state = HandoffState::Sent;
+                Ok(())
+            }
+            Err(
+                std::sync::mpsc::TrySendError::Full(result)
+                | std::sync::mpsc::TrySendError::Disconnected(result),
+            ) => Err(result),
+        }
+    }
+
+    /// 渲染线程超时放弃本帧。
+    ///
+    /// `Some(result)` = 工作线程已回送但本帧已超时，结果须由调用方归还。
+    pub(super) fn abandon<T>(&self, response: &Receiver<T>) -> Option<T> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match *state {
+            HandoffState::Pending => {
+                *state = HandoffState::Abandoned;
+                None
+            }
+            HandoffState::Sent => {
+                // 结果已进通道：取回它，由渲染线程归还（工作线程已不再持有）。
+                drop(state);
+                response.try_recv().ok()
+            }
+            HandoffState::Abandoned => None,
+        }
+    }
 }
 
 /// 在途取帧的记账：回答「工作线程现在是否仍持有某个 surface 的 `Arc` 克隆」。
@@ -168,6 +267,8 @@ pub(super) struct AcquireRequest {
     surface: std::sync::Arc<wgpu::Surface<'static>>,
     response: std::sync::mpsc::SyncSender<AcquireResult>,
     lane: std::sync::Arc<AcquireLane>,
+    /// 回送与放弃的互斥协议：渲染线程超时后，工作线程不得把纹理送进无人接收的通道。
+    handoff: std::sync::Arc<ResultHandoff>,
     /// 归还迟到纹理所需：工作线程替已放弃本帧的渲染线程把纹理清空后呈现。
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -184,6 +285,7 @@ fn spawn_acquire_worker() -> SyncSender<AcquireRequest> {
                     surface,
                     response,
                     lane,
+                    handoff,
                     device,
                     queue,
                     background,
@@ -195,25 +297,21 @@ fn spawn_acquire_worker() -> SyncSender<AcquireRequest> {
                 // 再 finish。反过来会让排干方在克隆仍在途时就被唤醒，同窗口重建照旧
                 // 撞上 ERROR_NATIVE_WINDOW_IN_USE_KHR。
                 drop(surface);
-                // 回送结果。渲染线程可能已超时放弃（通道接收端已销毁）：此时由工作
-                // 线程亲自把纹理清空后呈现——丢弃会让那张交换链图像永不归还，
-                // 交换链很快便再也拿不到可用图像（终端永久停帧，见
-                // `release_acquired_texture`）。
+                // 回送结果。渲染线程可能已超时放弃：此时由工作线程亲自把纹理清空后
+                // 呈现——丢弃会让那张交换链图像永不归还，交换链很快便再也拿不到可用
+                // 图像（终端永久停帧，见 `release_acquired_texture`）。
+                // 交接协议保证「放弃」与「回送」互斥：渲染线程超时后纹理绝不会既
+                // 无人归还、又躺在通道里随通道析构。
                 //
                 // 销账放在回送之后：在途记账覆盖「纹理尚未归还」的整个窗口，
                 // 排干方（释放 surface 前）据此保证交换链销毁前纹理已被呈现或丢弃。
-                if let Err(send_error) = response.send(result)
-                    && let Ok(
-                        wgpu::CurrentSurfaceTexture::Success(texture)
-                        | wgpu::CurrentSurfaceTexture::Suboptimal(texture),
-                    ) = send_error.0
-                {
+                if let Err(result) = handoff.deliver(&response, result) {
                     // 归还本身也须防 panic：工作线程死掉会让后续每帧都只能报
                     // 「worker busy or dead」，且该线程是进程级单例、无法重建。
                     // 设备丢失时 wgpu 会先调丢失回调用再 panic，这里的失败不影响
                     // 既有的设备重建链。
                     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        release_acquired_texture(&device, &queue, texture, background);
+                        release_acquired_result(&device, &queue, result, background);
                     }));
                 }
                 lane.finish();
@@ -293,10 +391,12 @@ impl Renderer {
         // 排干方（attach/release/drop）据此才不会把「在途克隆」当成「没有克隆」。
         let lane = acquire_lane();
         lane.begin();
+        let handoff = std::sync::Arc::new(ResultHandoff::new());
         let request = AcquireRequest {
             surface: std::sync::Arc::clone(surface),
             response: response_sender,
             lane: std::sync::Arc::clone(lane),
+            handoff: std::sync::Arc::clone(&handoff),
             device: self.device.clone(),
             queue: self.queue.clone(),
             background: self.background,
@@ -351,6 +451,13 @@ impl Renderer {
                 AcquireOutcome::Skipped
             }
             Err(_) => {
+                // 超时放弃本帧。迟到结果必须仍有人归还：交接协议把「放弃」与「回送」
+                // 互斥——已回送的结果在此取回并归还（本线程持有渲染状态锁，surface
+                // 不会在此期间被销毁）；尚未回送的则由工作线程自行归还。
+                // 两边都不归还的后果：那张交换链图像永不归还，终端永久停帧。
+                if let Some(result) = handoff.abandon(&response_receiver) {
+                    release_acquired_result(&self.device, &self.queue, result, self.background);
+                }
                 if ACQUIRE_TIMEOUT_THROTTLE.should_log() {
                     log::warn!(
                         "acquire_texture: get_current_texture timed out after {}ms (slow SurfaceFlinger/SwiftShader; frame skipped, retried next frame)",

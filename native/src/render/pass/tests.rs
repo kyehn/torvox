@@ -1,5 +1,5 @@
 use super::acquire::{
-    AcquireLane, acquire_worker_tx, clear_to_background, drain_in_flight_acquires,
+    AcquireLane, ResultHandoff, acquire_worker_tx, clear_to_background, drain_in_flight_acquires,
 };
 use super::bands::{instance_upload_layout, partial_frame_bands, partial_instance_uploads};
 use crate::render::Renderer;
@@ -61,6 +61,41 @@ fn global_lane_is_drained_before_any_acquire() {
     assert!(drain_in_flight_acquires(std::time::Duration::from_millis(
         0
     )));
+}
+
+// ── 取纹理结果的交接（ResultHandoff）──
+
+/// 渲染线程先放弃：工作线程回送时必须拿回结果自行归还。
+///
+/// 拿不回结果即意味着纹理无人归还——Vulkan 后端丢弃未呈现纹理是空实现，那张
+/// 交换链图像永不归还，累积几帧后终端永久停帧。
+#[test]
+fn handoff_hands_the_result_to_the_worker_when_the_render_thread_abandoned_first() {
+    let handoff = ResultHandoff::new();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    assert!(handoff.abandon(&receiver).is_none());
+    assert_eq!(handoff.deliver(&sender, 7), Err(7));
+}
+
+/// 工作线程先回送、渲染线程后放弃：结果仍在通道里，渲染线程必须取回它。
+///
+/// 取不回即意味着纹理随通道析构而无人归还（与上一条同一条后果）。
+#[test]
+fn handoff_hands_the_late_result_back_to_the_render_thread() {
+    let handoff = ResultHandoff::new();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    assert!(handoff.deliver(&sender, 7).is_ok());
+    assert_eq!(handoff.abandon(&receiver), Some(7));
+}
+
+/// 同一个结果不会被交出去两次：取走之后再次放弃拿不到任何东西。
+#[test]
+fn handoff_never_hands_the_result_out_twice() {
+    let handoff = ResultHandoff::new();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    assert!(handoff.deliver(&sender, 7).is_ok());
+    assert_eq!(handoff.abandon(&receiver), Some(7));
+    assert!(handoff.abandon(&receiver).is_none());
 }
 
 // ── should_render_partial 判定表 ──
