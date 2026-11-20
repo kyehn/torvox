@@ -21,6 +21,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.shadows.ShadowCloseGuard
+import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
 class DocumentsProviderTest {
@@ -693,6 +694,23 @@ class DocumentsProviderTest {
             it.moveToFirst()
             val name = it.getString(it.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
             assertEquals("MeetingNotes.txt", name)
+        }
+    }
+
+    @Test
+    fun querySearchDocuments_case_fold_is_locale_independent() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "IMPORTANT.txt").writeText("x")
+        // 跟随默认 Locale 时，土耳其语把 I 折成 ı，查询 "i" 匹配不到 "IMPORTANT"。
+        val originalLocale = Locale.getDefault()
+        Locale.setDefault(Locale.forLanguageTag("tr"))
+        try {
+            val cursor = requireNotNull(provider.querySearchDocuments("terminal_home", "i", null))
+            cursor.use {
+                assertEquals("case-insensitive search must not depend on system locale", 1, it.count)
+            }
+        } finally {
+            Locale.setDefault(originalLocale)
         }
     }
 
