@@ -1035,7 +1035,7 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 `code-health` 要求的审计留档（静态形状扫描与依赖活跃度）同记在本节，事实与判定如下。
 
 **门禁实际内容清单**（`code-health`「规范声明的静态检查工具必须与验证门禁一致」与
-「门禁内容变更后重新比对」要求的留档，2026-11-15 逐条比对 `scripts/check.nu` 与
+「门禁内容变更后重新比对」要求的留档，2026-11-20 逐条比对 `scripts/check.nu` 与
 `.github/workflows/` 的实际内容）：
 
 - `scripts/check.nu`（CI `check.yml` 的唯一检查工作流调用它）逐步为：`cargo fmt --all -v
@@ -1044,14 +1044,17 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   `cargo test --no-fail-fast` → `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` →
   `cargo bench --bench cell_builder --bench vt_typing --bench cjk_resolve -- --quick` →
   `cargo build --package native --profile release` → `semgrep scan --error
-  --dataflow-traces --config .semgrep/rules.yml` → `markdownlint-cli2 "**/*.md"` →
+  --dataflow-traces --time --config .semgrep/rules.yml` → `markdownlint-cli2 "**/*.md"` →
   `openspec validate --all --strict` → `./gradlew --continue detekt spotlessCheck
   app:dokkaGenerate lintDebug lintVitalRelease assembleDebugAndroidTest
   testDebugUnitTest benchmark:compileBenchmarkReleaseKotlin
-  baselineprofile:compileNonMinifiedReleaseKotlin`。
-- 另两个工作流不属检查门禁：`fmt.yml` 是自动修复并回推（`markdownlint-cli2 --fix`、
-  `cargo fmt`、`cargo clippy --fix`、`spotlessApply`、`detekt --auto-correct`、`nix fmt`），
-  `build.yml` 是构建与设备侧验证（`scripts/build-apk.nu --debug`／`--nix`／`--release`，
+  baselineprofile:compileNonMinifiedReleaseKotlin
+  -Dorg.gradle.internal.test.results.binary.enabled=false`。
+- 另两个工作流不属检查门禁：`fmt.yml` 是自动修复并回推（`nix flake update`、
+  `markdownlint-cli2 --fix`、`cargo fmt`、`cargo clippy --fix`、Gradle wrapper 升到
+  `latest`、`spotlessApply`、`detekt --auto-correct`、`nix fmt`，随后 amend 提交并强推），
+  `build.yml` 是构建与设备侧验证（先 `scripts/build-android-libs.nu arm64-v8a x86_64`，
+  再 `scripts/build-apk.nu --debug`／`--nix`／`--release`，
   模拟器步骤调 `scripts/test-emulator.nu`，后者跑 `:app:connectedDebugAndroidTest`、
   `:benchmark:connectedBenchmarkReleaseAndroidTest` 与
   `:benchmark:connectedBenchmarkNixAndroidTest`）。
