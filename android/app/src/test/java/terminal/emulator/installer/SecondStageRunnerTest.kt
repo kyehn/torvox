@@ -72,6 +72,20 @@ class SecondStageRunnerTest {
     }
 
     @Test
+    fun postinst_command_direct_for_sibling_prefix_shebang() {
+        val prefix = tempPrefix()
+        // `prefix-attacker` 只共享字符串前缀，并不在 prefix 目录内。
+        val sibling = File("${prefix.absolutePath}-attacker", "bin/sh")
+        val script = File(prefix, "var/lib/dpkg/info/sibling.postinst")
+        requireNotNull(script.parentFile).mkdirs()
+        script.writeText("#!${sibling.absolutePath}\n")
+        val command = runnerWith(prefix).postinstCommand(script)
+        assertEquals(sibling.absolutePath, command[0])
+        assertEquals(script.absolutePath, command[1])
+        assertEquals("configure", command[2])
+    }
+
+    @Test
     fun prefix_environment_matches_spec_whitelist() {
         val prefix = tempPrefix()
         val environment = runnerWith(prefix).prefixEnvironment()

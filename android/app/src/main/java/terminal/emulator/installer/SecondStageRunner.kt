@@ -371,7 +371,12 @@ class SecondStageRunner(
         // 而死于 SELinux EACCES。
         val canonicalInterpreter = File(interpreterPath).canonicalPath
         val canonicalPrefix = prefixDir.canonicalPath
-        return if (canonicalInterpreter.startsWith(canonicalPrefix)) {
+        // 必须按路径元素比较：字符串前缀会把 `<prefix>-evil/bin/sh` 误判为 prefix 内，
+        // 把它送进链接器调用。zip 里的 postinst 脚本内容不受信任，边界要收紧。
+        val insidePrefix =
+            canonicalInterpreter == canonicalPrefix ||
+                canonicalInterpreter.startsWith(canonicalPrefix + File.separator)
+        return if (insidePrefix) {
             // 解释器落在 prefix 内（其 ELF 调用已指向 /system/bin/linker64），
             // 故解释器本身也必须经链接器调用，脚本才能正确加载。
             arrayOf(SYSTEM_LINKER, canonicalInterpreter, script.absolutePath, "configure")
