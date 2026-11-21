@@ -970,8 +970,9 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 实测基线（本轮实跑所得，工具版本可能前进，重跑 MUST 以当日实测覆盖本列）：
 
 - **aislop**（须以 `npx aislop@latest` 调用，本仓 nix 环境未内置该可执行文件。
-  2026-11-20 实测时 `latest` 解析到 registry 上 tarball 缺失的 0.22.2（`npm error 404`），
-  `npx aislop@0.22.1` 仍可用，故本次基线取自 0.22.1）：
+  2026-11-20 重测时 `latest` 解析到的 0.22.2 已可正常下载运行，其结果与 0.22.1
+  完全一致（`score` 100、label `Healthy`、0 errors / 0 warnings）；本次基线取自
+  `npx aislop@0.22.1`，并以 0.22.2 交叉复核一致）：
   `npx aislop@0.22.1 scan --json native/src` 退出码 0，`score` 100、label `Healthy`、
   `coverage.supportedFiles` 116、`unsupportedFiles` 0，`summary` 0 errors /
   0 warnings / 0 fixable，`diagnostics` 为空；
