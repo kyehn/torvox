@@ -422,6 +422,19 @@ MUST 采纳的资产 MUST 附实测数字（今日直接通过的用例数与差
 | `Malik1stmkw/termux-clone` | 无门槛违反：仓库内无资产 | 全仓仅 1 个 59 字节的 `README.md`，无任何源码或二进制；「终端模拟器」这一主张在仓内无支撑 |
 | `eggie-admin/hydra-shell-android` | 无门槛违反：仓库内无终端资产 | 204 个文件中 Android 与原生源码为 0（62 md / 40 json / 39 py / 26 yml / 18 sh），APK 钉在外部仓库；现有测试全为 HTTP 与 adb 相关 |
 
+**性能对比资产登记：**
+
+| 项目 | 终端内容渲染路径 | 基准资产 | 可核实的官方性能数字 |
+| --- | --- | --- | --- |
+| `termux/termux-app` | HWUI `Canvas`（`TerminalView` 继承 `View`，`TerminalRenderer` 以 `canvas.drawTextRun` 绘制） | 仓内无 benchmark 模块 | 无 |
+| `sylirre/ghostty-android-terminal` | HWUI `Canvas`（`TerminalView` 继承 `View`，`canvas.drawText` 逐 run 绘制） | 仓内无 benchmark 模块 | 无 |
+| 本项目 | wgpu 直绘 SurfaceView（终端内容不经 HWUI） | `android/benchmark` 宏基准模块与 `native/benches` 微基准 | 无（模拟器数据只作数量级） |
+
+两者的终端内容帧都经 HWUI 管线，本项目的终端内容帧由原生线程直绘 SurfaceView，故端到端帧率
+不具跨应用可比性；跨应用统一帧面是系统侧图层时序（`dumpsys SurfaceFlinger --latency`），
+见 `performance-measurement` 的「跨应用性能对比的对照面与统一帧面」条。两者既无基准资产，也未
+发布可核实的性能数字，故对比必须自建 harness，MUST NOT 引用其自述性能数字。
+
 **新增失效语料记录：**
 
 | 项目 | 失效语料 | 依据 |
