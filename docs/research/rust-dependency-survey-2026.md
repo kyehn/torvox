@@ -160,7 +160,7 @@ git 依赖：那既动受保护的 `native/Cargo.toml`，又违反上游必须�
 | --- | --- |
 | 已是最新（23 项） | `base64`、`bytemuck`、`cosmic-text`、`etagere`、`flume`、`foldhash`、`fontdb`（0.23.0，`^0.23` 约束内最新）、`jni`、`libc`、`log`、`nix`、`parking_lot`、`pollster`、`raw-window-handle`、`roxmltree`、`serde`、`serde_json`、`swash`、`thiserror`、`toml`、`unicode-script`、`wgpu`、`wgpu-types` |
 | 落后且可例行升级（1 项） | `lru` 0.19.0 → 0.19.1（补丁版） |
-| git 钉版（1 项，无 crates.io 版本可比） | `libghostty-vt`（rev `483ea3d`） |
+| git 钉版（1 项，无 crates.io 版本可比） | `libghostty-vt`（git 依赖，钉版坐标以 `native/Cargo.toml` 为准，不在本文复写提交号） |
 
 `lru` 的升级只动 `native/Cargo.lock`，不触碰受保护的 `native/Cargo.toml`，故按例行维护处理。
 0.19.1 与 0.19.0 的源码差异实测仅两处：清单 `edition` 改 2024，以及 `compile_fail`
