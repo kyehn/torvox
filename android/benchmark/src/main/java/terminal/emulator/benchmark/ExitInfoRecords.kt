@@ -182,33 +182,12 @@ internal fun List<ExitInfoRecord>.withinWindow(startMillis: Long, endMillis: Lon
     filter { it.timestampMillis in startMillis..endMillis }
 
 /**
- * 跑一段测量场景：窗口内进程退出即判红。
- *
- * 进程在测量窗口内死了，测得的数字全部作废。退出归因（崩溃、ANR、内存压力…）决定
- * 了这算应用故障还是环境抖动，故失败信息必须带归因，不能只留一句「没测到东西」。
- */
-internal fun measureScenario(device: UiDevice, label: String, scenario: () -> Unit) {
-    val startMillis = System.currentTimeMillis()
-    try {
-        scenario()
-    } catch (failure: Throwable) {
-        throw failure.withProcessExitAttribution(device, startMillis)
-    }
-    val exits = readExitInfoRecords(device).withinWindow(startMillis, System.currentTimeMillis())
-    emitMeasured("[bench-measure] $label-process-exits count=${exits.size} causes=${exits.map { it.cause }}")
-    check(exits.isEmpty()) {
-        "$label 测量窗口内进程退出 ${exits.size} 次，测量结果作废：" +
-            exits.joinToString("；") { it.describe() }
-    }
-}
-
-/**
  * 给失败补上进程退出归因：进程死了的话，原因就在退出记录里。
  *
  * 读退出记录本身失败时保留原始失败（把读失败挂成 suppressed），不因归因失败而丢掉
  * 真正的失败原因。
  */
-private fun Throwable.withProcessExitAttribution(device: UiDevice, sinceMillis: Long): Throwable {
+internal fun Throwable.withProcessExitAttribution(device: UiDevice, sinceMillis: Long): Throwable {
     val exits = try {
         readExitInfoRecords(device).filter { it.timestampMillis >= sinceMillis }
     } catch (readFailure: Throwable) {
