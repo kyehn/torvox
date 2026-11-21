@@ -528,6 +528,7 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | `fmt::Formatter` 取全量纯文本 | 不采用 | 文档写明只覆盖 active screen，而本仓 `ReadAllText` 的口径是「回滚 + 视口」；上游补回滚参数后才可能跟进 |
 | `fmt::Formatter` 取选区文本 | 采用（已修） | 选区文本经上游格式化器提取（换行感知、CJK 宽字符不被切开）；上游把选项改为活选项后，装指定选区须走 `set_selection`（上游标为 unsafe），本仓在 `internal/selection.rs` 的 `selection_text_impl` 处按 SAFETY 约定装同一终端活动屏的网格快照 |
 | `Terminal::set_scrollback_max_bytes` | 采用（已修） | 回滚以行数为唯一约束，字节预算须显式解除；上游语义由「`None` 解除」改为「`None` 恢复默认的 10 000 字节预算」，故改传 `Some(usize::MAX)`，否则深缓冲回滚被截断到几百行（`scrollback_deep_buffer_does_not_collapse` 钉住） |
+| `Terminal::new(cols: u16, rows: u16)` 网格尺寸入参 | 采用（2026-11-21 改判） | 上游只收 `u16`。本仓此前把 `GhosttyTerminal` 构造器的行列放宽为 `u32`，再用 `as u16` 收窄：70000 列被静默截成 4464 列（截断后仍是合法网格，无日志可循），而 resize 侧会如实拒绝——同一尺寸在两条路径上得到两种结果。现构造器直接收 `u16`（越界在类型上不可表达），零行/零列显式失败（`TerminalError::InvalidDimensions`）；会话侧 `u32` 入参仍由 `session::validated_grid` 收窄并显式拒绝（`session_spawn_rejects_dimensions_outside_the_u16_grid` 钉住） |
 | `mouse::Encoder::set_size` | 采用（已修） | 上游改为返回 `Result`：尺寸写不进编码器时该事件不可用，本仓记错误并丢弃事件，不沿用旧尺寸换算坐标 |
 
 ### Requirement: 六大上游对标结论按「能力 → 本仓现状 → 差距 → 阻塞层」登记
@@ -961,10 +962,10 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 ### Requirement: 禁改区待维护者裁定项台账（只登记，不实施）
 
-`docs/specification/TESTING.md` 要求而现行门禁缺席的四项，全部落在 AGENTS.md
-禁改区（`scripts/`、`.github/`、`android/app/build.gradle.kts`）。维护者已裁定
-「都不改，只登记」，落地方案记录于此，不擅自实施：本表各项 MUST 维持登记状态，
-未经维护者明确同意 MUST NOT 实施。
+`docs/specification/TESTING.md` 要求而现行门禁缺席的，以及门禁工具覆盖面小于
+代码树的，共六项，全部落在 AGENTS.md 禁改区（`scripts/`、`.github/`、
+`android/app/build.gradle.kts`）。维护者已裁定「都不改，只登记」，落地方案记录于此，
+不擅自实施：本表各项 MUST 维持登记状态，未经维护者明确同意 MUST NOT 实施。
 
 登记 MUST NOT 只有落地方案而无事实基线：日后获授权实施的人 MUST NOT 需要重新调研
 「改之前是什么样」。故每项 MUST 同时登记**实测基线**与**实施时的验收判据**，
@@ -982,6 +983,7 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 | CI 产物哈希比对 | vercel-labs-wterm 研究结论 | `build.yml` 增产物 sha256 记录步骤 |
 | Android 15+ 16KB 页 `.so` 对齐 | GlobalTechInfo-RedTerm 研究结论 | `android/app/build.gradle.kts` 按 AGP 16KB 对齐指南调整打包 |
 | `cargo-nextest` / `cargo-mutants` / `cargo-tarpaulin` 测试工具链 | `rust-dependency-survey-2026.md` 研究结论 | `scripts/check.nu` 的 `cargo test --no-fail-fast` 改用 nextest 运行；变异测试与覆盖率阈值另配 CI 步骤 |
+| detekt 对仪器化测试源集的覆盖面 | 本仓 90 个仪器化用例文件（`TESTING.md`「仪器化用例」的覆盖面） | `scripts/check.nu` 的 `detekt` 改列 `detektDebugAndroidTest`（或等价聚合任务），使仪器化源集与生产、单测源集同受 detekt 规则约束 |
 
 实测基线（本轮实跑所得，工具版本可能前进，重跑 MUST 以当日实测覆盖本列）：
 
@@ -1056,6 +1058,40 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   仪器测试源码集的文件数、命中数与逐处判定见下方「静态形状扫描」表；同日再测与该基线同值
   （主源码集 119 文件 / 6 处命中，单测源码集 145 文件 / 3 处命中，仪器测试源码集
   91 文件 / 0 处命中）。
+- **detekt 的源集覆盖面**（2026-11-21 实测）：`scripts/check.nu` 调的是 `detekt`，它覆盖生产
+  与单测源集（探针：在 `src/test` 放一处未使用 import，`detekt` 退出码 1），**但不覆盖仪器化
+  源集**（同一探针放到 `src/androidTest` 时 `detekt` 退出码 0，而 `detektDebugAndroidTest`
+  退出码 1）。为不让 90 个仪器化用例文件长期处于静态检查之外，本轮以
+  `./gradlew :app:detektDebugAndroidTest` 作临时口径全量清理：清理前 94 条命中，按规则为
+  `UnusedImport` 38 / `NoUnusedImports` 11（后者与前者对同一批 import 重复报告）/
+  `UnusedVariable` 8 / `LibraryCodeMustSpecifyReturnType` 15 / `ImplicitDefaultLocale` 6 /
+  `UseOrEmpty` 4 / `UseDataClass` 3 / `AbstractClassCanBeConcreteClass` 2 /
+  `InjectDispatcher`、`HasPlatformType`、`CollapsibleIfStatements`、`UseCheckNotNull`、
+  `RedundantExplicitType`、`VarCouldBeVal`、`EmptyFunctionBlock` 各 1；清理后 0 条。
+  8 处 `UnusedVariable` 均为测试内死绑定（如 `SurfaceLossRecoveryInstrumentedTest` 的
+  `inkBefore` 与 `shot`）；断言仍在被调用的 `awaitInk` / `awaitBridge` 内部，删绑定不削弱断言。
+  三处按「规则例外 + 就地理由」保留：无 `@Test` 的抽象基类不得改 `open`（否则会被 JUnit
+  当测试类枚举）、真机用例的 `Dispatchers.Default` 不得换成测试调度器（会让真实等待失去意义）、
+  `clipRead` 的显式可空类型被轮询体赋可空值（去掉后赋值不成立）。
+  验收判据：接入后 `detektDebugAndroidTest` MUST 维持 0 命中；新增命中 MUST 逐条修复，
+  或以「规则例外 + 就地理由」保留，MUST NOT 以「先记着」放行。
+- **detekt 对仪器化测试源集的覆盖面**（2026-11-21 实测）：`scripts/check.nu` 与
+  `check.yml` 跑的 `detekt` 只分析生产与单测源集，不分析 `src/androidTest`。判别实验：
+  在 `src/androidTest` 放入只含未使用 import 的探针类后，`:app:detekt` 退出码 0 而
+  `:app:detektDebugAndroidTest` 退出码 1；同形态探针放进 `src/test` 时 `:app:detekt`
+  直接报错——证明单测源集在覆盖面内、仪器化源集不在。逐类任务名是
+  `detektDebugAndroidTest`（写成 `:app:detektAndroidTest` 会被 Gradle 判为歧义前缀）。
+  该源集一次性扫描实测 94 处命中：`UnusedImport` 38、`LibraryCodeMustSpecifyReturnType` 15、
+  `NoUnusedImports` 11（与 `UnusedImport` 同处重复计数）、`UnusedVariable` 8、
+  `ImplicitDefaultLocale` 6、`UseOrEmpty` 4、`UseDataClass` 3、
+  `AbstractClassCanBeConcreteClass` 2、`InjectDispatcher`／`HasPlatformType`／
+  `CollapsibleIfStatements`／`UseCheckNotNull`／`RedundantExplicitType`／`VarCouldBeVal`／
+  `EmptyFunctionBlock` 各 1。已全部修至 0，其中 4 处以 `@Suppress` 就地写明规则不适用：
+  两个无 `@Test` 的抽象基类（改成具体类会被 JUnit 当测试类枚举）、一个持有 `IntArray`
+  的测试持有类（data class 的 equals/hashCode 会退化为引用相等）、一处刻意用真实调度器
+  的采集协程（注入测试调度器会让 300ms 真实等待失去意义）。
+  验收判据：接入后 `detektDebugAndroidTest` MUST 退出码 0；新增命中 MUST NOT 以扩充
+  `@Suppress` 消解，只能按本表口径逐处判定。
 - **rapidocr**：`flake.nix` 引导调用 `scripts/download-rapidocr-models.nu` 把模型
   下载到 `/tmp/.rapidocr-models`，模型环境已就绪；该下载与其他 shellHook 初始化步骤
   （AOSP testkey、`/tmp/alacritty-theme` 克隆）共享同一把排他锁，多个 shell 并发进入
