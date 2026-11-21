@@ -688,6 +688,17 @@ fn host_faces() -> (fontdb::Database, fontdb::ID, fontdb::ID) {
     (font_database, monospace, proportional)
 }
 
+/// 由族名构造必然命中「去空白」比较的目标文件名。
+fn stem_target(family: &str) -> String {
+    format!(
+        "{}.ttf",
+        family
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect::<String>()
+    )
+}
+
 /// 梯次第 1 级：声明词干命中时必须选回声明族（去空白比较覆盖
 /// DroidSansMono.ttf 与 Droid Sans Mono 的差异），而不是其它等宽面。
 #[test]
@@ -699,13 +710,7 @@ fn select_primary_face_prefers_declared_stem_match() {
         .map(|(name, _)| name.clone())
         .expect("等宽面须有族名");
     // 由族名构造必然命中「去空白」比较的文件名。
-    let target = format!(
-        "{}.ttf",
-        family
-            .chars()
-            .filter(|character| !character.is_whitespace())
-            .collect::<String>()
-    );
+    let target = stem_target(&family);
     let selected = super::select_primary_face(&font_database, &target).expect("须选中面");
     let selected_face = font_database.face(selected).expect("选中面须存在");
     assert!(selected_face.monospaced, "词干匹配必须落在等宽面上");
@@ -761,13 +766,7 @@ fn select_primary_face_prefers_upright_face_within_matched_family() {
     font_database
         .load_font_file(upright_path.as_ref().expect("须有正体面文件"))
         .expect("正体面文件须可装入");
-    let target = format!(
-        "{}.ttf",
-        family
-            .chars()
-            .filter(|character| !character.is_whitespace())
-            .collect::<String>()
-    );
+    let target = stem_target(&family);
     let selected = super::select_primary_face(&font_database, &target).expect("须选中面");
     let selected_face = font_database.face(selected).expect("选中面须存在");
     assert_eq!(
