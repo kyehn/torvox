@@ -66,6 +66,9 @@ private const val SCROLLBACK_COMMAND = "seq%s500"
  * 直绘 SurfaceView，不经过主线程 `ViewRootImpl` 遍历，gfxinfo 记不到这些帧
  * （实测滚动全程 0 帧，见 [PresentedFrames]）。`FrameTimingMetric` 仍留在指标列表
  * 里，它记的是 Compose 层的帧。
+ *
+ * 滚动窗口另有系统侧逐图层通道的独立证据：终端内容层在滚动前清空帧历史，滚动后
+ * 读回逐帧呈现时刻，确认内容确实呈现到了合成器（见 [SurfaceLayerFrames]）。
  */
 @RunWith(AndroidJUnit4::class)
 class ScrollPerformanceBenchmark {
@@ -89,6 +92,8 @@ class ScrollPerformanceBenchmark {
                     requireElement(device, TERMINAL_SCREEN_RESOURCE_ID, "终端界面")
                 awaitShellReady(device, startedMillis)
                 fillScrollback(device)
+                val contentLayer = findTerminalContentLayer(device)
+                clearLayerFrameHistory(device, contentLayer)
                 val scrollStartMillis = System.currentTimeMillis()
                 val elapsed = elapsedMillis {
                     dragTerminal(device, terminal.visibleBounds, towardHistory = true)
@@ -97,11 +102,19 @@ class ScrollPerformanceBenchmark {
                 awaitPresentedSettle(device, scrollStartMillis)
                 val summaries = readPresentedFrameSummaries(device, scrollStartMillis)
                 val presentedFrames = summaries.sumOf { it.frames }
+                val layerStats = checkNotNull(readLayerFrameStats(device, contentLayer)) {
+                    "系统侧逐图层通道没有读到终端内容帧：图层 $contentLayer"
+                }
                 // 实测值先于断言输出：断言失败时构建日志里仍留得下这轮的数字，
                 // 否则门禁只报「低于下限」，排障还得重跑一遍。
                 emitMeasured(
                     measuredLinePrefix("scroll", elapsed) +
-                        " presentedFrames=$presentedFrames presentedWindows=${summaries.size}",
+                        " presentedFrames=$presentedFrames presentedWindows=${summaries.size}" +
+                        " layerFrames=${layerStats.contentFrameCount}" +
+                        " layerMissed=${layerStats.missedFrameCount}" +
+                        " layerIntervalP50=${layerStats.medianIntervalMillis}ms" +
+                        " layerIntervalP90=${layerStats.p90IntervalMillis}ms" +
+                        " layerIntervalMax=${layerStats.maxIntervalMillis}ms",
                 )
                 check(summaries.isNotEmpty()) {
                     "滚动未产生呈现帧：原生渲染器在滚动窗口内没有汇报任何呈现"
@@ -115,6 +128,10 @@ class ScrollPerformanceBenchmark {
                 }
                 check(elapsed <= SCROLL_BUDGET_MILLIS) {
                     "上滑下滑耗时 ${elapsed}ms 超过预算 ${SCROLL_BUDGET_MILLIS}ms"
+                }
+                check(layerStats.missedFrameCount <= MAX_SCROLL_MISSED_LAYER_FRAMES) {
+                    "终端内容层在滚动窗口内丢了 ${layerStats.missedFrameCount} 帧，" +
+                        "超过上限 $MAX_SCROLL_MISSED_LAYER_FRAMES"
                 }
             },
         )
