@@ -340,7 +340,30 @@ MUST 取系统侧帧面，分层与覆盖面见后续两条。对照对象 MUST 
 #### Scenario: 显示级帧时间线按时间窗筛选
 
 - **WHEN** 用 `--frametimeline` 取某一场景的呈现时序
-- **THEN** MUST 按场景时间窗筛选帧，MUST NOT 依赖「先清空」——该面没有清空入口
+- **THEN** MUST 按场景时间窗筛选帧，MUST NOT 依赖「先清空」——该面没有清空入口；筛选前的时刻
+      MUST 先按下一条 Requirement 换算基准
+
+### Requirement: 显示级帧时间线的时刻基准与跨通道一致性
+
+显示级帧时间线的时刻以保留窗口里最旧的一帧为基准（AOSP `FrameTimeline::dumpAll` 取
+`mDisplayFrames[0]->getBaseTime()`），窗口滑动时基准前移，故它不是稳定时钟：实测相隔 8 秒的两次
+dump，最新一帧的相对时刻都是约 1.05 秒（保留窗口的跨度），而不是 8 秒后。
+
+取场景时间窗前 MUST 把它的相对时刻换算到稳定时钟：逐图层 `--latency` 通道给的是绝对纳秒时刻
+（CLOCK_MONOTONIC，与 `elapsedRealtime` 同域），两条通道记录的是同一批物理呈现，按呈现时刻序列
+对齐即可换算出基准。换算后 MUST 用同一图层在两条通道里的呈现时刻逐个校验（逐个对得上，容差
+1ms）；对不上 MUST 判取数失败，MUST NOT 拿错位的时刻做统计。
+
+#### Scenario: 帧时间线的时刻先换算基准再筛时间窗
+
+- **WHEN** 用 `--frametimeline` 的时刻按场景时间窗筛选帧
+- **THEN** MUST 先把相对时刻换算到稳定时钟（与逐图层通道的绝对时刻对齐），MUST NOT 直接拿 dump
+      里的相对时刻与场景起止比较
+
+#### Scenario: 两条系统侧通道的呈现时刻必须一致
+
+- **WHEN** 同一图层在显示级帧时间线与逐图层通道里都有呈现时刻
+- **THEN** 换算后的时刻 MUST 逐个对得上（容差 1ms），对不上 MUST 判取数失败
 
 ### Requirement: 跨应用性能对比的帧面保留窗口与帧数口径
 
