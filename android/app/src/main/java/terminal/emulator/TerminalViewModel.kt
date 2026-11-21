@@ -798,22 +798,8 @@ constructor(
         val unicodeChar = event.getUnicodeChar(metaState)
         if (unicodeChar == 0) return false
 
-        // 死键（组合符）本身不产生字符：先记下，等下一次击键合成。丢掉它会让
-        // AZERTY / US-International / Nordic 等布局只能打出裸字母。
-        if (deadKeys.isDead(unicodeChar)) {
-            deadKeys.hold(unicodeChar)
-            return true
-        }
-
-        // AltGr 的组合字符已由键位表合成完毕，与待合成的组合键无关。
-        val accent = if (hasAltGr) 0 else deadKeys.take()
-        val composed = deadKeys.composeWith(accent, unicodeChar)
-        if (accent != 0 && composed == 0) {
-            // 死键与无预组合形式的字母相邻是正常输入（如 ´ 后接 x），
-            // 丢弃重音即设计行为，不得记为 warn。
-            LogUtil.debug("TerminalViewModel", "dead key $accent has no combination with $unicodeChar; accent dropped")
-        }
-        val outChar = if (composed != 0) composed else unicodeChar
+        // 死键本身不产生字符：返回 null 表示已消费，等下一次击键合成。
+        val outChar = resolveUnicodeChar(unicodeChar, hasAltGr) ?: return true
         if (outChar <= 0) return false
 
         val bridge = runtime.bridge() ?: return false
@@ -847,6 +833,34 @@ constructor(
             )
         }
         return success
+    }
+
+    /**
+     * 字符级输入：死键合成与丢弃诊断。
+     *
+     * 平台按键事件的过滤（软键盘、修饰键、AltGr）留在 [handleLayoutAwareHardwareKey]；
+     * 字符级的状态机在这里——字符级的行为不必经由 [KeyEvent] 就能被验证。
+     *
+     * @return 要发给终端的字符；`null` 表示该字符是死键本身——它不产生输出，
+     *   只等下一次击键合成。
+     */
+    internal fun resolveUnicodeChar(unicodeChar: Int, hasAltGr: Boolean): Int? {
+        // 死键（组合符）本身不产生字符：先记下，等下一次击键合成。丢掉它会让
+        // AZERTY / US-International / Nordic 等布局只能打出裸字母。
+        if (deadKeys.isDead(unicodeChar)) {
+            deadKeys.hold(unicodeChar)
+            return null
+        }
+
+        // AltGr 的组合字符已由键位表合成完毕，与待合成的组合键无关。
+        val accent = if (hasAltGr) 0 else deadKeys.take()
+        val composed = deadKeys.composeWith(accent, unicodeChar)
+        if (accent != 0 && composed == 0) {
+            // 死键与无预组合形式的字母相邻是正常输入（如 ´ 后接 x），
+            // 丢弃重音即设计行为，不得记为 warn。
+            LogUtil.debug("TerminalViewModel", "dead key $accent has no combination with $unicodeChar; accent dropped")
+        }
+        return if (composed != 0) composed else unicodeChar
     }
 
     fun toggleScrollMode() {
