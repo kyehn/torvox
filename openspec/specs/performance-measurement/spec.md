@@ -305,6 +305,18 @@ MUST 取系统侧帧面，分层与覆盖面见后续两条。对照对象 MUST 
 - **WHEN** 用 `--frametimeline` 取某一场景的呈现时序
 - **THEN** MUST 按场景时间窗筛选帧，MUST NOT 依赖「先清空」——该面没有清空入口
 
+### Requirement: 跨应用性能对比的帧面保留窗口与帧数口径
+
+两个系统侧通道都只保留最近一段历史（`--latency` 每图层 127 行、`--frametimeline` 最近 64 个
+display frame），MUST 只用它们取时序，MUST NOT 把被保留窗口截断的行数当作场景总帧数。帧数类指标
+MUST 取各应用自己的计数口径。
+
+#### Scenario: 保留窗口饱和不作总帧数
+
+- **WHEN** 持续输出使系统侧帧行数达到保留窗口上限（每图层 127 行或 64 个 display frame）
+- **THEN** 该次采集 MUST 只用于时序分析，帧数 MUST 取应用自己的计数，MUST NOT 把行数当作场景
+      总帧数
+
 ### Requirement: 跨应用性能对比的图层名与图层覆盖判据
 
 图层级通道的取数 MUST 有明确的图层名与覆盖判据：

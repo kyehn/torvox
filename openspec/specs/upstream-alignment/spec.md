@@ -434,7 +434,7 @@ MUST 采纳的资产 MUST 附实测数字（今日直接通过的用例数与差
 不具跨应用可比性；跨应用帧面是系统侧帧面且分三层——逐图层 `dumpsys SurfaceFlinger --latency`
 给逐帧三列（精确名匹配任何承载内容帧的图层，含本项目终端 SurfaceView 层），显示级
 `dumpsys SurfaceFlinger --frametimeline` 给 display frame 级时序并按 `Owner Pid` 归属到内容
-图层，见 `performance-measurement` 的「跨应用性能对比的对照面与统一帧面」「跨应用性能对比
+图层（两通道各有保留窗口，长突发场景的帧数须取应用侧计数），见 `performance-measurement` 的「跨应用性能对比的对照面与统一帧面」「跨应用性能对比
 的帧面分层与覆盖面」「终端内容直绘 SurfaceView 时的帧面取数」「SurfaceView 内容帧的 jank 判定与 N/A 兜底」各条。两者既无基准资产，也未
 发布可核实的性能数字，故对比必须自建 harness，MUST NOT 引用其自述性能数字。
 

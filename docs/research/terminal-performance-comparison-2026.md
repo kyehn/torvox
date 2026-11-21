@@ -160,6 +160,21 @@ SurfaceView 内、未经 Choreographer，故**不在其覆盖内**；两个对�
 Perfetto FrameTimeline 可作对照对象的应用帧归因，但**不可作终端内容的跨应用判据**，也不能用它
 断言本项目终端内容「没有帧」。
 
+### 系统侧通道的保留窗口
+
+两个系统侧通道都只保留最近一段历史，不是全量账本：
+
+- `--latency` 每图层一个 127 槽的环形缓冲（`NUM_FRAME_RECORDS = 128` 减当前槽），写满即覆盖最旧的帧。
+- `--frametimeline` 只保留最近 64 个 display frame。
+
+实测（emulator-5554，API 35，本项目跑 `timeout 6 yes` 持续输出）：3 秒内应用侧呈现 551 帧、
+9 秒内 1089 帧；同期 `--latency` 的非零行数封顶在 127、`--frametimeline` 里该图层的条目封顶在
+64——两通道同时饱和。
+
+后果：**系统侧通道能给出时序（呈现间隔、超出量、丢帧），不能给出长突发场景的总帧数**。场景矩阵
+里「帧数」类指标 MUST 取应用自己的计数（各应用的帧计数口径不同，见既有规约「宏基准的帧级数据面按
+绘制主体选源」），或把场景压进保留窗口内再数行数；MUST NOT 把被窗口截断的行数当作场景总帧数。
+
 ### 三层帧面的采集协议
 
 1. 场景开始前 `dumpsys SurfaceFlinger --latency-clear <layer>` 清空该图层的帧历史——不清空则读到
@@ -176,8 +191,9 @@ Perfetto FrameTimeline 可作对照对象的应用帧归因，但**不可作终�
    `-1`、`Prediction State` 为 `None`、`Jank Type` 为 `None`、`Present Metadata` 为
    `Unknown Present`——调度器预测不覆盖此类帧。`Start time` 恒为 `N/A`，`Present time` 偶为
    `N/A`（此时以 `Last latch time` 兜底），MUST NOT 把 `N/A` 当作 0 参与计算。
-7. 由此可算：呈现间隔（相邻呈现时刻之差）、距 deadline 的超出量、丢帧（呈现间隔超过刷新周期）
-   与帧数。
+7. 由此可算：呈现间隔（相邻呈现时刻之差）、距 deadline 的超出量、丢帧（呈现间隔超过刷新周期）。
+   帧数类指标 MUST 取应用自己的计数（系统侧通道受保留窗口限制，见上节），MUST NOT 把被窗口截断
+   的行数当作场景总帧数。
 
 ## 四、采集面清单
 
@@ -264,8 +280,10 @@ S9 的探针口径沿用既有规约：终端内的 shell 没有提示符可等�
 就绪信号，不得用固定等待时长替代。
 
 矩阵里的「呈现汇总」指各应用自己的帧统计：本项目取原生渲染器的呈现汇总（终端内容直绘
-SurfaceView，经 HWUI 的 `gfxinfo` 记不到），对照对象取其 HWUI 帧统计。跨应用呈现时序一律取显示级
-frametimeline；图层级 `--latency` 只在目标图层可寻址时作为补充证据。
+SurfaceView，经 HWUI 的 `gfxinfo` 记不到），对照对象取其 HWUI 帧统计。跨应用呈现时序一律取系统侧
+逐图层通道（`--latency` 逐帧三列 + `--frametimeline` 的图层条目并按 `Owner Pid` 归属）。
+帧数类指标受系统侧保留窗口限制（见「系统侧通道的保留窗口」），跨应用对比帧数 MUST 用各应用
+自己的计数口径。
 
 ## 六、环境固定化
 
@@ -380,6 +398,8 @@ for device in targets:
 （官方明确 SurfaceView 不支持），但**在系统侧逐图层通道内**：实测终端 SurfaceView（BLAST）图层
 用精确名即可取到逐帧三列，`--latency-clear` 后归零、终端再次输出后重新累积；其 jank 判定 MUST 由
 呈现间隔与刷新周期比较得出，因为 SurfaceView 帧不参与调度器预测（`Jank Type` 恒为 `None`）。
+两个系统侧通道都只保留最近一段历史（`--latency` 每图层 127 行、`--frametimeline` 最近 64 个
+display frame），故它们给的是**时序**而非长突发场景的总帧数；帧数 MUST 取各应用自己的计数口径。
 对照对象没有任何可复用的基准资产，对比必须自建 harness；本仓已有的宏基准模块与设备侧编排是
 落点，跨应用扩展受 `scripts/` 受保护约束，须维护者明确同意后实施。失败归因必须落到
 exit-info reason、FrameTimeline jank 类型、logcat 与 dropbox 四源交集，证据不足记「未定」而非
