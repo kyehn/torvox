@@ -144,6 +144,8 @@ name 表里，只有读完 `fonts.xml` 声明的全部文件才能得到。渲�
 库内首个**正体面**（`fontdb::Style::Normal` 且 `fontdb::Weight::NORMAL`）且覆盖基本
 拉丁的等宽面（charmap 探测 `'m'`，跳过 emoji/符号这类被标记为等宽却无拉丁字形的面）
 → 库内首个覆盖基本拉丁的等宽面 → 库内首个覆盖拉丁的面 → 库内首个可用面。
+词干匹配命中族内有多面时 MUST 同样正体优先：命中族内的 Bold/Oblique 面排在
+Regular 面之前时，取首面会把默认主字体钉成粗体或斜体。
 正体优先 MUST 先于「取首面」生效，MUST NOT 把粗体或斜体面当作默认主字体。每级降级
 MUST 输出日志。仅当库内没有任何可用面时，MUST 经 `font_db::fatal` 输出日志并 abort。
 `fonts.xml` 缺失、不可解析或未声明等宽族 MUST 保持 abort（DESIGN 不变），
@@ -158,6 +160,11 @@ MUST 输出日志。仅当库内没有任何可用面时，MUST 经 `font_db::fa
 
 - **WHEN** 库内枚举顺序把族内 Bold 或 Oblique 面排在 Regular 面之前
 - **THEN** 跳过这些面，选择正体面
+
+#### Scenario: 词干命中族内有多面
+
+- **WHEN** 词干匹配命中的族在库内含多个面，且 Bold 或 Oblique 面排在 Regular 面之前
+- **THEN** 选择该族的正体面，不取首个面
 
 正体优先的理由：库内面序由字体目录枚举顺序决定，族内 Bold/Oblique 面可能排在 Regular
 之前；主字体面一旦自带斜体，此后所有斜体请求都会被 `resolve_style_face` 判成

@@ -665,10 +665,29 @@ pub(crate) fn face_covers_latin(font_database: &fontdb::Database, face_id: fontd
     face_covers(font_database, face_id, 'm')
 }
 
+/// 候选面组里的取面口径：正体优先（`Normal` 样式 + `NORMAL` 字重），否则取首个。
+///
+/// 主字体面一旦自带粗体或斜体，`resolve_style_face` 会把「基底面已带样式」判成真，
+/// 粗体/斜体请求便不再合成——库内面序把族内 Bold/Oblique 面排在 Regular 之前时，
+/// 默认主字体就被钉成粗体或斜体。故每组候选都按同一口径取面。
+#[cfg(any(target_os = "android", test))]
+fn pick_upright_or_first<'a>(
+    faces: impl Iterator<Item = &'a fontdb::FaceInfo>,
+) -> Option<&'a fontdb::FaceInfo> {
+    let mut first = None;
+    for face in faces {
+        if face.style == fontdb::Style::Normal && face.weight == fontdb::Weight::NORMAL {
+            return Some(face);
+        }
+        first = first.or(Some(face));
+    }
+    first
+}
+
 /// 主字体面选择梯次（fonts.xml 是默认主字体的唯一来源）：
 /// 1. 声明的等宽文件按词干匹配——fonts.xml 给文件名、fontdb 给家族名，先用
 ///    「分隔符归一 + 精确相等」，再退「去空白后精确相等」，覆盖 Droid Sans Mono
-///    这类家族名带空格而文件名不带的差异；
+///    这类家族名带空格而文件名不带的差异；命中族内有多面时同样正体优先；
 /// 2. 库内首个覆盖拉丁的等宽面：声明文件被 OEM 改包装（家族名与词干对不上）或
 ///    放宽装库后声明文件本就不存在时，仍拿到可用的等宽字体——emoji 这类无拉丁
 ///    字形的「等宽」面必须跳过；
@@ -694,21 +713,23 @@ pub(crate) fn select_primary_face(
             .map_or("", |(name, _)| name)
             .to_lowercase()
     };
-    if let Some(face_id) = font_database
-        .faces()
-        .filter(|face| face.monospaced)
-        .find(|face| family_lower(face).replace(['-', '_'], " ") == stem_lower)
-        .or_else(|| {
-            font_database.faces().find(|face| {
-                face.monospaced
-                    && family_lower(face)
-                        .chars()
-                        .filter(|character| !character.is_whitespace())
-                        .collect::<String>()
-                        == stem_nospace
-            })
-        })
-        .map(|face| face.id)
+    if let Some(face_id) = pick_upright_or_first(
+        font_database
+            .faces()
+            .filter(|face| face.monospaced)
+            .filter(|face| family_lower(face).replace(['-', '_'], " ") == stem_lower),
+    )
+    .or_else(|| {
+        pick_upright_or_first(font_database.faces().filter(|face| {
+            face.monospaced
+                && family_lower(face)
+                    .chars()
+                    .filter(|character| !character.is_whitespace())
+                    .collect::<String>()
+                    == stem_nospace
+        }))
+    })
+    .map(|face| face.id)
     {
         log::debug!("FONT_SELECT: fonts.xml monospace id={face_id:?} stem='{stem}'");
         return Some(face_id);
@@ -718,16 +739,8 @@ pub(crate) fn select_primary_face(
     // 钉成粗体或斜体——此后所有斜体请求都被 `resolve_style_face` 判成「基底面已带
     // 斜体」而返回该面字形，斜体整段直立。宿主回退分支（families.rs）同因。
     let usable =
-        |face: &&fontdb::FaceInfo| face.monospaced && face_covers_latin(font_database, face.id);
-    if let Some(face) = font_database
-        .faces()
-        .find(|face| {
-            face.style == fontdb::Style::Normal
-                && face.weight == fontdb::Weight::NORMAL
-                && usable(face)
-        })
-        .or_else(|| font_database.faces().find(usable))
-    {
+        |face: &fontdb::FaceInfo| face.monospaced && face_covers_latin(font_database, face.id);
+    if let Some(face) = pick_upright_or_first(font_database.faces().filter(|face| usable(face))) {
         log::warn!(
             "FONT_SELECT: fonts.xml 声明的等宽字体 {target_filename} 未匹配，改用库内等宽面 '{}'",
             family_lower(face)
