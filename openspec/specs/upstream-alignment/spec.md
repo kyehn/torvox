@@ -970,8 +970,9 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 实测基线（本轮实跑所得，工具版本可能前进，重跑 MUST 以当日实测覆盖本列）：
 
 - **aislop**（须以 `npx aislop@latest` 调用，本仓 nix 环境未内置该可执行文件。
-  2026-11-20 实测时 `latest` 解析到 registry 上 tarball 缺失的 0.22.2（`npm error 404`），
-  `npx aislop@0.22.1` 仍可用，故本次基线取自 0.22.1）：
+  2026-11-20 重测时 `latest` 解析到的 0.22.2 已可正常下载运行，其结果与 0.22.1
+  完全一致（`score` 100、label `Healthy`、0 errors / 0 warnings）；本次基线取自
+  `npx aislop@0.22.1`，并以 0.22.2 交叉复核一致）：
   `npx aislop@0.22.1 scan --json native/src` 退出码 0，`score` 100、label `Healthy`、
   `coverage.supportedFiles` 116、`unsupportedFiles` 0，`summary` 0 errors /
   0 warnings / 0 fixable，`diagnostics` 为空；
@@ -1075,8 +1076,8 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 - 参数：`python3 <footgun-scan>/scripts/scan.py --all <目录>`，逐行扫描受版本控制的文件；
   目录取 `android/app/src/main`、`android/app/src/test` 与 `android/app/src/androidTest`。
-- 当日实测（2026-11-20）：主源码集 119 个文件 / 6 处命中，单测源码集 143 个文件 /
-  3 处命中，仪器测试源码集 91 个文件 / 0 处命中；全仓 353 个文件 / 9 处命中，全部为
+- 当日实测（2026-11-20）：主源码集 119 个文件 / 6 处命中，单测源码集 145 个文件 /
+  3 处命中，仪器测试源码集 91 个文件 / 0 处命中；全仓 355 个文件 / 9 处命中，全部为
   `look` 级形状提示，无 `likely` 级命中，与下表的逐处判定一一对应。
 
 | 位置 | 命中形状 | 判定 | 依据 |
