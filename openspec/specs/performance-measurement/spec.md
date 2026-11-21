@@ -87,7 +87,7 @@ CI 性能门禁的下限断言（`native/benches/support.rs` 的 `Floor::assert_
 跨应用性能对比的帧面类测量手段取舍 MUST 逐项记录理由，使复查不必重新调研：
 
 - 宏基准的 `FrameTimingMetric` 与 `StartupTimingMetric` 作跨应用主判据：官方明确不推荐在
-  模拟器上跑；本仓 release 变体的源码清单未声明 `android:profileable`，指标无采集前提；
+  模拟器上跑；目标应用须非 debuggable；两者量的是各目标自身管线的帧，跨应用语义不同；
   既有规约已把它定位为「模拟器数量级回归」用途。
 - `dumpsys gfxinfo` 的帧数作终端内容帧判据：该入口只覆盖经 ViewRootImpl/RenderThread
   绘制的帧，SurfaceView 直绘不在其中。

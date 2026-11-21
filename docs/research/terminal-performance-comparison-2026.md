@@ -30,6 +30,7 @@
 | Perfetto 官方文档 | 上游仓库 `platform/external/perfetto` 的 `docs/` 目录（`data-sources/*.md`） | perfetto.dev 路径已 404，改从上游仓库镜像逐份读原文 |
 | AOSP 源码 | `frameworks/native/services/surfaceflinger/SurfaceFlinger.cpp`、`services/surfaceflinger/Layer.cpp`、`frameworks/base/core/java/android/view/ThreadedRenderer.java` | 逐符号读实现 |
 | 对照对象源码 | `termux/termux-app` v0.119.0-beta.3；`sylirre/ghostty-android-terminal` main | 仓库树枚举 + 关键文件逐行读 |
+| 宏基准库源码 | `androidx/androidx` 的 `benchmark-common`（`Errors.kt`、`BenchmarkState.kt`）与 `benchmark-macro`（`Macrobenchmark.kt`） | 逐符号读实现 |
 | 本仓 | `android/benchmark/`、`android/app/src/main/AndroidManifest.xml`、`scripts/test-emulator.nu`、`native/benches/`、`openspec/specs/performance-measurement/spec.md` | 直接读工作树 |
 
 ## 一、对比对象的一手事实
@@ -63,11 +64,16 @@
 | 崩溃 / ANR / 异常退出 | 可比 | `ApplicationExitInfo` reason + logcat + dropbox | 同左 | 同左 |
 | HWUI 帧统计（`gfxinfo`） | **仅同应用内可比** | 只统计经 ViewRootImpl/RenderThread 绘制的帧；SurfaceView 直绘不经该路径 | 只用于 Compose 界面自检 | 终端内容帧可测，但语义与本项目不同 |
 | GPU 计数器 | 仅同设备内可比 | counter ID 由设备描述符给定 | `gpu.counters` | 同左 |
-| 宏基准指标 | 不作跨应用主判据 | 官方明确模拟器不代表真实体验；本仓 release 变体的源码清单未声明 `android:profileable` | 仅数量级回归 | 不适用 |
+| 宏基准指标 | 不作跨应用主判据 | 官方明确模拟器不代表真实体验；目标应用须非 debuggable；指标量的是各目标自身管线的帧 | 仅数量级回归 | 不适用 |
 
 `gfxinfo` 的入口在 `ThreadedRenderer.handleDumpGfxInfo`（`dumpGlobalProfileInfo` 加
 `WindowManagerGlobal.dumpGfxInfo`），参数 `framestats` / `reset` / `-a` 由 `dumpArgsToFlags`
 解析——这条链只覆盖 HWUI 管线。本仓既有规约「宏基准的帧级数据面按绘制主体选源」与之一致。
+
+关于宏基准的 `profileable` 要求有一处常见误解需要纠正：宏基准库的 `NOT-PROFILEABLE` 错误只在
+API 29–30 触发（API 31 起 app trace tag 不再要求该标志）。实测本仓 release 与 debug 变体的
+合并清单均未声明 `android:profileable`，但本仓 minSdk 31，故这不构成指标采集障碍；官方文档把
+`profileable` 列为通用建议，而非当前版本的前置条件。真正约束宏基准作跨应用判据的是前三条。
 
 ## 三、跨应用统一的帧面：SurfaceFlinger 逐帧时序
 
@@ -253,7 +259,7 @@ for device in targets:
 
 | 手段 | 不采纳理由 |
 | --- | --- |
-| 宏基准的 `FrameTimingMetric` / `StartupTimingMetric` 作跨应用主判据 | 官方明确不推荐在模拟器上跑；本仓 release 变体的源码清单未声明 `android:profileable`，指标无采集前提；既有规约已把它定位为「模拟器数量级回归」用途 |
+| 宏基准的 `FrameTimingMetric` / `StartupTimingMetric` 作跨应用主判据 | 官方明确不推荐在模拟器上跑；目标应用须非 debuggable；两者量的是各目标自身管线的帧，跨应用语义不同；既有规约已把它定位为「模拟器数量级回归」用途 |
 | `dumpsys gfxinfo` 的帧数作终端内容帧判据 | 只统计 HWUI 管线帧，SurfaceView 直绘不在其中（既有规约同口径） |
 | Perfetto `android.log` 数据源 | 仅 userdebug 构建可用，正式版真机不可用；改用 logcat 全量落盘 |
 | `gpu.counters` 跨设备对比 | counter ID 由设备描述符给定，跨设备不可比 |

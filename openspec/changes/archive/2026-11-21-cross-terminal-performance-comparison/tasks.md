@@ -14,7 +14,7 @@
 - [x] 取 Perfetto 数据源约束（`linux.process_stats` 轮询下限与 `mem.*` 计数器、
       `android.surfaceflinger.frametimeline` 的 jank 类型、`android.log` 仅 userdebug、
       ATrace 每事件 1–10 微秒、`gpu.counters` 设备特定）
-- [x] 取宏基准与退出归因的官方口径（profileable 要求、模拟器与低电量报错、
+- [x] 取宏基准与退出归因的官方口径（`profileable` 的强制范围仅 API 29–30、模拟器与低电量报错、
       `FrameTimingMetric`／`StartupTimingMetric` 指标定义、`ApplicationExitInfo` reason 常量与
       `REASON_OTHER` 口径）
 - [x] 实测设备侧采集通道（`/system/bin/perfetto`、`dumpsys thermalservice`、
