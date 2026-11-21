@@ -490,6 +490,25 @@ MUST NOT 回写 DataStore：用户回到宽屏时原值仍然有效。
 - **WHEN** 选定的字体文件只含 Bold/Black 面
 - **THEN** 基面取首个有族名的面，该族仍可被选中
 
+### Requirement: 按族名选中跨文件族时基面同样正体优先
+
+同一族跨多个字体文件（族文件列表来自 `fonts.xml` 文档顺序或用户字体目录的
+`read_dir` 顺序，后者不是字典序）时，按族名选中 MUST 在命中该族的面中取正体面
+（`fontdb::Style::Normal` 且 `fontdb::Weight::NORMAL`），MUST NOT 取库内首个命中面：
+取到 Bold/Oblique 会让整屏无样式正文按那个样式绘制，且 `resolve_style_face` 会把
+「基面已带样式」判成真，后续粗/斜体请求不再合成。族内没有正体面时 MUST 退回首个
+命中面。字面名 `monospace` 的兜底取面 MUST 同样正体优先。
+
+#### Scenario: 族文件顺序把粗体排在前面
+
+- **WHEN** 某族由 `Foo-Bold.ttf` 与 `Foo-Regular.ttf` 两个文件组成，且 Bold 先被装入
+- **THEN** 按族名 `Foo` 选中的基面 MUST 是 Regular 面，正文 MUST NOT 显示为粗体
+
+#### Scenario: 族内只有非正体面
+
+- **WHEN** 命中族内只有 Bold/Black 面
+- **THEN** 仍取首个命中面，该族可被选中
+
 ### Requirement: 族名归一后为空即未找到
 
 按族名匹配时，族名经「分隔符折空格 + 去空白 + 小写」归一后为空的（只有 `-`、`_`、

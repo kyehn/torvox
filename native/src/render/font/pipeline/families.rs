@@ -374,12 +374,17 @@ impl FontPipeline {
         font_database: &fontdb::Database,
         family_name: &str,
     ) -> Option<fontdb::ID> {
-        for face in font_database.faces() {
-            for (family, _) in &face.families {
-                if family.eq_ignore_ascii_case(family_name) {
-                    return Some(face.id);
-                }
-            }
+        // 同一族跨多个文件时取面 MUST 正体优先：族文件顺序对用户投放字体是
+        // `read_dir` 顺序（非字典序），Bold/Italic 排在 Regular 前面时取首面会把
+        // 整屏无样式正文画成那个样式，且样式请求因「基面已带样式」不再合成。
+        // 与 `pick_primary_face`（文件内取面）同一口径。
+        let exact = font_database.faces().filter(|face| {
+            face.families
+                .iter()
+                .any(|(family, _)| family.eq_ignore_ascii_case(family_name))
+        });
+        if let Some(face) = font_db::pick_upright_or_first(exact) {
+            return Some(face.id);
         }
         // fonts.xml 别名（如 sans-serif）精确优先于模糊匹配：别名指向的
         // 文件名在已加载库中直接定位，不加载新文件，避免模糊命中错误字形。
@@ -419,11 +424,10 @@ impl FontPipeline {
             }
         }
         if family_name.eq_ignore_ascii_case("monospace") {
-            for face in font_database.faces() {
-                if face.monospaced {
-                    return Some(face.id);
-                }
-            }
+            return font_db::pick_upright_or_first(
+                font_database.faces().filter(|face| face.monospaced),
+            )
+            .map(|face| face.id);
         }
         None
     }
@@ -589,6 +593,68 @@ mod tests {
         let faces = [&nameless, &regular];
         assert_eq!(pick_primary_face(&faces), Some(1));
         assert_eq!(pick_primary_face(&[&nameless]), None);
+    }
+
+    /// 同一族跨多个文件、且装入顺序把粗/斜面排在前面时，按族名选中 MUST 落到正体面。
+    ///
+    /// 用户投放字体的族文件顺序来自 `read_dir`（非字典序）；取到粗/斜面会让整屏
+    /// 无样式正文按那个样式画，且样式请求不再合成——与主字体取面同一根因。
+    #[test]
+    fn family_name_selection_prefers_the_regular_face() {
+        let pipeline = FontPipeline::new(64, 64, 14.0);
+        let source_database = pipeline.font_system.db();
+        let file_of = |face: &fontdb::FaceInfo| match &face.source {
+            fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    extension.eq_ignore_ascii_case("ttf") || extension.eq_ignore_ascii_case("otf")
+                })
+                .then(|| path.clone()),
+            fontdb::Source::Binary(_) => None,
+        };
+        let is_regular = |face: &fontdb::FaceInfo| {
+            face.style == fontdb::Style::Normal && face.weight == fontdb::Weight::NORMAL
+        };
+        let mut sample = None;
+        for regular in source_database.faces().filter(|face| is_regular(face)) {
+            let Some((family, _)) = regular.families.first() else {
+                continue;
+            };
+            let Some(regular_path) = file_of(regular) else {
+                continue;
+            };
+            let styled_path = source_database
+                .faces()
+                .filter(|face| !is_regular(face))
+                .filter(|face| face.families.iter().any(|(name, _)| name == family))
+                .filter_map(file_of)
+                .find(|path| *path != regular_path);
+            if let Some(styled_path) = styled_path {
+                sample = Some((family.clone(), regular_path, styled_path));
+                break;
+            }
+        }
+        let Some((family, regular_path, styled_path)) = sample else {
+            panic!("开发环境固定了系统字体集，其中必有同族的正体与粗/斜面文件");
+        };
+        // 先装粗/斜面再装正体：库内面序就是「坏顺序」，正是用户投放族可能出现的顺序。
+        let mut database = fontdb::Database::new();
+        database
+            .load_font_file(&styled_path)
+            .expect("系统字体可装入");
+        database
+            .load_font_file(&regular_path)
+            .expect("系统字体可装入");
+        let selected =
+            FontPipeline::find_font_by_name(&database, &family).expect("刚装入的族必须能按名选中");
+        let face = database.face(selected).expect("选中的面在库内");
+        assert!(
+            is_regular(face),
+            "族 {family} 的基面必须是正体面，实际 weight={:?} style={:?}",
+            face.weight,
+            face.style
+        );
     }
 
     /// 只有分隔符/空白的族名 MUST NOT 匹配到任何面。
