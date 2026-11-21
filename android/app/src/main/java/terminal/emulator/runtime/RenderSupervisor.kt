@@ -353,7 +353,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                                     if (pumpOutput(entry, bridge, instrumentation)) break
                                     marks.pollDone = System.nanoTime()
                                     if (count >= 0) {
-                                        publishDiagnostics(entry, bridge, instrumentation)
+                                        publishDiagnostics(entry, instrumentation)
                                     }
                                     recordLoopTiming(entry, instrumentation, marks, backoffNanos)
                                 } catch (exception: InterruptedException) {
@@ -796,30 +796,20 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
     /**
      * 诊断发布：按固定频率刷新会话标题，并把帧时长窗口交给趋势基线与日志。
      */
-    private fun publishDiagnostics(entry: SessionEntry, bridge: Bridge, instrumentation: RenderLoopInstrumentation) {
+    private fun publishDiagnostics(entry: SessionEntry, instrumentation: RenderLoopInstrumentation) {
         instrumentation.diagnosticCount++
         if (instrumentation.diagnosticCount == 1) {
             LogUtil.debug("Runtime", "session ${entry.sessionId} first render OK")
         }
         if (instrumentation.diagnosticCount % RENDER_DIAGNOSTIC_FREQUENCY == 0) {
             // 标题刷新移出渲染线程：getTitle 是 VT 通道外置查询，
-            // 要等 VT 线程下一次 50ms 空闲 tick 应答
-            // （VT 忙时等满 QUERY_TIMEOUT_MS）。真机日志实测该
-            // 查询每逢本分支（60 帧窗口 ≈ 1 秒）将渲染帧拉到
+            // 要等 VT 线程下一次 50ms 空闲 tick 应答（VT 忙时等满 QUERY_TIMEOUT_MS）。
+            // 真机日志实测该查询每逢本分支（60 帧窗口 ≈ 1 秒）将渲染帧拉到
             // 60–115ms；压测环境下踩满 500ms。
-            runtime.scope.launch {
-                // 取标题失败由 NativeQueryPort 归为缺省值（空串），
-                // 不抛异常：此处的 catch 是死代码，且它把取消
-                // 信号也当成失败——应用收尾时留下一条假错误。
-                val title = bridge.getActiveSessionTitle()
-                if (title.isNotEmpty() && title != runtime.runtimeState.value.title) {
-                    // CAS 更新：收集器与 IO 会话函数也会写 runtime.runtimeState，
-                    // 此处非原子的读-改-写会覆盖它们的会话列表。
-                    runtime.runtimeState.update { current ->
-                        current.copy(title = title)
-                    }
-                }
-            }
+            // 走运行期的唯一标题刷新入口：它按会话 ID 查询并在写回前复核该会话
+            // 仍在前台，而此处就地读写会在查询期间切走会话时把旧会话的标题
+            // 写到新会话上。
+            runtime.scheduleActiveSessionTitleRefresh()
         }
         // 整循环的结束时刻（供 RenderWatchDog 判挂起）：
         // 与上面的渲染结束时刻是两个窗口，勿合并。
