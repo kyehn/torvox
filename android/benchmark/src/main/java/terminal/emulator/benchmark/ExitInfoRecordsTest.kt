@@ -95,6 +95,8 @@ class ExitInfoRecordsTest {
         }
 
         assertTrue(failure.message.orEmpty().contains("dumpsys activity exit-info"))
+        // 采集失败与「没有退出记录」是两回事，失败信息须说清是采集失败。
+        assertTrue(failure.message.orEmpty().contains("采集失败"))
     }
 
     @Test
@@ -112,6 +114,7 @@ class ExitInfoRecordsTest {
         }
 
         assertTrue(failure.message.orEmpty().contains("缺少原因行"))
+        assertTrue(failure.message.orEmpty().contains("采集失败"))
     }
 
     private companion object {

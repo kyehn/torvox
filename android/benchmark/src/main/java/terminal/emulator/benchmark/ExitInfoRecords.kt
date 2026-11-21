@@ -123,7 +123,7 @@ private const val EXIT_TIMESTAMP_FORMAT = "yyyy-MM-dd HH:mm:ss.SSS"
  */
 internal fun parseExitInfoRecords(output: String): List<ExitInfoRecord> {
     check(output.contains(EXIT_INFO_DUMP_HEADER)) {
-        "进程退出历史不是 dumpsys activity exit-info 的输出：" +
+        "退出归因采集失败：输出不是 dumpsys activity exit-info 的结果：" +
             output.lineSequence().firstOrNull().orEmpty()
     }
     val records = mutableListOf<ExitInfoRecord>()
@@ -145,11 +145,11 @@ internal fun parseExitInfoRecords(output: String): List<ExitInfoRecord> {
 /** 解析一条退出记录的三行内容；字段缺失即格式漂移，当场报错而不是当作没有退出。 */
 private fun parseExitInfoRecord(rows: List<String>): ExitInfoRecord {
     val timestamp = rows.firstNotNullOfOrNull { EXIT_TIMESTAMP_ROW.matchEntire(it) }
-        ?: error("进程退出记录缺少时刻行：$rows")
+        ?: error("退出归因采集失败：进程退出记录缺少时刻行：$rows")
     val reason = rows.firstNotNullOfOrNull { EXIT_REASON_ROW.matchEntire(it) }
-        ?: error("进程退出记录缺少原因行：$rows")
+        ?: error("退出归因采集失败：进程退出记录缺少原因行：$rows")
     val detail = rows.firstNotNullOfOrNull { EXIT_DETAIL_ROW.matchEntire(it) }
-        ?: error("进程退出记录缺少明细行：$rows")
+        ?: error("退出归因采集失败：进程退出记录缺少明细行：$rows")
     return ExitInfoRecord(
         timestampMillis = parseExitTimestampMillis(timestamp.groupValues[1]),
         pid = timestamp.groupValues[2].toInt(),
@@ -167,8 +167,9 @@ private fun parseExitInfoRecord(rows: List<String>): ExitInfoRecord {
 private fun parseExitTimestampMillis(text: String): Long {
     val format = SimpleDateFormat(EXIT_TIMESTAMP_FORMAT).apply { isLenient = false }
     val position = ParsePosition(0)
-    val instant = format.parse(text, position) ?: error("进程退出记录的时刻无法解析：$text")
-    check(position.index == text.length) { "进程退出记录的时刻有多余内容：$text" }
+    val instant = format.parse(text, position)
+        ?: error("退出归因采集失败：进程退出记录的时刻无法解析：$text")
+    check(position.index == text.length) { "退出归因采集失败：进程退出记录的时刻有多余内容：$text" }
     return instant.time
 }
 
