@@ -713,9 +713,20 @@ pub(crate) fn select_primary_face(
         log::debug!("FONT_SELECT: fonts.xml monospace id={face_id:?} stem='{stem}'");
         return Some(face_id);
     }
+    // 兜底取面同样先要正体（Normal 样式 + NORMAL 字重）：库内面序由字体目录枚举
+    // 顺序决定，族内 Bold/Oblique 面可能排在 Regular 前面，取首面会把默认主字体
+    // 钉成粗体或斜体——此后所有斜体请求都被 `resolve_style_face` 判成「基底面已带
+    // 斜体」而返回该面字形，斜体整段直立。宿主回退分支（families.rs）同因。
+    let usable =
+        |face: &&fontdb::FaceInfo| face.monospaced && face_covers_latin(font_database, face.id);
     if let Some(face) = font_database
         .faces()
-        .find(|face| face.monospaced && face_covers_latin(font_database, face.id))
+        .find(|face| {
+            face.style == fontdb::Style::Normal
+                && face.weight == fontdb::Weight::NORMAL
+                && usable(face)
+        })
+        .or_else(|| font_database.faces().find(usable))
     {
         log::warn!(
             "FONT_SELECT: fonts.xml 声明的等宽字体 {target_filename} 未匹配，改用库内等宽面 '{}'",
