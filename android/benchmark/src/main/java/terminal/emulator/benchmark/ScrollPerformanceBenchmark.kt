@@ -86,96 +86,98 @@ class ScrollPerformanceBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
-                val startedMillis = System.currentTimeMillis()
-                startActivityAndWait(benchmarkLaunchIntent())
-                val terminal =
-                    requireElement(device, TERMINAL_SCREEN_RESOURCE_ID, "终端界面")
-                awaitShellReady(device, startedMillis)
-                fillScrollback(device)
-                val contentLayer = findTerminalContentLayer(device)
-                clearLayerFrameHistory(device, contentLayer)
-                val scrollStartMillis = System.currentTimeMillis()
-                val scrollStartElapsedMillis = SystemClock.elapsedRealtime()
-                val elapsed = elapsedMillis {
-                    dragTerminal(device, terminal.visibleBounds, towardHistory = true)
-                    dragTerminal(device, terminal.visibleBounds, towardHistory = false)
-                }
-                awaitPresentedSettle(device, scrollStartMillis)
-                val summaries = readPresentedFrameSummaries(device, scrollStartMillis)
-                val presentedFrames = summaries.sumOf { it.frames }
-                // 显示级帧时间线是同一批呈现的第二个系统侧观测面：它按属主归属到应用，
-                // 不依赖图层名。先读它再读逐图层通道——后者保留的帧更多，先读的那份
-                // 不会出现「有帧而另一条通道没有」的单向缺口。
-                val timeline = readFrameTimeline(device)
-                val timelineReadElapsedMillis = SystemClock.elapsedRealtime()
-                val layerStats = checkNotNull(readLayerFrameStats(device, contentLayer)) {
-                    "系统侧逐图层通道没有读到终端内容帧：图层 $contentLayer"
-                }
-                val layerPresentTimesMillis = layerStats.presentTimesNanos.map { it / 1_000_000.0 }
-                val baseOffsetMillis = checkNotNull(
-                    timelineBaseOffsetMillis(
-                        timeline.layerPresentTimesMillis(contentLayer),
-                        layerPresentTimesMillis,
-                    ),
-                ) {
-                    "显示级帧时间线与逐图层通道没有共同的呈现时刻：换算不出基准"
-                }
-                val windowFrames = timeline.withinWindow(
-                    scrollStartElapsedMillis.toDouble(),
-                    timelineReadElapsedMillis.toDouble(),
-                    baseOffsetMillis,
-                )
-                val attributedContentFrames = windowFrames
-                    .layersOwnedBy(targetProcessId(device))
-                    .filter { it.name == contentLayer }
-                val attributedPresentTimesMillis = attributedContentFrames
-                    .mapNotNull { it.presentTimeMillis }
-                    .map { it + baseOffsetMillis }
-                // 实测值先于断言输出：断言失败时构建日志里仍留得下这轮的数字，
-                // 否则门禁只报「低于下限」，排障还得重跑一遍。
-                emitMeasured(
-                    measuredLinePrefix("scroll", elapsed) +
-                        " presentedFrames=$presentedFrames presentedWindows=${summaries.size}" +
-                        " layerFrames=${layerStats.contentFrameCount}" +
-                        " layerMissed=${layerStats.missedFrameCount}" +
-                        " layerRate=${layerStats.presentationRatePerSecond}fps" +
-                        " layerSlotRatio=${layerStats.presentationSlotRatio}" +
-                        " layerIntervalP50=${layerStats.medianIntervalMillis}ms" +
-                        " layerIntervalP90=${layerStats.p90IntervalMillis}ms" +
-                        " layerIntervalMax=${layerStats.maxIntervalMillis}ms" +
-                        " timelineFrames=${windowFrames.size}" +
-                        " timelineContentFrames=${attributedContentFrames.size}" +
-                        " timelineBaseOffset=${baseOffsetMillis}ms",
-                )
-                check(summaries.isNotEmpty()) {
-                    "滚动未产生呈现帧：原生渲染器在滚动窗口内没有汇报任何呈现"
-                }
-                check(summaries.size >= MIN_SCROLL_PRESENTED_WINDOWS) {
-                    "滚动只在 ${summaries.size} 个窗口里出帧，低于下限 $MIN_SCROLL_PRESENTED_WINDOWS：" +
-                        "滚动中途停摆"
-                }
-                check(presentedFrames >= MIN_SCROLL_PRESENTED_FRAMES) {
-                    "滚动呈现帧数 $presentedFrames 低于下限 $MIN_SCROLL_PRESENTED_FRAMES"
-                }
-                check(elapsed <= SCROLL_BUDGET_MILLIS) {
-                    "上滑下滑耗时 ${elapsed}ms 超过预算 ${SCROLL_BUDGET_MILLIS}ms"
-                }
-                check(layerStats.presentationSlotRatio >= MIN_SCROLL_LAYER_SLOT_UTILIZATION) {
-                    "终端内容层在滚动窗口内只占用了 ${layerStats.presentationSlotRatio} 的刷新槽位，" +
-                        "低于下限 $MIN_SCROLL_LAYER_SLOT_UTILIZATION"
-                }
-                check(windowFrames.isNotEmpty()) {
-                    "显示级帧时间线在滚动时间窗内没有帧"
-                }
-                check(attributedContentFrames.isNotEmpty()) {
-                    "显示级帧时间线没有把终端内容层归属到被测应用"
-                }
-                check(attributedContentFrames.size >= MIN_SCROLL_TIMELINE_CONTENT_FRAMES) {
-                    "显示级帧时间线只归属到 ${attributedContentFrames.size} 帧终端内容，" +
-                        "低于下限 $MIN_SCROLL_TIMELINE_CONTENT_FRAMES"
-                }
-                check(samePresentEvents(attributedPresentTimesMillis, layerPresentTimesMillis)) {
-                    "显示级帧时间线与逐图层通道记录的呈现时刻对不上"
+                measureScenario(device, "scroll") {
+                    val startedMillis = System.currentTimeMillis()
+                    startActivityAndWait(benchmarkLaunchIntent())
+                    val terminal =
+                        requireElement(device, TERMINAL_SCREEN_RESOURCE_ID, "终端界面")
+                    awaitShellReady(device, startedMillis)
+                    fillScrollback(device)
+                    val contentLayer = findTerminalContentLayer(device)
+                    clearLayerFrameHistory(device, contentLayer)
+                    val scrollStartMillis = System.currentTimeMillis()
+                    val scrollStartElapsedMillis = SystemClock.elapsedRealtime()
+                    val elapsed = elapsedMillis {
+                        dragTerminal(device, terminal.visibleBounds, towardHistory = true)
+                        dragTerminal(device, terminal.visibleBounds, towardHistory = false)
+                    }
+                    awaitPresentedSettle(device, scrollStartMillis)
+                    val summaries = readPresentedFrameSummaries(device, scrollStartMillis)
+                    val presentedFrames = summaries.sumOf { it.frames }
+                    // 显示级帧时间线是同一批呈现的第二个系统侧观测面：它按属主归属到应用，
+                    // 不依赖图层名。先读它再读逐图层通道——后者保留的帧更多，先读的那份
+                    // 不会出现「有帧而另一条通道没有」的单向缺口。
+                    val timeline = readFrameTimeline(device)
+                    val timelineReadElapsedMillis = SystemClock.elapsedRealtime()
+                    val layerStats = checkNotNull(readLayerFrameStats(device, contentLayer)) {
+                        "系统侧逐图层通道没有读到终端内容帧：图层 $contentLayer"
+                    }
+                    val layerPresentTimesMillis = layerStats.presentTimesNanos.map { it / 1_000_000.0 }
+                    val baseOffsetMillis = checkNotNull(
+                        timelineBaseOffsetMillis(
+                            timeline.layerPresentTimesMillis(contentLayer),
+                            layerPresentTimesMillis,
+                        ),
+                    ) {
+                        "显示级帧时间线与逐图层通道没有共同的呈现时刻：换算不出基准"
+                    }
+                    val windowFrames = timeline.withinWindow(
+                        scrollStartElapsedMillis.toDouble(),
+                        timelineReadElapsedMillis.toDouble(),
+                        baseOffsetMillis,
+                    )
+                    val attributedContentFrames = windowFrames
+                        .layersOwnedBy(targetProcessId(device))
+                        .filter { it.name == contentLayer }
+                    val attributedPresentTimesMillis = attributedContentFrames
+                        .mapNotNull { it.presentTimeMillis }
+                        .map { it + baseOffsetMillis }
+                    // 实测值先于断言输出：断言失败时构建日志里仍留得下这轮的数字，
+                    // 否则门禁只报「低于下限」，排障还得重跑一遍。
+                    emitMeasured(
+                        measuredLinePrefix("scroll", elapsed) +
+                            " presentedFrames=$presentedFrames presentedWindows=${summaries.size}" +
+                            " layerFrames=${layerStats.contentFrameCount}" +
+                            " layerMissed=${layerStats.missedFrameCount}" +
+                            " layerRate=${layerStats.presentationRatePerSecond}fps" +
+                            " layerSlotRatio=${layerStats.presentationSlotRatio}" +
+                            " layerIntervalP50=${layerStats.medianIntervalMillis}ms" +
+                            " layerIntervalP90=${layerStats.p90IntervalMillis}ms" +
+                            " layerIntervalMax=${layerStats.maxIntervalMillis}ms" +
+                            " timelineFrames=${windowFrames.size}" +
+                            " timelineContentFrames=${attributedContentFrames.size}" +
+                            " timelineBaseOffset=${baseOffsetMillis}ms",
+                    )
+                    check(summaries.isNotEmpty()) {
+                        "滚动未产生呈现帧：原生渲染器在滚动窗口内没有汇报任何呈现"
+                    }
+                    check(summaries.size >= MIN_SCROLL_PRESENTED_WINDOWS) {
+                        "滚动只在 ${summaries.size} 个窗口里出帧，低于下限 $MIN_SCROLL_PRESENTED_WINDOWS：" +
+                            "滚动中途停摆"
+                    }
+                    check(presentedFrames >= MIN_SCROLL_PRESENTED_FRAMES) {
+                        "滚动呈现帧数 $presentedFrames 低于下限 $MIN_SCROLL_PRESENTED_FRAMES"
+                    }
+                    check(elapsed <= SCROLL_BUDGET_MILLIS) {
+                        "上滑下滑耗时 ${elapsed}ms 超过预算 ${SCROLL_BUDGET_MILLIS}ms"
+                    }
+                    check(layerStats.presentationSlotRatio >= MIN_SCROLL_LAYER_SLOT_UTILIZATION) {
+                        "终端内容层在滚动窗口内只占用了 ${layerStats.presentationSlotRatio} 的刷新槽位，" +
+                            "低于下限 $MIN_SCROLL_LAYER_SLOT_UTILIZATION"
+                    }
+                    check(windowFrames.isNotEmpty()) {
+                        "显示级帧时间线在滚动时间窗内没有帧"
+                    }
+                    check(attributedContentFrames.isNotEmpty()) {
+                        "显示级帧时间线没有把终端内容层归属到被测应用"
+                    }
+                    check(attributedContentFrames.size >= MIN_SCROLL_TIMELINE_CONTENT_FRAMES) {
+                        "显示级帧时间线只归属到 ${attributedContentFrames.size} 帧终端内容，" +
+                            "低于下限 $MIN_SCROLL_TIMELINE_CONTENT_FRAMES"
+                    }
+                    check(samePresentEvents(attributedPresentTimesMillis, layerPresentTimesMillis)) {
+                        "显示级帧时间线与逐图层通道记录的呈现时刻对不上"
+                    }
                 }
             },
         )
