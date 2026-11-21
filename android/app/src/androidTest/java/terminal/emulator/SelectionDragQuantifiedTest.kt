@@ -6,7 +6,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
-import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import kotlinx.coroutines.launch
 import org.junit.After
@@ -38,11 +37,8 @@ import terminal.emulator.terminalGridColumns
  */
 class SelectionDragQuantifiedTest : ComposeTerminalLogcatTest() {
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
         composeTestRule.awaitBridge()
     }

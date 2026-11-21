@@ -1021,6 +1021,14 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   `SettingsLogLevelSection.kt` 的同形包声明与 import 段（9 行），不修的具体理由是
   同包同层级的两个界面文件各自按需 import 同一组 Compose API，合并即产生
   只为转发符号的中间层（违 `STYLE.md` 的一次性抽象禁令），属天然相似。
+  测试源码集另测（`android/app/src/test` 与 `android/app/src/androidTest` 分目录各跑一次，
+  2026-11-21）：单测源码集 3 处克隆 / 34 行重复 / 0.18%（18560 行），仪器测试源码集
+  21 处克隆 / 220 行重复 / 1.17%（18796 行），合计 24 处克隆 / 254 行重复 / 0.68%。
+  逐处判定：24 处中 23 处是跨文件的同形 import 段（各文件按需 import 同一组 JUnit、
+  Compose 与测试 API，合并即产生只为转发符号的中间层，违 `STYLE.md` 的一次性抽象禁令）；
+  余下 1 处是 `BackgroundResumeFlickerInstrumentedTest` 与
+  `TerminalHoleTransitionFillInstrumentedTest` 各自的 `@Before` 就绪壳（就绪动作已收敛为
+  `TestUtils.kt` 的 `awaitTerminalReady`，两个测试类的前置动作不同故各自保留壳）。
   验收判据：重复率 MUST NOT 高于该基线；新增克隆 MUST 逐处给出
   「不修」的具体理由（被测行为不同、脚手架样板、或传状态必需的形参列表），
   MUST NOT 以「先记着」放行。
@@ -1029,8 +1037,10 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   0 errors / 0 warnings / 0 confirmed-defect；semgrep 5 次均 0 findings。满足 code-health
   「连续清洁运行计数 ≥ 5」的「连续 0 确认」证据门槛。本轮唯一修复：默认主字体取正体面
   （`pipeline/families.rs`、`font_db.rs`），斜体不再退化为直立；openspec/font-selection 同步。
-- **footgun-scan**（累计 12 次运行，0 确认缺陷）：2026-11-21 重扫实测的主源码集、单测源码集与
-  仪器测试源码集的文件数、命中数与逐处判定见下方「静态形状扫描」表。
+- **footgun-scan**（累计 13 次运行，0 确认缺陷）：2026-11-21 重扫实测的主源码集、单测源码集与
+  仪器测试源码集的文件数、命中数与逐处判定见下方「静态形状扫描」表；同日再测与该基线同值
+  （主源码集 119 文件 / 6 处命中，单测源码集 145 文件 / 3 处命中，仪器测试源码集
+  91 文件 / 0 处命中）。
 - **rapidocr**：`flake.nix` 引导调用 `scripts/download-rapidocr-models.nu` 把模型
   下载到 `/tmp/.rapidocr-models`，模型环境已就绪；该下载与其他 shellHook 初始化步骤
   （AOSP testkey、`/tmp/alacritty-theme` 克隆）共享同一把排他锁，多个 shell 并发进入

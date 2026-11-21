@@ -1,8 +1,6 @@
 package terminal.emulator.diag
 
 import android.graphics.Bitmap
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -26,11 +24,8 @@ import terminal.emulator.placeTextAtRow
  */
 class SgrItalicPixelAcceptanceTest : ComposeTerminalLogcatTest() {
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.awaitTerminalReady()
     }
 

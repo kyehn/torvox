@@ -1,7 +1,5 @@
 package terminal.emulator.diag
 
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -31,11 +29,8 @@ import terminal.emulator.waitForTerminalPixels
  */
 class CursorPixelAcceptanceTest : ComposeTerminalLogcatTest() {
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForTerminalPixels()
         composeTestRule.awaitBridge()
     }

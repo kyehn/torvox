@@ -3,6 +3,7 @@ package terminal.emulator
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import androidx.test.uiautomator.UiDevice
 import org.junit.Rule
 import org.junit.rules.TestRule
 import org.junit.runner.Description
@@ -125,6 +126,20 @@ abstract class TerminalLogcatTest {
 
     @get:Rule
     val terminalLogcatRule = TerminalLogcatRule()
+
+    /**
+     * UiAutomator 设备句柄。
+     *
+     * 逐类声明 `private lateinit var device` 并在 `setUp` 里赋值曾是 18 个用例的
+     * 共同样板，其中两处赋值后从未使用（死代码）。`UiDevice` 只是 Instrumentation 的
+     * 轻量包装，无跨用例状态，故按需惰性创建一份即可。
+     */
+    protected val device: UiDevice by lazy { UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()) }
+
+    /** 被测应用的包名：用于「应用在前台」判据与 `am start` 定向启动。 */
+    protected val appPackageName: String by lazy {
+        InstrumentationRegistry.getInstrumentation().targetContext.packageName
+    }
 }
 
 /**

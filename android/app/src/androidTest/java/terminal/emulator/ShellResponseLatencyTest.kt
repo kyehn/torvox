@@ -1,8 +1,6 @@
 package terminal.emulator
 
 import android.os.SystemClock
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -25,8 +23,6 @@ import terminal.emulator.awaitShellPrompt
  */
 class ShellResponseLatencyTest : ComposeTerminalLogcatTest() {
 
-    private lateinit var device: UiDevice
-
     private companion object {
         const val SAMPLES = 8
         const val POLL_TIMEOUT_MS = 15_000L
@@ -36,7 +32,6 @@ class ShellResponseLatencyTest : ComposeTerminalLogcatTest() {
 
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
     }
 

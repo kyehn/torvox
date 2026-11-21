@@ -3,7 +3,6 @@ package terminal.emulator.ui
 import android.view.WindowInsets
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -65,11 +64,8 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         private const val BAR_SEAM_TOLERANCE_PX = 8
     }
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.awaitTerminalReady()
     }
 

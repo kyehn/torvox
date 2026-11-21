@@ -3,7 +3,6 @@ package terminal.emulator.ui
 import android.view.WindowInsets
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -43,11 +42,8 @@ class ModifierBarBottomInsetInstrumentedTest : ComposeTerminalLogcatTest() {
         private const val LAYOUT_TOLERANCE_PX = 1f
     }
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.awaitTerminalReady()
         hideImeAndSettle()
     }
