@@ -966,6 +966,7 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 | rapidocr OCR 自动化 | TESTING.md 环境节 + 外部基准优先级 4 | `scripts/` 增 OCR 判定脚本 + `build.yml` 模拟器步骤调用 |
 | CI 产物哈希比对 | vercel-labs-wterm 研究结论 | `build.yml` 增产物 sha256 记录步骤 |
 | Android 15+ 16KB 页 `.so` 对齐 | GlobalTechInfo-RedTerm 研究结论 | `android/app/build.gradle.kts` 按 AGP 16KB 对齐指南调整打包 |
+| `cargo-nextest` / `cargo-mutants` / `cargo-tarpaulin` 测试工具链 | `rust-dependency-survey-2026.md` 研究结论 | `scripts/check.nu` 的 `cargo test --no-fail-fast` 改用 nextest 运行；变异测试与覆盖率阈值另配 CI 步骤 |
 
 实测基线（本轮实跑所得，工具版本可能前进，重跑 MUST 以当日实测覆盖本列）：
 
