@@ -1021,11 +1021,12 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   该工具归类为 style-policy 的项 MUST NOT 阻断构建，
   只有 error 级或 `confirmed-defect` 才阻断。
 - **jscpd**：`npx jscpd@latest --min-lines 8 --min-tokens 60` 对 `native/src` 与
-  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，jscpd 报告 sources 258
-  （kotlin 103 / markup 13 / rust 142）；扫描范围内受版本控制的源文件 262 个
-  （Rust 143、Kotlin 103、res XML 15、AndroidManifest 1），两者相差的 4 个是 jscpd 的格式
+  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，jscpd 报告 sources 259
+  （kotlin 103 / markup 13 / rust 142 / txt 1）；扫描范围内受版本控制的源文件 262 个
+  （Rust 143、Kotlin 103、res XML 15、AndroidManifest 1）。差值 3 个是 jscpd 的格式
   探测器切不出 token 的文件（实测 `native/src/render/pass/mod.rs` 只含模块声明与 use，
-  `res/mipmap/` 两个文件与 `res/drawable/` 中的一个文件同样不计入），不是扫描遗漏。
+  `res/mipmap/` 两个文件与 `res/drawable/` 中的一个文件同样不计入），不是扫描遗漏；
+  txt 1 份是 `android/app/src/main/baselineProfiles/baseline-prof.txt`（生成物，不在上述 262 份计数内）。
   （2026-11-21 重测：克隆数、重复行数、重复率与残留位置均与上一列基线同值；
   本轮新增的一处 Rust 克隆——两个主字体选择用例重复的「族名去空白 + .ttf」构造——已提取为
   `stem_target` 辅助函数消除，Rust 侧克隆归零。
@@ -1062,6 +1063,21 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   0 errors / 0 warnings / 0 confirmed-defect；semgrep 5 次均 0 findings。满足 code-health
   「连续清洁运行计数 ≥ 5」的「连续 0 确认」证据门槛。本轮唯一修复：默认主字体取正体面
   （`pipeline/families.rs`、`font_db.rs`），斜体不再退化为直立；openspec/font-selection 同步。
+- **clean-run 计数（2026-11-21，第二轮）**：工作树同时存在并行改动，故测量改在**固定提交的
+  独立工作树**上做（`git worktree` 签出当日最新提交），连续 5 轮全部退出码 0，同一命令序列：
+  `cargo fmt --all -- --check`、`cargo clippy --all-targets -- --deny warnings`、
+  `cargo ndk -t arm64-v8a clippy --all-targets -- --deny warnings`、`cargo machete --with-metadata`、
+  `cargo test --no-fail-fast`（5 轮均 940 passed / 0 failed）、`cargo doc --no-deps`（`-D warnings`）、
+  三个 bench 的 `--quick`、`cargo build --package native --profile release`、
+  `semgrep scan --error --dataflow-traces --config .semgrep/rules.yml`、
+  `markdownlint-cli2 "**/*.md"`、`openspec validate --all --strict`（55/55）、
+  Gradle 全量（`detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、
+  `assembleDebugAndroidTest`、`testDebugUnitTest`、`benchmark:compileBenchmarkReleaseKotlin`、
+  `baselineprofile:compileNonMinifiedReleaseKotlin`）。jscpd 5 轮一致 2 处克隆 / 23 行重复 /
+  0.03%（sources 259）；aislop 5 轮一致 score 100 / Healthy / 0 errors / 0 warnings /
+  `supportedFiles` 116；semgrep 5 轮 0 findings。另以 `--rerun-tasks` 强制重跑
+  `testDebugUnitTest` 一次（39 个任务全部实际执行，非缓存命中）：1090 个用例、0 失败 0 错误。
+  满足「连续清洁运行计数 ≥ 5」的「连续 0 确认」证据门槛。
   （2026-11-21 本轮：修复「终端构造器静默截断行列」后重跑 `./scripts/check.nu` 仍退出码 0，
   `cargo test` 940 passed / 0 failed（新增回归用例 1 例，计数由 938 变为 940）、
   openspec validate 55/55、`markdownlint` 0 命中；连续清洁运行计数累加，不重置。
