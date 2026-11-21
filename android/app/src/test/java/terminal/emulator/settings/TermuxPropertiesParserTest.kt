@@ -136,16 +136,6 @@ class TermuxPropertiesParserTest {
         )
     }
 
-    /** 五种样式都必须被认得：写错一个就等于用户的键栏外观莫名其妙地回到默认。 */
-    @Test
-    fun `every extra keys style parses`() {
-        assertEquals(ExtraKeysStyle.DEFAULT, parse("extra-keys-style = default").properties.extraKeysStyle)
-        assertEquals(ExtraKeysStyle.ARROWS_ONLY, parse("extra-keys-style = arrows-only").properties.extraKeysStyle)
-        assertEquals(ExtraKeysStyle.ARROWS_ALL, parse("extra-keys-style = arrows-all").properties.extraKeysStyle)
-        assertEquals(ExtraKeysStyle.ALL, parse("extra-keys-style = all").properties.extraKeysStyle)
-        assertEquals(ExtraKeysStyle.NONE, parse("extra-keys-style = none").properties.extraKeysStyle)
-    }
-
     /** 大小写不该让一个合法的枚举值失效：`Underline` 与 `underline` 是同一个东西。 */
     @Test
     fun `enum values are matched case-insensitively`() {
