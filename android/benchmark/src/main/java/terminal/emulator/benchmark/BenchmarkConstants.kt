@@ -132,6 +132,14 @@ internal const val MIN_SCROLL_TIMELINE_CONTENT_FRAMES = 8
  */
 internal const val MIN_ANIMATION_FRAME_COUNT = 1
 
+/**
+ * 一轮测量的制品配额（字节）。
+ *
+ * 制品是原始采集件（logcat、帧面 dump 等），单件可达数 MB；配额定在一轮 64 MB，
+ * 超出时轮转清理最旧的制品，宁可丢旧件也不让设备存储被制品占满。
+ */
+internal const val MEASUREMENT_QUOTA_BYTES = 64L * 1024 * 1024
+
 /** 宏基准会重装被测应用并重置运行时权限，需在测量前重新授权。 */
 internal fun grantNotificationPermission(device: UiDevice) {
     device.executeShellCommand("pm grant $TARGET_PACKAGE $NOTIFICATION_PERMISSION")

@@ -50,6 +50,7 @@ class AppStartupBenchmark {
 
     @Test
     fun coldStart() {
+        val store = openMeasurementStore("coldStart")
         val iterations = mutableListOf<StartupIteration>()
         benchmarkRule.measureRepeated(
             packageName = TARGET_PACKAGE,
@@ -61,16 +62,18 @@ class AppStartupBenchmark {
                 pressHome()
             },
             measureBlock = {
-                // 冷启动前进程不在，清零帧计数是空操作：读数即进程启动以来的全部帧。
-                resetFrameStats(device)
-                // 启动耗时只有在界面真的出现时才有意义：首帧到了但被系统对话框
-                // 挡住时，指标测的是「弹窗出现」而不是「终端可用」。
-                val iteration = measureStartup()
-                iterations += iteration
-                val frames = readFrameStatsAfterRender(device)
-                printMeasured("coldStart", iteration.totalMillis, frames)
-                check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
-                    "冷启动未产生任何界面帧：frames=${frames.frames}"
+                measureScenario(device, "coldStart", store, iteration) {
+                    // 冷启动前进程不在，清零帧计数是空操作：读数即进程启动以来的全部帧。
+                    resetFrameStats(device)
+                    // 启动耗时只有在界面真的出现时才有意义：首帧到了但被系统对话框
+                    // 挡住时，指标测的是「弹窗出现」而不是「终端可用」。
+                    val iteration = measureStartup()
+                    iterations += iteration
+                    val frames = readFrameStatsAfterRender(device)
+                    printMeasured("coldStart", iteration.totalMillis, frames)
+                    check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
+                        "冷启动未产生任何界面帧：frames=${frames.frames}"
+                    }
                 }
             },
         )
@@ -79,6 +82,7 @@ class AppStartupBenchmark {
 
     @Test
     fun warmStart() {
+        val store = openMeasurementStore("warmStart")
         val iterations = mutableListOf<StartupIteration>()
         benchmarkRule.measureRepeated(
             packageName = TARGET_PACKAGE,
@@ -92,13 +96,15 @@ class AppStartupBenchmark {
                 pressHome()
             },
             measureBlock = {
-                resetFrameStats(device)
-                val iteration = measureStartup()
-                iterations += iteration
-                val frames = readFrameStatsAfterRender(device)
-                printMeasured("warmStart", iteration.totalMillis, frames)
-                check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
-                    "热启动未产生任何界面帧：frames=${frames.frames}"
+                measureScenario(device, "warmStart", store, iteration) {
+                    resetFrameStats(device)
+                    val iteration = measureStartup()
+                    iterations += iteration
+                    val frames = readFrameStatsAfterRender(device)
+                    printMeasured("warmStart", iteration.totalMillis, frames)
+                    check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
+                        "热启动未产生任何界面帧：frames=${frames.frames}"
+                    }
                 }
             },
         )

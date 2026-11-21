@@ -35,6 +35,7 @@ class InteractionAnimationBenchmark {
 
     @Test
     fun modifierKeyPressAnimation() {
+        val store = openMeasurementStore("modifierKeyPress")
         benchmarkRule.measureRepeated(
             packageName = TARGET_PACKAGE,
             metrics = listOf(FrameTimingMetric()),
@@ -44,34 +45,37 @@ class InteractionAnimationBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
-                startActivityAndWait()
-                val controlKey = requireElement(device, CONTROL_KEY_RESOURCE_ID, "CTRL 键")
-                resetFrameStats(device)
-                val elapsed = elapsedMillis {
-                    controlKey.click()
+                measureScenario(device, "modifierKeyPress", store, iteration) {
+                    startActivityAndWait()
+                    val controlKey = requireElement(device, CONTROL_KEY_RESOURCE_ID, "CTRL 键")
+                    resetFrameStats(device)
+                    val elapsed = elapsedMillis {
+                        controlKey.click()
+                        device.waitForIdle()
+                    }
+                    val frames = readFrameStatsAfterRender(device)
+                    // 实测值先于断言输出：断言失败时构建产物里仍留得下这轮的数字。
+                    printMeasured("modifierKeyPress", elapsed, frames)
+                    check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
+                        "修饰键按下反馈未产生帧：frames=${frames.frames}"
+                    }
+                    check(elapsed <= INTERACTION_BUDGET_MILLIS) {
+                        "修饰键按下反馈耗时 ${elapsed}ms 超过预算 ${INTERACTION_BUDGET_MILLIS}ms"
+                    }
+                    check(waitForSelected(device, CONTROL_KEY_RESOURCE_ID, SELECTION_TIMEOUT_MILLIS)) {
+                        "点击 CTRL 后应进入粘滞修饰状态"
+                    }
+                    // 复位粘滞态，别把 Once 态留给下一次迭代。
+                    device.findObject(By.res(CONTROL_KEY_RESOURCE_ID))?.click()
                     device.waitForIdle()
                 }
-                val frames = readFrameStatsAfterRender(device)
-                // 实测值先于断言输出：断言失败时构建产物里仍留得下这轮的数字。
-                printMeasured("modifierKeyPress", elapsed, frames)
-                check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
-                    "修饰键按下反馈未产生帧：frames=${frames.frames}"
-                }
-                check(elapsed <= INTERACTION_BUDGET_MILLIS) {
-                    "修饰键按下反馈耗时 ${elapsed}ms 超过预算 ${INTERACTION_BUDGET_MILLIS}ms"
-                }
-                check(waitForSelected(device, CONTROL_KEY_RESOURCE_ID, SELECTION_TIMEOUT_MILLIS)) {
-                    "点击 CTRL 后应进入粘滞修饰状态"
-                }
-                // 复位粘滞态，别把 Once 态留给下一次迭代。
-                device.findObject(By.res(CONTROL_KEY_RESOURCE_ID))?.click()
-                device.waitForIdle()
             },
         )
     }
 
     @Test
     fun imeShowAnimation() {
+        val store = openMeasurementStore("imeShow")
         benchmarkRule.measureRepeated(
             packageName = TARGET_PACKAGE,
             metrics = listOf(FrameTimingMetric()),
@@ -81,27 +85,29 @@ class InteractionAnimationBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
-                startActivityAndWait()
-                requireElement(device, CONTROL_KEY_RESOURCE_ID, "CTRL 键")
-                // 启动后输入法自动弹出（DESIGN）：先收起，否则「点终端弹输入法」无事发生，
-                // 测到的只是静止画面。
-                hideIme(device)
-                resetFrameStats(device)
-                val elapsed = elapsedMillis {
-                    // 点击终端正文请求 IME 焦点，ModifierBar 的偏移动画在测量窗口内运行。
-                    device.click(device.displayWidth / 2, device.displayHeight / 3)
-                    // 确认输入法真的弹出了，否则测到的动画帧为 0，
-                    // 无法区分「跳变动画」与「键盘从未出现」。
-                    check(isImeShown(device)) { "点击终端后输入法必须弹出" }
-                    device.waitForIdle()
-                }
-                val frames = readFrameStatsAfterRender(device)
-                printMeasured("imeShow", elapsed, frames)
-                check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
-                    "IME 弹出未产生帧：frames=${frames.frames}"
-                }
-                check(elapsed <= INTERACTION_BUDGET_MILLIS) {
-                    "IME 弹出耗时 ${elapsed}ms 超过预算 ${INTERACTION_BUDGET_MILLIS}ms"
+                measureScenario(device, "imeShow", store, iteration) {
+                    startActivityAndWait()
+                    requireElement(device, CONTROL_KEY_RESOURCE_ID, "CTRL 键")
+                    // 启动后输入法自动弹出（DESIGN）：先收起，否则「点终端弹输入法」无事发生，
+                    // 测到的只是静止画面。
+                    hideIme(device)
+                    resetFrameStats(device)
+                    val elapsed = elapsedMillis {
+                        // 点击终端正文请求 IME 焦点，ModifierBar 的偏移动画在测量窗口内运行。
+                        device.click(device.displayWidth / 2, device.displayHeight / 3)
+                        // 确认输入法真的弹出了，否则测到的动画帧为 0，
+                        // 无法区分「跳变动画」与「键盘从未出现」。
+                        check(isImeShown(device)) { "点击终端后输入法必须弹出" }
+                        device.waitForIdle()
+                    }
+                    val frames = readFrameStatsAfterRender(device)
+                    printMeasured("imeShow", elapsed, frames)
+                    check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
+                        "IME 弹出未产生帧：frames=${frames.frames}"
+                    }
+                    check(elapsed <= INTERACTION_BUDGET_MILLIS) {
+                        "IME 弹出耗时 ${elapsed}ms 超过预算 ${INTERACTION_BUDGET_MILLIS}ms"
+                    }
                 }
             },
         )
@@ -109,6 +115,7 @@ class InteractionAnimationBenchmark {
 
     @Test
     fun sessionDrawerAnimation() {
+        val store = openMeasurementStore("sessionDrawer")
         benchmarkRule.measureRepeated(
             packageName = TARGET_PACKAGE,
             metrics = listOf(FrameTimingMetric()),
@@ -118,23 +125,25 @@ class InteractionAnimationBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
-                startActivityAndWait()
-                val drawerKey = requireElement(device, DRAWER_KEY_RESOURCE_ID, "抽屉键")
-                resetFrameStats(device)
-                val elapsed = elapsedMillis {
-                    drawerKey.click()
-                    requireElement(device, SESSION_DRAWER_RESOURCE_ID, "会话抽屉")
+                measureScenario(device, "sessionDrawer", store, iteration) {
+                    startActivityAndWait()
+                    val drawerKey = requireElement(device, DRAWER_KEY_RESOURCE_ID, "抽屉键")
+                    resetFrameStats(device)
+                    val elapsed = elapsedMillis {
+                        drawerKey.click()
+                        requireElement(device, SESSION_DRAWER_RESOURCE_ID, "会话抽屉")
+                    }
+                    val frames = readFrameStatsAfterRender(device)
+                    printMeasured("sessionDrawer", elapsed, frames)
+                    check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
+                        "会话抽屉展开未产生帧：frames=${frames.frames}"
+                    }
+                    check(elapsed <= INTERACTION_BUDGET_MILLIS) {
+                        "会话抽屉展开耗时 ${elapsed}ms 超过预算 ${INTERACTION_BUDGET_MILLIS}ms"
+                    }
+                    device.pressBack()
+                    device.waitForIdle()
                 }
-                val frames = readFrameStatsAfterRender(device)
-                printMeasured("sessionDrawer", elapsed, frames)
-                check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
-                    "会话抽屉展开未产生帧：frames=${frames.frames}"
-                }
-                check(elapsed <= INTERACTION_BUDGET_MILLIS) {
-                    "会话抽屉展开耗时 ${elapsed}ms 超过预算 ${INTERACTION_BUDGET_MILLIS}ms"
-                }
-                device.pressBack()
-                device.waitForIdle()
             },
         )
     }
