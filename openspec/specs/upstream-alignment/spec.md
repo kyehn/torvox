@@ -1082,6 +1082,18 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   `cargo test` 940 passed / 0 failed（新增回归用例 1 例，计数由 938 变为 940）、
   openspec validate 55/55、`markdownlint` 0 命中；连续清洁运行计数累加，不重置。
   本轮另测 aislop 与 jscpd 均与基线同值，见上两条。）
+- **clean-run 计数（2026-11-21，第二轮）**：工作树同时存在并行改动，故测量改在**固定提交的
+  独立工作树**上做（`git worktree` 签出当日最新提交），连续 5 轮全部退出码 0：
+  `cargo test` 5 轮均 946 passed / 0 failed；`cargo fmt`、`clippy --deny warnings`、
+  `cargo ndk` 目标 clippy、`machete`、`doc -D warnings`、三个 bench `--quick`、release build、
+  semgrep（0 findings）、markdownlint（0）、`openspec validate --all --strict`（55/55）、
+  Gradle 全量（detekt / spotlessCheck / dokka / lintDebug / lintVitalRelease /
+  assembleDebugAndroidTest / testDebugUnitTest / benchmark / baselineprofile）均绿。
+  同日主树另跑一轮同序列亦全绿，`testDebugUnitTest` 1090 用例 0 失败。jscpd 5 轮一致
+  2 处克隆 / 23 行重复 / 0.03%（sources 259）；aislop 5 轮一致 score 100 / Healthy /
+  0 errors / 0 warnings。新增代码已逐处审阅：`parse_control_data` 按上游状态机逐条照抄
+  并以逐字节相等断言比对上游应答；基准侧新增的两条系统侧通道用相对量（刷新槽位比例）
+  而非绝对值设阈，并保留跨通道呈现时刻一致性断言。
 - **footgun-scan**（累计 13 次运行，0 确认缺陷）：2026-11-21 重扫实测的主源码集、单测源码集与
   仪器测试源码集的文件数、命中数与逐处判定见下方「静态形状扫描」表；同日再测与该基线同值
   （主源码集 119 文件 / 6 处命中，单测源码集 145 文件 / 3 处命中，仪器测试源码集
@@ -1134,6 +1146,11 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   偏差说明：本仓 Rust 生产路径内联 `#[cfg(test)]` 块共 2,794 物理行，按路径口径计入生产档，
   只会抬高本仓数字，不影响「未越界」的结论。统计脚本未入库：`scripts/` 属禁改区，
   样式规范亦禁止提交生成脚本，故此处只留口径与数字，复算时按同一口径重写同一参数。
+  复算（同日晚，当日新增逐图层帧采集与 Kitty 探测对齐后）：`production=39,953`（204 文件）、
+  `test=44,783`（296 文件）、`合计=84,736`；较前一列 +321 / +224 / +545，来源是
+  `android/benchmark` 的 `FrameTimelineFrames` 与其用例、`input_filter.rs` 的上游对齐解析器
+  及其用例。两个参考项目的数字不随本仓变化，判定仍取生产 39,953 ≤ 49,018（81.5%），未越界；
+  合计口径 84,736 > 49,018 的不可判定结论不变。
 - **rapidocr**：`flake.nix` 引导调用 `scripts/download-rapidocr-models.nu` 把模型
   下载到 `/tmp/.rapidocr-models`，模型环境已就绪；该下载与其他 shellHook 初始化步骤
   （AOSP testkey、`/tmp/alacritty-theme` 克隆）共享同一把排他锁，多个 shell 并发进入
