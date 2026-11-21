@@ -110,6 +110,18 @@ internal const val MIN_SCROLL_PRESENTED_WINDOWS = 4
 internal const val MIN_SCROLL_LAYER_SLOT_UTILIZATION = 0.35
 
 /**
+ * 滚动窗口内显示级帧时间线至少要归属到终端内容层的帧数下限。
+ *
+ * 该面只保留最近 64 个 display frame，滚动期间呈现的帧多于它时窗口会被截断，故这个
+ * 下限拦的不是「总帧数」，而是「显示级通道根本没看见终端内容」——归属不到内容层就
+ * 说明采集没成（属主归属失效或时间窗算错）。
+ *
+ * 下限按实测取：2026-11-21 本机 AVD（API 35 模拟器，软件渲染）滚动宏基准里，终端
+ * 内容层在保留窗口内的呈现帧数为数十帧，宿主被并发任务抢占时也不低于它一个量级。
+ */
+internal const val MIN_SCROLL_TIMELINE_CONTENT_FRAMES = 8
+
+/**
  * 交互动画至少要出帧。
  *
  * 0 帧说明交互没有产生任何绘制（界面没动，指标测到的只是静止画面）。下限 MUST 取 1，

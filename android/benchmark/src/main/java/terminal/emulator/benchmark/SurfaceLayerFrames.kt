@@ -24,7 +24,7 @@ private const val SURFACE_VIEW_LAYER_PREFIX = "SurfaceView[$TARGET_PACKAGE/$TARG
 private const val LAYER_FRAME_COLUMN_COUNT = 3
 
 /** 空白切分：图层清单与帧记录都按空白分列。 */
-private val WHITESPACE = Regex("\\s+")
+internal val WHITESPACE = Regex("\\s+")
 
 /**
  * 系统侧逐图层帧时序的统计。
@@ -48,6 +48,8 @@ internal data class LayerFrameStats(
     val maxIntervalMillis: Long,
     /** 呈现频率（帧/秒）：相邻呈现时刻之差折算。 */
     val presentationRatePerSecond: Double,
+    /** 逐帧的实际呈现时刻（纳秒，绝对单调时刻）：与显示级帧时间线对齐时用它。 */
+    val presentTimesNanos: List<Long>,
 ) {
     /**
      * 呈现占用的刷新槽位比例：呈现频率除以设备刷新率。
@@ -95,6 +97,7 @@ internal fun parseLayerFrameStats(output: String): LayerFrameStats? {
         } else {
             0.0
         },
+        presentTimesNanos = presentTimesNanos,
     )
 }
 
