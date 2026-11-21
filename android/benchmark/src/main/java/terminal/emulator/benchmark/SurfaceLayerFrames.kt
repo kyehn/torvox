@@ -46,7 +46,19 @@ internal data class LayerFrameStats(
     val p90IntervalMillis: Long,
     /** 呈现间隔的最大值（毫秒）。 */
     val maxIntervalMillis: Long,
-)
+    /** 呈现频率（帧/秒）：相邻呈现时刻之差折算。 */
+    val presentationRatePerSecond: Double,
+) {
+    /**
+     * 呈现占用的刷新槽位比例：呈现频率除以设备刷新率。
+     *
+     * 这是与设备刷新率无关的无量纲量。丢帧数是保留窗口内的绝对量，会随窗口内帧数
+     * 一起变大；只有「刷了多少个槽位」能跨设备刷新率比较。比例可能略大于 1：系统侧
+     * 记的是实际呈现时刻，未严格落在刷新槽位边界上。
+     */
+    val presentationSlotRatio: Double
+        get() = presentationRatePerSecond * refreshPeriodNanos / 1_000_000_000.0
+}
 
 /**
  * 解析 `--latency` 输出。
@@ -68,6 +80,7 @@ internal fun parseLayerFrameStats(output: String): LayerFrameStats? {
     if (presentTimesNanos.isEmpty()) return null
     val intervalsNanos = presentTimesNanos.zipWithNext { previous, current -> current - previous }
     val sortedIntervalsNanos = intervalsNanos.sorted()
+    val spanNanos = presentTimesNanos.last() - presentTimesNanos.first()
     return LayerFrameStats(
         refreshPeriodNanos = refreshPeriodNanos,
         contentFrameCount = presentTimesNanos.size,
@@ -77,6 +90,11 @@ internal fun parseLayerFrameStats(output: String): LayerFrameStats? {
         medianIntervalMillis = percentileMillis(sortedIntervalsNanos, 0.5),
         p90IntervalMillis = percentileMillis(sortedIntervalsNanos, 0.9),
         maxIntervalMillis = sortedIntervalsNanos.lastOrNull()?.div(1_000_000) ?: 0L,
+        presentationRatePerSecond = if (spanNanos > 0) {
+            (intervalsNanos.size * 1_000_000_000.0) / spanNanos
+        } else {
+            0.0
+        },
     )
 }
 
