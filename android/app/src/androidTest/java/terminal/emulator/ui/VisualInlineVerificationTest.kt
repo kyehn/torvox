@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.SystemClock
 import android.util.Log
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -24,7 +23,6 @@ import terminal.emulator.waitForSession
 import terminal.emulator.waitForTerminalPixels
 import java.io.File
 import kotlin.math.abs
-import kotlin.math.sqrt
 
 @RunWith(AndroidJUnit4::class)
 class VisualInlineVerificationTest : ComposeTerminalLogcatTest() {

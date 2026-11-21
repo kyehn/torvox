@@ -2,8 +2,6 @@ package terminal.emulator.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.printToLog
 import org.junit.Test
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.MainActivity
