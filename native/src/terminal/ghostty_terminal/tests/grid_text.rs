@@ -208,7 +208,7 @@ fn search_finds_match_and_keeps_terminal_usable() {
 /// 逐物理行拼接会产生 N 份重复命中，并把续接段的命中记到行首那一行。
 #[test]
 fn search_reports_each_wrapped_line_once_with_physical_rows() {
-    const COLS: u32 = 10;
+    const COLS: u16 = 10;
     let mut terminal_under_test = GhosttyTerminal::new(5, COLS, 100).expect("terminal");
     // 26 字符在 10 列网格上软换行为 3 个物理行：abcdefghij / klmnopqrst / uvwxyz
     terminal_under_test.vt_write(b"abcdefghijklmnopqrstuvwxyz\r\n");
@@ -413,8 +413,8 @@ fn read_all_text_matches_dump_grid_lines() {
 #[test]
 fn read_all_text_answers_repeated_queries_within_query_timeout() {
     use super::super::types::QUERY_TIMEOUT_MS;
-    const COLUMNS: u32 = 80;
-    const ROWS: u32 = 24;
+    const COLUMNS: u16 = 80;
+    const ROWS: u16 = 24;
     const MAX_SCROLLBACK: u32 = 500;
     let mut terminal_under_test =
         GhosttyTerminal::new(ROWS, COLUMNS, MAX_SCROLLBACK).expect("terminal");
@@ -423,7 +423,7 @@ fn read_all_text_answers_repeated_queries_within_query_timeout() {
     // 会把机器压满，查询随之错过期限。整段写对上游是同一条字节流。
     write_lines(
         &mut terminal_under_test,
-        (0..MAX_SCROLLBACK + ROWS).map(|line_number| format!("line{line_number}\n")),
+        (0..MAX_SCROLLBACK + u32::from(ROWS)).map(|line_number| format!("line{line_number}\n")),
     );
     assert!(
         terminal_under_test.flush_with_timeout(DRAIN_TIMEOUT),

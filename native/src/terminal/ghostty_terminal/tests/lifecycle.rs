@@ -1,5 +1,21 @@
 use super::*;
 
+/// 构造器必须拒绝零行/零列：上游 `Terminal::new` 不接受这种网格，VT 线程随之退出，
+/// 而构造若仍返回 `Ok`，调用方拿到的是一个没有 VT 线程的僵尸句柄——症状要等到第一次
+/// 查询超时才显形，与真正的引擎故障无法区分。
+#[test]
+fn construction_rejects_zero_dimensions() {
+    for (rows, cols) in [(0u16, 10u16), (10, 0), (0, 0)] {
+        assert!(
+            matches!(
+                GhosttyTerminal::new(rows, cols, 100),
+                Err(TerminalError::InvalidDimensions)
+            ),
+            "{rows}x{cols} 必须被判为非法尺寸"
+        );
+    }
+}
+
 /// 纯视口滚动必须走行平移快路径：只逐格抽取露出的边缘行，
 /// 其余行整段复用上一帧缓存。没有这条断言时，平移逻辑退化成全量抽取
 /// 仍能通过内容断言（真机表现为每次滚轮事件 58ms 卡顿）。
@@ -314,7 +330,7 @@ fn newest_frame_reaches_consumer_after_a_burst_of_pushes() {
 /// 作为地面真值。
 #[test]
 fn absolute_row_text_survives_viewport_scroll() {
-    const ROWS: u32 = 5;
+    const ROWS: u16 = 5;
     const SCROLL_OFFSET: u32 = 3;
     let mut terminal_under_test = GhosttyTerminal::new(ROWS, 20, 100).expect("terminal");
     // vt_write 不做 LF→CRLF 展开，必须自带 CR，否则光标只下移不回列。
@@ -331,7 +347,7 @@ fn absolute_row_text_survives_viewport_scroll() {
     terminal_under_test.flush();
 
     let dumped = terminal_under_test.dump_grid();
-    assert_eq!(dumped.rows, ROWS);
+    assert_eq!(dumped.rows, u32::from(ROWS));
     let visible_line = |viewport_row: u32| -> String {
         let start = (viewport_row * dumped.cols) as usize;
         dumped.visible[start..start + dumped.cols as usize]
@@ -350,7 +366,7 @@ fn absolute_row_text_survives_viewport_scroll() {
         "上滚后视口首行应是回滚中的某一行"
     );
 
-    for viewport_row in 0..ROWS {
+    for viewport_row in 0..u32::from(ROWS) {
         let absolute_row = scrollback - SCROLL_OFFSET + viewport_row;
         assert_eq!(
             terminal_under_test.read_line_text(absolute_row).as_deref(),

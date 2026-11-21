@@ -320,8 +320,8 @@ pub enum Query {
 pub(crate) struct RunConfig {
     pub(crate) command_receiver: Receiver<Command>,
     pub(crate) query_receiver: Receiver<Query>,
-    pub(crate) rows: u32,
-    pub(crate) cols: u32,
+    pub(crate) rows: u16,
+    pub(crate) cols: u16,
     pub(crate) scrollback_lines: u32,
     /// 初态主题：调色板经 [`crate::terminal::theme`] 单源解析，`SetTheme` 换主题后
     /// 以命令携带的新主题为准。

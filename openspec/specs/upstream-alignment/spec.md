@@ -1010,6 +1010,11 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   命中随之归零（`function-too-long` 仍为 0）。更早一次偏移是
   `public_api.rs`（1123 行）按职责拆成 `public_api/` 目录模块。`supportedFiles`
   由 115 升至 116 是新增该测试文件所致。
+    （2026-11-21 本轮重测同值：`npx aislop@0.22.2 scan native/src` 与 `scan .` 均退出码 0，
+  `score` 100、label `Healthy`、`summary` 0 errors / 0 warnings / 0 fixable、`diagnostics` 为空、
+  `findingAssessment.byKind` 四类全 0；native/src 覆盖 116 supported / 0 unsupported，
+  全仓覆盖 117 supported / 208 unsupported（`dominantUnsupported` 为 `Kotlin`）。
+  本轮变更只在 Rust 侧，覆盖面与基线一致。）
   验收判据：接入后 `confirmed-defect` 与 `errors` MUST 维持 0，
   `file-too-large` / `function-too-long` 的条数 MUST NOT 上升（基线 0 / 0）；
   该工具归类为 style-policy 的项 MUST NOT 阻断构建，
@@ -1023,6 +1028,8 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   （2026-11-21 重测：克隆数、重复行数、重复率与残留位置均与上一列基线同值；
   本轮新增的一处 Rust 克隆——两个主字体选择用例重复的「族名去空白 + .ttf」构造——已提取为
   `stem_target` 辅助函数消除，Rust 侧克隆归零。）
+  2026-11-21 本轮重测：仍为 2 处克隆 / 23 行重复 / 0.03%，残留位置与逐条判定同上一列
+  （kotlin 1 处、markup 1 处、Rust 0 处）；本轮变更只在 Rust 侧。
   测量取自已提交的树快照，不取工作区状态（工作区可能同时存在他人进行中的改动）。
   前一列基线为 2 处克隆 / 26 行重复 / 0.04% / 115 个文件：其第二处
   `native/src/terminal/ghostty_terminal/internal/mod.rs` 内 `process_query` 与
@@ -1054,6 +1061,10 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   0 errors / 0 warnings / 0 confirmed-defect；semgrep 5 次均 0 findings。满足 code-health
   「连续清洁运行计数 ≥ 5」的「连续 0 确认」证据门槛。本轮唯一修复：默认主字体取正体面
   （`pipeline/families.rs`、`font_db.rs`），斜体不再退化为直立；openspec/font-selection 同步。
+  （2026-11-21 本轮：修复「终端构造器静默截断行列」后重跑 `./scripts/check.nu` 仍退出码 0，
+  `cargo test` 940 passed / 0 failed（新增回归用例 1 例，计数由 938 变为 940）、
+  openspec validate 55/55、`markdownlint` 0 命中；连续清洁运行计数累加，不重置。
+  本轮另测 aislop 与 jscpd 均与基线同值，见上两条。）
 - **footgun-scan**（累计 13 次运行，0 确认缺陷）：2026-11-21 重扫实测的主源码集、单测源码集与
   仪器测试源码集的文件数、命中数与逐处判定见下方「静态形状扫描」表；同日再测与该基线同值
   （主源码集 119 文件 / 6 处命中，单测源码集 145 文件 / 3 处命中，仪器测试源码集

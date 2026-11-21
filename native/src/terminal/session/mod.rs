@@ -105,6 +105,8 @@ impl SessionError {
 /// 创建与缩放共用这一处：分头各写一份时，`spawn` 侧的 `as u16` 会把 70000 列悄悄截成
 /// 4464 列（截断后仍是「合法」尺寸，没有任何日志可循），而 `resize` 侧会如实拒绝——
 /// 同一个值在两条路径上得到两种结果，缺陷只会在会话刚建好时显形。
+/// 终端引擎侧的构造器已改收 `u16`，越界值根本到不了那里：此处是会话侧 `u32`
+/// 入参的唯一收窄点。
 pub(super) fn validated_grid(rows: u32, cols: u32) -> Result<(u16, u16), SessionError> {
     let (Ok(rows), Ok(cols)) = (u16::try_from(rows), u16::try_from(cols)) else {
         return Err(SessionError::InvalidDimensions);

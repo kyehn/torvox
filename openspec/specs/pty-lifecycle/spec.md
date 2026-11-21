@@ -12,6 +12,10 @@ PTY 生成与收尾的生命周期行为：生成播种行列尺寸、resize 携
 不看到 0x0；像素字段在首次 `setPixelSize` 之前为 0，MUST NOT 在生成处按单元格度量
 推算——生成调用的入口只给行列数。
 
+非法尺寸 MUST 在播种前被显式拒绝：零行/零列不成网格，超出 `u16` 范围的行列 MUST NOT
+被静默截断成合法网格（70000 列截断后为 4464 列，截断结果仍是合法尺寸，无日志可循）。
+生成与 resize MUST 共用同一条判据——同一个尺寸在两条路径上不得得到两种结果。
+
 resize 携带的 winsize MUST 含像素字段（列数乘单元格宽、行数乘单元格高），尺寸无变化的
 resize MUST 跳过，不向 PTY 发送信号，避免无辜 `SIGWINCH` 导致行被擦除。
 
@@ -19,6 +23,11 @@ resize MUST 跳过，不向 PTY 发送信号，避免无辜 `SIGWINCH` 导致行
 
 - **WHEN** 以 24 行 80 列生成会话
 - **THEN** 内核 winsize 的行列为 24 与 80，像素字段为 0
+
+#### Scenario: 非法尺寸被显式拒绝
+
+- **WHEN** 以 0 行/0 列或超出 `u16` 范围的行列生成会话或请求 resize
+- **THEN** 操作显式失败，MUST NOT 把越界值截断成合法网格，且 MUST NOT 触及 PTY
 
 #### Scenario: resize 携带像素字段
 
