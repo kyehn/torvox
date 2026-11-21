@@ -28,6 +28,11 @@ class SurfaceLayerFramesTest {
         assertNull(parseLayerFrameStats("16666666\n0\t0\t0\n0\t0\t0\n"))
     }
 
+    @Test
+    fun rejectsOutputWithoutRefreshPeriod() {
+        assertNull(parseLayerFrameStats("0\n8482814103026\t8482834374814\t8482814549390\n"))
+    }
+
     private companion object {
         /** 终端内容层的实测帧记录：首行是 60Hz 的刷新周期，其后每行三列纳秒。 */
         val LAYER_FRAME_OUTPUT_SAMPLE =

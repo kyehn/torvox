@@ -58,6 +58,7 @@ internal data class LayerFrameStats(
 internal fun parseLayerFrameStats(output: String): LayerFrameStats? {
     val lines = output.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
     val refreshPeriodNanos = lines.firstOrNull()?.toLongOrNull() ?: return null
+    if (refreshPeriodNanos <= 0) return null
     val presentTimesNanos = lines.drop(1).mapNotNull { line ->
         val columns = line.split(WHITESPACE)
         if (columns.size != LAYER_FRAME_COLUMN_COUNT) return@mapNotNull null
