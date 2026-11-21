@@ -12,6 +12,7 @@ import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.util.runCatchingCancellable
+import java.util.Locale
 
 /**
  * 真机 VT 直达通道的确定性正确性覆盖（对标 sylirre EmulatorVtTest）。
@@ -135,9 +136,9 @@ class VtCorrectnessInstrumentedTest : TerminalLogcatTest() {
             // 超屏旧行按序进入滚区（scrollbackLength 增长），新行在底部。
             val stamp = System.currentTimeMillis() % 100000
             val total = 60 // 远超 24 行视口，必溢出。
-            val payload = (1..total).joinToString("") { "SB_%03d_$stamp\r\n".format(it) }
+            val payload = (1..total).joinToString("") { "SB_%03d_$stamp\r\n".format(Locale.ROOT, it) }
             feedText(sessionId, payload)
-            val last = "SB_%03d_$stamp".format(total)
+            val last = "SB_%03d_$stamp".format(Locale.ROOT, total)
             awaitText(sessionId, last)
             val grown =
                 UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
@@ -146,7 +147,7 @@ class VtCorrectnessInstrumentedTest : TerminalLogcatTest() {
             val depth = NativeBridge.scrollbackLength(sessionId)
             assertNotNull("超屏输出必须进入回滚区, 实际深度=$depth", grown)
             val full = NativeBridge.getTerminalText(sessionId).orEmpty()
-            val first = "SB_%03d_$stamp".format(1)
+            val first = "SB_%03d_$stamp".format(Locale.ROOT, 1)
             assertTrue(
                 "旧行必须按序在新行之前 (首尾均可见: $depth)",
                 full.contains(first) && full.indexOf(first) < full.indexOf(last),

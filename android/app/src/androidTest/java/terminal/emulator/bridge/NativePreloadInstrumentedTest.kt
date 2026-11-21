@@ -1,7 +1,6 @@
 package terminal.emulator.bridge
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -22,7 +21,6 @@ class NativePreloadInstrumentedTest {
 
     @Test
     fun the_native_library_is_loaded_off_the_main_thread() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
         assertTrue(
             "应用进程内原生库必须已装载",
             NativeBridge.isNativeLoaded(),

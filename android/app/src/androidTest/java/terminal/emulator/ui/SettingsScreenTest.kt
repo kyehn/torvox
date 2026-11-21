@@ -14,7 +14,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.MainActivity
 import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.openSettings
 import terminal.emulator.waitForSession
@@ -30,7 +29,7 @@ class SettingsScreenTest : ComposeTerminalLogcatTest() {
     }
 
     @After
-    fun resetScreen() = composeTestRule.closeSettingsOverlay()
+    fun resetScreen(): Unit = composeTestRule.closeSettingsOverlay()
 
     @Test
     fun settings_screen_renders_back_button() {

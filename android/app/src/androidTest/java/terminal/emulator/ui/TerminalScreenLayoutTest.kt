@@ -4,7 +4,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import org.junit.Test
 import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.MainActivity
 
 class TerminalScreenLayoutTest : ComposeTerminalLogcatTest() {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;

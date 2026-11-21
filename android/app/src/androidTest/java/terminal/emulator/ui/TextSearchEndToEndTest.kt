@@ -22,7 +22,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
 import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.MainActivity
 import terminal.emulator.R
 import terminal.emulator.UxTestUtils
 import terminal.emulator.awaitBridge
@@ -61,7 +60,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
     // the system dialog would cover the UI and break node lookups.
 
     @After
-    fun resetSession() = composeTestRule.cleanUpTerminalState()
+    fun resetSession(): Unit = composeTestRule.cleanUpTerminalState()
 
     private val uniqueMarker: String by lazy {
         "SRCH_${java.util.UUID.randomUUID().toString().take(6).uppercase()}"
@@ -429,7 +428,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
     @Test
     fun searchBarNotObscuredByIme() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.awaitBridge()
+        composeTestRule.awaitBridge()
 
         openSearchAndType(uniqueMarker)
 

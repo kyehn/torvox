@@ -21,6 +21,7 @@ import terminal.emulator.requireBridge
 import terminal.emulator.runtime.holeStateCycle
 import terminal.emulator.showCursor
 import java.util.Collections
+import java.util.Locale
 
 /**
  * 切后台过渡期间，**窗口缓冲里的开孔**必须已经被遮罩填满——直接量像素。
@@ -108,7 +109,7 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
     }
 
     /** 窗口缓冲的一次采样。 */
-    private class Sample(
+    private data class Sample(
         /** 采样时刻（进程内单调时钟，毫秒）。 */
         val stampMs: Long,
         /** 采样时刻（墙钟，毫秒）：与 logcat 的时间戳同一口径，便于对齐。 */
@@ -220,7 +221,7 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
     private fun dumpSamples(anchorMs: Long): String = samples.joinToString(separator = "\n") { sample ->
         val offset = sample.stampMs - anchorMs
         val sign = if (offset >= 0) "+" else ""
-        val ratio = "%.3f".format(sample.opaqueRatio)
+        val ratio = "%.3f".format(Locale.ROOT, sample.opaqueRatio)
         "  $sign$offset ms ratio=$ratio buffer=${sample.bufferPresent} " +
             "cover=${sample.coverPresent} wall=${sample.wallMs}"
     }
@@ -241,7 +242,7 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNotNull(
             "彩色内容必须落格",
             UxTestUtils.pollUntilTrue(15_000, 100) {
-                (composeTestRule.requireBridge().getTerminalText() ?: "").contains("HOLE_01_")
+                (composeTestRule.requireBridge().getTerminalText().orEmpty()).contains("HOLE_01_")
             },
         )
         composeTestRule.waitForIdle()

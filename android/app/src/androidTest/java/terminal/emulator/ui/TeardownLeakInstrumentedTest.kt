@@ -7,7 +7,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import terminal.emulator.ComposeTerminalLogcatTest
@@ -28,10 +27,6 @@ import terminal.emulator.waitForSession
  */
 @RunWith(AndroidJUnit4::class)
 class TeardownLeakInstrumentedTest : ComposeTerminalLogcatTest() {
-
-    @Before
-    fun setUp() {
-    }
 
     @Test
     fun recreateWithSelectionMenuOpenDoesNotLeakPopupWindow() {

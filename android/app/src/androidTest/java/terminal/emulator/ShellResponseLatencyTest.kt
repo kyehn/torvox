@@ -5,10 +5,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.UxTestUtils
-import terminal.emulator.awaitBridge
-import terminal.emulator.awaitShellPrompt
+import java.util.Locale
 
 /**
  * Quantified verification of "shell 反应稍显缓慢" — the matrix marked this "(C) 需设备验证" precisely because
@@ -106,7 +103,7 @@ class ShellResponseLatencyTest : ComposeTerminalLogcatTest() {
         // Ten commands fired back-to-back with NO waiting in between: all
         // ten markers must eventually appear and stay in order — a queued
         // writer that reorders or drops bursts fails here.
-        val burst = (1..10).joinToString("") { "echo BURST%02d\n".format(it) }
+        val burst = (1..10).joinToString("") { "echo BURST%02d\n".format(Locale.ROOT, it) }
         val startMillis = SystemClock.uptimeMillis()
         bridge.writeToPty(burst.toByteArray(Charsets.UTF_8))
 
@@ -117,7 +114,7 @@ class ShellResponseLatencyTest : ComposeTerminalLogcatTest() {
             }
         assertNotNull("burst never fully appeared", settled)
         val text = bridge.getTerminalText().orEmpty()
-        val positions = (1..10).map { burstIndex -> text.lastIndexOf("BURST%02d".format(burstIndex)) }
+        val positions = (1..10).map { burstIndex -> text.lastIndexOf("BURST%02d".format(Locale.ROOT, burstIndex)) }
         assertTrue(
             "some burst markers missing: $positions",
             positions.all { it >= 0 },

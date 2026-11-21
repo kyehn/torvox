@@ -1,7 +1,9 @@
 
 package terminal.emulator.cucumber
 
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.test.ext.junit.rules.ActivityScenarioRule
 import io.cucumber.junit.WithJunitRule
 import org.junit.Rule
 import terminal.emulator.MainActivity
@@ -19,5 +21,6 @@ class ComposeRuleHolder {
     }
 
     @get:Rule
-    val composeRule = createAndroidComposeRule<MainActivity>()
+    val composeRule: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
+        createAndroidComposeRule<MainActivity>()
 }

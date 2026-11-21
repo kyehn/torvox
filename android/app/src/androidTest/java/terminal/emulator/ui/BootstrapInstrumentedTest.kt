@@ -13,7 +13,6 @@ import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.MainActivity
 import terminal.emulator.closeSettingsOverlay
 
 @RunWith(AndroidJUnit4::class)
@@ -41,7 +40,7 @@ class BootstrapInstrumentedTest : ComposeTerminalLogcatTest() {
     }
 
     @After
-    fun resetScreen() = composeTestRule.closeSettingsOverlay()
+    fun resetScreen(): Unit = composeTestRule.closeSettingsOverlay()
 
     @Test
     fun bootstrap_section_exists_in_settings() {

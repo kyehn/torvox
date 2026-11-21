@@ -15,13 +15,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import terminal.emulator.closeSettingsOverlay
-import terminal.emulator.waitForSession
 
 @RunWith(AndroidJUnit4::class)
 class BehaviorVerificationTest : ComposeTerminalLogcatTest() {
     @After
-    fun resetScreen() = composeTestRule.closeSettingsOverlay()
+    fun resetScreen(): Unit = composeTestRule.closeSettingsOverlay()
 
     @Before
     fun setUp() {
@@ -138,7 +136,7 @@ class BehaviorVerificationTest : ComposeTerminalLogcatTest() {
     @Test
     fun app_survives_multiple_pause_resume() {
         composeTestRule.waitForSession()
-        for (i in 1..3) {
+        repeat(3) {
             composeTestRule.activityRule.scenario.recreate()
             device.waitForIdle(1000)
         }

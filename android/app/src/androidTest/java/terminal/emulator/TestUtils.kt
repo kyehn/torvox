@@ -607,25 +607,13 @@ private fun AndroidComposeTestRule<*, *>.waitForSettingsScreenProbe(timeoutMs: L
                 onNodeWithTag("SettingsScreen", useUnmergedTree = true).assertIsDisplayed()
             }
         if (visible) return true
-        // Check both text and resource id (testTagsAsResourceId) for robustness on PlayStore image
+        // 只看设置页自己的三个锚点：Sessions 单独出现说明抽屉还开着，继续等。
         if (
             device.hasObject(By.text("Font Family")) ||
             device.hasObject(By.res("SettingsScreen")) ||
-            device.hasObject(By.text("Appearance")) ||
-            device.hasObject(By.text("Font Size")) ||
-            device.hasObject(By.text("Cursor")) ||
-            device.hasObject(
-                By.text("Sessions"),
-            ) // drawer still open but Settings should be overlay
+            device.hasObject(By.text("Appearance"))
         ) {
-            // If we see Sessions but not Settings, drawer is open but Settings not yet — keep waiting
-            if (
-                device.hasObject(By.text("Font Family")) ||
-                device.hasObject(By.res("SettingsScreen")) ||
-                device.hasObject(By.text("Appearance"))
-            ) {
-                return true
-            }
+            return true
         }
         Thread.sleep(200)
     }

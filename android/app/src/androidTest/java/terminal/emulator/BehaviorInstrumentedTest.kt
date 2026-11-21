@@ -20,13 +20,11 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
-import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.ui.theme.ThemeRepository
 
 class BehaviorInstrumentedTest : ComposeTerminalLogcatTest() {

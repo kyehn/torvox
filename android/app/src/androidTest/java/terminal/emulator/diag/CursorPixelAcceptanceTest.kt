@@ -37,7 +37,7 @@ class CursorPixelAcceptanceTest : ComposeTerminalLogcatTest() {
 
     /** 共用会话跨全部用例留存：不收尾即把选区、滚动偏移与回滚留给后继用例。 */
     @After
-    fun resetSession() = composeTestRule.cleanUpTerminalState()
+    fun resetSession(): Unit = composeTestRule.cleanUpTerminalState()
 
     private fun renderCursorRowCol(): Pair<Int, Int> {
         val packed = composeTestRule.requireBridge().cursorViewportPacked()
