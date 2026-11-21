@@ -23,22 +23,34 @@ internal const val SESSION_DRAWER_RESOURCE_ID = "SessionDrawer"
 internal const val UI_TIMEOUT_MILLIS = 10_000L
 
 /**
- * 模拟器（软件渲染）上的耗时上限，只拦「卡死级」回归，不是性能 SLO。
+ * 冷启动各轮耗时中位数的上限，以及最差一轮的硬上限。
+ *
+ * 判定取各轮中位数：预算是按实测中位数校准的，而宿主被并发任务抢占时个别迭代会
+ * 明显变慢，拿最差一轮当判据会把宿主抖动算成应用回归；最差一轮另过硬上限，拦的是
+ * 「一轮就慢到不可用」。
+ *
+ * 预算是数量级门禁，不是性能 SLO：模拟器宏基准数据不用于建立物理设备性能结论。
+ * 余量按宿主负载实测定：2026-11-21 本机 AVD（API 35 模拟器，软件渲染）十轮冷启动，
+ * 宿主轻载（负载均值 0.4–3.2）实测 1903–2411ms（中位 2011ms），宿主被 8 个忙循环
+ * 超额占用（4 核宿主负载 11–17）实测 3327–4486ms（中位 3694ms）——宿主被抢占时整
+ * 轮都变慢，不是个别迭代，故按中位数判定并留出覆盖该情形的余量。
  *
  * 精确耗时由 `StartupTimingMetric` / `FrameTimingMetric` 输出，真机阈值需另行标定；
  * 这里的断言保证基准失败时能指出「慢到不可用」，而不是只留下一串没人看的数字。
- *
- * 预算按实测中位数的约 1.5–1.75 倍口径收紧（与 [SCROLL_BUDGET_MILLIS] 同口径）：
- * 2026-11-04 本机 AVD 两轮实测，冷启动十轮 2167–2423ms、中位 2259/2325ms；
- * 热启动十一轮 1017–1613ms、中位 1106/1149ms（热启动的轮间抖动明显大于冷启动，
- * 预算取其宽的一档）。2026-11-06 本机 AVD 复核同量级（冷启动 2056–2221ms、
- * 热启动 1010–1300ms），阈值无需重校准。更慢的宿主（2 核 CI 模拟器）实测每轮
- * 墙钟与本机同量级（冷启动十轮 50s 对本机 45s、热启动十轮 40s 对本机 42s），
- * 故该余量留得下宿主抖动，同时仍能拦住「慢到不可用」级的回归。
  */
-internal const val COLD_START_BUDGET_MILLIS = 3_400L
+internal const val COLD_START_BUDGET_MILLIS = 5_000L
 
-internal const val WARM_START_BUDGET_MILLIS = 2_000L
+internal const val COLD_START_HARD_LIMIT_MILLIS = 10_000L
+
+/**
+ * 热启动各轮耗时中位数的上限，以及最差一轮的硬上限。
+ *
+ * 口径与 [COLD_START_BUDGET_MILLIS] 相同。实测（2026-11-21 本机 AVD）：宿主轻载十
+ * 一轮 1022–1479ms（中位 1098ms），宿主超额占用时 1234–2199ms（中位 1570ms）。
+ */
+internal const val WARM_START_BUDGET_MILLIS = 2_400L
+
+internal const val WARM_START_HARD_LIMIT_MILLIS = 5_000L
 
 internal const val INTERACTION_BUDGET_MILLIS = 4_000L
 
