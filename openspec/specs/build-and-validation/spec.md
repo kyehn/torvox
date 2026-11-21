@@ -166,8 +166,8 @@ debug 变种，没有这条验证时「变种装不上引导包」无人可知�
 
 ### Requirement: Gradle 直接依赖锁更新与验证
 
-`android/build.gradle.kts` 与子模块 `app/benchmark/build.gradle.kts`、
-`app/baselineprofile/build.gradle.kts` 等声明的 Gradle 直接依赖版本 MUST 与
+`android/build.gradle.kts` 与子模块 `android/benchmark/build.gradle.kts`、
+`android/baselineprofile/build.gradle.kts` 等声明的 Gradle 直接依赖版本 MUST 与
 `dependencyUpdates` 审计发现的稳定里程碑版本对齐（稳定 + 里程碑；RC/dev 不做为默认更新基线）。
 更新后 MUST 通过
 `nix develop --command ./gradlew --no-daemon :app:compileDebugKotlin :app:compileDebugUnitTestKotlin`
