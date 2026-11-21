@@ -354,8 +354,9 @@ MUST 取各应用自己的计数口径。
 #### Scenario: 内容图层按属主与图层名选取
 
 - **WHEN** 为某个被测应用选取承载终端内容的图层
-- **THEN** MUST 取该应用 `Owner Pid` 下承载内容帧的那条图层（本项目为 BLAST SurfaceView 层，
-      HWUI 对照对象为应用窗口层），MUST NOT 以「帧行全为零」判定图层不可寻址
+- **THEN** MUST 取该应用属主下承载内容帧的那条图层——属主可由显示级帧时间线的 `Owner Pid`
+      归属，也可由图层名里的应用标识给出（本项目为 BLAST SurfaceView 层，HWUI 对照对象为应用
+      窗口层），MUST NOT 以「帧行全为零」判定图层不可寻址
 
 #### Scenario: 父层不带内容帧时取子层
 
