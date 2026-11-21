@@ -14,6 +14,10 @@
 //! 本层按同一协议自己回答探测（错误应答与上游逐字节一致），并丢弃 DECSACE：
 //! 终端行为不变（客户端同样回退到 direct 介质），日志不再被上游的协议探测噪声淹没。
 //!
+//! 代答只在「能确定上游会给出同一条应答」时才做：控制数据的解析（见
+//! [`parse_control_data`]）与判据顺序（见 [`kitty_probe`]）都照抄上游，
+//! 其余一律交回上游处理。
+//!
 //! 本层还标出「清屏」序列（ED2/ED3）的位置：清屏要撤下 Kitty 图像放置，
 //! 而撤下必须发生在清屏之前——清屏若走「旧行先滚进回滚再清屏」的路径，
 //! 可见放置会随旧行滚进回滚区，此后清屏不再撤下它们。撤下命令由调用方
@@ -356,16 +360,23 @@ enum KittyProbe {
 
 /// 判定一帧 Kitty APC 是否由本层代答。
 ///
+/// 判据与上游同序：上游先判图像 id 与图像编号互斥，再按动作分流；查询缺图像
+/// id 时上游先报 id 缺失（与介质无关），而那条错误的应答没有 id 与编号，上游
+/// 压根不编码它，传输才轮到介质。介质不可用时上游回 `EINVAL: unsupported
+/// medium`（共享内存）或 `EINVAL: invalid data`（文件），本层按同款错误消息
+/// 代答。
+///
 /// 只代答「本环境无法服务」的介质：直接介质（`t=d`）与能服务的文件介质交回上游
 /// 处理；共享内存介质在本平台不可用时按上游的错误消息代答；文件介质打不开、
 /// 不是普通文件、或按声明长度读不满时按上游同款的错误消息代答（判据见
-/// [`file_medium_verdict`]）。
+/// [`file_medium_verdict`]）。载荷不是合法 base64 时上游在解析阶段就丢弃整条
+/// 命令且不回应答，本层同样丢弃。
 fn kitty_probe(content: &[u8], capabilities: MediaCapabilities<'_>) -> KittyProbe {
-    let (control_bytes, payload_bytes) = match content.iter().position(|&byte| byte == b';') {
-        Some(separator) => (&content[..separator], &content[separator + 1..]),
-        None => (content, &content[content.len()..]),
+    let Some((control, payload_bytes)) = parse_control_data(content) else {
+        // 上游判这条命令无效：它整条丢弃且不回应答。本层交回上游，
+        // 行为与没有本层时一致。
+        return KittyProbe::Pass;
     };
-    let control = ControlData::parse(control_bytes);
     // 只有查询与传输两类命令会因介质不可用而失败；其余（显示、删除、动画等）
     // 本层不干预。`a` 的缺省值按上游语义是 `t`：kitty 规范里「查询可用传输介质」
     // 的示例本身就省略 `a`（`ESC_Gi=31,s=10,v=2,t=s;…`），按「无 `a` 即非探测」
@@ -373,25 +384,38 @@ fn kitty_probe(content: &[u8], capabilities: MediaCapabilities<'_>) -> KittyProb
     if !matches!(control.action, None | Some(b'q' | b't' | b'T')) {
         return KittyProbe::Pass;
     }
+    // 上游在动作分流之前先判 id 与编号互斥：两者都给时上游回互斥错误，
+    // 根本走不到介质判据。
+    if control.image_id > 0 && control.image_number > 0 {
+        return KittyProbe::Answer(
+            control.error_response("EINVAL: image ID and number are mutually exclusive"),
+        );
+    }
+    // 查询要求图像 id，缺省时上游先报 id 缺失（与介质无关）。但那条错误的应答
+    // 没有图像 id 与编号，上游压根不编码它——客户端收不到任何字节。
+    if control.action == Some(b'q') && control.image_id == 0 {
+        return KittyProbe::Answer(None);
+    }
     match control.medium {
-        b'd' => KittyProbe::Pass,
-        b's' => {
+        Medium::Direct => KittyProbe::Pass,
+        Medium::SharedMemory => {
             if capabilities.shared_memory {
                 KittyProbe::Pass
             } else {
                 KittyProbe::Answer(control.error_response("EINVAL: unsupported medium"))
             }
         }
-        b'f' | b't' => match decode_path(payload_bytes) {
+        Medium::File | Medium::TempFile => match decode_path(payload_bytes) {
+            // 载荷不是合法 base64：上游在解析阶段就判整条命令无效，既不执行也
+            // 不回应答。本层同样丢弃，且不留上游那两条协议错误日志。
+            None => KittyProbe::Answer(None),
             Some(path) => match file_medium_verdict(&path, &control, &capabilities) {
                 FileVerdict::Pass => KittyProbe::Pass,
                 FileVerdict::Reject => {
                     KittyProbe::Answer(control.error_response("EINVAL: invalid data"))
                 }
             },
-            None => KittyProbe::Answer(control.error_response("EINVAL: invalid data")),
         },
-        _ => KittyProbe::Pass,
     }
 }
 
@@ -429,7 +453,7 @@ fn file_medium_verdict(
     // 临时文件介质：上游的两条判据过了才读文件。本层只做确认式判断——确认满足时
     // 上游必然也满足（判据口径与上游一致，见 `is_serviceable_temp_file`）；判断
     // 不了时交回上游，让上游给出它自己的那条错误。
-    if control.medium == b't' && !is_serviceable_temp_file(path, capabilities) {
+    if control.medium == Medium::TempFile && !is_serviceable_temp_file(path, capabilities) {
         return FileVerdict::Pass;
     }
     // 不是普通文件：上游回 `InvalidData`。
@@ -506,12 +530,25 @@ fn decode_path(payload: &[u8]) -> Option<String> {
     String::from_utf8(decoded).ok()
 }
 
+/// 传输介质（上游 `Transmission.Medium`）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Medium {
+    /// `d`：直接，载荷即图像数据。
+    Direct,
+    /// `f`：文件，载荷是 base64 编码的路径。
+    File,
+    /// `t`：临时文件，载荷是 base64 编码的路径。
+    TempFile,
+    /// `s`：共享内存，载荷是 base64 编码的段名。
+    SharedMemory,
+}
+
 /// Kitty 控制数据里本层关心的键。
 struct ControlData {
     /// `a`：动作（`q` 查询 / `t` 传输 / `T` 传输并显示）。缺省时上游按 `t` 处理。
     action: Option<u8>,
     /// `t`：传输介质（默认 `d` 直接）。
-    medium: u8,
+    medium: Medium,
     /// `i`：图像 id。
     image_id: u32,
     /// `I`：图像编号。
@@ -526,42 +563,182 @@ struct ControlData {
     offset: u32,
 }
 
-impl ControlData {
-    fn parse(bytes: &[u8]) -> Self {
-        let mut control = Self {
-            action: None,
-            medium: b'd',
-            image_id: 0,
-            image_number: 0,
-            placement_id: 0,
-            quiet: 0,
-            data_size: 0,
-            offset: 0,
-        };
-        for item in bytes.split(|&byte| byte == b',') {
-            let Some(separator) = item.iter().position(|&byte| byte == b'=') else {
-                continue;
-            };
-            if separator == 0 {
-                continue;
+/// 控制数据的解析状态（上游 `command.Parser` 的 `State`）。
+#[derive(Clone, Copy)]
+enum ParseState {
+    /// 读键：读到 `=` 进值状态，读到 `;` 进载荷。
+    Key,
+    /// 忽略键：多字节键与键缓冲溢出都落在这里，此后的键值对全部被忽略。
+    KeyIgnore,
+    /// 读值：读到 `,` 回键状态，读到 `;` 进载荷。
+    Value,
+    /// 忽略值：值缓冲溢出落在这里；`,` 回忽略键状态，`;` 进载荷。
+    ValueIgnore,
+}
+
+/// 上游控制数据缓冲的长度上限（11 字节：32 位整数加一位符号）。
+const CONTROL_BUFFER_LIMIT: usize = 11;
+
+/// 按上游 `command.Parser` 的口径解析 Kitty APC 段的内容。
+///
+/// 返回 `None` 表示上游会判这条命令无效：控制数据的结构或取值不合法时，上游
+/// 整条丢弃且不回应答，本层 MUST NOT 代答——交回上游，行为与没有本层时一致。
+///
+/// 上游的解析口径（本层逐条照抄）：
+/// - 键恰好一个字节才算数。键多于一个字节时上游转入「忽略态」，此后**所有**
+///   键值对都被忽略（不只是那一对）：`a=q,bogus,t=s,i=6` 里键是 `bogus,t`
+///   （上游在键状态里把 `,` 当普通字节收下），整条命令只剩 `a=q` 有效。
+/// - 值恰好一个字节且不是数字时取其 ASCII 码；否则按十进制无符号整数解析，
+///   解析失败即整条命令无效。
+/// - 键或值超过 11 字节时上游的缓冲溢出，同样转入忽略态。
+/// - `;` 落在键状态时上游丢弃这个键并开始收载荷；落在忽略态的键状态时被忽略，
+///   载荷根本不开始，整条命令无效。
+/// - 键在命令末尾没有收尾时整条命令无效；值在末尾收尾则照常解析。
+///
+/// 返回的载荷是 `;` 之后的部分（上游以 `;` 划分控制数据与载荷）。
+fn parse_control_data(content: &[u8]) -> Option<(ControlData, &[u8])> {
+    let mut control = ControlData {
+        action: None,
+        medium: Medium::Direct,
+        image_id: 0,
+        image_number: 0,
+        placement_id: 0,
+        quiet: 0,
+        data_size: 0,
+        offset: 0,
+    };
+    let mut state = ParseState::Key;
+    let mut key = [0u8; CONTROL_BUFFER_LIMIT];
+    let mut key_len = 0usize;
+    let mut value = [0u8; CONTROL_BUFFER_LIMIT];
+    let mut value_len = 0usize;
+    let mut current_key = 0u8;
+    let mut index = 0usize;
+    while index < content.len() {
+        let byte = content[index];
+        index += 1;
+        match state {
+            ParseState::Key => match byte {
+                b'=' => {
+                    if key_len == 1 {
+                        current_key = key[0];
+                        state = ParseState::Value;
+                    } else {
+                        // 多字节键：整对被忽略，且此后的键值对都被忽略。
+                        state = ParseState::ValueIgnore;
+                    }
+                    key_len = 0;
+                }
+                // `;` 落在键状态：上游丢弃这个键，余下是载荷。
+                b';' => return Some((control, &content[index..])),
+                _ => {
+                    if key_len == CONTROL_BUFFER_LIMIT {
+                        // 键缓冲溢出：上游转入忽略态。
+                        state = ParseState::KeyIgnore;
+                        key_len = 0;
+                    } else {
+                        key[key_len] = byte;
+                        key_len += 1;
+                    }
+                }
+            },
+            ParseState::KeyIgnore => {
+                if byte == b'=' {
+                    state = ParseState::ValueIgnore;
+                }
             }
-            let key = item[separator - 1];
-            let value = &item[separator + 1..];
-            match key {
-                b'a' => control.action = value.first().copied(),
-                b't' => control.medium = value.first().copied().unwrap_or(b'd'),
-                b'i' => control.image_id = parse_number(value),
-                b'I' => control.image_number = parse_number(value),
-                b'p' => control.placement_id = parse_number(value),
-                b'q' => control.quiet = parse_number(value),
-                b'S' => control.data_size = parse_number(value),
-                b'O' => control.offset = parse_number(value),
+            ParseState::Value => match byte {
+                b',' => {
+                    finish_value(&mut control, current_key, &value[..value_len])?;
+                    value_len = 0;
+                    state = ParseState::Key;
+                }
+                b';' => {
+                    finish_value(&mut control, current_key, &value[..value_len])?;
+                    return Some((control, &content[index..]));
+                }
+                _ => {
+                    if value_len == CONTROL_BUFFER_LIMIT {
+                        // 值缓冲溢出：整对被忽略，且此后的键值对都被忽略。
+                        state = ParseState::ValueIgnore;
+                        value_len = 0;
+                    } else {
+                        value[value_len] = byte;
+                        value_len += 1;
+                    }
+                }
+            },
+            ParseState::ValueIgnore => match byte {
+                b',' => state = ParseState::KeyIgnore,
+                b';' => return Some((control, &content[index..])),
                 _ => {}
+            },
+        }
+    }
+    match state {
+        // 命令末尾仍停在键状态：上游判整条命令无效。
+        ParseState::Key | ParseState::KeyIgnore => None,
+        // 值在末尾收尾：上游照常解析它。
+        ParseState::Value => {
+            finish_value(&mut control, current_key, &value[..value_len])?;
+            Some((control, &[]))
+        }
+        // 被忽略的那一对：上游照常收尾。
+        ParseState::ValueIgnore => Some((control, &[])),
+    }
+}
+
+/// 收尾一个键值对：按上游 `finishValue` 的口径取值并写入控制数据。
+///
+/// 取值失败即整条命令无效（上游在 `finishValue` 里把解析错误抛给调用方）。
+fn finish_value(control: &mut ControlData, key: u8, value: &[u8]) -> Option<()> {
+    let number = parse_value(value)?;
+    match key {
+        b'a' => control.action = Some(u8::try_from(number).ok()?),
+        b't' => {
+            control.medium = match u8::try_from(number).ok()? {
+                b'd' => Medium::Direct,
+                b'f' => Medium::File,
+                b't' => Medium::TempFile,
+                b's' => Medium::SharedMemory,
+                _ => return None,
             }
         }
-        control
+        b'i' => control.image_id = number,
+        b'I' => control.image_number = number,
+        b'p' => control.placement_id = number,
+        b'q' => control.quiet = number,
+        b'S' => control.data_size = number,
+        b'O' => control.offset = number,
+        _ => {}
     }
+    Some(())
+}
 
+/// 按上游 `finishValue` 的口径解析一个控制值。
+///
+/// 上游的规则：恰好一个字节且不是数字时取其 ASCII 码；否则按十进制无符号整数
+/// 解析，解析失败（空值、非数字、越界）即整条命令无效。
+fn parse_value(value: &[u8]) -> Option<u32> {
+    if value.len() == 1 && !value[0].is_ascii_digit() {
+        return Some(u32::from(value[0]));
+    }
+    if value.is_empty() {
+        return None;
+    }
+    let mut number = 0u32;
+    for &byte in value {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        number = number
+            .checked_mul(10)?
+            .checked_add(u32::from(byte - b'0'))?;
+    }
+    Some(number)
+}
+
+impl ControlData {
     /// 按上游的应答格式生成错误应答；静默规则与上游一致。
     fn error_response(&self, message: &str) -> Option<Vec<u8>> {
         // 静默等级 ≥2 时连失败应答也不回。上游把除 0、1 之外的值一律当
@@ -602,20 +779,6 @@ impl ControlData {
         response.extend_from_slice(b"\x1b\\");
         Some(response)
     }
-}
-
-/// 无符号数值解析；非数字或空值按 0 取（与上游「解析失败按 0」的口径一致）。
-fn parse_number(value: &[u8]) -> u32 {
-    let mut number = 0u32;
-    for &byte in value {
-        if !byte.is_ascii_digit() {
-            return 0;
-        }
-        number = number
-            .saturating_mul(10)
-            .saturating_add(u32::from(byte - b'0'));
-    }
-    number
 }
 
 #[cfg(test)]

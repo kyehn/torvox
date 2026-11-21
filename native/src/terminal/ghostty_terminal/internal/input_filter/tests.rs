@@ -244,7 +244,7 @@ fn shared_memory_probe_is_answered_when_shared_memory_is_available() {
 /// 文件介质探测同样可能省略 `a`：缺省动作 + 打不开的路径必须由本层代答。
 #[test]
 fn file_probe_without_action_is_answered_by_this_layer() {
-    let (payload, responses) = filter(b"\x1b_Gi=2,t=f;/ZGVmaW5pdGVseS9ub3QvaGVyZS5wbmc=\x1b\\");
+    let (payload, responses) = filter(b"\x1b_Gi=2,t=f;L2RlZmluaXRlbHkvbm90L2hlcmUucG5n\x1b\\");
     assert!(payload.is_empty());
     assert_eq!(
         responses,
@@ -255,7 +255,7 @@ fn file_probe_without_action_is_answered_by_this_layer() {
 #[test]
 fn file_probe_with_missing_file_is_answered_by_this_layer() {
     // 载荷是 base64 编码的路径("/definitely/not/here.png")。
-    let (payload, responses) = filter(b"\x1b_Ga=q,i=2,t=f;/ZGVmaW5pdGVseS9ub3QvaGVyZS5wbmc=\x1b\\");
+    let (payload, responses) = filter(b"\x1b_Ga=q,i=2,t=f;L2RlZmluaXRlbHkvbm90L2hlcmUucG5n\x1b\\");
     assert!(payload.is_empty());
     assert_eq!(
         responses,
@@ -506,7 +506,7 @@ fn probe_with_silent_success_still_answers_failures() {
 #[test]
 fn transmit_with_missing_file_is_answered_by_this_layer() {
     // 实际传输（非探测）同样可能因介质不可用而失败，须一并代答。
-    let (payload, responses) = filter(b"\x1b_Ga=T,i=9,t=f;/ZGVmaW5pdGVseS9ub3QvaGVyZS5wbmc=\x1b\\");
+    let (payload, responses) = filter(b"\x1b_Ga=T,i=9,t=f;L2RlZmluaXRlbHkvbm90L2hlcmUucG5n\x1b\\");
     assert!(payload.is_empty());
     assert_eq!(
         responses,
@@ -528,9 +528,13 @@ fn kitty_apc_followed_by_text_is_split_cleanly() {
     assert_eq!(responses.len(), 1);
 }
 
+/// 传输动作的失败应答回显图像编号与放置 id（上游的应答格式）。
+///
+/// 动作必须是传输：查询缺图像 id 时上游压根不编码应答（见
+/// [`query_without_image_id_is_dropped_even_with_image_number`]）。
 #[test]
 fn response_includes_image_number_and_placement_id() {
-    let (payload, responses) = filter(b"\x1b_Ga=q,I=13,p=7,t=s;AAAA\x1b\\");
+    let (payload, responses) = filter(b"\x1b_Ga=t,I=13,p=7,t=s;AAAA\x1b\\");
     assert!(payload.is_empty());
     assert_eq!(
         responses,
@@ -543,7 +547,7 @@ fn response_includes_image_number_and_placement_id() {
 /// `erroneous kitty graphics response`）正是漏掉的半条探测让上游处理的。
 #[test]
 fn split_kitty_probe_is_held_until_the_next_chunk() {
-    let sequence = b"\x1b_Ga=q,i=2,t=f;/ZGVmaW5pdGVseS9ub3QvaGVyZS5wbmc=\x1b\\";
+    let sequence = b"\x1b_Ga=q,i=2,t=f;L2RlZmluaXRlbHkvbm90L2hlcmUucG5n\x1b\\";
     let split = 12;
     let first = filter_input(
         &sequence[..split],
@@ -630,12 +634,155 @@ fn control_data_with_unknown_keys_is_ignored() {
     );
 }
 
+/// 上游在键状态里把 `,` 当普通字节收下，于是 `bogus,t` 是一个多字节键：上游转入
+/// 忽略态，**此后的所有键值对**都被忽略（不只是那一对），图像 id 因此缺省，
+/// 查询没有可编码的应答——上游与本层都不回包。
 #[test]
-fn key_without_equals_is_ignored() {
+fn multi_byte_key_makes_the_rest_of_the_control_data_ignored() {
     let (payload, responses) = filter(b"\x1b_Ga=q,bogus,t=s,i=6;AAAA\x1b\\");
+    assert!(payload.is_empty());
+    assert!(responses.is_empty());
+}
+
+/// 值超过 11 字节时上游的值缓冲溢出，整对被忽略，且此后的键值对同样被忽略：
+/// 图像 id 因此缺省，查询没有可编码的应答——上游与本层都不回包。
+#[test]
+fn oversized_control_value_makes_the_rest_ignored() {
+    let (payload, responses) = filter(b"\x1b_Ga=q,i=123456789012,t=s;AAAA\x1b\\");
+    assert!(payload.is_empty());
+    assert!(responses.is_empty());
+}
+
+/// 载荷不是合法 base64 时上游在解析阶段就判整条命令无效：既不执行也不回应答。
+/// 本层同样丢弃，且不留上游那两条协议错误日志。
+#[test]
+fn invalid_base64_payload_is_dropped_without_response() {
+    let (payload, responses) = filter(b"\x1b_Ga=q,i=5,t=f;/ZGVmaW5pdGVseS9ub3QvaGVyZS5wbmc=\x1b\\");
+    assert!(payload.is_empty());
+    assert!(responses.is_empty());
+}
+
+/// 查询缺图像 id 时上游先报 id 缺失（与介质无关），但那条错误的应答没有图像 id
+/// 与图像编号，上游压根不编码它——客户端收不到任何字节。
+#[test]
+fn query_without_image_id_is_dropped_even_with_image_number() {
+    let (payload, responses) = filter(b"\x1b_Ga=q,I=13,p=7,t=s;AAAA\x1b\\");
+    assert!(payload.is_empty());
+    assert!(responses.is_empty());
+}
+
+/// 图像 id 与图像编号同时给出时上游在动作分流之前先判互斥：回互斥错误，
+/// 根本走不到介质判据。
+#[test]
+fn image_id_and_number_are_mutually_exclusive() {
+    let (payload, responses) = filter(b"\x1b_Ga=q,i=1,I=2,t=s;AAAA\x1b\\");
     assert!(payload.is_empty());
     assert_eq!(
         responses,
-        [b"\x1b_Gi=6;EINVAL: unsupported medium\x1b\\".to_vec()]
+        [b"\x1b_Gi=1,I=2;EINVAL: image ID and number are mutually exclusive\x1b\\".to_vec()]
     );
+}
+
+/// 单字节非数字值取其 ASCII 码（上游 `finishValue` 的口径）。
+#[test]
+fn single_character_control_value_is_read_as_its_ascii_code() {
+    let (payload, responses) = filter(b"\x1b_Ga=q,i=a,t=s;AAAA\x1b\\");
+    assert!(payload.is_empty());
+    assert_eq!(
+        responses,
+        [b"\x1b_Gi=97;EINVAL: unsupported medium\x1b\\".to_vec()]
+    );
+}
+
+/// 直接用上游终端跑一串 Kitty APC，收走上游给客户端的应答字节。
+///
+/// 必须绕开本仓的 `GhosttyTerminal`：它内部就跑着本层的输入过滤，拿它的应答
+/// 当「上游应答」等于自己跟自己比——那种比法永远成立，查不出任何偏差。
+fn upstream_responses(sequence: &[u8]) -> Vec<Vec<u8>> {
+    let mut terminal = libghostty_vt::Terminal::new(20, 5).expect("上游终端");
+    terminal
+        .set_kitty_image_storage_limit(1024 * 1024)
+        .expect("kitty 存储上限");
+    terminal
+        .set_kitty_image_from_file_allowed(true)
+        .expect("文件介质");
+    terminal
+        .set_kitty_image_from_shared_mem_allowed(true)
+        .expect("共享内存介质");
+    let responses = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Vec<u8>>::new()));
+    let sink = std::sync::Arc::clone(&responses);
+    terminal
+        .on_pty_write(move |_terminal, data| {
+            if let Ok(mut guard) = sink.lock() {
+                guard.push(data.to_vec());
+            }
+        })
+        .expect("回写回调");
+    terminal.vt_write(sequence);
+    let guard = responses.lock().expect("应答缓冲");
+    guard.clone()
+}
+
+/// 代答层与上游必须给出同一条应答：同一串控制数据分别喂给上游终端与本层，
+/// 两边给客户端的字节必须一致——层代答时是层给的应答，层放行时是上游给的，
+/// 层丢弃命令时上游也必须不回应答。
+fn assert_matches_upstream(sequence: &[u8]) {
+    let upstream = upstream_responses(sequence);
+    let filtered = filter_input(sequence, MediaCapabilities::platform(None));
+    if filtered.payload.as_ref() == sequence {
+        // 放行：客户端收到的是上游的应答，本层不得另有代答。
+        assert!(filtered.responses.is_empty(), "放行的命令不得另有代答");
+        return;
+    }
+    assert_eq!(filtered.responses, upstream, "代答必须与上游逐字节一致");
+}
+
+/// 代答层与上游的应答差分：覆盖控制数据解析的各处口径（十进制值与单字节非
+/// 数字值的 ASCII 规则、多字节键与超长值让上游忽略其余键值对、值非法即整条
+/// 命令无效、id 与编号互斥、查询缺图像 id、载荷不是合法 base64）。
+#[test]
+fn answers_are_identical_to_upstream() {
+    // 打不开的文件路径（base64）。
+    const MISSING: &str = "L2RlZmluaXRlbHkvbm90L2hlcmUucG5n";
+    // 多了一个填充位：上游解不开，整条命令无效。
+    const BAD_BASE64: &str = "/ZGVmaW5pdGVseS9ub3QvaGVyZS5wbmc=";
+    let cases = [
+        // 图像 id 按十进制解析。
+        "\x1b_Ga=q,i=5,t=f;",
+        // 单字节非数字值取 ASCII 码。
+        "\x1b_Ga=q,i=a,t=f;",
+        // 多字节键让上游忽略此后的键值对。
+        "\x1b_Ga=q,xx=1,i=5,t=f;",
+        "\x1b_Ga=q,bogus,t=f,i=5;",
+        // 超长值同样让上游忽略此后的键值对。
+        "\x1b_Ga=q,i=123456789012,t=f;",
+        // id 与编号互斥先于介质判据。
+        "\x1b_Ga=q,i=1,I=2,t=f;",
+        // 查询缺图像 id 时没有可编码的应答。
+        "\x1b_Ga=q,I=13,p=7,t=f;",
+        "\x1b_Ga=q,t=f;",
+        // 值不是合法整数即整条命令无效。
+        "\x1b_Ga=q,i=abc,t=f;",
+        // 空值同样让整条命令无效。
+        "\x1b_Ga=q,i=,t=f;",
+        // 传输动作回显编号与放置 id。
+        "\x1b_Ga=t,I=13,t=f;",
+        // 传输并显示同样按介质判据失败。
+        "\x1b_Ga=T,i=9,t=f;",
+        // 放置 id 与文件内偏移都要回显或参与判据。
+        "\x1b_Ga=q,i=5,p=3,t=f;",
+        "\x1b_Ga=q,i=5,O=10,t=f;",
+        // 静默等级：q=1 只静默成功，q=2 连失败也不回。
+        "\x1b_Ga=q,i=5,q=1,t=f;",
+        "\x1b_Ga=q,i=5,q=2,t=f;",
+        // 声明长度超出文件实际长度。
+        "\x1b_Ga=q,i=5,t=f,S=64;",
+    ];
+    for prefix in cases {
+        let sequence = format!("{prefix}{MISSING}\x1b\\");
+        assert_matches_upstream(sequence.as_bytes());
+    }
+    // 载荷不是合法 base64：上游整条丢弃且不回应答。
+    let sequence = format!("\x1b_Ga=q,i=5,t=f;{BAD_BASE64}\x1b\\");
+    assert_matches_upstream(sequence.as_bytes());
 }
