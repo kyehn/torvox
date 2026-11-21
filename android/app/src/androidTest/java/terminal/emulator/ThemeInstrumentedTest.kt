@@ -14,8 +14,6 @@ import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.ui.theme.ThemeRepository
 
 class ThemeInstrumentedTest : ComposeTerminalLogcatTest() {

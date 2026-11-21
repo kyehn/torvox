@@ -10,7 +10,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.MainActivity
 import terminal.emulator.UxTestUtils
 import terminal.emulator.activeSessionId
 import terminal.emulator.awaitBridge

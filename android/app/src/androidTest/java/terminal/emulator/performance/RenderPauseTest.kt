@@ -7,7 +7,6 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.MainActivity
 import terminal.emulator.closeSettingsOverlay
 import terminal.emulator.openSettings
 import terminal.emulator.waitForSession
@@ -17,7 +16,7 @@ class RenderPauseTest : ComposeTerminalLogcatTest() {
     // the system dialog would cover the UI and break node lookups.
 
     @After
-    fun resetScreen() = composeTestRule.closeSettingsOverlay()
+    fun resetScreen(): Unit = composeTestRule.closeSettingsOverlay()
 
     @Before
     fun setUp() {

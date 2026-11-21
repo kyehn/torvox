@@ -15,15 +15,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.awaitBridge
-import terminal.emulator.findTerminalSurface
-import terminal.emulator.getBridge
-import terminal.emulator.hideImeAndAwaitHidden
-import terminal.emulator.injectLongPress
-import terminal.emulator.terminalCellSizePx
 import terminal.emulator.util.runCatchingCancellable
-import terminal.emulator.waitForSession
 
 /**
  * Selection flows through the ViewModel + the Surface-side PopupWindow menu
@@ -43,7 +35,7 @@ class SelectionEspressoTest : ComposeTerminalLogcatTest() {
 
     /** 共用会话跨全部用例留存：本类直写网格，不清场即污染后继。 */
     @After
-    fun resetSession() = composeTestRule.cleanUpTerminalState()
+    fun resetSession(): Unit = composeTestRule.cleanUpTerminalState()
 
     /**
      * 建一段确定的部分选区，返回选区**实际**末列。

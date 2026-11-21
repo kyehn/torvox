@@ -14,10 +14,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import terminal.emulator.ComposeTerminalLogcatTest
-import terminal.emulator.cleanUpTerminalState
-import terminal.emulator.terminalCellSizePx
-import terminal.emulator.terminalGridColumns
 
 /**
  * Quantified verification of the selection/drag behaviors reported broken:
@@ -45,7 +41,7 @@ class SelectionDragQuantifiedTest : ComposeTerminalLogcatTest() {
 
     /** 本类用 `feedTerminal` 直写标记：不清场即污染共用会话。 */
     @After
-    fun resetSession() = composeTestRule.cleanUpTerminalState()
+    fun resetSession(): Unit = composeTestRule.cleanUpTerminalState()
 
     /** The TerminalSurface view, resolved through the house TestUtils helper. */
     private fun surfaceView(): android.view.View = findTerminalSurface(composeTestRule.activity)
@@ -166,8 +162,9 @@ class SelectionDragQuantifiedTest : ComposeTerminalLogcatTest() {
      */
     private fun settleKeyboard() {
         var shown: Long? = null
-        for (attempt in 1..3) {
-            if (shown != null) break
+        var rounds = 0
+        while (rounds < 3 && shown == null) {
+            rounds++
             val surface = attachedSurface()
             injectTap(surface, surface.width / 2f, surface.height / 2f)
             shown =
@@ -657,6 +654,9 @@ class SelectionDragQuantifiedTest : ComposeTerminalLogcatTest() {
         val (grabX, grabY) = cellAnchorLocal(col = endCol + 1, row = endViewportRow)
 
         val selections = java.util.Collections.synchronizedList(mutableListOf<SelectionState>())
+
+        // 真机用例靠真实调度器驱动状态采集；换成测试调度器会让下面的 300ms 真实等待失去意义。
+        @Suppress("InjectDispatcher")
         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
         val job =
             scope.launch {

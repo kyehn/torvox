@@ -2,7 +2,6 @@ package terminal.emulator.ui
 
 import android.view.WindowInsets
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -125,7 +124,7 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNotNull(
             "彩色内容必须落格",
             UxTestUtils.pollUntilTrue(GRID_TIMEOUT_MS, 100) {
-                (composeTestRule.requireBridge().getTerminalText() ?: "").contains("FLICKER_01_")
+                (composeTestRule.requireBridge().getTerminalText().orEmpty()).contains("FLICKER_01_")
             },
         )
         composeTestRule.waitForIdle()

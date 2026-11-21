@@ -1,6 +1,5 @@
 package terminal.emulator.diag
 
-import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before

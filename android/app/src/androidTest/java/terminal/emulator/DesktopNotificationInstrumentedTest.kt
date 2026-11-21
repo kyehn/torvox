@@ -3,7 +3,6 @@ package terminal.emulator
 import androidx.compose.ui.test.onAllNodesWithText
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import terminal.emulator.ComposeTerminalLogcatTest
 
 /**
  * 前台桌面通知（OSC 9）：以应用内提示呈现，且不产生平台提示窗口条目。

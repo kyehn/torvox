@@ -50,7 +50,7 @@ class SessionDrawerInstrumentedTest : ComposeTerminalLogcatTest() {
 
     /** 共用会话跨全部用例留存：本类建会话并直写标记，不清场即污染后继。 */
     @After
-    fun resetSession() = composeTestRule.cleanUpTerminalState()
+    fun resetSession(): Unit = composeTestRule.cleanUpTerminalState()
 
     /**
      * 某会话网格是否含 [needle]：按会话 id 直读。

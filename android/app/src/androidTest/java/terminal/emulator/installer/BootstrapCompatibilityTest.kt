@@ -96,7 +96,7 @@ class BootstrapCompatibilityTest : TerminalLogcatTest() {
                     script.absolutePath,
             )
         val lines = output.trim().lines()
-        val last = lines.lastOrNull()?.trim() ?: ""
+        val last = lines.lastOrNull()?.trim().orEmpty()
         val code =
             if (last.startsWith("EXITCODE=")) {
                 last.removePrefix("EXITCODE=").trim().toIntOrNull() ?: -1

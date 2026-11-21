@@ -144,6 +144,9 @@ class PasteButtonInstrumentedTest : ComposeTerminalLogcatTest() {
 
         // 与应用 ClipboardAccess.clipboardText() 同逻辑预读：切分“剪贴板”与“粘贴写入”。
         // 剪贴板经 binder 异步落地，单次直读会把「还没来得及」判成「未写入」，与选择/弹窗同口径轮询。
+        // detekt 的 RedundantExplicitType 在此是误报：下面轮询体把可空值写回来，
+        // 显式可空类型就是契约本身，去掉后赋值不再成立。
+        @Suppress("RedundantExplicitType")
         var clipRead: String? = "<unread>"
         val clipReady =
             UxTestUtils.pollUntilTrue(timeoutMs = PASTE_TIMEOUT_MS, intervalMs = 200) {

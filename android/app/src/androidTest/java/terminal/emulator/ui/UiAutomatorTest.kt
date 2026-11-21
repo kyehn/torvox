@@ -31,7 +31,7 @@ import terminal.emulator.TerminalLogcatTest
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 class UiAutomatorTest : TerminalLogcatTest() {
-    @get:Rule val activityRule = ActivityScenarioRule(MainActivity::class.java)
+    @get:Rule val activityRule: ActivityScenarioRule<MainActivity> = ActivityScenarioRule(MainActivity::class.java)
 
     @Before
     fun setUp() {

@@ -134,7 +134,11 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
      *
      * 取样区由按键的语义边界内缩推出（躲开圆角）。[sample] 直接给出该区的像素行，
      * 调用点不再各自复算一遍矩形。
+     *
+     * 不改成 data class：`IntArray` 属性会让自动生成的 equals/hashCode 退化为引用相等，
+     * 反而给读者一个错误的相等语义。
      */
+    @Suppress("UseDataClass")
     private class KeyTarget(val bounds: Rect, val before: IntArray, val sample: (Bitmap) -> IntArray)
 
     /** 定位按键并取按下前的像素采样。 */

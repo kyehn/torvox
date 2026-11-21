@@ -175,7 +175,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
     fun persistentSurfaceLossTriggersHostRebuildAndKeepsRendering() {
         // 前置：确认画面本来就有内容（否则「恢复后有墨迹」可能是从未有过墨迹）。
         printAndAwait("echo PRE_INK_MARKER", "PRE_INK_MARKER")
-        val inkBefore = awaitInk("注入前：")
+        awaitInk("注入前：")
 
         val surfaceBefore = findTerminalSurface(composeTestRule.activity)
         assertTrue("失效注入必须被原生接受", composeTestRule.requireBridge().setSurfaceLossInjectedForTest(true))
@@ -345,7 +345,6 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         // 持续注入让新 Surface 也拿不到缓冲：宿主换视图后「无缓冲区」成为稳定态。
         // `finally` 关注入整段：任何中途失败（截图拿不到、断言、轮询）都还原开关，
         // 否则本类后续用例会被 `surface unavailable` 全部连坐。
-        var shot: android.graphics.Bitmap? = null
         try {
             val rebuilt =
                 UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = RECOVERY_POLL_MILLIS) {

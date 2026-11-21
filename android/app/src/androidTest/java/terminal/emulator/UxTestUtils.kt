@@ -76,7 +76,7 @@ object UxTestUtils {
         device.takeScreenshot(file)
         val bitmap = android.graphics.BitmapFactory.decodeFile(file.path)
         file.delete()
-        check(bitmap != null) { "takeScreenshot produced an undecodable file" }
+        checkNotNull(bitmap) { "takeScreenshot produced an undecodable file" }
         return bitmap
     }
 

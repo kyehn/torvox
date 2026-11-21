@@ -2,15 +2,12 @@ package terminal.emulator
 
 import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.bridge.Bridge
-import terminal.emulator.cleanUpTerminalState
 import terminal.emulator.ui.TerminalSurface
 
 /**
@@ -52,7 +49,7 @@ class ScrollBehaviorQuantifiedTest : ComposeTerminalLogcatTest() {
     }
 
     @After
-    fun resetSession() = composeTestRule.cleanUpTerminalState()
+    fun resetSession(): Unit = composeTestRule.cleanUpTerminalState()
 
     private fun surface(): TerminalSurface {
         val content =

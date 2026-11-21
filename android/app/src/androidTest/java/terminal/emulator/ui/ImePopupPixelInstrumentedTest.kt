@@ -372,7 +372,7 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         composeTestRule.requireBridge().feedTerminal("\u001b[2J\u001b[H$marker\r\n".toByteArray(Charsets.UTF_8))
         val landed =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                (composeTestRule.requireBridge().getTerminalText() ?: "").contains(marker)
+                (composeTestRule.requireBridge().getTerminalText().orEmpty()).contains(marker)
             }
         assertNotNull("清屏后标记必须落格", landed)
         Thread.sleep(SETTLE_MILLIS)
@@ -439,7 +439,9 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         // 收起与截图之间仍可能自动重弹（慢模拟器上见过验证通过后 1s 内重弹），
         // 故 hide→shot→验前提包成整体重试：前提不过就重来，最多 3 轮。
         var before: android.graphics.Bitmap? = null
-        for (attempt in 1..3) {
+        var rounds = 0
+        while (rounds < 3) {
+            rounds++
             hideImeAndSettle()
             before = device.takeScreenshot() ?: throw AssertionError("截图失败")
             if (!isImeVisible(composeTestRule.activity)) break

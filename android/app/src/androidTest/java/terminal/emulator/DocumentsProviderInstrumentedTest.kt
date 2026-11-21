@@ -11,7 +11,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import terminal.emulator.TerminalLogcatTest
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -910,7 +909,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
             val samples =
                 (1..3).map {
                     val started = android.os.SystemClock.elapsedRealtime()
-                    val rows = readListing(context, uri)
+                    readListing(context, uri)
                     android.os.SystemClock.elapsedRealtime() - started
                 }
             val sorted = samples.sorted()
@@ -983,7 +982,7 @@ class DocumentsProviderInstrumentedTest : TerminalLogcatTest() {
         }
     }
 
-    private class ListingRow(val documentId: String, val displayName: String)
+    private data class ListingRow(val documentId: String, val displayName: String)
 
     /** 读完整游标：耗时要包含游标填充，而不只是第一次 `moveToNext`。 */
     private fun readListing(context: android.content.Context, uri: android.net.Uri): List<ListingRow> {

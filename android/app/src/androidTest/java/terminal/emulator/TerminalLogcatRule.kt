@@ -1,6 +1,8 @@
 package terminal.emulator
 
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
@@ -117,15 +119,15 @@ class TerminalLogcatRule : TestRule {
  * 失败信息只剩「条带无内容像素」这类结论，取不到 `surface invalidated` 与
  * `render: frame failed` 两枚锚点。基类让覆盖成为结构性的：新用例默认带取证。
  */
+@Suppress("AbstractClassCanBeConcreteClass") // 基类无 @Test，必须是抽象类才能被 JUnit 跳过枚举。
 abstract class TerminalLogcatTest {
     // 顺序即规则嵌套顺序：最后声明的 TerminalLogcatRule 在最外层，才能把
     // Compose 规则自身的失败（Activity 启动等）也附上日志尾部。
     @get:Rule
-    val notificationPermission =
+    val notificationPermission: GrantPermissionRule =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
-    @get:Rule
-    val terminalLogcatRule = TerminalLogcatRule()
+    @get:Rule val terminalLogcatRule: TerminalLogcatRule = TerminalLogcatRule()
 
     /**
      * UiAutomator 设备句柄。
@@ -149,6 +151,9 @@ abstract class TerminalLogcatTest {
  * 每个用例都会额外拉起一个 MainActivity。重复的 Activity 会争用同一套原生会话与
  * 事件通道，ShellPty 的退出事件因此被另一个活跃会话吃掉（CI 实测）。
  */
+@Suppress("AbstractClassCanBeConcreteClass") // 同上：无 @Test 的基类必须抽象，否则会被当作测试类枚举。
 abstract class ComposeTerminalLogcatTest : TerminalLogcatTest() {
-    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+    @get:Rule
+    val composeTestRule: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
+        createAndroidComposeRule<MainActivity>()
 }
