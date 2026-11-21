@@ -1580,15 +1580,7 @@ constructor(
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // 三、会话生命周期
-    // ══════════════════════════════════════════════════════════════════════
-
-    // ══════════════════════════════════════════════════════════════════════
-    // 三之二、渲染线程监管
-    // ══════════════════════════════════════════════════════════════════════
-
-    // ══════════════════════════════════════════════════════════════════════
-    // 四之二、事件派发
+    // 三、事件派发
     // ══════════════════════════════════════════════════════════════════════
 
     /**
@@ -1956,9 +1948,7 @@ constructor(
             // 回滚中的 destroySession 抛 UnsatisfiedLinkError（是 Error，catch(Exception) 捕获不到），
             // 原生库缺失或 ABI 不匹配时应用会崩溃。
             LogUtil.error("Runtime", "start: native library not loaded, aborting start")
-            synchronized(sessionLock) {
-                endStarting()
-            }
+            endStarting()
             return
         }
         // 桌面通知轮询：原生库就绪后即可开始（通知队列与渲染线程无关）。
@@ -3550,7 +3540,7 @@ constructor(
         // 注意：即使旧渲染线程仍存活也照常执行
         // （它正在退出：running=false 会使循环结束）——跳过会让原生 active=0
         // 并冻结接替会话。
-        var nativeSwitched =
+        val nativeSwitched =
             try {
                 NativeBridge.switchSession(newId)
             } catch (exception: Exception) {
