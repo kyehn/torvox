@@ -809,7 +809,9 @@ constructor(
         val accent = if (hasAltGr) 0 else deadKeys.take()
         val composed = deadKeys.composeWith(accent, unicodeChar)
         if (accent != 0 && composed == 0) {
-            LogUtil.warn("TerminalViewModel", "dead key $accent has no combination with $unicodeChar; accent dropped")
+            // 死键与无预组合形式的字母相邻是正常输入（如 ´ 后接 x），
+            // 丢弃重音即设计行为，不得记为 warn。
+            LogUtil.debug("TerminalViewModel", "dead key $accent has no combination with $unicodeChar; accent dropped")
         }
         val outChar = if (composed != 0) composed else unicodeChar
         if (outChar <= 0) return false

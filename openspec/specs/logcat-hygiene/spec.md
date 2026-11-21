@@ -71,6 +71,31 @@
 - **WHEN** 宿主查询会话标题而原生侧没有标题数据
 - **THEN** 查询按缺省值（空标题）处理，MUST NOT 记为 error
 
+#### Scenario: 死键与无预组合形式的字母相邻
+
+- **WHEN** 物理键盘布局产生死键（如 `´`）后用户按下没有预组合形式的字母
+- **THEN** 丢弃重音是设计行为，MUST 记为 debug，MUST NOT 记为 warn；
+       `getUnicodeChar` 对无组合结果本就返回裸字母，逐键记为 warn 等于把正常输入当异常
+
+#### Scenario: 快捷方式请求应急会话
+
+- **WHEN** 应用收到 `com.termux.app.failsafe_session=true` 的启动 Intent（见
+      `app-shortcuts`）
+- **THEN** 该请求 MUST 记为 info，MUST NOT 记为 warn：应急会话是规范明列的入口，
+      不是引导损坏的证据
+
+#### Scenario: Activity 重建时旧窗口的销毁回调
+
+- **WHEN** Activity 重建后旧窗口的 `surfaceDestroyed` 晚于新视图的 `surfaceCreated` 到达
+- **THEN** 陈旧视图的回调 MUST 被忽略并记为 debug，MUST NOT 记为 warn：
+      该时序是重建期的正常现象，且忽略它正是防止全局渲染暂停无人解除的手段
+
+#### Scenario: 会话关闭竞态下到达的输入
+
+- **WHEN** 用户刚关闭会话，输入法仍提交了一次文本，写向已移除或正在关闭的会话
+- **THEN** 未写入 MUST 记为 debug，MUST NOT 记为 warn（同「会话已结束后的剪贴板
+      应答回写」）；存活会话却丢失 bridge 的另一条分支仍记 error
+
 #### Scenario: 文档缺失查询不得触发框架告警
 
 - **WHEN** 客户端查询不存在的文档、目录或搜索根

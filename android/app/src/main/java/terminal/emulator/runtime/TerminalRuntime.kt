@@ -1077,7 +1077,10 @@ constructor(
 
     fun requestFailsafeSession() {
         failsafeRequested = true
-        LogUtil.warn(
+        // 快捷方式按规范本来就建应急会话（`app-shortcuts`），是正常入口而非异常，
+        // 故记 info：release 缺省等级是警告级（见 LogLevel.DEFAULT），这条默认
+        // 不出声；用户把等级调到「信息及以上」时能看到为何这次用 /system/bin/sh。
+        LogUtil.info(
             "Runtime",
             "Failsafe session requested — next start uses /system/bin/sh without prefix",
         )
@@ -3102,9 +3105,11 @@ constructor(
             entry.notifyRender()
             return written
         }
-        // 两条 false 分支各自在此记全原因（会话不存在/正在关闭，或存活但无 bridge），
-        // 调用方不再重复记一条泛化错误。
-        LogUtil.warn("Runtime", "writeToPty: 会话 $sessionId 不可写（不存在或正在关闭），${data.size} 字节未写入")
+        // 两条 false 分支各自记全原因（本分支：会话不存在或正在关闭；另一分支：
+        // 会话存活但无 bridge，见上），调用方不再重复记一条泛化错误。
+        // 前者是关闭竞态下的正常退化（输入法在会话关闭后又提交了一次），记 debug；
+        // 后者表示活着的会话丢了 bridge，才是异常，故记 error。
+        LogUtil.debug("Runtime", "writeToPty: 会话 $sessionId 不可写（不存在或正在关闭），${data.size} 字节未写入")
         return false
     }
 
@@ -3871,7 +3876,9 @@ constructor(
     @MainThread
     fun onSurfaceDestroyed(owner: Any): Boolean {
         if (!surfaceOwnership.release(owner)) {
-            LogUtil.warn(
+            // Activity 重建时旧窗口的回调晚于新视图到达是正常时序（见上方说明），
+            // 忽略即可，不得记为 warn。
+            LogUtil.debug(
                 RUNTIME_LOG_TAG,
                 "onSurfaceDestroyed: stale view ignored (current owner=${surfaceOwnership.currentOwner})",
             )
