@@ -3816,7 +3816,7 @@ constructor(
      * 在同一次持锁区间内切换，锁外读可能拿到已被移除的 id。
      * 写回时按会话 ID 校验，避免慢查询覆盖已经切走的会话标题。
      */
-    private fun scheduleActiveSessionTitleRefresh() {
+    internal fun scheduleActiveSessionTitleRefresh() {
         scope.launch {
             val sessionId = synchronized(sessionLock) { activeSessionId }
             if (sessionId == 0L) {

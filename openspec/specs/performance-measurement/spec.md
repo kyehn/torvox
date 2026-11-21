@@ -82,9 +82,9 @@ CI 性能门禁的下限断言（`native/benches/support.rs` 的 `Floor::assert_
 - **WHEN** 再次评估「是否需要 input-to-present 关联诊断」
 - **THEN** 以本条目给出的边界（现有探针已定位帧内慢段）为起点，MUST NOT 从零开始调研
 
-### Requirement: 跨应用性能对比的帧面类测量手段取舍须记录理由
+### Requirement: 跨应用性能对比的宏基准与 HWUI 帧面类测量手段取舍须记录理由
 
-跨应用性能对比的帧面类测量手段取舍 MUST 逐项记录理由，使复查不必重新调研：
+跨应用性能对比的宏基准与 HWUI 帧面类测量手段取舍 MUST 逐项记录理由，使复查不必重新调研：
 
 - 宏基准的 `FrameTimingMetric` 与 `StartupTimingMetric` 作跨应用主判据：官方明确不推荐在
   模拟器上跑；目标应用须非 debuggable；两者量的是各目标自身管线的帧，跨应用语义不同；
@@ -97,8 +97,24 @@ CI 性能门禁的下限断言（`native/benches/support.rs` 的 `Floor::assert_
 #### Scenario: 复查跨应用判据类不采纳项
 
 - **WHEN** 再次评估「能否用某家自报的帧率或宏基准指标作跨应用结论」
-- **THEN** MUST 以本条目给出的边界为起点：统一帧面是系统侧图层时序，自报帧率与宏基准指标
-      不作跨应用主判据
+- **THEN** MUST 以本条目给出的边界为起点：自报帧率与宏基准指标不作跨应用主判据，
+      跨应用帧面 MUST 取系统侧帧面
+
+### Requirement: 跨应用性能对比的系统侧帧面类测量手段取舍须记录理由
+
+跨应用性能对比的系统侧帧面类测量手段取舍 MUST 逐项记录理由，使复查不必重新调研：
+
+- Perfetto `android.surfaceflinger.frametimeline` 作终端内容帧的跨应用判据：官方文档明确
+  SurfaceView 不受 FrameTimeline 支持；本项目终端内容在 SurfaceView 内不在其覆盖内，对照对象
+  走 HWUI 管线在其覆盖内，两者不是同一数据面。
+- `dumpsys SurfaceFlinger --latency` 作跨应用的统一帧面：该通道只遍历 legacy 图层集合且要求
+  精确图层名，只作图层级补充通道。
+
+#### Scenario: 复查系统侧帧面类不采纳项
+
+- **WHEN** 再次评估「能否用 Perfetto FrameTimeline 或图层级 `--latency` 作跨应用统一帧面」
+- **THEN** MUST 以本条目给出的边界为起点：统一帧面 MUST 取显示级帧时间线，
+      MUST NOT 用 FrameTimeline 覆盖终端内容、MUST NOT 用 `--latency` 作统一帧面
 
 ### Requirement: 跨应用性能对比的 trace 与能耗类测量手段取舍须记录理由
 
@@ -252,37 +268,71 @@ MUST NOT 以「命令没报错」当作「采集到了数据」：采集失败 M
 ### Requirement: 跨应用性能对比的对照面与统一帧面
 
 跨终端性能对比 MUST 以系统侧可观测面为准，MUST NOT 以各家自报的帧率作跨应用结论。帧时序
-MUST 取系统侧图层时序：场景前用 `dumpsys SurfaceFlinger --latency-clear <layer>` 清空环形
-历史，场景后用 `dumpsys SurfaceFlinger --latency <layer>` 取回逐帧数据。该面量的是合成器把
-帧呈现出去的时刻，与帧由哪条管线绘制无关，故是跨应用唯一的统一帧面。
-
-对照对象 MUST 取现实可得的同类终端应用，且 MUST 先核实其是否提供基准资产与可核实的官方性能
-数字；两者皆无时对比 MUST 自建 harness，MUST NOT 引用其自述性能数字。
+MUST 取系统侧帧面，分层与覆盖面见后续两条。对照对象 MUST 取现实可得的同类终端应用，且 MUST 先
+核实其是否提供基准资产与可核实的官方性能数字；两者皆无时对比 MUST 自建 harness，MUST NOT 引用
+其自述性能数字。
 
 `dumpsys gfxinfo` 的帧统计 MUST 只用于 HWUI 绘制的界面，MUST NOT 作终端内容帧的跨应用判据：
 该入口只统计经 ViewRootImpl/RenderThread 绘制的帧，SurfaceView 直绘不经该路径。
 
-#### Scenario: 终端内容帧按图层时序比对
+#### Scenario: 终端内容帧按系统侧帧面比对
 
 - **WHEN** 同一场景在多个终端应用上采集帧时序
-- **THEN** 每个应用的帧时序 MUST 取自系统侧图层时序，MUST NOT 取自各家自报帧率，
+- **THEN** 每个应用的帧时序 MUST 取自系统侧帧面，MUST NOT 取自各家自报帧率，
       MUST NOT 用 `gfxinfo` 帧数作终端内容帧的跨应用判据
-
-#### Scenario: 采集前清空图层帧历史
-
-- **WHEN** 一个场景开始前采集图层时序
-- **THEN** MUST 先清空该图层的帧历史，否则读到的 MUST NOT 含上一个场景的残留帧
-
-#### Scenario: 图层名取不到即判采集失败
-
-- **WHEN** 图层名无法解析或 `--latency` 返回为空
-- **THEN** 该次采集 MUST 判为采集失败并中止该场景，MUST NOT 把空结果当作「被测路径没有
-      出帧」，MUST NOT 静默跳过该场景
 
 #### Scenario: 对照对象无基准资产时不引用自述数字
 
 - **WHEN** 对照应用既无基准模块又无可核实的官方性能数字
 - **THEN** 对比 MUST 由自建 harness 产出，MUST NOT 引用该应用的自述性能数字作为结论
+
+### Requirement: 跨应用性能对比的帧面分层与覆盖面
+
+系统侧帧面 MUST 分三层使用，并按各层的覆盖面取数：
+
+- 显示级 `dumpsys SurfaceFlinger --frametimeline -all`（或 `-jank`）：逐 display frame 的期望与
+  实际起止时刻、呈现时刻与 jank 分类；不需要图层名，对所有应用同一口径，是跨应用呈现时序的
+  主判据。该面只保留最近的 display frame 窗口，MUST 按场景时间窗筛选，MUST NOT 假设它能被清空。
+- 图层级 `dumpsys SurfaceFlinger --latency <layer>`：逐帧 `desired/actual/ready`（纳秒）。该通道
+  只遍历 SurfaceFlinger 的 legacy 图层集合，图层名 MUST 是精确的 `<base>#<id>`；输出只有首行
+  表示图层未匹配，全零行表示图层匹配但无帧记录，两者 MUST 判为采集失败。
+- 应用内帧统计只作该应用内部的判据，MUST NOT 跨应用比较。
+
+#### Scenario: 采集前清空图层帧历史
+
+- **WHEN** 一个场景开始前采集图层级时序
+- **THEN** MUST 先用 `dumpsys SurfaceFlinger --latency-clear <layer>` 清空该图层的帧历史，
+      否则读到的 MUST NOT 含上一个场景的残留帧
+
+#### Scenario: 图层未匹配或无帧记录即判采集失败
+
+- **WHEN** `--latency` 只返回首行，或返回的帧行全部为零
+- **THEN** 该次采集 MUST 判为采集失败并中止该场景，MUST NOT 把空结果当作「被测路径没有
+      出帧」，MUST NOT 静默跳过该场景
+
+#### Scenario: 显示级帧时间线按时间窗筛选
+
+- **WHEN** 用 `--frametimeline` 取某一场景的呈现时序
+- **THEN** MUST 按场景时间窗筛选帧，MUST NOT 依赖「先清空」——该面没有清空入口
+
+### Requirement: 终端内容直绘 SurfaceView 时的帧面覆盖限制
+
+终端内容直绘 SurfaceView 的应用，其终端内容帧 MUST NOT 假定可被图层级 `--latency` 通道覆盖：
+SurfaceView 的 BLAST 图层不在 SurfaceFlinger 的 legacy 图层集合内。该类帧 MUST 取应用自己的
+呈现汇总，跨应用呈现时序 MUST 以显示级帧时间线为准。Perfetto FrameTimeline MUST NOT 作终端
+内容的跨应用判据——官方文档明确 SurfaceView 不受其支持，而对照对象走 HWUI 管线在其覆盖内，
+用它比较等于比较两套不同的数据面。
+
+#### Scenario: 终端内容帧不按图层级通道判
+
+- **WHEN** 被测应用的终端内容由原生渲染线程直绘 SurfaceView
+- **THEN** 其终端内容帧 MUST 取该应用自己的呈现汇总，MUST NOT 以 `--latency` 无数据断言
+      「没有出帧」
+
+#### Scenario: FrameTimeline 不作终端内容判据
+
+- **WHEN** 需要比较各应用终端内容的呈现时序
+- **THEN** MUST 以显示级帧时间线为准，MUST NOT 用 Perfetto FrameTimeline 作终端内容判据
 
 ### Requirement: 全场景矩阵与环境固定化
 
