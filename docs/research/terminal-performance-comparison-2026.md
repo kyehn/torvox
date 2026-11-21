@@ -118,6 +118,32 @@ Perfetto 数据源的一手约束（取自上游仓库 `docs/data-sources/`）�
   铺开埋点——既有规约「日志不得在热路径产生开销」同向。
 - `gpu.counters` 的 counter ID 由设备描述符 `GpuCounterSpec` 给定，跨设备不可比。
 
+### Perfetto 设备端采集与分析配方
+
+设备端 `perfetto` 命令（官方 `PERFETTO(1)` 文档口径）有两种配置方式：
+
+- **轻量模式**：`adb shell perfetto [ --time TIMESPEC ] [ --buffer SIZE ] [ --size SIZE ]`
+  `[ --app APP_NAME ] [ATRACE_CAT | FTRACE_GROUP/FTRACE_NAME]...`。默认时长 10 秒，默认
+  环形缓冲 32 MB；`--size` 给文件上限，`--app` 限定应用级 atrace 事件；事件类别随 Android
+  版本而变（例：窗口管理类别 `wm`；ftrace 事件 `sched/sched_switch`）。
+- **正常模式**：`adb shell perfetto [ --txt ] --config CONFIG_FILE`，配置用 `-` 时从 stdin 读，
+  按 `trace_config.proto` 的 `data_sources.config` 组织，每个数据源一个 `name`。官方把 `--txt`
+  标注为「不是稳定 API，不建议用于生产」——故采集脚本应优先用轻量模式，或在正常模式下用二进制
+  配置。
+
+会话与制品控制：`--out` 指定落盘路径（或 `-` 走 stdout）、`--no-clobber` 不覆盖既有文件、
+`--background` / `--background-wait` 后台录制（后者最多等 30 秒确认数据源就绪）、`--query`
+查服务状态、`--attach` / `--detach` / `--stop` 把长会话与采集进程解耦、`--clone` /
+`--clone-by-name` 造只读克隆、`--add-attribute` 给 trace 打标（进入 `metadata` 表的
+`trace_attribute.*` 行）、`--upload` 走框架上报路径。
+
+分析侧：`trace_processor` shell（`./trace_processor trace.perfetto-trace`）打开 PerfettoSQL，
+标准表为 `slice` 与 `counter`；trace 文件也可以是含多个 trace 的 ZIP/TAR，会被合并到同一时间轴；
+批量分析用 Batch Trace Processor（Python 库，面向上千个 trace、秒级查询）。
+
+对本仓的用法边界：常规判据仍取 `--latency` 与系统 dump，Perfetto 只在归因深挖时开；轻量模式
+的 atrace 类别不得进渲染热路径（每事件 1–10 微秒）。
+
 设备侧已实测可用的通道（emulator-5554，API 35）：`/system/bin/perfetto` 存在；
 `dumpsys thermalservice` 提供 `inject-temperature` / `override-status` / `headroom`；
 `cmd display set-user-preferred-display-mode` 可锁刷新率；`cmd power set-fixed-performance-mode-enabled`
