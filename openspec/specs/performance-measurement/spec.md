@@ -548,6 +548,33 @@ NOT 记为丢帧。
 - **WHEN** 四源证据不足以区分应用归因与系统归因
 - **THEN** 结论 MUST 记「未定」并保留全部制品，MUST NOT 强行归因、亦 MUST NOT 记为无问题
 
+### Requirement: 进程退出归因的采集与判红
+
+进程退出归因 MUST 取自 `dumpsys activity exit-info <包名>`：MUST 区分「无退出记录」与「采集失败」，
+MUST NOT 把两者混为一谈。退出记录的时刻是墙钟时刻，场景起止 MUST 同取墙钟再比较。场景执行窗口内
+出现进程退出 MUST 判红并附归因；reason 码不在已公开常量范围内时 MUST 归「未知」并判红，MUST NOT
+猜测语义。退出归因采集自身失败时 MUST 判红并标为采集失败，且 MUST NOT 掩盖场景本身的失败。
+
+#### Scenario: 场景内进程退出即判红并附归因
+
+- **WHEN** 被测进程在场景执行窗口内退出
+- **THEN** 该次测量 MUST 判红并附退出归因（reason、子原因与描述），MUST NOT 以「跑挂了」一类概括收尾
+
+#### Scenario: 无退出记录与采集失败分开判
+
+- **WHEN** exit-info 输出只有 dump 头而无退出记录块
+- **THEN** 该次采集 MUST 记为无退出记录，MUST NOT 记为采集失败；MUST NOT 把空输出当作「被测路径没有发生」
+
+#### Scenario: 未公开的原因码归未知并判红
+
+- **WHEN** exit-info 的 reason 码不在已公开常量范围内
+- **THEN** 该退出 MUST 归「未知」并判红，MUST NOT 猜测其语义
+
+#### Scenario: 退出归因采集失败不掩盖原始失败
+
+- **WHEN** 场景本身失败且退出归因采集同时失败
+- **THEN** 该次测量 MUST 保留原始失败，退出归因采集的失败 MUST 作为附加信息附带，MUST NOT 替换或吞掉原始失败
+
 ### Requirement: 极端场景的资源上限
 
 每个场景 MUST 有 wall-clock 上限、输出字节上限与采样间隔下限；超限 MUST 终止该场景并记录
