@@ -96,9 +96,22 @@ impl FontPipeline {
                     && font_db::face_covers_latin(font_database, face.id)
                     && !covers_cjk(face.id)
             };
+            // 先要正体（Normal 样式 + NORMAL 字重），再退回「首个可用等宽面」：
+            // fontdb 按字体目录枚举顺序给出面，Liberation Mono 之类会把 Italic/Bold
+            // 面排在 Regular 前面。取首面当默认字体的后果是整条管线以斜体（或粗体）
+            // 为基底面——此后请求斜体时 `resolve_style_face` 判「基底面已带斜体」而
+            // 直接返回该面字形，斜体整段直立，且 ASCII 预热已缓存这些字形、
+            // 首帧不再产生待上传脏区。回归用例
+            // `italic_d_rasterizes_distinct_from_regular` 与
+            // `first_build_leaves_pending_dirty_rect_covering_all_glyphs` 即钉住该前提。
             let face = font_database
                 .faces()
-                .find(usable_monospace)
+                .find(|face| {
+                    face.style == fontdb::Style::Normal
+                        && face.weight == fontdb::Weight::NORMAL
+                        && usable_monospace(face)
+                })
+                .or_else(|| font_database.faces().find(usable_monospace))
                 .or_else(|| {
                     font_database.faces().find(|face| {
                         face.monospaced && font_db::face_covers_latin(font_database, face.id)

@@ -716,6 +716,72 @@ fn select_primary_face_prefers_declared_stem_match() {
     );
 }
 
+/// 梯次第 1 级：词干命中族内有多面时必须取正体面。
+///
+/// 库内面序由字体文件装入顺序决定：Bold/Oblique 面排在 Regular 之前时，取首面会把
+/// 默认主字体钉成粗体或斜体——此后所有斜体请求都被 `resolve_style_face` 判成
+/// 「基底面已带斜体」而返回该面字形，斜体整段直立。故词干命中后仍按「正体优先」
+/// 取面（`font-selection` 的「主字体选择降级梯次」）。
+#[test]
+fn select_primary_face_prefers_upright_face_within_matched_family() {
+    let (host_database, _, _) = host_faces();
+    // 找一个「同一族、正体面与非正体面分处两个文件」的族：两个文件才能由装入顺序
+    // 决定面序，从而确定性地复现「非正体面排在正体面之前」。
+    let mut families: std::collections::BTreeMap<
+        String,
+        (Option<std::path::PathBuf>, Option<std::path::PathBuf>),
+    > = std::collections::BTreeMap::new();
+    for face in host_database.faces() {
+        if !face.monospaced {
+            continue;
+        }
+        let Some((family, _)) = face.families.first() else {
+            continue;
+        };
+        let Some(path) = super::face_source_path(face).map(std::path::Path::to_path_buf) else {
+            continue;
+        };
+        let entry = families.entry(family.clone()).or_default();
+        let upright = face.style == fontdb::Style::Normal && face.weight == fontdb::Weight::NORMAL;
+        if upright {
+            entry.0.get_or_insert(path);
+        } else {
+            entry.1.get_or_insert(path);
+        }
+    }
+    let (family, (upright_path, styled_path)) = families
+        .into_iter()
+        .find(|(_, (upright, styled))| upright.is_some() && styled.is_some() && upright != styled)
+        .expect("宿主字体库须有同族的正体面与非正体面且分处两个文件（run inside nix develop）");
+    let mut font_database = fontdb::Database::new();
+    // 先装非正体面所在文件：面序由装入顺序决定，非正体面因此排在正体面之前。
+    font_database
+        .load_font_file(styled_path.as_ref().expect("须有非正体面文件"))
+        .expect("非正体面文件须可装入");
+    font_database
+        .load_font_file(upright_path.as_ref().expect("须有正体面文件"))
+        .expect("正体面文件须可装入");
+    let target = format!(
+        "{}.ttf",
+        family
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect::<String>()
+    );
+    let selected = super::select_primary_face(&font_database, &target).expect("须选中面");
+    let selected_face = font_database.face(selected).expect("选中面须存在");
+    assert_eq!(
+        selected_face.style,
+        fontdb::Style::Normal,
+        "词干命中族内有多面时必须取正体面，不得取粗体或斜体面"
+    );
+    assert_eq!(
+        selected_face.weight,
+        fontdb::Weight::NORMAL,
+        "词干命中族内有多面时必须取常规字重的面"
+    );
+}
+
 /// 梯次第 2 级：词干不匹配时退到库内任一等宽面（OEM 改包装/改名），不崩溃。
 #[test]
 fn select_primary_face_falls_back_to_any_monospaced_face() {

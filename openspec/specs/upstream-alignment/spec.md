@@ -1018,6 +1018,11 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   验收判据：重复率 MUST NOT 高于该基线；新增克隆 MUST 逐处给出
   「不修」的具体理由（被测行为不同、脚手架样板、或传状态必需的形参列表），
   MUST NOT 以「先记着」放行。
+- **clean-run 计数（2026-11-21）**：`scripts/check.nu` 连续 5 次退出码 0（938 passed / 0 failed）；
+  jscpd 5 次均一致为 2 处克隆 / 23 行重复 / 0.03%；aislop 5 次均 score 100 / Healthy /
+  0 errors / 0 warnings / 0 confirmed-defect；semgrep 5 次均 0 findings。满足 code-health
+  「连续清洁运行计数 ≥ 5」的「连续 0 确认」证据门槛。本轮唯一修复：默认主字体取正体面
+  （`pipeline/families.rs`、`font_db.rs`），斜体不再退化为直立；openspec/font-selection 同步。
 - **footgun-scan**（累计 9 次运行，0 确认缺陷）：2026-11-20 重扫实测的主源码集、单测源码集与
   仪器测试源码集的文件数、命中数与逐处判定见下方「静态形状扫描」表。
 - **rapidocr**：`flake.nix` 引导调用 `scripts/download-rapidocr-models.nu` 把模型
