@@ -149,6 +149,12 @@ API 29–30 触发（API 31 起 app trace tag 不再要求该标志）。实测�
 自己的呈现汇总；应用自己的呈现汇总仍作为该应用内部的第二数据面（既有规约「宏基准的帧级数据面按
 绘制主体选源」不冲突：那条规约讲的是**应用内**断言用哪一面）。
 
+**两条渲染管线的同通道实测**：同一台设备上，HWUI 路径的系统 Settings（进程 1134）的窗口图层
+`com.android.settings/com.android.settings.Settings#256` 用 `--latency` 取到 127 行、其中 41 行
+非零；同一图层在 `--frametimeline` 里出现 33 条带 `Owner Pid 1134` 且 `Is Buffer? = 1` 的条目。
+本项目的 BLAST SurfaceView 层同样命中这两个通道。故 HWUI 与 SurfaceView 两条管线的终端内容都落在
+系统侧逐图层通道内，取数口径一致。
+
 ### 应用级：Perfetto FrameTimeline 的覆盖限制
 
 Perfetto 官方文档 `docs/data-sources/frametimeline.md` 明确写着：「SurfaceViews are currently
@@ -325,7 +331,7 @@ SurfaceView，经 HWUI 的 `gfxinfo` 记不到），对照对象取其 HWUI 帧�
 for device in targets:
     prepare(device)            # 解锁、刷新率、固定性能、温度、动画、网络、输入法
     for app in [本项目, termux, ghostty-android]:
-        install(app)           # 外部下载的 APK，不入库
+        install(app)           # 外部下载的 APK，不入库；与被测应用撞包名时先卸载再装
         reset_state(app)
         for scenario in matrix:
             for iteration in 1..N:
@@ -336,6 +342,11 @@ for device in targets:
                 classify(row)
     teardown(device)
 ```
+
+**包名撞名的处置**：上游 Termux 的包名是 `com.termux`，与本项目的 `applicationId` 相同；同设备
+安装实测报 `INSTALL_FAILED_VERSION_DOWNGRADE`（对照构建版本码更低），版本码更高时会直接替换被测
+应用。故同一台设备上 MUST 按应用轮换安装（装 A 跑完所有场景 → 卸载 → 装 B），或给对照构建改包名
+后并存；两种做法都 MUST 记录 APK 校验和与安装顺序，因为卸载重装会清空应用状态。
 
 - **顺序**：同场景下应用顺序交替（ABAB）以抵消宿主漂移；每个场景重复 N 次，取 p95 / p99，不取均值。
 - **就绪判定**：每个场景先确认应用可交互（探针命令有回显），再开始计时。
