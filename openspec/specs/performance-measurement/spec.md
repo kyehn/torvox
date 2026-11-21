@@ -388,11 +388,6 @@ MUST NOT 把 `N/A` 当作 0。
 - **WHEN** 图层条目的 `Present time` 为 `N/A`
 - **THEN** MUST 以 `Last latch time` 兜底，MUST NOT 把 `N/A` 当作 0 参与间隔计算
 
-#### Scenario: FrameTimeline 不作终端内容判据
-
-- **WHEN** 需要比较各应用终端内容的呈现时序
-- **THEN** MUST 以显示级帧时间线为准，MUST NOT 用 Perfetto FrameTimeline 作终端内容判据
-
 ### Requirement: 全场景矩阵与环境固定化
 
 场景矩阵 MUST 覆盖启动三态（冷／温／热）、稳态空载、持续输出、突发输出、长滚动、宽字符行、

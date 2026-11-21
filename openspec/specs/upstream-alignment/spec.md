@@ -984,7 +984,7 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 | CI 产物哈希比对 | vercel-labs-wterm 研究结论 | `build.yml` 增产物 sha256 记录步骤 |
 | Android 15+ 16KB 页 `.so` 对齐 | GlobalTechInfo-RedTerm 研究结论 | `android/app/build.gradle.kts` 按 AGP 16KB 对齐指南调整打包 |
 | `cargo-nextest` / `cargo-mutants` / `cargo-tarpaulin` 测试工具链 | `rust-dependency-survey-2026.md` 研究结论 | `scripts/check.nu` 的 `cargo test --no-fail-fast` 改用 nextest 运行；变异测试与覆盖率阈值另配 CI 步骤 |
-| detekt 对仪器化测试源集的覆盖面 | 本仓 90 个仪器化用例文件（`TESTING.md`「仪器化用例」的覆盖面） | `scripts/check.nu` 的 `detekt` 改列 `detektDebugAndroidTest`（或等价聚合任务），使仪器化源集与生产、单测源集同受 detekt 规则约束 |
+| detekt 对仪器化测试源集的覆盖面 | `code-health`「规范声明的静态检查工具必须与验证门禁一致」 | `scripts/check.nu` 的 `detekt` 改列 `detektDebugAndroidTest`（或等价聚合任务），使仪器化源集与生产、单测源集同受 detekt 规则约束 |
 
 实测基线（本轮实跑所得，工具版本可能前进，重跑 MUST 以当日实测覆盖本列）：
 
@@ -1145,8 +1145,9 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   `:benchmark:connectedBenchmarkNixAndroidTest`）。
 - 与 `docs/specification/TESTING.md` 环境节声明的比对：`aislop`、`jscpd` 与 `rapidocr`
   三项声明了检查手段但未进门禁，已在上表「落地方案（未实施）」逐项登记差异位置与接入
-  方式，并各带当次实测基线；其余声明（lavapipe 提供 Vulkan 环境、nix 提供工具链与
-  字体）由构建与运行环境提供，不是独立检查项，无需另立门禁条目。
+  方式，并各带当次实测基线；其余声明中，`code-review-skill` 是审查流程而非可执行门禁
+  （由逐轮审查承担，不产生退出码），lavapipe 提供 Vulkan 环境、nix 提供工具链与
+  字体由构建与运行环境提供，均不是独立检查项，无需另立门禁条目。
 - semgrep 的覆盖面：全仓扫描（`semgrep scan --config .semgrep/rules.yml --json`）的
   `errors` MUST NOT 含 `PartialParsing`。2026-11-16 实测为 0：改动前为 11 个文件 /
   104 个区域被跳过扫描（cucumber 步骤定义文件用了 CJK 标识符
