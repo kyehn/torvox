@@ -197,6 +197,12 @@ API 35 / SwiftShader），MUST NOT 因某条流水线缺席而停摆或降低覆
 - **WHEN** 宿主被并发任务抢占，滚动实测帧数降到空闲时的约三分之一
 - **THEN** 用例仍通过（帧数下限按最差实测校准），且呈现窗口数下界仍成立
 
+#### Scenario: 终端内容帧另有系统侧逐图层证据
+
+- **WHEN** 宏基准断言终端内容帧
+- **THEN** 除原生呈现汇总外 MUST 另有系统侧逐图层通道的独立证据（终端内容层有帧记录），
+      MUST NOT 只依赖应用自己的计数
+
 ### Requirement: 宏基准实测值可观测且阈值按实测校准
 
 宏基准的实测值 MUST 可观测：每轮迭代把耗时与帧统计写进设备 logcat（`println` 进
@@ -327,9 +333,9 @@ MUST 取各应用自己的计数口径。
 
 图层级通道的取数 MUST 有明确的图层名与覆盖判据：
 
-- 图层名 MUST 是 `dumpsys SurfaceFlinger --list` 给出的精确 `<base>#<id>`。
-- 名称 MUST 加引号传给设备 shell（名称含 `[` `]` `(` `)`，不加引号会被 shell 当作元字符，命令
-  出错且无输出）。
+- 图层名 MUST 是 `dumpsys SurfaceFlinger --list` 给出的精确 `<base>#<id>`；Android 15 起
+  `--list` 的每行是 `RequestedLayerState{<名字> <键>=<值> ...}`，名字 MUST 从该包装里取出
+  （名字本身可能含空格）。
 - 只有首行表示图层未匹配；全零行表示图层匹配但没有内容帧记录；两者 MUST 判为采集失败。
 - 场景开始前 MUST 先清空该图层的帧历史，否则读到的 MUST NOT 含上一个场景的残留帧。
 
@@ -348,8 +354,33 @@ MUST 取各应用自己的计数口径。
 #### Scenario: 内容图层按属主与图层名选取
 
 - **WHEN** 为某个被测应用选取承载终端内容的图层
-- **THEN** MUST 取该应用 `Owner Pid` 下承载内容帧的那条图层（本项目为 BLAST SurfaceView 层，
-      HWUI 对照对象为应用窗口层），MUST NOT 以「帧行全为零」判定图层不可寻址
+- **THEN** MUST 取该应用属主下承载内容帧的那条图层——属主可由显示级帧时间线的 `Owner Pid`
+      归属，也可由图层名里的应用标识给出（本项目为 BLAST SurfaceView 层，HWUI 对照对象为应用
+      窗口层），MUST NOT 以「帧行全为零」判定图层不可寻址
+
+#### Scenario: 父层不带内容帧时取子层
+
+- **WHEN** 同一 SurfaceView 的父层与 BLAST 子层都在图层清单里（实测父层帧行全为零）
+- **THEN** MUST 取承载内容帧的那条，MUST NOT 按图层类型（父子、名字前缀）直接认定
+
+### Requirement: 跨应用性能对比的图层名在两类命令通道下的转义判据
+
+图层名含 `[` `]` `(` `)`，两类命令通道的转义判据 MUST 分开：
+
+- 命令经真实 shell（`adb shell`）时名称 MUST 加引号，不加引号会被 shell 当作元字符，
+  命令出错且无输出。
+- 命令不经 shell（`UiAutomation` 走 `Runtime.exec(String)`，按空白切词）时 MUST NOT 加
+  引号——引号会原样进入参数使图层名匹配不上，且此时图层名 MUST NOT 含空白。
+
+#### Scenario: 经真实 shell 的图层名加引号
+
+- **WHEN** 用 `adb shell` 采集图层帧时序
+- **THEN** 图层名 MUST 加引号传入，否则 shell 把 `(` `)` 当作元字符，命令出错且无输出
+
+#### Scenario: 不经 shell 的图层名原样传入
+
+- **WHEN** 用 `UiDevice.executeShellCommand` 采集图层帧时序
+- **THEN** 图层名 MUST 原样传入，MUST NOT 加引号，且 MUST NOT 含空白
 
 ### Requirement: 终端内容直绘 SurfaceView 时的帧面取数
 
@@ -387,6 +418,18 @@ MUST NOT 把 `N/A` 当作 0。
 
 - **WHEN** 图层条目的 `Present time` 为 `N/A`
 - **THEN** MUST 以 `Last latch time` 兜底，MUST NOT 把 `N/A` 当作 0 参与间隔计算
+
+### Requirement: BLAST 内容帧的期望呈现时刻不作迟到判据
+
+BLAST 内容帧的「实际呈现减期望呈现」恒为一个刷新周期左右（实测 p50 16.2ms，刷新周期
+16.67ms），逐帧比较会把每一帧都判成迟到。该差值 MUST NOT 作迟到或 jank 判据；判据 MUST
+取呈现间隔跨过的刷新槽位数（`round(间隔 ÷ 刷新周期) - 1`），间隔在半周期以内的抖动 MUST
+NOT 记为丢帧。
+
+#### Scenario: 期望呈现时刻不作迟到判据
+
+- **WHEN** 判定 BLAST 内容帧是否迟到
+- **THEN** MUST NOT 用「实际呈现减期望呈现」判迟到，MUST 用呈现间隔跨过的刷新槽位数
 
 ### Requirement: 全场景矩阵与环境固定化
 

@@ -155,6 +155,26 @@ API 29–30 触发（API 31 起 app trace tag 不再要求该标志）。实测�
 本项目的 BLAST SurfaceView 层同样命中这两个通道。故 HWUI 与 SurfaceView 两条管线的终端内容都落在
 系统侧逐图层通道内，取数口径一致。
 
+**图层名的取法与两类命令通道的转义**：`--list` 在 Android 15 起的每行是
+`RequestedLayerState{<名字> <键>=<值> ...}`，名字要从包装里取出来（名字本身可能含空格，如
+`Background for SurfaceView[com.termux/terminal.emulator.MainActivity]#270`）；本项目终端内容层
+的名字是 `SurfaceView[com.termux/terminal.emulator.MainActivity](BLAST)#269`，其父层
+`SurfaceView[com.termux/terminal.emulator.MainActivity]#268` 实测帧行全为零——内容在带
+`(BLAST)` 的子层，故选取 MUST 以「承载内容帧」为据，MUST NOT 按图层类型（父子、名字前缀）认定。
+
+转义判据按命令通道分开：命令经真实 shell（`adb shell`）时名称 MUST 加引号，否则 `[` `]` `(` `)`
+被当作元字符，设备 shell 直接报 `syntax error: unexpected '('`；命令不经 shell 时 MUST NOT 加
+引号。依据是 AOSP `android/app/UiAutomationConnection.java` 的
+`executeShellCommandWithStderr`——它执行的是 `Runtime.getRuntime().exec(command)`，**不经 shell**，
+按空白切词、引号原样传进参数、管道不生效（`android/app/UiAutomation.java` 的
+`executeShellCommand(String)` 转发到此）。故宏基准里用 `UiDevice.executeShellCommand` 采集时，
+图层名原样传入且 MUST NOT 含空白；用 `adb shell` 采集时 MUST 加引号。
+
+**丢帧判据只能用呈现间隔**：BLAST 内容帧的「实际呈现减期望呈现」恒为一个刷新周期左右（实测
+p50 16.2ms，刷新周期 16.67ms），逐帧拿 `actual` 与 `desired` 比较会把每一帧都判成迟到，故该差值
+MUST NOT 作迟到判据。丢帧数 MUST 取呈现间隔跨过的刷新槽位数（`round(间隔 ÷ 刷新周期) - 1`），
+半周期以内的抖动（实测间隔 12.2–20.9ms、p50 16.4ms）MUST NOT 记为丢帧。
+
 ### 应用级：Perfetto FrameTimeline 的覆盖限制
 
 Perfetto 官方文档 `docs/data-sources/frametimeline.md` 明确写着：「SurfaceViews are currently
@@ -185,8 +205,9 @@ Perfetto FrameTimeline 可作对照对象的应用帧归因，但**不可作终�
 
 1. 场景开始前 `dumpsys SurfaceFlinger --latency-clear <layer>` 清空该图层的帧历史——不清空则读到
    的是上一个场景的残留帧；不带图层名时清空全部图层。
-2. 场景结束后 `dumpsys SurfaceFlinger --latency <layer>` 取回逐帧数据（名称 MUST 加引号传给设备
-   shell），先按上表的判据确认图层已匹配且确有帧记录，再按 `desired != 0` 筛出真实帧。
+2. 场景结束后 `dumpsys SurfaceFlinger --latency <layer>` 取回逐帧数据（名称经真实 shell 时 MUST
+   加引号，不经 shell 时 MUST 原样传入），先按上表的判据确认图层已匹配且确有帧记录，再按
+   `desired != 0` 筛出真实帧。
 3. 同时取 `dumpsys SurfaceFlinger --frametimeline -all`：display frame 级取呈现时序与 jank 分类，
    逐图层条目按 `Owner Pid`（由包名查得）归属到被测应用的内容图层。
 4. 图层名候选来自 `dumpsys SurfaceFlinger --list`；取不到精确图层名、或取回的输出表明图层未匹配
@@ -390,11 +411,18 @@ for device in targets:
 ## 十二、与本仓既有资产的关系
 
 - 已有：`android/benchmark`（`AppStartupBenchmark`、`ScrollPerformanceBenchmark`、
-  `InteractionAnimationBenchmark`、`BenchmarkSupport`、`FrameStats`、`PresentedFrames`）、
-  `native/benches`（`cell_builder`、`vt_typing`、`cjk_resolve`、`support`）、
-  `scripts/test-emulator.nu`。
-- 缺：跨应用对比面；系统侧帧时序采集（显示级 frametimeline 的时间窗筛选与按 `Owner Pid` 归属、
-  图层级 `--latency` 的图层名寻址与「全零行」判据）；exit-info 归因采集；场景矩阵与制品落盘规范。
+  `InteractionAnimationBenchmark`、`BenchmarkSupport`、`FrameStats`、`PresentedFrames`、
+  `SurfaceLayerFrames`）、`native/benches`（`cell_builder`、`vt_typing`、`cjk_resolve`、
+  `support`）、`scripts/test-emulator.nu`。
+- 本轮落地：`SurfaceLayerFrames` 把图层级通道做成了可执行资产——按 `--list` 取图层名（从
+  `RequestedLayerState{...}` 包装里取名字）、逐个候选查帧记录并取承载内容帧的那条、场景前
+  `--latency-clear` 清空历史、场景后解析逐帧三列并按呈现间隔折算丢帧；滚动宏基准据此断言终端
+  内容层在滚动窗口内确有帧记录且丢帧数不超上限。实测（2026-11-21 本机 AVD，API 35 模拟器，
+  软件渲染）三轮保留窗口内丢帧 10/13/14 帧，呈现间隔 p50 16ms、p90 20–21ms、最大 97–102ms，
+  阈值取最差实测的约 1.5 倍口径。该采集按图层名里的应用标识归属到本应用（宏基准只测本应用）；
+  跨应用对比的通用归属走显示级帧时间线的 `Owner Pid` 条目。
+- 缺：跨应用对比面；显示级 frametimeline 的时间窗筛选与按 `Owner Pid` 归属；exit-info 归因采集；
+  场景矩阵与制品落盘规范；跨设备多应用编排（落点在受保护的 `scripts/`）。
 - 与既有规约一致性：本报告不改「模拟器只作数量级」「帧级数据面按绘制主体选源」「采集为空即
   判红」「设备侧命令不含 shell 语法」「不得用固定等待替代就绪信号」等既有口径，只在其上补
   跨应用一层。
@@ -412,6 +440,7 @@ for device in targets:
 两个系统侧通道都只保留最近一段历史（`--latency` 每图层 127 行、`--frametimeline` 最近 64 个
 display frame），故它们给的是**时序**而非长突发场景的总帧数；帧数 MUST 取各应用自己的计数口径。
 对照对象没有任何可复用的基准资产，对比必须自建 harness；本仓已有的宏基准模块与设备侧编排是
-落点，跨应用扩展受 `scripts/` 受保护约束，须维护者明确同意后实施。失败归因必须落到
+落点，图层级通道已在本仓落成可执行采集（`android/benchmark` 的 `SurfaceLayerFrames`），跨应用
+扩展受 `scripts/` 受保护约束，须维护者明确同意后实施。失败归因必须落到
 exit-info reason、FrameTimeline jank 类型、logcat 与 dropbox 四源交集，证据不足记「未定」而非
 猜测；极端场景要有硬超时与输出上限，宁可快速死亡并留下证据，也不在失败场景上继续消耗设备。

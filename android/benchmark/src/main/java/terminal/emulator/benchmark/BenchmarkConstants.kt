@@ -79,6 +79,19 @@ internal const val MIN_SCROLL_PRESENTED_FRAMES = 30
 internal const val MIN_SCROLL_PRESENTED_WINDOWS = 4
 
 /**
+ * 滚动窗口内终端内容层允许丢的帧数上限。
+ *
+ * 丢帧数由系统侧逐图层通道的呈现间隔折算：呈现间隔跨过刷新槽位即记一次丢帧
+ * （见 [SurfaceLayerFrames]）。该通道只保留最近 127 行，故丢帧数是保留窗口内的
+ * 观测值，不是整次滚动的丢帧总数。
+ *
+ * 预算按实测校准：2026-11-21 本机 AVD（API 35 模拟器，软件渲染）滚动宏基准三轮
+ * 实测保留窗口内丢帧 10/13/14 帧，呈现间隔 p50 16ms、p90 20–21ms、最大 97–102ms；
+ * 取最差实测的约 1.5 倍口径（与 Rust 微基准上限断言同口径）留出宿主抖动余量。
+ */
+internal const val MAX_SCROLL_MISSED_LAYER_FRAMES = 21
+
+/**
  * 交互动画至少要出帧。
  *
  * 0 帧说明交互没有产生任何绘制（界面没动，指标测到的只是静止画面）。下限 MUST 取 1，
