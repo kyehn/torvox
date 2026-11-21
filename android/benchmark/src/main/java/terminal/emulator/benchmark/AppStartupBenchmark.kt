@@ -6,6 +6,7 @@ import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import org.junit.Rule
 import org.junit.Test
@@ -46,6 +47,11 @@ private data class StartupIteration(
 @RunWith(AndroidJUnit4::class)
 class AppStartupBenchmark {
     @get:Rule
+    val environmentPinning = EnvironmentPinningRule(
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()),
+    )
+
+    @get:Rule
     val benchmarkRule = MacrobenchmarkRule()
 
     @Test
@@ -62,7 +68,7 @@ class AppStartupBenchmark {
                 pressHome()
             },
             measureBlock = {
-                measureScenario(device, "coldStart", store, iteration) {
+                measureScenario(device, "coldStart", store, iteration) { _ ->
                     // 冷启动前进程不在，清零帧计数是空操作：读数即进程启动以来的全部帧。
                     resetFrameStats(device)
                     // 启动耗时只有在界面真的出现时才有意义：首帧到了但被系统对话框
@@ -74,6 +80,7 @@ class AppStartupBenchmark {
                     check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
                         "冷启动未产生任何界面帧：frames=${frames.frames}"
                     }
+                    emptyMap()
                 }
             },
         )
@@ -96,7 +103,7 @@ class AppStartupBenchmark {
                 pressHome()
             },
             measureBlock = {
-                measureScenario(device, "warmStart", store, iteration) {
+                measureScenario(device, "warmStart", store, iteration) { _ ->
                     resetFrameStats(device)
                     val iteration = measureStartup()
                     iterations += iteration
@@ -105,6 +112,7 @@ class AppStartupBenchmark {
                     check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
                         "热启动未产生任何界面帧：frames=${frames.frames}"
                     }
+                    emptyMap()
                 }
             },
         )

@@ -4,6 +4,7 @@ import android.os.SystemClock
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import org.junit.Rule
@@ -31,6 +32,11 @@ private const val SELECTION_POLL_INTERVAL_MILLIS = 50L
 @RunWith(AndroidJUnit4::class)
 class InteractionAnimationBenchmark {
     @get:Rule
+    val environmentPinning = EnvironmentPinningRule(
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()),
+    )
+
+    @get:Rule
     val benchmarkRule = MacrobenchmarkRule()
 
     @Test
@@ -45,7 +51,7 @@ class InteractionAnimationBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
-                measureScenario(device, "modifierKeyPress", store, iteration) {
+                measureScenario(device, "modifierKeyPress", store, iteration) { _ ->
                     startActivityAndWait()
                     val controlKey = requireElement(device, CONTROL_KEY_RESOURCE_ID, "CTRL 键")
                     resetFrameStats(device)
@@ -68,6 +74,7 @@ class InteractionAnimationBenchmark {
                     // 复位粘滞态，别把 Once 态留给下一次迭代。
                     device.findObject(By.res(CONTROL_KEY_RESOURCE_ID))?.click()
                     device.waitForIdle()
+                    emptyMap()
                 }
             },
         )
@@ -85,7 +92,7 @@ class InteractionAnimationBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
-                measureScenario(device, "imeShow", store, iteration) {
+                measureScenario(device, "imeShow", store, iteration) { _ ->
                     startActivityAndWait()
                     requireElement(device, CONTROL_KEY_RESOURCE_ID, "CTRL 键")
                     // 启动后输入法自动弹出（DESIGN）：先收起，否则「点终端弹输入法」无事发生，
@@ -108,6 +115,7 @@ class InteractionAnimationBenchmark {
                     check(elapsed <= INTERACTION_BUDGET_MILLIS) {
                         "IME 弹出耗时 ${elapsed}ms 超过预算 ${INTERACTION_BUDGET_MILLIS}ms"
                     }
+                    emptyMap()
                 }
             },
         )
@@ -125,7 +133,7 @@ class InteractionAnimationBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
-                measureScenario(device, "sessionDrawer", store, iteration) {
+                measureScenario(device, "sessionDrawer", store, iteration) { _ ->
                     startActivityAndWait()
                     val drawerKey = requireElement(device, DRAWER_KEY_RESOURCE_ID, "抽屉键")
                     resetFrameStats(device)
@@ -143,6 +151,7 @@ class InteractionAnimationBenchmark {
                     }
                     device.pressBack()
                     device.waitForIdle()
+                    emptyMap()
                 }
             },
         )

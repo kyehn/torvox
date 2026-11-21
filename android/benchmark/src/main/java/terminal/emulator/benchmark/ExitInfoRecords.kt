@@ -174,8 +174,8 @@ private fun parseExitTimestampMillis(text: String): Long {
 }
 
 /** 读出设备上被测包的进程退出历史。 */
-internal fun readExitInfoRecords(device: UiDevice): List<ExitInfoRecord> =
-    parseExitInfoRecords(device.executeShellCommand("dumpsys activity exit-info $TARGET_PACKAGE"))
+internal fun readExitInfoRecords(device: UiDevice, packageName: String = TARGET_PACKAGE): List<ExitInfoRecord> =
+    parseExitInfoRecords(device.executeShellCommand("dumpsys activity exit-info $packageName"))
 
 /** 落在场景时间窗内的退出记录。 */
 internal fun List<ExitInfoRecord>.withinWindow(startMillis: Long, endMillis: Long): List<ExitInfoRecord> =
@@ -187,9 +187,13 @@ internal fun List<ExitInfoRecord>.withinWindow(startMillis: Long, endMillis: Lon
  * 读退出记录本身失败时保留原始失败（把读失败挂成 suppressed），不因归因失败而丢掉
  * 真正的失败原因。
  */
-internal fun Throwable.withProcessExitAttribution(device: UiDevice, sinceMillis: Long): Throwable {
+internal fun Throwable.withProcessExitAttribution(
+    device: UiDevice,
+    sinceMillis: Long,
+    packageName: String = TARGET_PACKAGE,
+): Throwable {
     val exits = try {
-        readExitInfoRecords(device).filter { it.timestampMillis >= sinceMillis }
+        readExitInfoRecords(device, packageName).filter { it.timestampMillis >= sinceMillis }
     } catch (readFailure: Throwable) {
         addSuppressed(readFailure)
         return this

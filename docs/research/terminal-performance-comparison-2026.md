@@ -270,6 +270,7 @@ MUST 一一对得上（容差 1ms），对不上即取数出了偏差。
 | 面 | 采集命令 | 输出 | 判据用法 |
 | --- | --- | --- | --- |
 | 显示级帧时序 | `dumpsys SurfaceFlinger --frametimeline -all` / `-jank` | 逐 display frame 的期望/实际起止与呈现时刻、jank 分类；每个 display frame 下挂逐图层条目（`Owner Pid`、`Layer ID`、`Is Buffer?`、呈现状态与时刻） | 跨应用呈现时序分位数、jank 归因、按属主归属到内容图层 |
+| 启动耗时（系统侧） | `cmd package resolve-activity --brief <包名>`、`am start -W -n <包名>/<类名>` | 启动状态、启动态、实际被拉起的 Activity、TotalTime、WaitTime | 跨应用启动耗时的同口径量法（各应用自报的启动指标跨应用不可比） |
 | 图层级帧时序 | `dumpsys SurfaceFlinger --latency <layer>` / `--latency-clear <layer>` | 首行 vsync 周期 + 逐帧三列纳秒（127 个槽位行，末尾一空行） | 对承载内容帧的图层一律有效（含 BLAST SurfaceView 层）；帧数、呈现间隔分位数、超出量分位数 |
 | 应用内帧时序 | `dumpsys gfxinfo <pkg> framestats` | HWUI 帧统计与分位数 | 仅 Compose / HWUI 界面（既有规约同口径） |
 | 进程状态 | `dumpsys meminfo <pkg>`、`dumpsys procstats`、`/proc/<pid>/status` | PSS / RSS / 匿名与文件占用 | 内存峰值与回收行为 |
@@ -327,6 +328,39 @@ meminfo 与 exit-info），Perfetto 只在归因深挖时开；轻量模式的 a
 `dumpsys dropbox --print` 均可用；`adb emu` 控制台提供 `avd snapshot` 等设备侧操作。该设备上未装
 任何对照应用——对照 APK 必须外部下载，不入库。
 
+### 跨应用启动对比面：系统侧口径与实测形态
+
+启动耗时是跨应用对比里最容易取错口径的量：各应用自报的启动指标量的是各自管线内的耗时
+（宏基准的 `StartupTimingMetric` 量的是它自己的探针），跨应用不可比。可比口径只有系统侧的
+`am start -W`——它的 TotalTime 与被测应用无关，同一台设备上依次测各应用即得横向可比的数据。
+本仓已把该面落成可执行资产（`android/benchmark` 的 `AppLaunch` 与
+`CrossAppLaunchBenchmark`），实测语义如下：
+
+- 启动入口由 `cmd package resolve-activity --brief <包名>` 解析：输出首行是匹配信息
+  （`priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false`），第二行
+  才是 `包名/类名`；未安装的包输出 `No activity found`，据此判失败而不回退到别的入口。
+- `am start -W` 的输出给出 `Status`、`LaunchState`、`Activity`、`TotalTime`、`WaitTime`；
+  状态不是 `ok` 即判失败——启动没成功时耗时字段没有意义，读成 0 会把「没启动」记成
+  「启动很快」。
+- 冷启动的准备动作（`am force-stop`）必须落在测量窗口之外：强停自身会在 exit-info 里留下
+  一条 `USER REQUESTED / FORCE STOP` 的退出记录，落在窗口内会让该轮按「窗口内进程退出」
+  判红。这是本轮实测暴露的：首轮跨应用测量即因这条强停记录判红，把准备动作移到窗口
+  外后恢复。
+- 权限弹窗会抢走启动：被测应用首次启动时系统弹出通知权限窗，`am start -W` 报出的
+  `Activity` 变成权限控制器的 `GrantPermissionsActivity`——量到的不是被测应用的启动耗时。
+  测量前须预授权限：授掉包 dump 里未授权的运行时权限，并显式授一次通知权限（目标 SDK
+  低于 33 的应用在安装时已被系统自动授予该权限，但首次建通知渠道时系统仍会弹窗，显式
+  授予才会让系统记住用户的选择）；授完再读一次包 dump，授不了的权限（受限权限等）记进
+  测量行，由「拉起的是不是被测应用」这条判据兜底。
+- 首次启动含 dex 优化与首次初始化，故每个包先跑一次不落盘的预热启动，再开始记行。
+- 拉起后须校验启动态是 `COLD`（强停后拉起才成立），不是冷启动即判红。
+- 实测（2026-11-21 本机 AVD，API 35 模拟器，软件渲染，同一轮内先后测两个包）：本项目
+  `com.termux` 五轮系统侧 TotalTime 为 846–960ms（p50 873ms、p95 960ms），系统应用
+  `com.android.settings` 为 671–736ms（p50 689ms、p95 736ms）；十轮全部无退出记录、判定
+  为 PASS。模拟器上的绝对量只作数量级参考（既有规约同口径），横向关系才是此处要的。
+- 同一轮里多包并测时，行的迭代序号按场景名连续递增（先测的包占前若干号），故横向比较
+  按 `app.package` 分组。
+
 ## 五、全场景矩阵
 
 同一场景给三个应用**完全相同**的字节流与网格尺寸；负载不等价则对比无效。
@@ -357,10 +391,13 @@ SurfaceView，经 HWUI 的 `gfxinfo` 记不到），对照对象取其 HWUI 帧�
 
 ## 六、环境固定化
 
-- **刷新率**：`cmd display set-user-preferred-display-mode` 锁定，并记录实际生效值。
-- **性能档位**：`cmd power set-fixed-performance-mode-enabled true`；关闭三类动画缩放。
-- **温度**：`cmd thermalservice inject-temperature` / `override-status` 注入并记录实际热状态；
-  热节流会把性能差异伪装成应用差异。
+- **刷新率**：设备只有一个显示模式时，刷新率没有别的取值，天然固定；有多个模式时用
+  `cmd display set-user-preferred-display-mode` 锁定，并记录实际生效值。
+- **性能档位**：`cmd power set-fixed-performance-mode-enabled true`；三类动画缩放
+  （`window_animation_scale`、`transition_animation_scale`、`animator_duration_scale`）
+  显式定成 1.0 并记录实际生效值。
+- **温度**：`cmd thermalservice override-status` 注入并记录实际热状态；热节流会把性能
+  差异伪装成应用差异。
 - **电池与充电**：每轮记 `dumpsys battery`；低电量时宏基准类采集会直接报错（官方口径）。
 - **屏幕与网络**：统一亮屏或统一灭屏；统一网络状态，避免后台下载制造噪声。
 - **字体与网格**：三应用统一字体族与字号；同一列行数由同一 resize 序列产生。
@@ -369,6 +406,29 @@ SurfaceView，经 HWUI 的 `gfxinfo` 记不到），对照对象取其 HWUI 帧�
   十轮中位数从 2.0s 涨到 3.5s、终端内容层刷新槽位比例从 0.91 降到 0.59。故每轮 MUST 记录
   宿主负载，判定 MUST 用负载无关的相对量或覆盖该情形的余量，MUST NOT 把宿主抖动当成应用
   回归，也 MUST NOT 用只能拦「卡死级」的宽阈值掩盖它。
+
+### 环境固定化的实测形态
+
+本仓已把环境固定落成可执行资产（`android/benchmark` 的 `EnvironmentPinning`，由各基准
+用例的 `EnvironmentPinningRule` 在用例前固定、用例后复原），实测语义如下（2026-11-21 本机
+AVD，API 35 模拟器）：
+
+- 刷新率：活动显示只有一个显示模式（`modeId 1`，320×640，60.000004Hz），刷新率没有别的
+  取值，故不下发首选模式命令——实测该命令在本镜像上会抛
+  `SecurityException: Package android does not belong to 2000`（写全局设置时调用方归属被拒），
+  且命令报错后模式仍被写进全局设置。有多个模式时下发首选模式并核对实际生效值，不符即判红。
+- 动画缩放：`settings put global` 三项后读回核对，实测生效值 1.0／1.0／1.0。定成 1.0 而不是 0：
+  Compose 的动效时长基准取 `animator_duration_scale`，置 0 会让本仓的交互动画宏基准测不到
+  任何动画（帧数为 0 的假通过）。
+- 温度：`cmd thermalservice override-status 0` 后读 `dumpsys thermalservice` 核对，实测生效
+  热状态为 0（NONE）。
+- 固定性能模式：`cmd power set-fixed-performance-mode-enabled true` 在本镜像上被接受，但
+  `dumpsys power` 里没有该状态的字段（实测 dump 全文无 fixed／performance 相关行），故只记
+  「不可核对」，不谎称已固定——设备提供了核对通道时读出核对，读到「未开」即判红。
+- 复原：用例结束后解除热状态覆盖、关掉固定性能模式、还原用户首选显示模式与三项动画缩放的
+  原值（原值为「未设置」即删掉该项），不把设备留在被改过的状态里。
+- 固定后的实际生效值随每次测量的环境快照落进测量行（`animation_scales` 与
+  `fixed_performance_mode` 字段）。
 
 ## 七、失败归因规则
 
@@ -530,8 +590,19 @@ for device in targets:
   环境快照、退出归因、判定与备注，目录落在测试输出目录里，宿主侧随测试结果一并回收（实测落在
   `android/benchmark/build/outputs/connected_android_test_additional_output/`）。制品配额一轮 64 MB，
   腾不出空间时轮转清理最旧的制品，单件超配额即丢弃。
-- 缺：跨应用对比面；场景矩阵（矩阵数据与执行器）；环境固定化（刷新率锁定、性能档位、温度注入）；
-  跨设备多应用编排（落点在受保护的 `scripts/`）。
+- 本轮落地：跨应用启动对比面——`AppLaunch` 解析系统侧 `am start -W` 与
+  `cmd package resolve-activity --brief` 的输出，`CrossAppLaunchBenchmark` 以仪器参数
+  `targetPackages` 驱动逐包测冷启动：解析启动入口、预授权限、强停后拉起、校验拉起的是
+  被测应用且启动态为 `COLD`、逐轮落盘系统侧 TotalTime 与 WaitTime 并给 p50/p95 汇总；
+  被测包的标识与指标随行落盘，横向比较按 `app.package` 分组。实测两个包各五轮全部通过
+  （见第四节「跨应用启动对比面」）。
+- 本轮落地：环境固定化——`EnvironmentPinning` 把刷新率、三类动画缩放、热状态与固定性能模式
+  钉住并核对实际生效值，各基准用例的 `EnvironmentPinningRule` 在用例前固定、用例后复原；
+  固定后的实际生效值随环境快照落进测量行。设备只有一个显示模式时不下发首选模式命令，
+  固定性能模式在无核对通道的设备上只记「不可核对」（见第六节）。
+- 缺：跨应用帧面端到端跑通（对照应用尚未装到设备上按本仓口径取帧）；场景矩阵（矩阵数据与
+  执行器）；宿主负载的记录与归一化（只记了环境，没记宿主占用）；跨设备多应用编排（落点在
+  受保护的 `scripts/`）。
 - 与既有规约一致性：本报告不改「模拟器只作数量级」「帧级数据面按绘制主体选源」「采集为空即
   判红」「设备侧命令不含 shell 语法」「不得用固定等待替代就绪信号」等既有口径，只在其上补
   跨应用一层。
@@ -571,3 +642,16 @@ JSONL 行文件与一个制品目录，行里带环境、退出归因与判定�
 回到宿主；实测宏基准跑完一轮即产出 33 行（冷启动 10、温启动 11、滚动 3、三组交互动画各 3）。
 行数记实际发生的测量，不等于框架的迭代数——温／热启动前框架多跑的那一轮准备轮次在行里被标为
 `measured=false`。
+跨应用启动对比面也已落成可执行资产（`android/benchmark` 的 `AppLaunch` 与
+`CrossAppLaunchBenchmark`）：启动耗时取系统侧 `am start -W` 的 TotalTime——各应用自报的启动
+指标跨应用不可比，只有系统口径同源可比。实测暴露并已修掉两处会污染数据的坑：冷启动的准备
+动作（强停）自身留下的 exit-info 记录落在测量窗口内会让该轮判红；权限弹窗会抢走启动，
+`am start -W` 报出的是弹窗自己的 Activity。两者分别以「准备动作移出窗口」与「测量前预授权限
+并校验拉起的是被测应用且启动态为 COLD」处置。实测同轮内两个包各五轮：本项目 p50 873ms、
+系统应用 p50 689ms（模拟器上只作数量级参考），十轮全部无退出记录。
+环境固定化也已落成可执行资产（`android/benchmark` 的 `EnvironmentPinning`）：刷新率、三类
+动画缩放、热状态与固定性能模式在测量前钉住并核对实际生效值，钉不住即判红；固定后的实际值
+随环境快照落进测量行，用例结束后复原设备原值。实测确认两处平台事实：模拟器只有一个显示
+模式（刷新率天然固定，不必下发首选模式命令），固定性能模式在本镜像上没有核对通道（只记
+「不可核对」，不谎称已固定）。动画缩放定成 1.0 而非 0：置 0 会让交互动画宏基准测不到动画，
+变成帧数为 0 的假通过。

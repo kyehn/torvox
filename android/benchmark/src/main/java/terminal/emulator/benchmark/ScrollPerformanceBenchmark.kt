@@ -5,6 +5,7 @@ import android.os.SystemClock
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import org.junit.Rule
 import org.junit.Test
@@ -73,6 +74,11 @@ private const val SCROLLBACK_COMMAND = "seq%s500"
 @RunWith(AndroidJUnit4::class)
 class ScrollPerformanceBenchmark {
     @get:Rule
+    val environmentPinning = EnvironmentPinningRule(
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()),
+    )
+
+    @get:Rule
     val benchmarkRule = MacrobenchmarkRule()
 
     @Test
@@ -87,7 +93,7 @@ class ScrollPerformanceBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
-                measureScenario(device, "scroll", store, iteration) {
+                measureScenario(device, "scroll", store, iteration) { _ ->
                     val startedMillis = System.currentTimeMillis()
                     startActivityAndWait(benchmarkLaunchIntent())
                     val terminal =
@@ -179,6 +185,7 @@ class ScrollPerformanceBenchmark {
                     check(samePresentEvents(attributedPresentTimesMillis, layerPresentTimesMillis)) {
                         "显示级帧时间线与逐图层通道记录的呈现时刻对不上"
                     }
+                    emptyMap()
                 }
             },
         )

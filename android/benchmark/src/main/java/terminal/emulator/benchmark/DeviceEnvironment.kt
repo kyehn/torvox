@@ -28,10 +28,10 @@ internal data class DeviceEnvironment(
     val batteryTemperatureCelsius: Double,
     /** 热状态（`PowerManager.THERMAL_STATUS_*`）。 */
     val thermalStatus: Int,
-    /** 被测应用的版本号（versionCode）。 */
-    val appVersionCode: Long,
-    /** 被测应用的版本名（versionName）。 */
-    val appVersionName: String,
+    /** 三类动画缩放的实际值。 */
+    val animationScales: AnimationScales,
+    /** 固定性能模式的核对结论。 */
+    val fixedPerformanceMode: FixedPerformanceState,
     /** 快照时刻（epoch 毫秒）。 */
     val capturedAtEpochMillis: Long,
 ) {
@@ -40,7 +40,24 @@ internal data class DeviceEnvironment(
         "refreshRate=${refreshRateHz}Hz battery=$batteryLevelPercent% " +
         "batteryStatus=${batteryStatusName(batteryStatus)} " +
         "batteryTemperature=${batteryTemperatureCelsius}C thermal=${thermalStatusName(thermalStatus)} " +
-        "versionCode=$appVersionCode versionName=$appVersionName"
+        "animationScales=${animationScales.describe()} fixedPerformanceMode=$fixedPerformanceMode"
+}
+
+/**
+ * 被测应用的标识。
+ *
+ * 与设备环境分开：跨应用对比时同一台设备上被测的应用会换，环境是设备的、标识是应用的。
+ */
+internal data class AppIdentity(
+    /** 包名。 */
+    val packageName: String,
+    /** 版本号（versionCode）。 */
+    val versionCode: Long,
+    /** 版本名（versionName）。 */
+    val versionName: String,
+) {
+    /** 一行式说明：进实测行，事后据此判断测的是哪个构建。 */
+    fun describe(): String = "package=$packageName versionCode=$versionCode versionName=$versionName"
 }
 
 /** 电池状态的可读名。 */
@@ -163,7 +180,7 @@ internal fun parsePackageVersion(output: String): PackageVersion {
 }
 
 /**
- * 读出设备与被测应用的环境快照。
+ * 读出设备环境快照。
  *
  * 读不到任何一项都当场失败：环境缺失时留下的数字没法与别的轮次比较，宁可判红
  * 也不能记一份看着齐全、实则缺项的环境。
@@ -179,7 +196,8 @@ internal fun readDeviceEnvironment(device: UiDevice): DeviceEnvironment {
     val battery = parseBatteryState(device.executeShellCommand("dumpsys battery"))
     val thermalStatus = parseThermalStatus(device.executeShellCommand("dumpsys thermalservice"))
     val refreshRateHz = parseRefreshRateHz(device.executeShellCommand("dumpsys display"))
-    val version = parsePackageVersion(device.executeShellCommand("dumpsys package $TARGET_PACKAGE"))
+    val animationScales = readAnimationScales(device)
+    val fixedPerformanceMode = parseFixedPerformanceMode(device.executeShellCommand("dumpsys power"))
     return DeviceEnvironment(
         model = model,
         romBuildId = romBuildId,
@@ -189,8 +207,18 @@ internal fun readDeviceEnvironment(device: UiDevice): DeviceEnvironment {
         batteryStatus = battery.status,
         batteryTemperatureCelsius = battery.temperatureCelsius,
         thermalStatus = thermalStatus,
-        appVersionCode = version.versionCode,
-        appVersionName = version.versionName,
+        animationScales = animationScales,
+        fixedPerformanceMode = fixedPerformanceMode,
         capturedAtEpochMillis = System.currentTimeMillis(),
     )
 }
+
+/** 解析包 dump 里的版本标识并组成应用标识。 */
+internal fun parseAppIdentity(output: String, packageName: String): AppIdentity {
+    val version = parsePackageVersion(output)
+    return AppIdentity(packageName, version.versionCode, version.versionName)
+}
+
+/** 读出被测应用的版本标识。 */
+internal fun readAppIdentity(device: UiDevice, packageName: String): AppIdentity =
+    parseAppIdentity(device.executeShellCommand("dumpsys package $packageName"), packageName)

@@ -104,9 +104,11 @@ class MeasurementArtifactsTest {
             label = "coldStart",
             iteration = 1,
             frameworkIteration = 0,
+            measured = true,
             startedAtMillis = 1_795_279_264_000L,
             endedAtMillis = 1_795_279_264_131L,
             environment = DeviceEnvironment(
+
                 model = "sdk_gphone64_x86_64",
                 romBuildId = "sdk_gphone64_x86_64-userdebug 15 AE3A.240806.043 12960925 dev-keys",
                 apiLevel = 35,
@@ -115,10 +117,12 @@ class MeasurementArtifactsTest {
                 batteryStatus = BatteryManager.BATTERY_STATUS_CHARGING,
                 batteryTemperatureCelsius = 25.0,
                 thermalStatus = PowerManager.THERMAL_STATUS_NONE,
-                appVersionCode = 2000L,
-                appVersionName = "0.1.0",
+                animationScales = AnimationScales("1.0", "1.0", "1.0"),
+                fixedPerformanceMode = FixedPerformanceState.UNVERIFIABLE,
                 capturedAtEpochMillis = 1_795_279_264_000L,
             ),
+            app = AppIdentity("com.termux", 2000L, "0.1.0"),
+            metrics = mapOf("total_time_millis" to 363.0),
             exits = listOf(exit),
             artifacts = emptyList(),
             verdict = "FAIL",
@@ -136,7 +140,13 @@ class MeasurementArtifactsTest {
         assertEquals(35, json.getJSONObject("device").getInt("api"))
         assertEquals("CHARGING", json.getJSONObject("device").getString("battery_status"))
         assertEquals("NONE", json.getJSONObject("device").getString("thermal_status"))
+        assertEquals("1.0", json.getJSONObject("device").getJSONObject("animation_scales").getString("window"))
+        assertEquals(
+            "UNVERIFIABLE",
+            json.getJSONObject("device").getString("fixed_performance_mode"),
+        )
         assertEquals("com.termux", json.getJSONObject("app").getString("package"))
+        assertEquals(363.0, json.getJSONObject("metrics").getDouble("total_time_millis"), 0.0)
         assertEquals(1, json.getJSONArray("exit").length())
         assertTrue(json.getJSONArray("exit").getString(0).contains("APP CRASH(EXCEPTION)"))
         assertEquals("FAIL", json.getJSONObject("verdict").getString("result"))

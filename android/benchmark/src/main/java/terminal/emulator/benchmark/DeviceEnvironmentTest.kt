@@ -73,8 +73,8 @@ class DeviceEnvironmentTest {
             batteryStatus = BatteryManager.BATTERY_STATUS_CHARGING,
             batteryTemperatureCelsius = 25.0,
             thermalStatus = PowerManager.THERMAL_STATUS_NONE,
-            appVersionCode = 2000L,
-            appVersionName = "0.1.0",
+            animationScales = AnimationScales("1.0", "1.0", "1.0"),
+            fixedPerformanceMode = FixedPerformanceState.UNVERIFIABLE,
             capturedAtEpochMillis = 1_795_279_264_131L,
         )
 
@@ -84,7 +84,18 @@ class DeviceEnvironmentTest {
         assertTrue(description.contains("refreshRate=60.000004Hz"))
         assertTrue(description.contains("batteryStatus=CHARGING"))
         assertTrue(description.contains("thermal=NONE"))
-        assertTrue(description.contains("versionCode=2000"))
+        assertTrue(description.contains("animationScales=window=1.0"))
+        assertTrue(description.contains("fixedPerformanceMode=UNVERIFIABLE"))
+    }
+
+    @Test
+    fun parsesAppIdentityFromPackageDump() {
+        val identity = parseAppIdentity(PACKAGE_OUTPUT_SAMPLE, "com.termux")
+
+        assertEquals("com.termux", identity.packageName)
+        assertEquals(2000L, identity.versionCode)
+        assertEquals("0.1.0", identity.versionName)
+        assertTrue(identity.describe().contains("versionCode=2000"))
     }
 
     @Test

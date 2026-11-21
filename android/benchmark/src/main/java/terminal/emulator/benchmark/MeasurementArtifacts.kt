@@ -106,11 +106,17 @@ internal data class MeasurementRow(
     val iteration: Int,
     /** 宏基准框架的迭代序号；框架的准备轮次（温／热启动前的那一轮）为 null。 */
     val frameworkIteration: Int?,
+    /** 该行是否是一次计入结论的测量。 */
+    val measured: Boolean,
     /** 场景起止时刻（epoch 毫秒）。 */
     val startedAtMillis: Long,
     val endedAtMillis: Long,
     /** 环境快照。 */
     val environment: DeviceEnvironment,
+    /** 被测应用标识。 */
+    val app: AppIdentity,
+    /** 指标（数值型；无指标的场次不写该字段）。 */
+    val metrics: Map<String, Double>,
     /** 测量窗口内的进程退出记录。 */
     val exits: List<ExitInfoRecord>,
     /** 该次测量关联的制品。 */
@@ -134,16 +140,31 @@ internal data class MeasurementRow(
                 put("battery_status", batteryStatusName(environment.batteryStatus))
                 put("battery_temperature_celsius", environment.batteryTemperatureCelsius)
                 put("thermal_status", thermalStatusName(environment.thermalStatus))
+                put(
+                    "animation_scales",
+                    JSONObject().apply {
+                        put("window", environment.animationScales.window)
+                        put("transition", environment.animationScales.transition)
+                        put("animator_duration", environment.animationScales.animatorDuration)
+                    },
+                )
+                put("fixed_performance_mode", environment.fixedPerformanceMode.name)
             },
         )
         put(
             "app",
             JSONObject().apply {
-                put("package", TARGET_PACKAGE)
-                put("version_code", environment.appVersionCode)
-                put("version_name", environment.appVersionName)
+                put("package", app.packageName)
+                put("version_code", app.versionCode)
+                put("version_name", app.versionName)
             },
         )
+        if (metrics.isNotEmpty()) {
+            put(
+                "metrics",
+                JSONObject().apply { metrics.forEach { (name, value) -> put(name, value) } },
+            )
+        }
         put(
             "scenario",
             JSONObject().apply {
@@ -151,7 +172,7 @@ internal data class MeasurementRow(
                 put("iteration", iteration)
                 // 温／热启动前框架会多跑一轮准备轮次（该轮不计入框架的测量迭代），
                 // 故记下框架自己的序号：null 即准备轮次。
-                put("measured", frameworkIteration != null)
+                put("measured", measured)
                 if (frameworkIteration != null) put("framework_iteration", frameworkIteration)
                 put("started_at", startedAtMillis)
                 put("ended_at", endedAtMillis)
