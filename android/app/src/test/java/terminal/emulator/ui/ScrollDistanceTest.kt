@@ -1,6 +1,7 @@
 package terminal.emulator.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -254,5 +255,73 @@ class ScrollDistanceTest {
         assertEquals(SCROLLBACK_LENGTH - 1, step.newOffset)
         assertEquals(-10f, step.newAccumulatorPx)
         assertEquals(0f, step.revealPx)
+    }
+
+    // 惯性一帧的落点：以当前实际位置为基准，外部状态变化（偏移重基、位移显出量
+    // 增减）不被算成一次位移。
+
+    @Test
+    fun `fling frame advances by the travel increment`() {
+        val step = flingStep(currentPx = 600f, travelDeltaPx = 30f, limitPx = 6000f)
+        assertEquals(30f, step.deltaPx, 0f)
+        assertFalse(step.reachedBound)
+    }
+
+    @Test
+    fun `fling frame stops at the upper bound`() {
+        val step = flingStep(currentPx = 5990f, travelDeltaPx = 30f, limitPx = 6000f)
+        assertEquals(10f, step.deltaPx, 0f)
+        assertTrue(step.reachedBound)
+    }
+
+    @Test
+    fun `fling frame stops at the lower bound`() {
+        val step = flingStep(currentPx = 10f, travelDeltaPx = -30f, limitPx = 6000f)
+        assertEquals(-10f, step.deltaPx, 0f)
+        assertTrue(step.reachedBound)
+    }
+
+    @Test
+    fun `fling frame ignores an external position change`() {
+        // 回滚区增长引起偏移重基后位置变了，但本帧位移仍只由行程增量决定：
+        // 内容本就在原处，重基不得被算成一次位移（否则惯性中途视口跳一段）。
+        val step = flingStep(currentPx = 1260f, travelDeltaPx = 30f, limitPx = 6000f)
+        assertEquals(30f, step.deltaPx, 0f)
+        assertFalse(step.reachedBound)
+    }
+
+    @Test
+    fun `fling keeps every pixel of the travel`() {
+        // 逐帧位移经 applyScrollDistance 后，位置增量等于行程增量：既不丢像素
+        // 也不多走，整段行程仍等于 v₀·τ。
+        val velocity = 5000f
+        val limitPx = SCROLLBACK_LENGTH * CELL_HEIGHT
+        var offset = MIDDLE_OFFSET
+        var accumulator = 0f
+        var position = offset * CELL_HEIGHT + accumulator
+        val startPosition = position
+        var elapsed = 0L
+        var previousTravel = 0f
+        while (elapsed < FLING_MAX_DURATION_MS) {
+            elapsed += 16L
+            val travel = flingOffsetPx(velocity, elapsed)
+            val frame = flingStep(position, travel - previousTravel, limitPx)
+            previousTravel = travel
+            val step =
+                applyScrollDistance(
+                    accumulator,
+                    -frame.deltaPx,
+                    CELL_HEIGHT,
+                    offset,
+                    SCROLLBACK_LENGTH,
+                )
+            offset = step.newOffset
+            accumulator = step.newAccumulatorPx
+            position = offset * CELL_HEIGHT + accumulator
+        }
+        // 整段行程等于最后一步的累计行程（无边界钳制时不丢像素也不多走），
+        // 且不超过 v₀·τ。
+        assertEquals(previousTravel, position - startPosition, 0.5f)
+        assertTrue(position - startPosition <= velocity * FLING_TIME_CONSTANT_MS / 1000f)
     }
 }

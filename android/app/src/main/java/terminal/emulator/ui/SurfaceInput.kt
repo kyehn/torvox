@@ -55,11 +55,12 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
      * 整行与亚行余量一起算，内容才能按像素跟随惯性；按行驱动时每帧落点被截成
      * 整行，表现为逐行跳动（STATUS ⑩）。上界含键盘位移的显出量容量，
      * 猛甩也能走到「显出被位移裁掉的网格顶部」的行程末端（STATUS ⑧）。
+     *
+     * 每帧落点以**当前实际位置**为基准（[flingStep]），不以惯性起点为基准：
+     * 浏览期间新输出把回滚区底边推远时偏移要重基，若惯性仍按起点算行程，
+     * 视口会在惯性中途跳一段（旧内容被新输出顶走）。
      */
     private val flingStepRunnable = Runnable { doFlingStep() }
-
-    /** 惯性起点（偏移空间像素：`surface.scrollOffset * surface.cellHeight + 亚行余量`）。 */
-    private var flingStartPx = 0f
 
     /** 惯性起点时刻（[SystemClock.uptimeMillis]，与 vsync 同一时基）。 */
     private var flingStartUptimeMs = 0L
@@ -67,31 +68,35 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
     /** 手势抬起时的速度（像素/秒，手势坐标系：手指上移为负）。 */
     private var flingVelocityPxPerS = 0f
 
-    /** 偏移空间的上界：回滚长度 + 键盘位移显出量容量。 */
-    private var flingLimitPx = 0f
-
     private var flingActive = false
 
-    /** 上一惯性帧的像素位置：逐帧差值即本帧行程。 */
-    private var lastFlingPx = 0f
+    /** 已下发的惯性行程（像素）：逐帧差值即本帧行程增量。 */
+    private var flingTravelPx = 0f
 
     /** 把惯性滚动动画推进一个 vsync 节拍。 */
     private fun doFlingStep() {
         if (!flingActive) return
         val elapsedMs = SystemClock.uptimeMillis() - flingStartUptimeMs
         val travelPx = flingOffsetPx(flingVelocityPxPerS, elapsedMs)
-        val targetPx = flingStartPx + travelPx
-        val clampedPx = targetPx.coerceIn(0f, flingLimitPx)
-        val deltaPx = clampedPx - lastFlingPx
-        lastFlingPx = clampedPx
-        if (deltaPx != 0f) {
-            val scrollbackLen = surface.currentScrollbackLength()
+        val travelDeltaPx = travelPx - flingTravelPx
+        flingTravelPx = travelPx
+        // 与拖动同一条重基路径：浏览期间新输出把回滚区底边推远，偏移必须同步增长，
+        // 否则惯性中途视口跳一段（旧内容被新输出顶走，见 rebaseScrollOffset）。
+        val scrollbackLen = surface.rebaseScrollOffset()
+        // 落点取当前实际位置：偏移重基与位移显出量的增减都被这一读吸收。
+        val currentPx =
+            surface.scrollOffset * surface.cellHeight +
+                surface.scrollAccumulatorPx +
+                surface.ime.imeShiftRevealPx
+        val limitPx = scrollbackLen * surface.cellHeight + surface.ime.imeShiftCapacityPx
+        val step = flingStep(currentPx, travelDeltaPx, limitPx)
+        if (step.deltaPx != 0f) {
             // 与 onScroll 同符号：手指下移 distanceY 为负、偏移增大（更旧），
             // 而惯性像素增大的方向也是更旧，故取负后再喂。
             surface.applyScrollStep(
                 applyScrollDistance(
                     surface.scrollAccumulatorPx,
-                    -deltaPx,
+                    -step.deltaPx,
                     surface.cellHeight,
                     surface.scrollOffset,
                     scrollbackLen,
@@ -102,11 +107,10 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
             )
         }
         // 撞到边界（被钳制）或衰减到行程已尽：收尾，不再空转 vsync 回调。
-        val reachedBound = clampedPx != targetPx
         val settled =
             elapsedMs >= FLING_MAX_DURATION_MS ||
                 abs(flingOffsetPx(flingVelocityPxPerS, FLING_MAX_DURATION_MS) - travelPx) < FLING_SETTLE_PX
-        if (reachedBound || settled) {
+        if (step.reachedBound || settled) {
             finishFlingAnimation()
             return
         }
@@ -287,7 +291,6 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                 if (flingBridge != null && flingBridge.isAltScreenActive()) {
                     return true
                 }
-                val scrollbackLen = surface.rebaseScrollOffset()
                 val absoluteX = abs(velocityX)
                 val absoluteY = abs(velocityY)
 
@@ -300,17 +303,14 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                 }
 
                 // velocityY 系像素/秒，偏移空间同样是像素：不再除行高换成行/秒
-                // （那样逐帧落点是整行，内容只能逐行跳，STATUS ⑩）。行程起点带上
-                // 亚行余量、上界带上键盘位移的显出量容量，见 [flingOffsetPx]。
+                // （那样逐帧落点是整行，内容只能逐行跳，STATUS ⑩）。每帧的落点取
+                // 当前实际位置，上界带上键盘位移的显出量容量，见 [flingStep]。
                 stopFlingAnimation()
                 surface.isScrolling = true
                 surface.onScrollingStateChanged?.invoke(true)
-                flingStartPx = surface.scrollOffset * surface.cellHeight + surface.scrollAccumulatorPx
                 flingVelocityPxPerS = velocityY
-                flingLimitPx = scrollbackLen * surface.cellHeight + surface.ime.imeShiftCapacityPx
+                flingTravelPx = 0f
                 flingStartUptimeMs = SystemClock.uptimeMillis()
-                // 起点先夹进范围：不夹的话首帧差值会多出被夹掉的一段、方向相反。
-                lastFlingPx = flingStartPx.coerceIn(0f, flingLimitPx)
                 flingActive = true
                 surface.postOnAnimation(flingStepRunnable)
                 return true

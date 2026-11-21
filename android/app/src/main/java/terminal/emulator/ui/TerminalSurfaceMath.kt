@@ -403,6 +403,31 @@ internal fun flingOffsetPx(velocityPxPerSecond: Float, elapsedMs: Long): Float {
     return velocityPxPerSecond * (FLING_TIME_CONSTANT_MS / 1000f) * decayed
 }
 
+/** 惯性一帧的结果：本帧位移增量与是否撞界。 */
+internal data class FlingStep(
+    /** 本帧实际位移（像素，正向 = 更旧）。 */
+    val deltaPx: Float,
+    /** 行程被边界截断：已撞到滚动上/下界。 */
+    val reachedBound: Boolean,
+)
+
+/**
+ * 惯性一帧的落点（纯函数，见 `SurfaceInput.doFlingStep`）。
+ *
+ * 行程增量以**当前实际位置**为基准，而不是以惯性起点为基准：位置每帧重新读出，
+ * 回滚区增长引起的偏移重基、位移显出量的增减都被这一读吸收，惯性不会因外部状态
+ * 变化而错位（以起点为基准时，偏移重基会让惯性按旧基线落点，视口跳一段）。
+ *
+ * @param currentPx 当前滚动位置（偏移空间像素：偏移 × 行高 + 亚行余量 + 位移显出量）
+ * @param travelDeltaPx 本帧行程增量（[flingOffsetPx] 的逐帧差值，正向 = 更旧）
+ * @param limitPx 滚动位置上界（回滚长度 × 行高 + 位移显出量容量）
+ */
+internal fun flingStep(currentPx: Float, travelDeltaPx: Float, limitPx: Float): FlingStep {
+    val targetPx = currentPx + travelDeltaPx
+    val clampedPx = targetPx.coerceIn(0f, limitPx)
+    return FlingStep(deltaPx = clampedPx - currentPx, reachedBound = clampedPx != targetPx)
+}
+
 /**
  * 缩放手势字号换算（onScale 可测核心）。
  * 基准字号乘以累计缩放因子后收敛到**可设档位**（区间 + 步长网格），与调节条同一入口。
