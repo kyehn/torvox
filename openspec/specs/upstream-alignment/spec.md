@@ -431,10 +431,11 @@ MUST 采纳的资产 MUST 附实测数字（今日直接通过的用例数与差
 | 本项目 | wgpu 直绘 SurfaceView（终端内容不经 HWUI） | `android/benchmark` 宏基准模块与 `native/benches` 微基准 | 无（模拟器数据只作数量级） |
 
 两者的终端内容帧都经 HWUI 管线，本项目的终端内容帧由原生线程直绘 SurfaceView，故端到端帧率
-不具跨应用可比性；跨应用帧面是系统侧帧面且分三层——显示级 `dumpsys SurfaceFlinger
---frametimeline` 为主判据，图层级 `dumpsys SurfaceFlinger --latency` 只覆盖 legacy 图层且要求
-精确图层名，见 `performance-measurement` 的「跨应用性能对比的对照面与统一帧面」「跨应用性能对比
-的帧面分层与覆盖面」「终端内容直绘 SurfaceView 时的帧面覆盖限制」各条。两者既无基准资产，也未
+不具跨应用可比性；跨应用帧面是系统侧帧面且分三层——逐图层 `dumpsys SurfaceFlinger --latency`
+给逐帧三列（精确名匹配任何承载内容帧的图层，含本项目终端 SurfaceView 层），显示级
+`dumpsys SurfaceFlinger --frametimeline` 给 display frame 级时序并按 `Owner Pid` 归属到内容
+图层，见 `performance-measurement` 的「跨应用性能对比的对照面与统一帧面」「跨应用性能对比
+的帧面分层与覆盖面」「终端内容直绘 SurfaceView 时的帧面取数」「SurfaceView 内容帧的 jank 判定与 N/A 兜底」各条。两者既无基准资产，也未
 发布可核实的性能数字，故对比必须自建 harness，MUST NOT 引用其自述性能数字。
 
 **新增失效语料记录：**

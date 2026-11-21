@@ -107,14 +107,14 @@ CI 性能门禁的下限断言（`native/benches/support.rs` 的 `Floor::assert_
 - Perfetto `android.surfaceflinger.frametimeline` 作终端内容帧的跨应用判据：官方文档明确
   SurfaceView 不受 FrameTimeline 支持；本项目终端内容在 SurfaceView 内不在其覆盖内，对照对象
   走 HWUI 管线在其覆盖内，两者不是同一数据面。
-- `dumpsys SurfaceFlinger --latency` 作跨应用的统一帧面：该通道只遍历 legacy 图层集合且要求
-  精确图层名，只作图层级补充通道。
+- Perfetto FrameTimeline 的 SurfaceFlinger 侧轨道作终端内容判据：该轨道的切片是 display frame
+  级合成轨迹，没有图层归属，无法归属到某个应用的终端内容层。
 
 #### Scenario: 复查系统侧帧面类不采纳项
 
-- **WHEN** 再次评估「能否用 Perfetto FrameTimeline 或图层级 `--latency` 作跨应用统一帧面」
-- **THEN** MUST 以本条目给出的边界为起点：统一帧面 MUST 取显示级帧时间线，
-      MUST NOT 用 FrameTimeline 覆盖终端内容、MUST NOT 用 `--latency` 作统一帧面
+- **WHEN** 再次评估「能否用 Perfetto FrameTimeline 作终端内容判据」
+- **THEN** MUST 以本条目给出的边界为起点：终端内容帧 MUST 取系统侧逐图层通道，
+      MUST NOT 用 Perfetto FrameTimeline 覆盖终端内容
 
 ### Requirement: 跨应用性能对比的 trace 与能耗类测量手段取舍须记录理由
 
@@ -291,12 +291,29 @@ MUST 取系统侧帧面，分层与覆盖面见后续两条。对照对象 MUST 
 系统侧帧面 MUST 分三层使用，并按各层的覆盖面取数：
 
 - 显示级 `dumpsys SurfaceFlinger --frametimeline -all`（或 `-jank`）：逐 display frame 的期望与
-  实际起止时刻、呈现时刻与 jank 分类；不需要图层名，对所有应用同一口径，是跨应用呈现时序的
-  主判据。该面只保留最近的 display frame 窗口，MUST 按场景时间窗筛选，MUST NOT 假设它能被清空。
-- 图层级 `dumpsys SurfaceFlinger --latency <layer>`：逐帧 `desired/actual/ready`（纳秒）。该通道
-  只遍历 SurfaceFlinger 的 legacy 图层集合，图层名 MUST 是精确的 `<base>#<id>`；输出只有首行
-  表示图层未匹配，全零行表示图层匹配但无帧记录，两者 MUST 判为采集失败。
+  实际起止时刻、呈现时刻与 jank 分类；每个 display frame 下挂着该帧涉及的逐图层条目，含
+  `Owner Pid`、`Layer ID`、`Is Buffer?`、呈现状态与呈现时刻，故可按属主归属到被测应用的内容图层。
+  该面不需要预知图层名，对所有应用同一口径。
+- 图层级 `dumpsys SurfaceFlinger --latency <layer>`：逐帧 `desired/actual/ready`（纳秒），覆盖
+  承载内容帧的图层，含 BLAST 类型的 SurfaceView 内容层。
 - 应用内帧统计只作该应用内部的判据，MUST NOT 跨应用比较。
+
+显示级只保留最近的 display frame 窗口，MUST 按场景时间窗筛选，MUST NOT 假设它能被清空。
+
+#### Scenario: 显示级帧时间线按时间窗筛选
+
+- **WHEN** 用 `--frametimeline` 取某一场景的呈现时序
+- **THEN** MUST 按场景时间窗筛选帧，MUST NOT 依赖「先清空」——该面没有清空入口
+
+### Requirement: 跨应用性能对比的图层名与图层覆盖判据
+
+图层级通道的取数 MUST 有明确的图层名与覆盖判据：
+
+- 图层名 MUST 是 `dumpsys SurfaceFlinger --list` 给出的精确 `<base>#<id>`。
+- 名称 MUST 加引号传给设备 shell（名称含 `[` `]` `(` `)`，不加引号会被 shell 当作元字符，命令
+  出错且无输出）。
+- 只有首行表示图层未匹配；全零行表示图层匹配但没有内容帧记录；两者 MUST 判为采集失败。
+- 场景开始前 MUST 先清空该图层的帧历史，否则读到的 MUST NOT 含上一个场景的残留帧。
 
 #### Scenario: 采集前清空图层帧历史
 
@@ -306,28 +323,52 @@ MUST 取系统侧帧面，分层与覆盖面见后续两条。对照对象 MUST 
 
 #### Scenario: 图层未匹配或无帧记录即判采集失败
 
-- **WHEN** `--latency` 只返回首行，或返回的帧行全部为零
+- **WHEN** `--latency` 只返回首行、命令无输出，或返回的帧行全部为零
 - **THEN** 该次采集 MUST 判为采集失败并中止该场景，MUST NOT 把空结果当作「被测路径没有
       出帧」，MUST NOT 静默跳过该场景
 
-#### Scenario: 显示级帧时间线按时间窗筛选
+#### Scenario: 内容图层按属主与图层名选取
 
-- **WHEN** 用 `--frametimeline` 取某一场景的呈现时序
-- **THEN** MUST 按场景时间窗筛选帧，MUST NOT 依赖「先清空」——该面没有清空入口
+- **WHEN** 为某个被测应用选取承载终端内容的图层
+- **THEN** MUST 取该应用 `Owner Pid` 下承载内容帧的那条图层（本项目为 BLAST SurfaceView 层，
+      HWUI 对照对象为应用窗口层），MUST NOT 以「帧行全为零」判定图层不可寻址
 
-### Requirement: 终端内容直绘 SurfaceView 时的帧面覆盖限制
+### Requirement: 终端内容直绘 SurfaceView 时的帧面取数
 
-终端内容直绘 SurfaceView 的应用，其终端内容帧 MUST NOT 假定可被图层级 `--latency` 通道覆盖：
-SurfaceView 的 BLAST 图层不在 SurfaceFlinger 的 legacy 图层集合内。该类帧 MUST 取应用自己的
-呈现汇总，跨应用呈现时序 MUST 以显示级帧时间线为准。Perfetto FrameTimeline MUST NOT 作终端
-内容的跨应用判据——官方文档明确 SurfaceView 不受其支持，而对照对象走 HWUI 管线在其覆盖内，
-用它比较等于比较两套不同的数据面。
+终端内容直绘 SurfaceView 的应用，其终端内容帧的跨应用判据 MUST 取系统侧逐图层通道：
+`--latency` 给逐帧 `desired/actual/ready`，`--frametimeline` 的图层条目给属主归属与呈现时刻。
+Perfetto FrameTimeline MUST NOT 作终端内容的跨应用判据——官方文档明确 SurfaceView 不受其支持，
+而对照对象走 HWUI 管线在其覆盖内，用它比较等于比较两套不同的数据面。
 
-#### Scenario: 终端内容帧不按图层级通道判
+#### Scenario: 终端内容帧按系统侧逐图层通道判
 
 - **WHEN** 被测应用的终端内容由原生渲染线程直绘 SurfaceView
-- **THEN** 其终端内容帧 MUST 取该应用自己的呈现汇总，MUST NOT 以 `--latency` 无数据断言
-      「没有出帧」
+- **THEN** 其终端内容帧 MUST 取系统侧逐图层通道（`--latency` 的逐帧三列与 `--frametimeline` 的
+      图层条目），MUST NOT 只依赖应用自己的呈现汇总
+
+#### Scenario: FrameTimeline 不作终端内容判据
+
+- **WHEN** 需要比较各应用终端内容的呈现时序
+- **THEN** MUST 以系统侧逐图层通道为准，MUST NOT 用 Perfetto FrameTimeline 作终端内容判据
+
+### Requirement: SurfaceView 内容帧的 jank 判定与 N/A 兜底
+
+SurfaceView 内容帧不参与 Choreographer 调度预测：其图层条目的 `Token` 为 `-1`、
+`Prediction State` 为 `None`、`Jank Type` 为 `None`、`Present Metadata` 为 `Unknown Present`，
+故 jank 判定 MUST 由呈现间隔与刷新周期比较得出，MUST NOT 读调度器 jank 分类。该类帧的
+`Start time` 恒为 `N/A`，`Present time` 偶为 `N/A`（此时 MUST 以 `Last latch time` 兜底），
+MUST NOT 把 `N/A` 当作 0。
+
+#### Scenario: SurfaceView 帧的 jank 由间隔比较得出
+
+- **WHEN** 判定终端内容帧是否丢帧
+- **THEN** MUST 用呈现间隔与刷新周期比较得出，MUST NOT 用图层条目的 jank 分类（对 SurfaceView
+      内容帧恒为 `None`）
+
+#### Scenario: N/A 呈现时刻不当作 0
+
+- **WHEN** 图层条目的 `Present time` 为 `N/A`
+- **THEN** MUST 以 `Last latch time` 兜底，MUST NOT 把 `N/A` 当作 0 参与间隔计算
 
 #### Scenario: FrameTimeline 不作终端内容判据
 
