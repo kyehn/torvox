@@ -1011,7 +1011,7 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   命中随之归零（`function-too-long` 仍为 0）。更早一次偏移是
   `public_api.rs`（1123 行）按职责拆成 `public_api/` 目录模块。`supportedFiles`
   由 115 升至 116 是新增该测试文件所致。
-    （2026-11-21 本轮重测同值：`npx aislop@0.22.2 scan native/src` 与 `scan .` 均退出码 0，
+  （2026-11-21 本轮重测同值：`npx aislop@0.22.2 scan native/src` 与 `scan .` 均退出码 0，
   `score` 100、label `Healthy`、`summary` 0 errors / 0 warnings / 0 fixable、`diagnostics` 为空、
   `findingAssessment.byKind` 四类全 0；native/src 覆盖 116 supported / 0 unsupported，
   全仓覆盖 117 supported / 208 unsupported（`dominantUnsupported` 为 `Kotlin`）。
@@ -1028,9 +1028,9 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   `res/mipmap/` 两个文件与 `res/drawable/` 中的一个文件同样不计入），不是扫描遗漏。
   （2026-11-21 重测：克隆数、重复行数、重复率与残留位置均与上一列基线同值；
   本轮新增的一处 Rust 克隆——两个主字体选择用例重复的「族名去空白 + .ttf」构造——已提取为
-  `stem_target` 辅助函数消除，Rust 侧克隆归零。）
+  `stem_target` 辅助函数消除，Rust 侧克隆归零。
   2026-11-21 本轮重测：仍为 2 处克隆 / 23 行重复 / 0.03%，残留位置与逐条判定同上一列
-  （kotlin 1 处、markup 1 处、Rust 0 处）；本轮变更只在 Rust 侧。
+  （kotlin 1 处、markup 1 处、Rust 0 处）；本轮变更只在 Rust 侧。）
   测量取自已提交的树快照，不取工作区状态（工作区可能同时存在他人进行中的改动）。
   前一列基线为 2 处克隆 / 26 行重复 / 0.04% / 115 个文件：其第二处
   `native/src/terminal/ghostty_terminal/internal/mod.rs` 内 `process_query` 与
