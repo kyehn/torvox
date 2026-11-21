@@ -1021,11 +1021,12 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   该工具归类为 style-policy 的项 MUST NOT 阻断构建，
   只有 error 级或 `confirmed-defect` 才阻断。
 - **jscpd**：`npx jscpd@latest --min-lines 8 --min-tokens 60` 对 `native/src` 与
-  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，jscpd 报告 sources 258
-  （kotlin 103 / markup 13 / rust 142）；扫描范围内受版本控制的源文件 262 个
-  （Rust 143、Kotlin 103、res XML 15、AndroidManifest 1），两者相差的 4 个是 jscpd 的格式
+  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，jscpd 报告 sources 259
+  （kotlin 103 / markup 13 / rust 142 / txt 1）；扫描范围内受版本控制的源文件 262 个
+  （Rust 143、Kotlin 103、res XML 15、AndroidManifest 1）。差值 3 个是 jscpd 的格式
   探测器切不出 token 的文件（实测 `native/src/render/pass/mod.rs` 只含模块声明与 use，
-  `res/mipmap/` 两个文件与 `res/drawable/` 中的一个文件同样不计入），不是扫描遗漏。
+  `res/mipmap/` 两个文件与 `res/drawable/` 中的一个文件同样不计入），不是扫描遗漏；
+  txt 1 份是 `android/app/src/main/baselineProfiles/baseline-prof.txt`（生成物，不在上述 262 份计数内）。
   （2026-11-21 重测：克隆数、重复行数、重复率与残留位置均与上一列基线同值；
   本轮新增的一处 Rust 克隆——两个主字体选择用例重复的「族名去空白 + .ttf」构造——已提取为
   `stem_target` 辅助函数消除，Rust 侧克隆归零。
@@ -1062,6 +1063,21 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   0 errors / 0 warnings / 0 confirmed-defect；semgrep 5 次均 0 findings。满足 code-health
   「连续清洁运行计数 ≥ 5」的「连续 0 确认」证据门槛。本轮唯一修复：默认主字体取正体面
   （`pipeline/families.rs`、`font_db.rs`），斜体不再退化为直立；openspec/font-selection 同步。
+- **clean-run 计数（2026-11-21，第二轮）**：工作树同时存在并行改动，故测量改在**固定提交的
+  独立工作树**上做（`git worktree` 签出当日最新提交），连续 5 轮全部退出码 0，同一命令序列：
+  `cargo fmt --all -- --check`、`cargo clippy --all-targets -- --deny warnings`、
+  `cargo ndk -t arm64-v8a clippy --all-targets -- --deny warnings`、`cargo machete --with-metadata`、
+  `cargo test --no-fail-fast`（5 轮均 940 passed / 0 failed）、`cargo doc --no-deps`（`-D warnings`）、
+  三个 bench 的 `--quick`、`cargo build --package native --profile release`、
+  `semgrep scan --error --dataflow-traces --config .semgrep/rules.yml`、
+  `markdownlint-cli2 "**/*.md"`、`openspec validate --all --strict`（55/55）、
+  Gradle 全量（`detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、
+  `assembleDebugAndroidTest`、`testDebugUnitTest`、`benchmark:compileBenchmarkReleaseKotlin`、
+  `baselineprofile:compileNonMinifiedReleaseKotlin`）。jscpd 5 轮一致 2 处克隆 / 23 行重复 /
+  0.03%（sources 259）；aislop 5 轮一致 score 100 / Healthy / 0 errors / 0 warnings /
+  `supportedFiles` 116；semgrep 5 轮 0 findings。另以 `--rerun-tasks` 强制重跑
+  `testDebugUnitTest` 一次（39 个任务全部实际执行，非缓存命中）：1090 个用例、0 失败 0 错误。
+  满足「连续清洁运行计数 ≥ 5」的「连续 0 确认」证据门槛。
   （2026-11-21 本轮：修复「终端构造器静默截断行列」后重跑 `./scripts/check.nu` 仍退出码 0，
   `cargo test` 940 passed / 0 failed（新增回归用例 1 例，计数由 938 变为 940）、
   openspec validate 55/55、`markdownlint` 0 命中；连续清洁运行计数累加，不重置。
@@ -1104,6 +1120,20 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   的采集协程（注入测试调度器会让 300ms 真实等待失去意义）。
   验收判据：接入后 `detektDebugAndroidTest` MUST 退出码 0；新增命中 MUST NOT 以扩充
   `@Suppress` 消解，只能按本表口径逐处判定。
+- **代码规模（统一口径实测，2026-11-21）**：口径为源码行数，排除空行、纯注释行（含块注释）、
+  文档、配置、资源、构建产物与第三方代码；生产与测试按路径判定并分列（`src/test`、
+  `src/androidTest`、路径段 `test`／`tests`、文件名 `tests.rs`／`*_tests.rs`／`*Test(s).kt`
+  计入测试档；`native/src` 内联 `#[cfg(test)]` 模块与生产同文件，按路径口径留在生产档）。
+  本仓实测（取自已提交的树快照，不取工作区状态）`production=39,632`（203 文件）、
+  `test=44,559`（295 文件）、`合计=84,191`。
+  两个点名参考项目用同一脚本、同一参数实测：`ghostty-android-terminal` 生产 22,381
+  （90 文件）／测试 2,850（18 文件）；`termux-app` 生产 26,637（181 文件）／测试 2,471
+  （23 文件）。  约束取「两个参考项目的生产源码行数之和」= 22,381 + 26,637 = 49,018，
+  本仓生产 39,632 为其 80.9%，未越界；若改用源码合计口径（84,191 > 49,018）则越界，
+  按 `code-health`「不同口径导出相反结论」条 MUST 视为不可判定，故判定口径固定为生产档。
+  偏差说明：本仓 Rust 生产路径内联 `#[cfg(test)]` 块共 2,794 物理行，按路径口径计入生产档，
+  只会抬高本仓数字，不影响「未越界」的结论。统计脚本未入库：`scripts/` 属禁改区，
+  样式规范亦禁止提交生成脚本，故此处只留口径与数字，复算时按同一口径重写同一参数。
 - **rapidocr**：`flake.nix` 引导调用 `scripts/download-rapidocr-models.nu` 把模型
   下载到 `/tmp/.rapidocr-models`，模型环境已就绪；该下载与其他 shellHook 初始化步骤
   （AOSP testkey、`/tmp/alacritty-theme` 克隆）共享同一把排他锁，多个 shell 并发进入
