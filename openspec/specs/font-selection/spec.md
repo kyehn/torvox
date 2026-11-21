@@ -169,7 +169,8 @@ MUST 输出日志。仅当库内没有任何可用面时，MUST 经 `font_db::fa
 正体优先的理由：库内面序由字体目录枚举顺序决定，族内 Bold/Oblique 面可能排在 Regular
 之前；主字体面一旦自带斜体，此后所有斜体请求都会被 `resolve_style_face` 判成
 「基底面已带斜体」而返回该面字形，斜体整段直立。宿主回退分支同因
-（`pipeline/families.rs`）。
+（`pipeline/families.rs`），两条路径共用 `font_db::pick_upright_or_first` 取面，
+不得各自复写该口径。
 
 #### Scenario: 无拉丁字形的等宽面被跳过
 

@@ -670,8 +670,7 @@ pub(crate) fn face_covers_latin(font_database: &fontdb::Database, face_id: fontd
 /// 主字体面一旦自带粗体或斜体，`resolve_style_face` 会把「基底面已带样式」判成真，
 /// 粗体/斜体请求便不再合成——库内面序把族内 Bold/Oblique 面排在 Regular 之前时，
 /// 默认主字体就被钉成粗体或斜体。故每组候选都按同一口径取面。
-#[cfg(any(target_os = "android", test))]
-fn pick_upright_or_first<'a>(
+pub(crate) fn pick_upright_or_first<'a>(
     faces: impl Iterator<Item = &'a fontdb::FaceInfo>,
 ) -> Option<&'a fontdb::FaceInfo> {
     let mut first = None;
