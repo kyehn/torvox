@@ -21,6 +21,8 @@ class SurfaceLayerFramesTest {
         assertEquals(16L, stats.medianIntervalMillis)
         assertEquals(17L, stats.p90IntervalMillis)
         assertEquals(17L, stats.maxIntervalMillis)
+        assertEquals(60.97, stats.presentationRatePerSecond, 0.01)
+        assertEquals(1.016, stats.presentationSlotRatio, 0.001)
     }
 
     @Test

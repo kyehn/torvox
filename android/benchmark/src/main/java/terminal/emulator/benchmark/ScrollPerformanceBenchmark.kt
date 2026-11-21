@@ -112,6 +112,8 @@ class ScrollPerformanceBenchmark {
                         " presentedFrames=$presentedFrames presentedWindows=${summaries.size}" +
                         " layerFrames=${layerStats.contentFrameCount}" +
                         " layerMissed=${layerStats.missedFrameCount}" +
+                        " layerRate=${layerStats.presentationRatePerSecond}fps" +
+                        " layerSlotRatio=${layerStats.presentationSlotRatio}" +
                         " layerIntervalP50=${layerStats.medianIntervalMillis}ms" +
                         " layerIntervalP90=${layerStats.p90IntervalMillis}ms" +
                         " layerIntervalMax=${layerStats.maxIntervalMillis}ms",
@@ -129,9 +131,9 @@ class ScrollPerformanceBenchmark {
                 check(elapsed <= SCROLL_BUDGET_MILLIS) {
                     "上滑下滑耗时 ${elapsed}ms 超过预算 ${SCROLL_BUDGET_MILLIS}ms"
                 }
-                check(layerStats.missedFrameCount <= MAX_SCROLL_MISSED_LAYER_FRAMES) {
-                    "终端内容层在滚动窗口内丢了 ${layerStats.missedFrameCount} 帧，" +
-                        "超过上限 $MAX_SCROLL_MISSED_LAYER_FRAMES"
+                check(layerStats.presentationSlotRatio >= MIN_SCROLL_LAYER_SLOT_UTILIZATION) {
+                    "终端内容层在滚动窗口内只占用了 ${layerStats.presentationSlotRatio} 的刷新槽位，" +
+                        "低于下限 $MIN_SCROLL_LAYER_SLOT_UTILIZATION"
                 }
             },
         )
