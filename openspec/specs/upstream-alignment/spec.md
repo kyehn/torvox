@@ -997,10 +997,15 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   `file-too-large` / `function-too-long` 的条数 MUST NOT 上升（基线 0 / 0）；
   该工具归类为 style-policy 的项 MUST NOT 阻断构建，
   只有 error 级或 `confirmed-defect` 才阻断。
-- **jscpd**：`jscpd --min-lines 8 --min-tokens 60` 对 `native/src` 与
-  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，涉 259 个文件
-  （2026-11-20 重测：克隆数、重复行数、重复率与残留位置均与上一列基线同值，
-  文件数随新增源文件而变——本次是 `input_filter/tests.rs`）。
+- **jscpd**：`npx jscpd@latest --min-lines 8 --min-tokens 60` 对 `native/src` 与
+  `android/app/src/main` 实测退出码 0，2 处克隆 / 23 行重复 / 0.03%，jscpd 报告 sources 258
+  （kotlin 103 / markup 13 / rust 142）；扫描范围内受版本控制的源文件 262 个
+  （Rust 143、Kotlin 103、res XML 15、AndroidManifest 1），两者相差的 4 个是 jscpd 的格式
+  探测器切不出 token 的文件（实测 `native/src/render/pass/mod.rs` 只含模块声明与 use，
+  `res/mipmap/` 两个文件与 `res/drawable/` 中的一个文件同样不计入），不是扫描遗漏。
+  （2026-11-21 重测：克隆数、重复行数、重复率与残留位置均与上一列基线同值；
+  本轮新增的一处 Rust 克隆——两个主字体选择用例重复的「族名去空白 + .ttf」构造——已提取为
+  `stem_target` 辅助函数消除，Rust 侧克隆归零。）
   测量取自已提交的树快照，不取工作区状态（工作区可能同时存在他人进行中的改动）。
   前一列基线为 2 处克隆 / 26 行重复 / 0.04% / 115 个文件：其第二处
   `native/src/terminal/ghostty_terminal/internal/mod.rs` 内 `process_query` 与
@@ -1024,7 +1029,7 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   0 errors / 0 warnings / 0 confirmed-defect；semgrep 5 次均 0 findings。满足 code-health
   「连续清洁运行计数 ≥ 5」的「连续 0 确认」证据门槛。本轮唯一修复：默认主字体取正体面
   （`pipeline/families.rs`、`font_db.rs`），斜体不再退化为直立；openspec/font-selection 同步。
-- **footgun-scan**（累计 9 次运行，0 确认缺陷）：2026-11-20 重扫实测的主源码集、单测源码集与
+- **footgun-scan**（累计 12 次运行，0 确认缺陷）：2026-11-21 重扫实测的主源码集、单测源码集与
   仪器测试源码集的文件数、命中数与逐处判定见下方「静态形状扫描」表。
 - **rapidocr**：`flake.nix` 引导调用 `scripts/download-rapidocr-models.nu` 把模型
   下载到 `/tmp/.rapidocr-models`，模型环境已就绪；该下载与其他 shellHook 初始化步骤
@@ -1082,7 +1087,7 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 - 参数：`python3 <footgun-scan>/scripts/scan.py --all <目录>`，逐行扫描受版本控制的文件；
   目录取 `android/app/src/main`、`android/app/src/test` 与 `android/app/src/androidTest`。
-- 当日实测（2026-11-20）：主源码集 119 个文件 / 6 处命中，单测源码集 145 个文件 /
+- 当日实测（2026-11-21）：主源码集 119 个文件 / 6 处命中，单测源码集 145 个文件 /
   3 处命中，仪器测试源码集 91 个文件 / 0 处命中；全仓 355 个文件 / 9 处命中，全部为
   `look` 级形状提示，无 `likely` 级命中，与下表的逐处判定一一对应。
 
