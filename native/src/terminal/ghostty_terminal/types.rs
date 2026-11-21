@@ -1,10 +1,13 @@
 /// [`GhosttyTerminal`](crate::terminal::ghostty_terminal::GhosttyTerminal) 构造错误。
-/// 唯一可能失败的是启动 VT 线程；运行时查询失败不致命，只回退为默认值。
+/// 失败原因有二：网格尺寸非法，或 VT 线程启动失败；运行时查询失败不致命，只回退为默认值。
 #[derive(Debug, thiserror::Error)]
 pub enum TerminalError {
     #[error("failed to spawn terminal thread: {0}")]
     /// VT 线程启动失败：底层系统调用返回错误。
     Spawn(#[from] std::io::Error),
+    #[error("invalid dimensions (zero rows or columns)")]
+    /// 网格尺寸非法：零行或零列不成网格。
+    InvalidDimensions,
 }
 
 /// 搜索的单个匹配。`row` 为绝对网格行（0 = 回滚顶部）；`start_col`/`end_col`

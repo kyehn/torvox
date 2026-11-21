@@ -19,7 +19,11 @@ use super::super::types::{
 
 impl GhosttyTerminal {
     /// 新建 VT 引擎：启动 VT 线程并设定网格尺寸与回滚行数。
-    pub fn new(rows: u32, cols: u32, scrollback_lines: u32) -> Result<Self, TerminalError> {
+    ///
+    /// 行列取 `u16`：上游 `Terminal::new` 与 PTY `TIOCSWINSZ` 都只收 `u16`，
+    /// 越界值必须由调用方按尺寸判据显式拒绝——静默截断会把 70000 列变成
+    /// 4464 列，且截断后仍是「合法」尺寸，没有任何日志可循。
+    pub fn new(rows: u16, cols: u16, scrollback_lines: u32) -> Result<Self, TerminalError> {
         Self::new_with_theme(
             rows,
             cols,
@@ -31,8 +35,8 @@ impl GhosttyTerminal {
     /// 以指定主题创建。主题是静态清单项（见 [`crate::terminal::theme`]），故取用
     /// 不复制调色板，换主题即换引用。
     pub fn new_with_theme(
-        rows: u32,
-        cols: u32,
+        rows: u16,
+        cols: u16,
         scrollback_lines: u32,
         theme: &'static crate::terminal::theme::Theme,
     ) -> Result<Self, TerminalError> {
@@ -42,8 +46,8 @@ impl GhosttyTerminal {
     /// [`Self::new_with_theme`] + 帧入队唤醒：VT 线程每推送一帧就调用一次
     /// `frame_wake`，让渲染线程不必靠空闲闭锁超时才发现新帧。
     pub fn new_with_frame_wake(
-        rows: u32,
-        cols: u32,
+        rows: u16,
+        cols: u16,
         scrollback_lines: u32,
         theme: &'static crate::terminal::theme::Theme,
         frame_wake: Option<crate::terminal::session::OutputWake>,
@@ -61,13 +65,19 @@ impl GhosttyTerminal {
     /// [`Self::new_with_frame_wake`] + Kitty 文件介质白名单目录（生产会话传
     /// `$PREFIX/tmp`，与子进程 `TMPDIR` 同源）。
     pub fn new_with_frame_wake_and_temp_dir(
-        rows: u32,
-        cols: u32,
+        rows: u16,
+        cols: u16,
         scrollback_lines: u32,
         theme: &'static crate::terminal::theme::Theme,
         frame_wake: Option<crate::terminal::session::OutputWake>,
         kitty_temp_dir: Option<std::path::PathBuf>,
     ) -> Result<Self, TerminalError> {
+        // 零行/零列不成网格：上游 `Terminal::new` 会拒绝，VT 线程随之退出，
+        // 而构造仍返回 `Ok`——调用方拿到的是一个没有 VT 线程的僵尸句柄。
+        // `u16` 只挡得住越界，挡不住 0，故在此显式失败。
+        if rows == 0 || cols == 0 {
+            return Err(TerminalError::InvalidDimensions);
+        }
         let (cmd_tx, cmd_rx) = bounded::<Command>(COMMAND_CHANNEL_CAPACITY);
         let (query_tx, query_rx) = flume::bounded::<Query>(QUERY_CHANNEL_CAPACITY);
         let cell_data_mailbox = FrameMailbox::new();

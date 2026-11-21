@@ -355,7 +355,7 @@ impl super::GhosttyTerminal {
     ///
     /// 返回 `None` 表示终端实例创建失败，调用方据此退出 VT 线程。
     pub(crate) fn configure_terminal(config: &RunConfig) -> Option<Terminal<'_, '_>> {
-        let Ok(mut terminal) = Terminal::new(config.cols as u16, config.rows as u16) else {
+        let Ok(mut terminal) = Terminal::new(config.cols, config.rows) else {
             log::error!("ghostty_terminal: Terminal::new failed — thread exiting");
             return None;
         };

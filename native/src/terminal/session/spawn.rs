@@ -249,8 +249,8 @@ impl Session {
         scrollback_lines: u32,
     ) -> Result<Self, SessionError> {
         // 与 `resize` 同一条判据：上游 `Terminal::new` 只收 `u16`，在此放行越界值等于
-        // 用一次静默截断替调用方决定网格尺寸。取回的 `u16` 只用于确认已校验，本函数
-        // 的缓存与下游仍按 `u32` 记账。
+        // 用一次静默截断替调用方决定网格尺寸。取回的 `u16` 直接交给终端引擎，
+        // 本函数的缓存仍按 `u32` 记账。
         let (grid_rows, grid_cols) = validated_grid(rows, cols)?;
         log::info!("Session::spawn_with_pty: creating Arc/Channel");
         let exited = Arc::new(AtomicBool::new(false));
@@ -263,8 +263,8 @@ impl Session {
         // 同一份唤醒既用于 PTY 到达，也用于帧入队：渲染线程在「有字节但还没帧」
         // 的那一拍醒来后可以立刻再睡，等帧真正入队时被第二次叫醒。
         let terminal = GhosttyTerminal::new_with_frame_wake_and_temp_dir(
-            u32::from(grid_rows),
-            u32::from(grid_cols),
+            grid_rows,
+            grid_cols,
             scrollback_lines,
             crate::terminal::theme::default_dark(),
             frame_wake,
