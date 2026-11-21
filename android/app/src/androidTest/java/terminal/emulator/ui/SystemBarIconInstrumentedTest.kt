@@ -1,6 +1,5 @@
 package terminal.emulator.ui
 
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.core.view.WindowInsetsControllerCompat

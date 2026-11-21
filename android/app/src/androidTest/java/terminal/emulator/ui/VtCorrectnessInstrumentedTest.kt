@@ -11,8 +11,6 @@ import org.junit.runners.JUnit4
 import terminal.emulator.TerminalLogcatTest
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
-import terminal.emulator.bridge.PollEvent
-import terminal.emulator.bridge.pollEventJson
 import terminal.emulator.util.runCatchingCancellable
 
 /**

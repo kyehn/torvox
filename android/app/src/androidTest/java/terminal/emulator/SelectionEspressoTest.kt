@@ -3,7 +3,6 @@ package terminal.emulator
 import android.annotation.SuppressLint
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry

@@ -1,9 +1,7 @@
 package terminal.emulator.ui
 
-import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
-import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
