@@ -1,6 +1,5 @@
 package terminal.emulator.diag
 
-import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -32,11 +31,8 @@ import terminal.emulator.waitForTerminalScreen
  */
 class SelectionTapDismissTest : ComposeTerminalLogcatTest() {
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForTerminalScreen()
         composeTestRule.awaitBridge()
         UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 200) {

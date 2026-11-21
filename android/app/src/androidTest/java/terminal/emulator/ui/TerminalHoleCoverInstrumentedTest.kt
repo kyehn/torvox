@@ -2,8 +2,6 @@ package terminal.emulator.ui
 
 import android.graphics.Bitmap
 import androidx.lifecycle.Lifecycle
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -79,11 +77,8 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
         private const val MARKER_ON_SCREEN_TIMEOUT_MS = 15_000L
     }
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.awaitTerminalReady()
         // 键盘在场会把开孔整体上移、改变它的屏幕位置：采样区会跑到屏幕外，逐像素
         // 比对也失去意义。故先收起（同一个会话跨用例共用，前一个用例可能留着键盘）。
@@ -118,8 +113,7 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
     private fun captureScreen(): Bitmap? = runCatchingCancellable {
         // 必须确认应用在前台：截屏拿到的是**合成后的画面**，应用不在前台时截到的是
         // 后方应用/桌面（实测截到的是桌面灰 #3C3C3C），量出来的颜色与遮罩毫无关系。
-        val packageName = InstrumentationRegistry.getInstrumentation().targetContext.packageName
-        check(device.currentPackageName == packageName) {
+        check(device.currentPackageName == appPackageName) {
             "应用不在前台（当前 ${device.currentPackageName}），截屏量到的不是终端画面"
         }
         UxTestUtils.screenshot(device)

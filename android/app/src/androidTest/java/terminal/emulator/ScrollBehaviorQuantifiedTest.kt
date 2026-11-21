@@ -46,11 +46,8 @@ class ScrollBehaviorQuantifiedTest : ComposeTerminalLogcatTest() {
         private const val BRIDGE_WAIT_TIMEOUT_MS = 15_000L
     }
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
     }
 

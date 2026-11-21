@@ -33,11 +33,8 @@ import terminal.emulator.TerminalLogcatTest
 class UiAutomatorTest : TerminalLogcatTest() {
     @get:Rule val activityRule = ActivityScenarioRule(MainActivity::class.java)
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         // MainActivity.onCreate() requests POST_NOTIFICATIONS on Android 13+;
         // the system dialog would cover the UI and break UiAutomator lookups.
         val instrumentation = InstrumentationRegistry.getInstrumentation()

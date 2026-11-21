@@ -6,8 +6,6 @@ import android.view.MotionEvent
 import android.view.View
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -95,11 +93,8 @@ class ModifierBarPressFeedbackInstrumentedTest : ComposeTerminalLogcatTest() {
     /** 一次按下的像素采样结果。 */
     private data class FeedbackSample(val changed: Int, val total: Int)
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.awaitTerminalReady()
         // 启动期自动弹键盘会与本用例竞态：键盘把键栏顶上去，量到的不是底边那排。
         // 收键盘可能赶在输入法弹出之前，先确认一次，失败再复核最终状态。

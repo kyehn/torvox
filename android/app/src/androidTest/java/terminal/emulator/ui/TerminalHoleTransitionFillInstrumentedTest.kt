@@ -5,8 +5,6 @@ import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -90,13 +88,8 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
         private const val RETRY_INTERVAL_MS = 20L
     }
 
-    private lateinit var device: UiDevice
-    private lateinit var packageName: String
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        packageName = InstrumentationRegistry.getInstrumentation().targetContext.packageName
         composeTestRule.awaitTerminalReady()
     }
 
@@ -278,13 +271,13 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
         device.pressHome()
         assertNotNull(
             "必须真的退到后台",
-            UxTestUtils.pollUntilTrue(20_000, 50) { device.currentPackageName != packageName },
+            UxTestUtils.pollUntilTrue(20_000, 50) { device.currentPackageName != appPackageName },
         )
         Thread.sleep(BACKGROUND_HOLD_MS)
-        UxTestUtils.runShellCommand("am start -n $packageName/terminal.emulator.MainActivity")
+        UxTestUtils.runShellCommand("am start -n $appPackageName/terminal.emulator.MainActivity")
         assertNotNull(
             "必须回到前台",
-            UxTestUtils.pollUntilTrue(30_000, 50) { device.currentPackageName == packageName },
+            UxTestUtils.pollUntilTrue(30_000, 50) { device.currentPackageName == appPackageName },
         )
         Thread.sleep(RESUME_SAMPLE_MS)
         sampling = false

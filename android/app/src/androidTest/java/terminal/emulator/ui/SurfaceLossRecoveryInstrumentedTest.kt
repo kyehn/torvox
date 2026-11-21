@@ -3,9 +3,7 @@ package terminal.emulator.ui
 import android.view.View
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.Lifecycle
-import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
-import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -105,11 +103,8 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         runCatchingCancellable { composeTestRule.waitForIdle() }
     }
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         // 本类量像素墨迹（`inkPixels` 采样），就绪门槛须等原生 Surface 挂上，否则量到
         // 全零——判红原因与被测的 Surface 丢失恢复行为无关。见 awaitTerminalReady。
         composeTestRule.awaitTerminalReady()

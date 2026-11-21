@@ -10,8 +10,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -22,14 +20,11 @@ import terminal.emulator.waitForSession
 
 @RunWith(AndroidJUnit4::class)
 class BehaviorVerificationTest : ComposeTerminalLogcatTest() {
-    private lateinit var device: UiDevice
-
     @After
     fun resetScreen() = composeTestRule.closeSettingsOverlay()
 
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForIdle()
     }
 

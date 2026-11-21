@@ -1,7 +1,5 @@
 package terminal.emulator.diag
 
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -28,11 +26,8 @@ import terminal.emulator.placeTextAtRow
  */
 class SgrColorPixelAcceptanceTest : ComposeTerminalLogcatTest() {
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.awaitTerminalReady()
     }
 

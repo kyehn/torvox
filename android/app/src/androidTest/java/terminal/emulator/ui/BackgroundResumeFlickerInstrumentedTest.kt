@@ -87,13 +87,8 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             DateTimeFormatter.ofPattern("MM-dd HH:mm:ss.SSS", Locale.US)
     }
 
-    private lateinit var device: UiDevice
-    private lateinit var packageName: String
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        packageName = InstrumentationRegistry.getInstrumentation().targetContext.packageName
         composeTestRule.awaitTerminalReady()
     }
 
@@ -275,7 +270,7 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNotNull(
             "必须真的退到后台",
             UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 50) {
-                device.currentPackageName != packageName
+                device.currentPackageName != appPackageName
             },
         )
         assertNotNull(
@@ -291,11 +286,11 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             },
         )
 
-        UxTestUtils.runShellCommand("am start -n $packageName/terminal.emulator.MainActivity")
+        UxTestUtils.runShellCommand("am start -n $appPackageName/terminal.emulator.MainActivity")
         assertNotNull(
             "必须回到前台",
             UxTestUtils.pollUntilTrue(RESUME_TIMEOUT_MS, 50) {
-                device.currentPackageName == packageName
+                device.currentPackageName == appPackageName
             },
         )
         assertNotNull(
@@ -482,7 +477,7 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             assertNotNull(
                 "必须真的退到后台",
                 UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 50) {
-                    device.currentPackageName != packageName
+                    device.currentPackageName != appPackageName
                 },
             )
             assertNotNull(
@@ -506,11 +501,11 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             bridge.setDeviceLostInjectedForTest(false)
         }
 
-        UxTestUtils.runShellCommand("am start -n $packageName/terminal.emulator.MainActivity")
+        UxTestUtils.runShellCommand("am start -n $appPackageName/terminal.emulator.MainActivity")
         assertNotNull(
             "必须回到前台",
             UxTestUtils.pollUntilTrue(RESUME_TIMEOUT_MS, 50) {
-                device.currentPackageName == packageName
+                device.currentPackageName == appPackageName
             },
         )
         assertNotNull(
