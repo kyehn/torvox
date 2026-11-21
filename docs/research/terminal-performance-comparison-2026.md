@@ -8,12 +8,12 @@
    `sylirre/ghostty-android-terminal`）都用 HWUI `Canvas` 绘制终端内容，本项目用 wgpu 直绘
    SurfaceView；同一句「60 fps」在两侧量的不是同一件事。
 2. **跨应用统一帧面分三层，各有覆盖面**：显示级是 `dumpsys SurfaceFlinger --frametimeline`
-   （逐 display frame 的期望/实际起止与呈现时刻、jank 分类，无需图层名，对所有应用同一口径）；
-   图层级是 `dumpsys SurfaceFlinger --latency <layer>`（逐帧 `desired / actual / ready` 纳秒三列，
-   但只覆盖 SurfaceFlinger 的 legacy 图层，且图层名必须精确到 `<base>#<id>`）；应用内是各家的帧
-   统计（本项目终端内容直绘 SurfaceView，只有原生呈现汇总能测到）。实测推翻了「图层时序对任何
-   应用都成立」这一原假设：SurfaceView 的 BLAST 图层 `--latency` 根本寻址不到，本项目的终端
-   内容帧不在该通道内。
+   （逐 display frame 的期望/实际起止与呈现时刻、jank 分类；每个 display frame 下还挂着逐图层
+   条目，带 `Owner Pid` 归属，无需预知图层名，对所有应用同一口径）；图层级是
+   `dumpsys SurfaceFlinger --latency <layer>`（逐帧 `desired / actual / ready` 纳秒三列，精确名
+   匹配**任何**图层，含 BLAST 类型的 SurfaceView 内容层）；应用内是各家的帧统计（本项目终端内容
+   直绘 SurfaceView，只有原生呈现汇总能测到）。实测推翻了「`--latency` 覆盖不到 SurfaceView」
+   这一原假设：名称精确即可命中本项目终端 SurfaceView 图层，「行全为零」只说明该图层没有内容帧。
 3. **采集分七面**：跨应用帧时序、应用内帧时序、进程与系统状态、能耗与热、崩溃与退出、
    日志与制品、深度 trace。每面都有「采集为空即判红」纪律，采集侧不做筛选、不限级。
 4. **全场景矩阵 12 类**，每类有固定负载、硬超时、输出上限；超限即终止并记录，不无限等待，
@@ -61,7 +61,7 @@
 | 指标 | 跨应用可比 | 依据与口径 | 本项目取数 | 对照对象取数 |
 | --- | --- | --- | --- | --- |
 | 冷启动到首帧 | 可比 | 同一 `am start -W` + 同一首帧定义 | `am start -W` + SurfaceFlinger 首帧 | 同左 |
-| 稳态帧时序 | 可比（显示级）／仅同图层可寻址时可比（图层级） | 显示级 `dumpsys SurfaceFlinger --frametimeline` 同一口径；图层级 `--latency` 只覆盖 legacy 图层 | 显示级 frametimeline + 原生呈现汇总 | 显示级 frametimeline |
+| 稳态帧时序 | 可比 | 同一通道同一口径：逐图层 `--latency`（含 BLAST SurfaceView 内容层）与 `--frametimeline` 的图层条目（带 `Owner Pid` 归属） | 终端内容 BLAST 图层的逐帧三列 + 应用窗口图层条目；应用内呈现汇总作第二数据面 | 内容在应用窗口图层，取数同左 |
 | 内存占用 | 可比 | `dumpsys meminfo` 的 PSS / RSS | `dumpsys meminfo` | 同左 |
 | 能耗 | 仅同设备内可比 | 硬件相关，跨设备无意义 | `batterystats` 按 UID | 同左 |
 | 崩溃 / ANR / 异常退出 | 可比 | `ApplicationExitInfo` reason + logcat + dropbox | 同左 | 同左 |
@@ -89,57 +89,71 @@ API 29–30 触发（API 31 起 app trace tag 不再要求该标志）。实测�
 转发给 `FrameTimeline::parseArgs`；该函数只认两个开关：`-jank` 与 `-all`（不带开关则无输出）。
 实测（emulator-5554，API 35）：
 
-- `-all` 首行是 `Number of display frames : 64`（默认保留 64 个 display frame），其后逐帧给出
-  `Jank Type`（`AppDeadlineMissed`、`BufferStuffing`、`SurfaceFlingerCpuDeadlineMissed`、
+- `-all` 首行是 `Number of display frames : 64`（默认保留 64 个 display frame），其后逐个 display
+  frame 给出 `Jank Type`（`AppDeadlineMissed`、`BufferStuffing`、`SurfaceFlingerCpuDeadlineMissed`、
   `SurfaceFlingerGpuDeadlineMissed`、`DisplayHAL`、`PredictionError`、`Unknown`）、
   `Prediction State`、`Present Metadata`、`Start/Finish Metadata`、`Vsync Period`、
   `Present delta`，以及期望与实际的 `Start time` / `End time` / `Present time` 三列对照。
+- **每个 display frame 下还挂着该帧涉及的逐图层条目**（`Layer - TX - <name>#<id>`），每条给出
+  `Token`、`Is Buffer?`、`Owner Pid`、`Layer ID`、`Present State`、`Prediction State`、
+  `Jank Type`、`Present Metadata`、`Finish Metadata`、`Last latch time` 与同一张三列表。源码依据：
+  `FrameTimeline::DisplayFrame::dump` 遍历 `mSurfaceFrames` 调 `SurfaceFrame::dump`；而
+  `SurfaceFrame` 由 `Layer::createSurfaceFrameForBuffer` 创建，参数含 `mOwnerPid`、`getSequence()`、
+  `mName` 与调试名，故**图层条目自带属主归属**。
 - `-jank` 给出同一结构的帧序列。
 
-这一层**不需要图层名**，量的是「合成器把帧呈现出去的时刻」，与应用用什么管线绘制无关：
-两个对照对象的 HWUI 帧与本项目的 wgpu 直绘帧都落在同一条时间轴上。在受控场景（前台只有被测
-应用，其余应用暂停或退到后台）下，显示级的呈现时序即被测应用贡献的呈现时序——这是本项目
-唯一能对三个应用用同一口径取到终端内容呈现时序的通道。
+这一层**不需要预知图层名**即可给出 display frame 级口径，同时又能按 `Owner Pid` 归属到具体应用的
+图层——它是唯一同时具备「同口径」与「属主归属」的通道。量的是「合成器把帧呈现出去的时刻」，
+与应用用什么管线绘制无关：两个对照对象的 HWUI 帧与本项目的 wgpu 直绘帧都落在同一条时间轴上。
 
 ### 图层级：`--latency` 逐帧三列
 
 - `SurfaceFlinger::dumpStats` 先写 `mScheduler->getPacesetterVsyncPeriod().ns()`（刷新周期，纳秒），
-  再遍历 `mLegacyLayers`（`traverseLegacyLayers`），对 `layer->getName() == name` **精确相等**的图层
+  再 `traverseLegacyLayers` 遍历 `mLegacyLayers`，对 `layer->getName() == name` **精确相等**的图层
   调用 `Layer::dumpFrameStats`。
 - `Layer::getName()` 返回 `mName`，构造时是 `printf("%s#%d", args.name, sequence)`；图层名必须带
   `#<id>` 后缀。不带后缀的名字（如 `StatusBar`）永远匹配不上。
 - 图层名的权威来源是 `dumpsys SurfaceFlinger --list`：它逐行打印
   `RequestedLayerState{<name> parentId=…}`，其中 `<name>` 就是 `args.name + "#" + sequence`。
-  全量 dump 里的 `Layer [id] <debugName>` 是**另一个字段**（`debugName`），与 `name` 未必相同，
-  不可直接拿去用。
+  全量 dump 里的 `Layer [id] <label>` 实测与 `--list` 的 `<name>` 同形（同样带 `#<id>`），但
+  `--latency` 认的是 `--list` 的精确串。
 - `--latency-clear` 走同一个精确比较；不带名字时清空全部图层的帧历史。
 - 输出形态随帧统计开关而变：旧帧统计器路径下环形缓冲 128 槽，固定输出 127 行
-  （`NUM_FRAME_RECORDS = 128`，减去当前槽），未填的槽是 `0 0 0`；新帧时间线路径下只输出真实帧，
-  没有空行。
+  （`NUM_FRAME_RECORDS = 128`，减去当前槽），未填的槽是 `0 0 0`；新帧时间线路径下由
+  `TimeStats::generateFrameStats` 给出同样形态的 127 行，末尾另有一个空行。
 
 实测判据（emulator-5554，API 35）：
 
 | `--latency <name>` 输出 | 含义 | 处置 |
 | --- | --- | --- |
-| 只有首行（vsync 周期） | 图层名未匹配：名字不带 `#<id>`、图层已销毁，或该图层不在 `mLegacyLayers` | 判**采集失败**，不得当作「没出帧」 |
-| 首行 + 127 行 | 图层已匹配（旧帧统计器路径） | 继续按行有效性解析 |
-| 首行 + 127 行且全部 `0 0 0` | 图层匹配但历史里没有帧记录 | 判**采集失败**，不得当作「该场景没出帧」 |
+| 只有首行（vsync 周期） | 图层名未匹配：名字不带 `#<id>`、或图层已销毁 | 判**采集失败**，不得当作「没出帧」 |
+| 命令无输出（设备 shell 报错） | 名称未加引号：`[` `]` `(` `)` 被设备 shell 当作元字符，参数被拆坏 | 判**采集失败**；名称 MUST 加引号 |
+| 首行 + 127 行 | 图层已匹配 | 继续按行有效性解析 |
+| 首行 + 127 行且全部 `0 0 0` | 图层匹配但没有内容帧记录（该图层不承载内容，或刚被 `--latency-clear` 清空） | 判**采集失败**，不得当作「该场景没出帧」 |
 | 首行 + 若干行且 `desired != 0` | 真实帧 | 解析呈现间隔与超出量 |
 
 行的有效性判据取自源码：旧帧统计器 `getStats` 以 `desiredPresentTime == 0` 跳过空槽，
 `isFrameValidLocked` 以 `0 < actualPresentTime < INT64_MAX` 判有效帧。解析时按 `desired != 0`
 筛出真实帧即可。
 
-**覆盖面限制（实测）**：`--list` 列出的图层并非都能被 `--latency` 寻址。实测同一时刻的 9 个图层
-里只有 4 个可寻址（`StatusBar#87`、`Taskbar#89`、`ImageWallpaper#66`、launcher 活动窗口）；
-不可寻址的包括 BLAST 类型的 SurfaceView 图层（`SurfaceView[Splash Screen …](BLAST)#145`）、
-壁纸包装层与手势监控层。原因是这些图层不在 `SurfaceFlinger::mLegacyLayers` 里，而 `dumpStats`
-只遍历该集合。
+**覆盖面实测（推翻先前结论）**：先前依据「BLAST 图层不在 `mLegacyLayers`」断定 `--latency` 覆盖
+不到 SurfaceView，实测不成立。本项目运行中的终端 SurfaceView 图层
+`SurfaceView[com.termux/terminal.emulator.MainActivity](BLAST)#215` 用精确名调用 `--latency`
+返回 127 行、其中 14 行非零；`--latency-clear` 后归零，终端再次输出后重新累积到 3 行；同一应用的
+窗口图层 `com.termux/terminal.emulator.MainActivity#210` 返回 32 行非零。真正决定「有没有数据」
+的是**该图层是否承载内容帧**：动画 leash、dim、bounds 等图层同样精确匹配，但行全为零。先前
+「9 个图层只有 4 个可寻址」的观察，实际是把「行全零」误记为「不可寻址」。
 
-**对本项目的直接后果**：本项目的终端内容由原生渲染线程直绘 SurfaceView（现代 Android 上是
-BLAST 队列），其图层不在 `mLegacyLayers` 内，`--latency` 覆盖不到。因此终端内容的帧数与
-帧时序只能取本项目自己的原生呈现汇总（既有规约「宏基准的帧级数据面按绘制主体选源」同向），
-跨应用呈现时序则取显示级帧时间线。
+**对本项目的直接后果**：终端内容帧可由系统侧逐图层通道取得（`--latency` 给逐帧
+`desired / actual / ready`，`--frametimeline` 的图层条目给属主归属与呈现时刻），不必只依赖应用
+自己的呈现汇总；应用自己的呈现汇总仍作为该应用内部的第二数据面（既有规约「宏基准的帧级数据面按
+绘制主体选源」不冲突：那条规约讲的是**应用内**断言用哪一面）。
+
+**两条渲染管线的同通道实测**：同一台设备上，HWUI 路径的系统 Settings（进程 1134）的窗口图层
+`com.android.settings/com.android.settings.Settings#256` 用 `--latency` 取到 127 行、其中 41 行
+非零；同一图层在 `--frametimeline` 里出现 33 条带 `Owner Pid 1134` 且 `Is Buffer? = 1` 的条目。
+本项目的 BLAST SurfaceView 层同样命中这两个通道。故 HWUI 与 SurfaceView 两条管线的终端内容都落在
+系统侧逐图层通道内，取数口径一致。
 
 ### 应用级：Perfetto FrameTimeline 的覆盖限制
 
@@ -147,28 +161,52 @@ Perfetto 官方文档 `docs/data-sources/frametimeline.md` 明确写着：「Sur
 **not supported**, but will be, in future.」该数据源给出的是每个应用的 Choreographer 帧
 （`actual_frame_timeline_slice` 表带 `layer_name` 与 `process.name`），本项目的终端内容在
 SurfaceView 内、未经 Choreographer，故**不在其覆盖内**；两个对照对象走 HWUI `View`，在其覆盖内。
-结论：Perfetto FrameTimeline 可作对照对象的应用帧归因，但**不可作终端内容的跨应用判据**，
-也不能用它断言本项目终端内容「没有帧」。
+文档同时说明 SurfaceFlinger 自身也有 Expected/Actual 两条轨道，但那些是 display frame 级的合成
+轨迹（示例中 `layer_name` 为 NULL），**没有图层归属**，无法归属到某个应用的终端内容层。结论：
+Perfetto FrameTimeline 可作对照对象的应用帧归因，但**不可作终端内容的跨应用判据**，也不能用它
+断言本项目终端内容「没有帧」。
 
-采集协议：
+### 系统侧通道的保留窗口
 
-1. 场景开始前 `dumpsys SurfaceFlinger --latency-clear <layer>` 清空环形历史——不清空则读到的是
-   上一个场景的残留帧；不带图层名时清空全部图层。
-2. 场景结束后 `dumpsys SurfaceFlinger --latency <layer>` 取回逐帧数据，先按上表的判据确认图层
-   已匹配且确有帧记录，再按 `desired != 0` 筛出真实帧。
-3. 显示级帧时序用 `dumpsys SurfaceFlinger --frametimeline -all` 取回，按 `Present time` 与
-   `Present delta` 计算呈现间隔分位数与超出量分位数。
+两个系统侧通道都只保留最近一段历史，不是全量账本：
+
+- `--latency` 每图层一个 127 槽的环形缓冲（`NUM_FRAME_RECORDS = 128` 减当前槽），写满即覆盖最旧的帧。
+- `--frametimeline` 只保留最近 64 个 display frame。
+
+实测（emulator-5554，API 35，本项目跑 `timeout 6 yes` 持续输出）：3 秒内应用侧呈现 551 帧、
+9 秒内 1089 帧；同期 `--latency` 的非零行数封顶在 127、`--frametimeline` 里该图层的条目封顶在
+64——两通道同时饱和。
+
+后果：**系统侧通道能给出时序（呈现间隔、超出量、丢帧），不能给出长突发场景的总帧数**。场景矩阵
+里「帧数」类指标 MUST 取应用自己的计数（各应用的帧计数口径不同，见既有规约「宏基准的帧级数据面按
+绘制主体选源」），或把场景压进保留窗口内再数行数；MUST NOT 把被窗口截断的行数当作场景总帧数。
+
+### 三层帧面的采集协议
+
+1. 场景开始前 `dumpsys SurfaceFlinger --latency-clear <layer>` 清空该图层的帧历史——不清空则读到
+   的是上一个场景的残留帧；不带图层名时清空全部图层。
+2. 场景结束后 `dumpsys SurfaceFlinger --latency <layer>` 取回逐帧数据（名称 MUST 加引号传给设备
+   shell），先按上表的判据确认图层已匹配且确有帧记录，再按 `desired != 0` 筛出真实帧。
+3. 同时取 `dumpsys SurfaceFlinger --frametimeline -all`：display frame 级取呈现时序与 jank 分类，
+   逐图层条目按 `Owner Pid`（由包名查得）归属到被测应用的内容图层。
 4. 图层名候选来自 `dumpsys SurfaceFlinger --list`；取不到精确图层名、或取回的输出表明图层未匹配
    或无帧记录时，判**采集失败**并中止该场景，不得静默跳过、也不得以「没采到」当作「没出帧」。
-5. 由此可算：呈现间隔（相邻呈现时刻之差）、距 deadline 的超出量、丢帧（呈现间隔超过刷新周期）
-   与帧数。
+5. 内容图层按「该应用 `Owner Pid` 下、承载内容帧的那条图层」选取：终端内容在本项目落在 BLAST
+   SurfaceView 层，在 HWUI 对照对象落在应用窗口层；两者在图层条目里都是 `Is Buffer? = 1`。
+6. SurfaceView 内容帧的 jank 判定 MUST 由呈现间隔与刷新周期比较得出：其图层条目的 `Token` 为
+   `-1`、`Prediction State` 为 `None`、`Jank Type` 为 `None`、`Present Metadata` 为
+   `Unknown Present`——调度器预测不覆盖此类帧。`Start time` 恒为 `N/A`，`Present time` 偶为
+   `N/A`（此时以 `Last latch time` 兜底），MUST NOT 把 `N/A` 当作 0 参与计算。
+7. 由此可算：呈现间隔（相邻呈现时刻之差）、距 deadline 的超出量、丢帧（呈现间隔超过刷新周期）。
+   帧数类指标 MUST 取应用自己的计数（系统侧通道受保留窗口限制，见上节），MUST NOT 把被窗口截断
+   的行数当作场景总帧数。
 
 ## 四、采集面清单
 
 | 面 | 采集命令 | 输出 | 判据用法 |
 | --- | --- | --- | --- |
-| 显示级帧时序 | `dumpsys SurfaceFlinger --frametimeline -all` / `-jank` | 逐 display frame 的期望/实际起止与呈现时刻、jank 分类 | 跨应用呈现时序分位数、jank 归因 |
-| 图层级帧时序 | `dumpsys SurfaceFlinger --latency <layer>` / `--latency-clear <layer>` | 首行 vsync 周期 + 逐帧三列纳秒（127 个槽位行） | 仅对可寻址的 legacy 图层有效；帧数、呈现间隔分位数、超出量分位数 |
+| 显示级帧时序 | `dumpsys SurfaceFlinger --frametimeline -all` / `-jank` | 逐 display frame 的期望/实际起止与呈现时刻、jank 分类；每个 display frame 下挂逐图层条目（`Owner Pid`、`Layer ID`、`Is Buffer?`、呈现状态与时刻） | 跨应用呈现时序分位数、jank 归因、按属主归属到内容图层 |
+| 图层级帧时序 | `dumpsys SurfaceFlinger --latency <layer>` / `--latency-clear <layer>` | 首行 vsync 周期 + 逐帧三列纳秒（127 个槽位行，末尾一空行） | 对承载内容帧的图层一律有效（含 BLAST SurfaceView 层）；帧数、呈现间隔分位数、超出量分位数 |
 | 应用内帧时序 | `dumpsys gfxinfo <pkg> framestats` | HWUI 帧统计与分位数 | 仅 Compose / HWUI 界面（既有规约同口径） |
 | 进程状态 | `dumpsys meminfo <pkg>`、`dumpsys procstats`、`/proc/<pid>/status` | PSS / RSS / 匿名与文件占用 | 内存峰值与回收行为 |
 | 能耗与热 | `dumpsys batterystats --checkin`、`dumpsys battery`、`dumpsys thermalservice` | 按 UID 统计、热状态、散热设备 | 同设备内能耗对比、热节流归因 |
@@ -248,8 +286,10 @@ S9 的探针口径沿用既有规约：终端内的 shell 没有提示符可等�
 就绪信号，不得用固定等待时长替代。
 
 矩阵里的「呈现汇总」指各应用自己的帧统计：本项目取原生渲染器的呈现汇总（终端内容直绘
-SurfaceView，经 HWUI 的 `gfxinfo` 记不到），对照对象取其 HWUI 帧统计。跨应用呈现时序一律取显示级
-frametimeline；图层级 `--latency` 只在目标图层可寻址时作为补充证据。
+SurfaceView，经 HWUI 的 `gfxinfo` 记不到），对照对象取其 HWUI 帧统计。跨应用呈现时序一律取系统侧
+逐图层通道（`--latency` 逐帧三列 + `--frametimeline` 的图层条目并按 `Owner Pid` 归属）。
+帧数类指标受系统侧保留窗口限制（见「系统侧通道的保留窗口」），跨应用对比帧数 MUST 用各应用
+自己的计数口径。
 
 ## 六、环境固定化
 
@@ -291,7 +331,7 @@ frametimeline；图层级 `--latency` 只在目标图层可寻址时作为补充
 for device in targets:
     prepare(device)            # 解锁、刷新率、固定性能、温度、动画、网络、输入法
     for app in [本项目, termux, ghostty-android]:
-        install(app)           # 外部下载的 APK，不入库
+        install(app)           # 外部下载的 APK，不入库；与被测应用撞包名时先卸载再装
         reset_state(app)
         for scenario in matrix:
             for iteration in 1..N:
@@ -302,6 +342,11 @@ for device in targets:
                 classify(row)
     teardown(device)
 ```
+
+**包名撞名的处置**：上游 Termux 的包名是 `com.termux`，与本项目的 `applicationId` 相同；同设备
+安装实测报 `INSTALL_FAILED_VERSION_DOWNGRADE`（对照构建版本码更低），版本码更高时会直接替换被测
+应用。故同一台设备上 MUST 按应用轮换安装（装 A 跑完所有场景 → 卸载 → 装 B），或给对照构建改包名
+后并存；两种做法都 MUST 记录 APK 校验和与安装顺序，因为卸载重装会清空应用状态。
 
 - **顺序**：同场景下应用顺序交替（ABAB）以抵消宿主漂移；每个场景重复 N 次，取 p95 / p99，不取均值。
 - **就绪判定**：每个场景先确认应用可交互（探针命令有回显），再开始计时。
@@ -340,7 +385,7 @@ for device in targets:
 | `screenrecord` 作判据 | 编码与分辨率引入偏差，只作人工复核制品 |
 | 引用任一对照对象的自述性能数字 | 两者均未发布可核实的性能数字 |
 | Perfetto `android.surfaceflinger.frametimeline` 作终端内容帧的跨应用判据 | 官方文档明确 SurfaceView 不受 FrameTimeline 支持：本项目终端内容在 SurfaceView 内不在其覆盖内，对照对象走 HWUI 管线在其覆盖内——用它比较等于比较两套不同的数据面 |
-| `dumpsys SurfaceFlinger --latency` 作跨应用的统一帧面 | 该通道只遍历 `mLegacyLayers`，只覆盖精确命名的 legacy 图层；BLAST 类型的 SurfaceView 图层（含本项目终端内容）不可寻址。它只作图层级补充通道 |
+| Perfetto FrameTimeline 的 SurfaceFlinger 侧轨道作终端内容判据 | 该轨道的切片是 display frame 级合成轨迹（示例中 `layer_name` 为 NULL），没有图层归属，无法归属到某个应用的终端内容层 |
 
 ## 十二、与本仓既有资产的关系
 
@@ -348,20 +393,24 @@ for device in targets:
   `InteractionAnimationBenchmark`、`BenchmarkSupport`、`FrameStats`、`PresentedFrames`）、
   `native/benches`（`cell_builder`、`vt_typing`、`cjk_resolve`、`support`）、
   `scripts/test-emulator.nu`。
-- 缺：跨应用对比面；系统侧帧时序采集（显示级 frametimeline 的时间窗筛选、图层级 `--latency` 的
-  图层名寻址判定）；exit-info 归因采集；场景矩阵与制品落盘规范。
+- 缺：跨应用对比面；系统侧帧时序采集（显示级 frametimeline 的时间窗筛选与按 `Owner Pid` 归属、
+  图层级 `--latency` 的图层名寻址与「全零行」判据）；exit-info 归因采集；场景矩阵与制品落盘规范。
 - 与既有规约一致性：本报告不改「模拟器只作数量级」「帧级数据面按绘制主体选源」「采集为空即
   判红」「设备侧命令不含 shell 语法」「不得用固定等待替代就绪信号」等既有口径，只在其上补
   跨应用一层。
 
 ## 十三、结论
 
-跨终端性能对比在本项目是**可做**的，但前提是选对观测面：呈现时序走系统侧——显示级用
-`dumpsys SurfaceFlinger --frametimeline`，图层级用 `--latency`（且必须先确认图层可寻址），
-而不是各家自报的帧率；进程状态、能耗、退出归因走系统 dump，而不是各家自报的内存与耗电。
-本项目终端内容直绘 SurfaceView，既不进 HWUI 的 `gfxinfo`，也不在 `--latency` 的 legacy 图层
-集合内，更不在 Perfetto FrameTimeline 的覆盖内（官方明确 SurfaceView 不支持），故终端内容帧
-只能取原生呈现汇总，跨应用呈现时序只能取显示级帧时间线。
+跨终端性能对比在本项目是**可做**的，但前提是选对观测面：呈现时序走系统侧——逐图层用
+`dumpsys SurfaceFlinger --latency`（名称精确到 `<base>#<id>` 且加引号），display frame 级用
+`dumpsys SurfaceFlinger --frametimeline`（并按 `Owner Pid` 归属到内容图层），而不是各家自报的
+帧率；进程状态、能耗、退出归因走系统 dump，而不是各家自报的内存与耗电。
+本项目终端内容直绘 SurfaceView，不进 HWUI 的 `gfxinfo`，也不在 Perfetto FrameTimeline 的覆盖内
+（官方明确 SurfaceView 不支持），但**在系统侧逐图层通道内**：实测终端 SurfaceView（BLAST）图层
+用精确名即可取到逐帧三列，`--latency-clear` 后归零、终端再次输出后重新累积；其 jank 判定 MUST 由
+呈现间隔与刷新周期比较得出，因为 SurfaceView 帧不参与调度器预测（`Jank Type` 恒为 `None`）。
+两个系统侧通道都只保留最近一段历史（`--latency` 每图层 127 行、`--frametimeline` 最近 64 个
+display frame），故它们给的是**时序**而非长突发场景的总帧数；帧数 MUST 取各应用自己的计数口径。
 对照对象没有任何可复用的基准资产，对比必须自建 harness；本仓已有的宏基准模块与设备侧编排是
 落点，跨应用扩展受 `scripts/` 受保护约束，须维护者明确同意后实施。失败归因必须落到
 exit-info reason、FrameTimeline jank 类型、logcat 与 dropbox 四源交集，证据不足记「未定」而非
