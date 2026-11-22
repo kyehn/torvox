@@ -913,34 +913,50 @@ fn append_row_instances(
             ) {
                 continue;
             }
-            // 空单元格只发一个四边形：无光标时铺满全格背景；Bar/Underline 时收缩为
-            // 光标标记，格内其余区域不被本帧覆盖（靠累加器保留，见脏带清除实例）。
-            // 方块光标不收缩——整格就是光标盒（`cursor_marker_geometry` 返回 `None`）。
+            // 空单元格：无光标时只发一个铺满全格的四边形；Bar/Underline 光标
+            // 收缩为单元盒内的细标记，方块光标整格就是光标盒
+            // （`cursor_marker_geometry` 返回 `None`）。
             //
             // 标记锚在单元盒，不锚字形位图（spec cursor-rendering
             // 「光标标记锚在单元盒」）：位图高度随字符变化，锚它会让同一个光标
             // 在空单元格与文本格之间变高变矮，降部字形还会把标记带出行界。
-            let (origin, size, background) = match cursor_marker_geometry(
-                cursor,
-                quad_origin,
-                cell_width,
-                cell_height,
-                cell_span,
-            ) {
-                Some((marker_origin, marker_size)) if is_cursor => {
-                    (marker_origin, marker_size, cursor.marker_background())
-                }
-                _ => (quad_origin, quad_size, effective_background),
+            let marker = if is_cursor {
+                cursor_marker_geometry(cursor, quad_origin, cell_width, cell_height, cell_span)
+            } else {
+                None
             };
-            push_flat_instance(
-                instances,
-                origin,
-                size,
-                cell_data_entry,
-                effective_foreground,
-                background,
-                emitted_flags,
-            );
+            // 标记只盖住细条，而全量帧以 Clear(主题背景) 铺底、部分帧只清脏带：
+            // 非默认底色（选区/SGR 48）或装饰线必须另有整格四边形承载，
+            // 否则细光标所在的空白格重绘后会丢掉底色与下划线。
+            if marker.is_none()
+                || blank_cell_needs_quad(
+                    emitted_flags,
+                    false,
+                    effective_background,
+                    default_background,
+                )
+            {
+                push_flat_instance(
+                    instances,
+                    quad_origin,
+                    quad_size,
+                    cell_data_entry,
+                    effective_foreground,
+                    effective_background,
+                    emitted_flags,
+                );
+            }
+            if let Some((marker_origin, marker_size)) = marker {
+                push_flat_instance(
+                    instances,
+                    marker_origin,
+                    marker_size,
+                    cell_data_entry,
+                    effective_foreground,
+                    cursor.marker_background(),
+                    emitted_flags,
+                );
+            }
             continue;
         }
 

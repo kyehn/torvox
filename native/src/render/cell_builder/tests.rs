@@ -847,6 +847,37 @@ fn underline_cursor_on_empty_cell_is_thin_horizontal() {
         "underline bottom {bottom} must stay inside row 0 ({cell_height})"
     );
 }
+/// 非默认底色（选区/SGR 48）或带装饰的空白格 + 细光标：标记之外必须另铺
+/// 整格四边形，否则全量帧的 Clear 会把格内底色与下划线抹掉、只留细条。
+#[test]
+fn thin_cursor_on_tinted_blank_cell_keeps_cell_background() {
+    let cursor = CellCursor {
+        row: 0,
+        col: 3,
+        visible: true,
+        style: crate::terminal::ghostty_terminal::CursorStyle::Bar,
+        color: [1.0, 1.0, 1.0, 1.0],
+    };
+    let tint = [0.2, 0.4, 0.6, 1.0];
+    let flags = 1 << cell_flags::UNDERLINE;
+    let cells = vec![cell_data(0, 3, ' ', [1.0; 4], tint, flags)];
+    let instances = build(&cells, cursor, &[]);
+    assert_eq!(
+        instances.len(),
+        2,
+        "tinted blank cell needs a full-cell quad plus the bar marker"
+    );
+    let cell_width = 1024.0 / 80.0;
+    let cell_height = 1024.0 / 24.0;
+    assert_eq!(instances[0].background, tint, "cell tint must survive");
+    assert_eq!(instances[0].quad_size, [cell_width, cell_height]);
+    assert_eq!(instances[0].flags, flags as f32, "decoration must survive");
+    assert!(
+        instances[1].quad_size[0] < cell_width * 0.5,
+        "second quad is the thin bar marker"
+    );
+}
+
 /// 空白网格不再为每格发射背景四边形，实例数只随有效字符增长。
 #[test]
 fn blank_default_cells_do_not_emit_instances() {
