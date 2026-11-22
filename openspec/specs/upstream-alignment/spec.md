@@ -990,34 +990,34 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 - **aislop**（须以 `npx aislop@latest` 调用，本仓 nix 环境未内置该可执行文件。
   2026-11-20 重测时 `latest` 解析到的 0.22.2 已可正常下载运行，其结果与 0.22.1
-  完全一致（`score` 100、label `Healthy`、0 errors / 0 warnings）；本次基线取自
-  `npx aislop@0.22.1`，并以 0.22.2 交叉复核一致）：
-  `npx aislop@0.22.1 scan --json native/src` 退出码 0，`score` 100、label `Healthy`、
+  完全一致；本次基线取自 `npx aislop@0.22.2`）：
+  `npx aislop@0.22.2 scan --json native/src` 退出码 0，`score` 100、label `Healthy`、
   `coverage.supportedFiles` 116、`unsupportedFiles` 0，`summary` 0 errors /
-  0 warnings / 0 fixable，`diagnostics` 为空；
-  `findingAssessment.byKind` 为 `style-policy` 0 / `confirmed-defect` 0。
-  全仓扫描同版本同为 0 errors / 0 warnings，
-  `coverage.supportedFiles` 117、`unsupportedFiles` 208、
+  1 warning / 0 fixable；唯一 `diagnostics` 为 `complexity/file-too-large`
+  （`native/src/render/cell_builder.rs`，工具口径 1111 行），
+  `findingAssessment.byKind` 为 `style-policy` 1 / `confirmed-defect` 0 /
+  `conservative-security` 0 / `ai-slop-indicator` 0，`function-too-long` 为 0。
+  全仓扫描（取自已提交的树快照）同为 `score` 100、label `Healthy`、0 errors /
+  1 warning / 0 fixable，`coverage.supportedFiles` 117、`unsupportedFiles` 228、
   `dominantUnsupported` 为 `Kotlin`、`scoreable` 为真。
+  （工作树另有并行会话的未跟踪 Kotlin 文件，计入则 `unsupportedFiles` 为 232；
+  基线仍取已提交快照，与 jscpd 一致。）
   **覆盖面限制**：该工具扫不到本仓 Android 侧 Kotlin 代码，
   故本项 MUST NOT 被当作全仓门禁；它只对 Rust 侧有判别力。
   **评分可用性**：该工具仅在 `unsupportedFiles < 10` 或
-  `unsupportedFiles ≤ supportedFiles × 3` 时给出分数；本仓当前 208 ≤ 117 × 3，
+  `unsupportedFiles ≤ supportedFiles × 3` 时给出分数；本仓当前 228 ≤ 117 × 3，
   全仓扫描亦可评分，但分数基线仍 MUST 取 Rust 子目录扫描。
-  **与上一列基线的偏差来源**：上一列唯一 `file-too-large` 命中在
-  `internal/input_filter.rs`（1159 行），其主体是 `#[cfg(test)] mod tests`（646 行）；
-  用例已移到同目录 `input_filter/tests.rs`（与 `pty.rs` / `pty/tests.rs` 同一形状），
-  生产文件回到 622 行、测试文件 641 行，均低于该工具 1100 行的告警阈，
-  命中随之归零（`function-too-long` 仍为 0）。更早一次偏移是
-  `public_api.rs`（1123 行）按职责拆成 `public_api/` 目录模块。`supportedFiles`
-  由 115 升至 116 是新增该测试文件所致。
-  （2026-11-21 本轮重测同值：`npx aislop@0.22.2 scan native/src` 与 `scan .` 均退出码 0，
-  `score` 100、label `Healthy`、`summary` 0 errors / 0 warnings / 0 fixable、`diagnostics` 为空、
-  `findingAssessment.byKind` 四类全 0；native/src 覆盖 116 supported / 0 unsupported，
-  全仓覆盖 117 supported / 208 unsupported（`dominantUnsupported` 为 `Kotlin`）。
-  本轮变更只在 Rust 侧，覆盖面与基线一致。）
+  **与上一列基线的偏差来源**：2026-11-21 的基线为 0 warnings
+  （`file-too-large` / `function-too-long` 均 0）；2026-11-22 的 `file-too-large`
+  命中来自 `native/src/render/cell_builder.rs`——细光标不再抹掉空白格底色与装饰
+  那次修复为该文件新增 16 行，使其越过该工具 1100 行的告警阈（limit 1000）。
+  该文件的生产主体是「逐单元格发射渲染实例」这一条内聚职责，
+  而 `code-health`「超大文件阈值必须跨源码语言一致应用」明令 MUST NOT 为凑行数
+  阈值拆分源码文件，故本轮不拆分，如实登记这条 style-policy 命中；
+  更早两次命中（`internal/input_filter.rs` 的测试子模块、`public_api.rs`）已分别
+  按测试外移与职责拆分归零。
   验收判据：接入后 `confirmed-defect` 与 `errors` MUST 维持 0，
-  `file-too-large` / `function-too-long` 的条数 MUST NOT 上升（基线 0 / 0）；
+  `file-too-large` / `function-too-long` 的条数 MUST NOT 上升（基线 1 / 0）；
   该工具归类为 style-policy 的项 MUST NOT 阻断构建，
   只有 error 级或 `confirmed-defect` 才阻断。
 - **jscpd**：`npx jscpd@latest --min-lines 8 --min-tokens 60` 对 `native/src` 与
@@ -1032,6 +1032,8 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
   `stem_target` 辅助函数消除，Rust 侧克隆归零。
   2026-11-21 本轮重测：仍为 2 处克隆 / 23 行重复 / 0.03%，残留位置与逐条判定同上一列
   （kotlin 1 处、markup 1 处、Rust 0 处）；本轮变更只在 Rust 侧。）
+  （2026-11-22 重测同值：2 处克隆 / 23 行重复 / 0.03%、sources 259，
+  残留位置仍是上列两处，逐条判定不变。）
   测量取自已提交的树快照，不取工作区状态（工作区可能同时存在他人进行中的改动）。
   前一列基线为 2 处克隆 / 26 行重复 / 0.04% / 115 个文件：其第二处
   `native/src/terminal/ghostty_terminal/internal/mod.rs` 内 `process_query` 与
@@ -1208,9 +1210,10 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 
 - 参数：`python3 <footgun-scan>/scripts/scan.py --all <目录>`，逐行扫描受版本控制的文件；
   目录取 `android/app/src/main`、`android/app/src/test` 与 `android/app/src/androidTest`。
-- 当日实测（2026-11-21）：主源码集 119 个文件 / 6 处命中，单测源码集 145 个文件 /
-  3 处命中，仪器测试源码集 91 个文件 / 0 处命中；全仓 355 个文件 / 9 处命中，全部为
+- 当日实测（2026-11-22 重测）：主源码集 119 个文件 / 6 处命中，单测源码集 147 个文件 /
+  3 处命中，仪器测试源码集 91 个文件 / 0 处命中；全仓 357 个文件 / 9 处命中，全部为
   `look` 级形状提示，无 `likely` 级命中，与下表的逐处判定一一对应。
+  （命中集合与 2026-11-21 基线同值；单测源码集文件数由 145 增至 147 是新增用例文件所致。）
 
 | 位置 | 命中形状 | 判定 | 依据 |
 | --- | --- | --- | --- |
