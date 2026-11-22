@@ -57,9 +57,9 @@ pub(crate) fn set_power_preference(preference: PowerPreference) {
 
 /// 当前生效的功耗偏好：与 `from_host` 共用同一组判别值，不另写一份映射。
 pub(crate) fn power_preference() -> PowerPreference {
-    PowerPreference::from_host(i32::from(POWER_PREFERENCE.load(
-        std::sync::atomic::Ordering::Acquire,
-    )))
+    PowerPreference::from_host(i32::from(
+        POWER_PREFERENCE.load(std::sync::atomic::Ordering::Acquire),
+    ))
 }
 
 // `AndroidDisplayHandle` 未实现 `HasDisplayHandle`，而 wgpu 30 建 instance 时要求
