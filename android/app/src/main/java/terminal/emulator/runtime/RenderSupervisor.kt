@@ -299,119 +299,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                                     runtime.handleSessionExit(entry, entry.processExitCode)
                                     break
                                 }
-                                try {
-                                    marks.loopStart = System.nanoTime()
-                                    awaitRenderWake(entry, bridge)
-                                    marks.gateDone = System.nanoTime()
-                                    // 渲染前消费唤醒标志。三者都无条件清除：
-                                    // 落在门控检查与本次清除之间的信号会并入下方的渲染；
-                                    // 落在渲染期间的信号则等下一次 vsync/超时节拍
-                                    // ——最多多一帧延迟，绝不会丢唤醒。
-                                    // 在此（而非在驻留分支内）清除 renderSignaled 修掉了忙等泄漏：
-                                    // 当 vsyncRequested 赢得门控检查时，renderSignaled 会永远为真，
-                                    // 之后每次迭代都跳过驻留，
-                                    // 线程在两次渲染之间全速空转空耗 CPU。
-                                    entry.vsyncRequested = false
-                                    entry.forceRenderRequested = false
-                                    entry.renderSignaled.set(false)
-                                    val selectionSnapshot = pushSelection(bridge, viewport)
-                                    val currentScrollOffset = entry.scrollOffset
-                                    pushScroll(entry, bridge, viewport, currentScrollOffset)
-                                    marks.preRenderDone = System.nanoTime()
-                                    val renderResult = renderFrame(entry, bridge)
-                                    handleSurfaceInvalidated(entry, renderResult)
-                                    marks.renderDone = System.nanoTime()
-                                    val count = renderResult.count
-                                    val newOutput = renderResult.newOutput
-                                    recordFrameTiming(
-                                        entry = entry,
-                                        instrumentation = instrumentation,
-                                        renderDoneNanos = marks.renderDone,
-                                        count = count,
-                                        newOutput = newOutput,
-                                        scrollOffset = currentScrollOffset,
-                                    )
-                                    if (newOutput) {
-                                        consumeNewOutput(entry, selectionSnapshot)
-                                    }
-                                    // 渲染失败退避的实测时长：主动等的等待，单独计量
-                                    // 以便从慢循环判定中扣除（见 slowLoopWorkNanos）。
-                                    var backoffNanos = 0L
-                                    if (count < 0) {
-                                        val backoffMillis = handleRenderFailure(entry, instrumentation, count)
-                                        // 退避是设计上主动等的等待：单独计量，既不进慢循环
-                                        // 判定，也不并进 poll 段——否则平台收走窗口这条正常
-                                        // 退化路径会在退避后记出 warn 级慢循环告警。
-                                        // 休眠留在渲染线程体内：它必须能被线程中断立刻醒来，
-                                        // 协程 delay 收不到线程中断。
-                                        val backoffStartNanos = System.nanoTime()
-                                        Thread.sleep(backoffMillis)
-                                        backoffNanos = System.nanoTime() - backoffStartNanos
-                                    } else {
-                                        noteRenderRecovery(entry, instrumentation)
-                                    }
-                                    if (pumpOutput(entry, bridge, instrumentation)) break
-                                    marks.pollDone = System.nanoTime()
-                                    if (count >= 0) {
-                                        publishDiagnostics(entry, instrumentation)
-                                    }
-                                    recordLoopTiming(entry, instrumentation, marks, backoffNanos)
-                                } catch (exception: InterruptedException) {
-                                    // 渲染线程在关闭期间（会话切换/运行期停止）被中断。
-                                    // 这是预期信号而非渲染失败——干净地退出循环。
-                                    Thread.currentThread().interrupt()
-                                    break
-                                } catch (exception: Exception) {
-                                    if (isRenderThreadInterruption(exception)) {
-                                        // 关闭路径的中断：runBlocking 以取消异常收尾，
-                                        // 其 cause 是 InterruptedException。预期信号而非
-                                        // 渲染失败——干净地退出循环，不记 error。
-                                        Thread.currentThread().interrupt()
-                                        LogUtil.debug(
-                                            "Runtime",
-                                            "session ${entry.sessionId} render thread cancelled by interruption",
-                                        )
-                                        break
-                                    }
-                                    // 渲染异常按窗口汇总：成功一帧即把连续数清零，交替
-                                    // 形态下旧的「首条即记」分支每次都命中，逐帧记
-                                    // error 加栈。行内带窗口内异常次数。
-                                    instrumentation.renderErrorLedger.onRenderException()?.let { renderErrors ->
-                                        LogUtil.error(
-                                            "Runtime",
-                                            "session ${entry.sessionId} render exception " +
-                                                "(render_errors=$renderErrors, " +
-                                                "consecutive=${instrumentation.renderErrorLedger.consecutiveErrors}, " +
-                                                "cause=${exception.javaClass.simpleName})",
-                                            if (renderErrors == 1) exception else null,
-                                        )
-                                    }
-                                    // 异常帧同样是「渲染线程没挂」的证据：
-                                    // 不刷新完成时刻，连续异常会让 `start > done`
-                                    // 一直成立，`RenderWatchDog` 在 10s 后把仍在循环的
-                                    // 线程判为挂死。当前上限恰好（约 5s）小于超时，
-                                    // 但那只是两个常量的巧合，任一改动即成误杀。
-                                    entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
-                                    if (
-                                        instrumentation.renderErrorLedger.consecutiveErrors >
-                                        RENDER_MAX_CONSECUTIVE_ERRORS
-                                    ) {
-                                        LogUtil.error(
-                                            "Runtime",
-                                            "session ${entry.sessionId} too many render exceptions " +
-                                                "(${instrumentation.renderErrorLedger.consecutiveErrors}), " +
-                                                "stopping render thread",
-                                            exception,
-                                        )
-                                        break
-                                    }
-                                    try {
-                                        Thread.sleep(RENDER_ERROR_SLEEP_MS)
-                                    } catch (_: InterruptedException) {
-                                        Thread.currentThread().interrupt()
-                                        break
-                                    }
-                                }
+                                if (runOneIteration(entry, bridge, viewport, instrumentation, marks)) break
                             }
                             // 开孔遮罩已由运行期的回读循环缓存（TerminalRuntime.coverCaptureLoop），
                             // 这里不再回读：渲染线程退出可能是设备丢失所致，死设备上回读
@@ -468,6 +356,132 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
      * 唤醒门控：没有唤醒源时驻留在原生输出闭锁上，直到 vsync、强制渲染、
      * 任一 notifyRender 生产者或闭锁超时。
      */
+    private fun runOneIteration(
+        entry: SessionEntry,
+        bridge: Bridge,
+        viewport: ViewportSyncState,
+        instrumentation: RenderLoopInstrumentation,
+        marks: LoopFrameMarks,
+    ): Boolean {
+        try {
+            marks.loopStart = System.nanoTime()
+            awaitRenderWake(entry, bridge)
+            marks.gateDone = System.nanoTime()
+            // 渲染前消费唤醒标志。三者都无条件清除：
+            // 落在门控检查与本次清除之间的信号会并入下方的渲染；
+            // 落在渲染期间的信号则等下一次 vsync/超时节拍
+            // ——最多多一帧延迟，绝不会丢唤醒。
+            // 在此（而非在驻留分支内）清除 renderSignaled 修掉了忙等泄漏：
+            // 当 vsyncRequested 赢得门控检查时，renderSignaled 会永远为真，
+            // 之后每次迭代都跳过驻留，
+            // 线程在两次渲染之间全速空转空耗 CPU。
+            entry.vsyncRequested = false
+            entry.forceRenderRequested = false
+            entry.renderSignaled.set(false)
+            val selectionSnapshot = pushSelection(bridge, viewport)
+            val currentScrollOffset = entry.scrollOffset
+            pushScroll(entry, bridge, viewport, currentScrollOffset)
+            marks.preRenderDone = System.nanoTime()
+            val renderResult = renderFrame(entry, bridge)
+            handleSurfaceInvalidated(entry, renderResult)
+            marks.renderDone = System.nanoTime()
+            val count = renderResult.count
+            val newOutput = renderResult.newOutput
+            recordFrameTiming(
+                entry = entry,
+                instrumentation = instrumentation,
+                renderDoneNanos = marks.renderDone,
+                count = count,
+                newOutput = newOutput,
+                scrollOffset = currentScrollOffset,
+            )
+            if (newOutput) {
+                consumeNewOutput(entry, selectionSnapshot)
+            }
+            // 渲染失败退避的实测时长：主动等的等待，单独计量
+            // 以便从慢循环判定中扣除（见 slowLoopWorkNanos）。
+            var backoffNanos = 0L
+            if (count < 0) {
+                val backoffMillis = handleRenderFailure(entry, instrumentation, count)
+                // 退避是设计上主动等的等待：单独计量，既不进慢循环
+                // 判定，也不并进 poll 段——否则平台收走窗口这条正常
+                // 退化路径会在退避后记出 warn 级慢循环告警。
+                // 休眠留在渲染线程体内：它必须能被线程中断立刻醒来，
+                // 协程 delay 收不到线程中断。
+                val backoffStartNanos = System.nanoTime()
+                // nosemgrep: semgrep.no-thread-sleep-main
+                Thread.sleep(backoffMillis)
+                backoffNanos = System.nanoTime() - backoffStartNanos
+            } else {
+                noteRenderRecovery(entry, instrumentation)
+            }
+            if (pumpOutput(entry, bridge, instrumentation)) return true
+            marks.pollDone = System.nanoTime()
+            if (count >= 0) {
+                publishDiagnostics(entry, instrumentation)
+            }
+            recordLoopTiming(entry, instrumentation, marks, backoffNanos)
+        } catch (exception: InterruptedException) {
+            // 渲染线程在关闭期间（会话切换/运行期停止）被中断。
+            // 这是预期信号而非渲染失败——干净地退出循环。
+            Thread.currentThread().interrupt()
+            return true
+        } catch (exception: Exception) {
+            if (isRenderThreadInterruption(exception)) {
+                // 关闭路径的中断：runBlocking 以取消异常收尾，
+                // 其 cause 是 InterruptedException。预期信号而非
+                // 渲染失败——干净地退出循环，不记 error。
+                Thread.currentThread().interrupt()
+                LogUtil.debug(
+                    "Runtime",
+                    "session ${entry.sessionId} render thread cancelled by interruption",
+                )
+                return true
+            }
+            // 渲染异常按窗口汇总：成功一帧即把连续数清零，交替
+            // 形态下旧的「首条即记」分支每次都命中，逐帧记
+            // error 加栈。行内带窗口内异常次数。
+            instrumentation.renderErrorLedger.onRenderException()?.let { renderErrors ->
+                LogUtil.error(
+                    "Runtime",
+                    "session ${entry.sessionId} render exception " +
+                        "(render_errors=$renderErrors, " +
+                        "consecutive=${instrumentation.renderErrorLedger.consecutiveErrors}, " +
+                        "cause=${exception.javaClass.simpleName})",
+                    if (renderErrors == 1) exception else null,
+                )
+            }
+            // 异常帧同样是「渲染线程没挂」的证据：
+            // 不刷新完成时刻，连续异常会让 `start > done`
+            // 一直成立，`RenderWatchDog` 在 10s 后把仍在循环的
+            // 线程判为挂死。当前上限恰好（约 5s）小于超时，
+            // 但那只是两个常量的巧合，任一改动即成误杀。
+            entry.frameMarks = entry.frameMarks.copy(doneNanos = System.nanoTime())
+            if (
+                instrumentation.renderErrorLedger.consecutiveErrors >
+                RENDER_MAX_CONSECUTIVE_ERRORS
+            ) {
+                LogUtil.error(
+                    "Runtime",
+                    "session ${entry.sessionId} too many render exceptions " +
+                        "(${instrumentation.renderErrorLedger.consecutiveErrors}), " +
+                        "stopping render thread",
+                    exception,
+                )
+                return true
+            }
+            try {
+                // nosemgrep: semgrep.no-thread-sleep-main
+                Thread.sleep(RENDER_ERROR_SLEEP_MS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return true
+            }
+        }
+        // 单次迭代正常完成，继续下一次。
+        return false
+    }
+
     private fun awaitRenderWake(entry: SessionEntry, bridge: Bridge) {
         // 循环仅在有唤醒源触发时才渲染：
         //   ① vsyncRequested — Choreographer 帧回调

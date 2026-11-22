@@ -969,6 +969,48 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       「渲染循环的待编译方法必须保持小体量」要求
 - **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
 
+#### Scenario: 2026-11-22 运行日志（18-04-41）的聚合归因
+
+- **WHEN** 审计 `logcat_2026-11-22_18-04-41.txt`（主进程 15703，冷启动到 18:00:15，
+      跨 9 次原生窗口创建、3 次设备丢失重建、IME 弹出/隐藏与 1 次会话正常退出）
+- **THEN** 应用进程 W/E 合计 MUST 为 11 条，逐条处置 MUST 为：
+      - `native::render::context::gpu` 6：3 条 error（首帧呈现后约 6ms 的设备丢失，
+        与 2026-11-20 同源，成因未定位）与 3 条 warn（设备丢失后的重建完成）；
+        有界恢复链自愈，从丢失到恢复出帧约 190ms，MUST NOT 依赖人工干预或进程重启
+      - `native::android::ffi::render::frame` 3：设备丢失当帧的 `render skipped`
+        （warn，限频），与设备丢失同源，MUST NOT 以过滤该 tag 处置
+      - `Runtime` 2：`surface invalidated (attempt 2/5)` 与 `attempt 3/5`
+        （attempt 1 在 18:00:16.611 未被日志捕获），换视图预算在前台会话内未复位，
+        限流生效（快试 5 次 ≥500ms、用尽后转慢重试 5s）
+- **AND** `mali_gralloc` 72 条（9 次新窗口 × 8 条）MUST 归为平台 R8 格式探测：
+      AOSP `vulkan/libvulkan/swapchain.cpp` 对 `VK_FORMAT_R8_UNORM` 的
+      `AHardwareBuffer_isSupported` 探测，厂商 HIDL 分配器不支持 R8 故回这条错；
+      应用侧无 API 可改，MUST NOT 以换 surface 格式或过滤该 tag 处置
+- **AND** `wgpu_core::instance` 8 条（4 次适配器枚举 × 2）MUST 归为上游
+      `SURFACE_VIEW_FORMATS` 缺失，应用侧无 API 可关
+- **AND** `Parcel` 3 条 MUST 归为平台编组路径读 null binder，MUST NOT 记为应用缺陷
+- **AND** `libc` 5 条（`vendor.MB.running` 4 + `persist.vendor.gpu.fbc` 1）MUST 归为
+      厂商属性读取拒绝，MUST NOT 记为应用缺陷
+- **AND** `ziparchive` 4 条（`unisoc-framework.dm` 2 + `unipnp-framework.dm` 2）MUST 归为
+      平台 dex 元数据探测，MUST NOT 记为应用缺陷
+- **AND** `FeatureOpt` 2 条 MUST 归为厂商折叠态探测，MUST NOT 记为应用缺陷
+- **AND** `com.termux` 1 条（debug 构建 jdwp 未启动）与 `Typeface` 1 条 MUST 归为
+      平台/debug 路径，MUST NOT 记为应用缺陷
+- **AND** SELinux 审计 93 条（`fish` 47 + `git` 35 + `login` 5 + `DefaultDispatch` 2 + <!-- nosemgrep: semgrep.no-prohibited-shells -->
+      `chroot-ng` 1 + `denied { link }` 1 + `denied { getattr }` 2）MUST 全部归为内核审计：
+      同 UID 子进程的 granted 探测与用户 shell 的 open denied，应用是检查的主体而非成因
+- **AND** `Compiler allocated` 4 条（4237KB / 4972KB / 4232KB / 4972KB）MUST 记为
+      渲染循环的待编译方法体量越线（`RenderSupervisor$startRenderThread$renderThread$1$1
+      .invokeSuspend`），处置见「渲染循环的待编译方法必须保持小体量」要求
+- **AND** IME 弹出/隐藏触发的 surface 销毁重建（18:00:18.815 showSoftInput →
+      18:00:22.471 setRenderPaused(true) → 18:00:40.957 attachWindow）MUST 记为
+      平台窗口生命周期，应用侧按 bounded recovery 自愈，MUST NOT 以降低重试频率处置
+- **AND** 本份日志 MUST NOT 被当作性能缺陷的证据：80 条 `loop timing window` 与
+      80 条 `frame timing window` 均为 info；`SLOW_LOOP`、`SLOW_RENDER`、`SLOW_CELL_BUILD`
+      均为 0；唯一一次 `loop timing window` avg=46.69ms（p95=500.67ms）出现在
+      IME 弹出期间的空闲闭锁驻留，按去掉驻留后的判定不构成慢渲染
+- **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
+
 ### Requirement: 未捕获 GPU 错误必须按来源分级
 
 未捕获 GPU 错误 MUST 按来源分级：只有「平台收走原生窗口后 wgpu 重新配置 surface

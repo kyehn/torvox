@@ -6,8 +6,8 @@ impl Renderer {
     /// 按给定尺寸创建字形图集纹理，并建立配套采样器。
     pub fn create_atlas_texture(&mut self, width: u32, height: u32) {
         // 注意：图集尺寸必须钳制到 adapter 的 `max_texture_dimension_2d` 上限
-        // （部分 GPU 只报 2048）。当前调用方固定传 1024x1024，安全；
-        // 若日后调大，须在此处钳制。
+        // （部分 GPU 只报 2048）。当前调用方固定传 ATLAS_SIZE=2048x2048，
+        // 须保证不超过 adapter 上限；若日后调大，须在此处钳制。
         let texture = create_rgba_texture(
             &self.device,
             "Atlas Texture",
