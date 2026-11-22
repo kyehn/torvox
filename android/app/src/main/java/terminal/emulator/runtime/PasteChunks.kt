@@ -6,9 +6,30 @@ const val MAX_PASTE_CHARS = 1_000_000
 /** 编码流单块字节上界：必须远低于 PTY 内核缓冲（~64KB）。 */
 const val PASTE_CHUNK_BYTES = 12_000
 
+/** 截断告警的统一标签：粘贴、复制与分享三条路径共用。 */
+private const val TRUNCATION_TAG = "TextTruncation"
+
 /**
- * 截断剪贴板文本到 [maxChars]（并告警；截断点落在代理对中间时多取一字符
- * 保住完整码点）。空白文本返回空串，由调用方跳过。
+ * 按 [maxChars] 截断文本，截断点落在代理对中间时多取一字符保住完整码点。
+ *
+ * 只做截断，不解释内容：空白文本原样返回（空白选区是合法的复制/分享内容）。
+ * 截断是降级动作而非正常流程，故一律记警告，不静默丢字。
+ */
+internal fun truncateTextAtCharBoundary(text: String, maxChars: Int): String {
+    if (text.length <= maxChars) return text
+    LogUtil.warn(TRUNCATION_TAG, "text too large (${text.length} chars), truncating to $maxChars")
+    val truncated = text.take(maxChars)
+    if (truncated.isNotEmpty() &&
+        Character.isHighSurrogate(truncated.last()) &&
+        Character.isLowSurrogate(text[maxChars])
+    ) {
+        return truncated + text[maxChars]
+    }
+    return truncated
+}
+
+/**
+ * 截断剪贴板文本到 [maxChars]。空白文本返回空串，由调用方跳过。
  *
  * 只做截断，不解释内容：换行归一与括号包裹是上游 `paste::encode` 的协议语义，
  * 由编码后的字节流承担，本处不得提前改写原文（两次不同模式的粘贴必须
@@ -18,17 +39,7 @@ const val PASTE_CHUNK_BYTES = 12_000
  */
 internal fun truncatePasteText(text: String, maxChars: Int = MAX_PASTE_CHARS): String {
     if (text.isBlank()) return ""
-    if (text.length > maxChars) {
-        LogUtil.warn("PasteChunker", "clipboard too large (${text.length} chars), truncating to $maxChars")
-    }
-    var truncated = text.take(maxChars)
-    if (text.length > maxChars && truncated.isNotEmpty() &&
-        Character.isHighSurrogate(truncated.last()) &&
-        Character.isLowSurrogate(text[maxChars])
-    ) {
-        truncated += text[maxChars]
-    }
-    return truncated
+    return truncateTextAtCharBoundary(text, maxChars)
 }
 
 /**

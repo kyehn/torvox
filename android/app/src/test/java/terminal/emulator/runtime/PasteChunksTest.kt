@@ -31,6 +31,23 @@ class PasteChunksTest {
     }
 
     @Test
+    fun boundaryTruncationKeepsBlankText() {
+        // 空白选区是合法的复制/分享内容：截断只裁长度，不把空白折叠成空串。
+        assertEquals("   ", truncateTextAtCharBoundary("   ", maxChars = 10))
+    }
+
+    @Test
+    fun boundaryTruncationLeavesShortTextUntouched() {
+        assertEquals("hello", truncateTextAtCharBoundary("hello", maxChars = 10))
+    }
+
+    @Test
+    fun boundaryTruncationNeverSplitsSurrogatePair() {
+        // maxChars 恰切在表情中间（高代理项在末尾）时多取一字符保住完整码点。
+        assertEquals("ab😀", truncateTextAtCharBoundary("ab😀c", maxChars = 3))
+    }
+
+    @Test
     fun emptyStreamYieldsNoChunks() {
         assertTrue(pasteByteChunks(ByteArray(0)).isEmpty())
     }
