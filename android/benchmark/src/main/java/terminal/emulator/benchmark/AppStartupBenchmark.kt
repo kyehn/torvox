@@ -68,7 +68,7 @@ class AppStartupBenchmark {
                 pressHome()
             },
             measureBlock = {
-                measureScenario(device, "coldStart", store, iteration) { _ ->
+                measureScenario(device, "coldStart", store, iteration, scenarioById("S1")) { _ ->
                     // 冷启动前进程不在，清零帧计数是空操作：读数即进程启动以来的全部帧。
                     resetFrameStats(device)
                     // 启动耗时只有在界面真的出现时才有意义：首帧到了但被系统对话框
@@ -103,7 +103,7 @@ class AppStartupBenchmark {
                 pressHome()
             },
             measureBlock = {
-                measureScenario(device, "warmStart", store, iteration) { _ ->
+                measureScenario(device, "warmStart", store, iteration, scenarioById("S2")) { _ ->
                     resetFrameStats(device)
                     val iteration = measureStartup()
                     iterations += iteration

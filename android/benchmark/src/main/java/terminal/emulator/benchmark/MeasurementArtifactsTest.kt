@@ -102,6 +102,7 @@ class MeasurementArtifactsTest {
         val row = MeasurementRow(
             runId = store.runId,
             label = "coldStart",
+            scenarioId = "S1",
             iteration = 1,
             frameworkIteration = 0,
             measured = true,
@@ -133,6 +134,7 @@ class MeasurementArtifactsTest {
         val json = JSONObject(row.toJson())
         assertEquals("run-1", json.getString("run_id"))
         assertEquals("coldStart", json.getJSONObject("scenario").getString("label"))
+        assertEquals("S1", json.getJSONObject("scenario").getString("matrix_id"))
         assertEquals(1, json.getJSONObject("scenario").getInt("iteration"))
         assertTrue(json.getJSONObject("scenario").getBoolean("measured"))
         assertEquals(0, json.getJSONObject("scenario").getInt("framework_iteration"))

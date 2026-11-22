@@ -24,17 +24,22 @@ import androidx.test.uiautomator.UiDevice
  *
  * 宿主负载在场景前后各取一次 CPU 时间快照，落在场景窗口旁：本轮慢是应用慢还是宿主
  * 被抢占，就看这两次快照之间的 steal 占比。
+ *
+ * 场景矩阵项 [scenario] 给出该轮的 wall-clock 上限：窗口结束后超限即终止场景
+ * （强停被测应用）并记「超限终止」，不继续等待。应用内部回归项不属于跨应用矩阵，
+ * 传空。
  */
 internal fun measureScenario(
     device: UiDevice,
     label: String,
     store: MeasurementStore,
     frameworkIteration: Int?,
+    scenario: Scenario? = null,
     packageName: String = TARGET_PACKAGE,
     measured: Boolean = frameworkIteration != null,
     note: String = "",
     setup: () -> Unit = {},
-    scenario: (iteration: Int) -> Map<String, Double>,
+    scenarioBody: (iteration: Int) -> Map<String, Double>,
 ) {
     val environment = readDeviceEnvironment(device)
     val app = readAppIdentity(device, packageName)
@@ -50,13 +55,25 @@ internal fun measureScenario(
         setup()
         val cpuBefore = readCpuTime(device)
         val hostLoadStartedAt = SystemClock.elapsedRealtime()
+        val budget = scenario?.let { ScenarioBudget(it) }
         startedAtMillis = System.currentTimeMillis()
         try {
-            metrics = scenario(iteration)
+            metrics = scenarioBody(iteration)
         } catch (thrown: Throwable) {
             failure = thrown.withProcessExitAttribution(device, preparedAtMillis, packageName)
         } finally {
             endedAtMillis = System.currentTimeMillis()
+            try {
+                budget?.checkDeadline()
+            } catch (limitExceeded: ScenarioLimitExceeded) {
+                // 超限即终止场景：强停被测应用，不继续消耗设备。
+                forceStop(device, packageName)
+                if (failure == null) {
+                    failure = limitExceeded
+                } else {
+                    failure.addSuppressed(limitExceeded)
+                }
+            }
             try {
                 hostLoad = hostLoadBetween(
                     cpuBefore,
@@ -92,6 +109,7 @@ internal fun measureScenario(
         MeasurementRow(
             runId = store.runId,
             label = label,
+            scenarioId = scenario?.id,
             iteration = iteration,
             frameworkIteration = frameworkIteration,
             measured = measured,
@@ -103,7 +121,11 @@ internal fun measureScenario(
             hostLoad = hostLoad,
             exits = exits,
             artifacts = emptyList(),
-            verdict = if (failure == null && exits.isEmpty()) "PASS" else "FAIL",
+            verdict = when {
+                failure is ScenarioLimitExceeded -> "超限终止"
+                failure != null || exits.isNotEmpty() -> "FAIL"
+                else -> "PASS"
+            },
             note = listOfNotNull(note.takeIf { it.isNotEmpty() }, failure?.message).joinToString("；"),
         ).toJson(),
     )

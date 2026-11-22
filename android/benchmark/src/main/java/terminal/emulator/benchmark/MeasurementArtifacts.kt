@@ -102,6 +102,8 @@ internal data class MeasurementRow(
     val runId: String,
     /** 场景名。 */
     val label: String,
+    /** 归到的全场景矩阵编号；应用内部回归项没有对应场景。 */
+    val scenarioId: String?,
     /** 迭代序号（本仓测量包装的调用次序，从 1 起）。 */
     val iteration: Int,
     /** 宏基准框架的迭代序号；框架的准备轮次（温／热启动前的那一轮）为 null。 */
@@ -123,7 +125,7 @@ internal data class MeasurementRow(
     val exits: List<ExitInfoRecord>,
     /** 该次测量关联的制品。 */
     val artifacts: List<ArtifactRef>,
-    /** 判定结果（`PASS` 或 `FAIL`）。 */
+    /** 判定结果（`PASS`、`FAIL` 或 `超限终止`）。 */
     val verdict: String,
     /** 备注：失败原因或补充说明。 */
     val note: String,
@@ -182,6 +184,7 @@ internal data class MeasurementRow(
             "scenario",
             JSONObject().apply {
                 put("label", label)
+                if (scenarioId != null) put("matrix_id", scenarioId)
                 put("iteration", iteration)
                 // 温／热启动前框架会多跑一轮准备轮次（该轮不计入框架的测量迭代），
                 // 故记下框架自己的序号：null 即准备轮次。

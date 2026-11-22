@@ -71,6 +71,7 @@ class CrossAppLaunchBenchmark {
                 label = "crossAppLaunch",
                 store = store,
                 frameworkIteration = null,
+                scenario = scenarioById("S1"),
                 packageName = packageName,
                 measured = true,
                 note = "deniedRuntimePermissions=${deniedPermissions.joinToString(",")}",
