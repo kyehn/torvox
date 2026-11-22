@@ -507,6 +507,13 @@ constructor(
             // 在系统字体缩放/多窗口下不同值，自适应默认字号会按另一个宽度推导。
             settingsRepository.applyFirstLaunchDefaultFontSize(runtime.screenWidthDp)
         }
+        // 强调色随主题变化实时发布：选区手柄的着色取自这份状态，
+        // 若只在会话创建/切换时顺带抄一次，改主题后手柄会一直持旧主题的颜色。
+        viewModelScope.launch {
+            runtime.accentColor.collect { accent ->
+                _state.update { current -> current.copy(selectionAccent = accent) }
+            }
+        }
         viewModelScope.launch {
             runtime.state.collect { runtimeState ->
                 // 网格 resize 可能把尺寸缩到当前选区边界之下；
@@ -553,7 +560,6 @@ constructor(
                             title = title,
                             sessions = sessions,
                             activeSessionId = active,
-                            selectionAccent = runtime.accentColor,
                         )
                     }
                     // 用本轮的快照，不再二次读 runtime.state：两读之间会话可能已全部关闭，
@@ -914,7 +920,6 @@ constructor(
                             selection = SelectionState(),
                             sessions = sessions,
                             activeSessionId = newId,
-                            selectionAccent = runtime.accentColor,
                         )
                     }
                 } else {
@@ -976,7 +981,6 @@ constructor(
                     },
                     activeSessionId = sessionId,
                     selection = SelectionState(),
-                    selectionAccent = runtime.accentColor,
                 )
             }
         }

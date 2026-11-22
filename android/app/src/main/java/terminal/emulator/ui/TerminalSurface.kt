@@ -28,6 +28,7 @@ import terminal.emulator.bridge.Bridge
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.ModifierState
 import terminal.emulator.runtime.ClipboardAccess
+import terminal.emulator.runtime.DEFAULT_ACCENT_COLOR
 import terminal.emulator.runtime.DEFAULT_GRID_COLS
 import terminal.emulator.runtime.DEFAULT_GRID_ROWS
 import terminal.emulator.runtime.InputBatchBuffer
@@ -220,7 +221,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         private const val FALLBACK_CELL_HEIGHT = 16f
     }
 
-    internal fun getAccentColor(): Int = viewModel?.runtime?.accentColor ?: 0xFF2196F3.toInt()
+    internal fun getAccentColor(): Int = viewModel?.runtime?.accentColor?.value ?: DEFAULT_ACCENT_COLOR
 
     /** 遮罩失效订阅（见 [observeHoleCover]）：随 attach 建、随 detach 撤。 */
     private var holeCoverJob: Job? = null

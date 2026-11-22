@@ -27,6 +27,12 @@ data class TerminalState(
     val sessions: List<SessionInfo> = emptyList(),
     val activeSessionId: Long = 0L,
 
+    /**
+     * 选区手柄的强调色（终端主题 ANSI 槽位 5）。
+     *
+     * 由运行期的强调色流实时写入，故主题一改即更新；MUST NOT 在会话创建/切换时
+     * 顺带抄一次——那样手柄会一直持旧主题的颜色，直到下一次会话变化才自愈。
+     */
     val selectionAccent: Int = 0,
     // 每次程序化滚动复位（由输入驱动的贴底）时递增；TerminalScreen 观察它
     // 并重同步 Surface 的本地选区计算偏移。

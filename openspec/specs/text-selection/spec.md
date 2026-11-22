@@ -235,6 +235,26 @@ restoreHandles = true)` 调 `reshowSelectionHandles()`，其自身重开调用�
 - **WHEN** 拖动进行中菜单因抓柄而关闭且选区仍在
 - **THEN** 覆盖层不重建，同一窗口继续收到 MOVE/UP，抬手后菜单按新几何重锚重显
 
+### Requirement: 手柄着色随终端主题实时更新
+
+选区手柄的强调色 MUST 取当前终端主题 ANSI 槽位 5（含 `colors.properties` 对该槽的
+覆盖），MUST 与原生渲染的同一份调色板一致。主题改变后 MUST 立即以新色重建手柄
+覆盖层，MUST NOT 停留在上一套主题的颜色。
+
+实现：运行期以流（`TerminalRuntime.accentColor`）发布强调色，ViewModel 把它实时写进
+UI 状态（`TerminalState.selectionAccent`），`TerminalScreen` 以它为覆盖层 effect 的键。
+只在会话创建/切换时顺带抄一次，改主题不动运行期状态，手柄便会一直持旧色。
+
+#### Scenario: 改主题后手柄换色
+
+- **WHEN** 用户把终端主题换成另一套并回到终端页，随后长按选词
+- **THEN** 手柄以新主题 ANSI 槽位 5 着色，MUST NOT 仍是旧主题的颜色
+
+#### Scenario: 覆盖该 ANSI 槽时手柄取覆盖值
+
+- **WHEN** `colors.properties` 覆盖了 ANSI 槽位 5
+- **THEN** 手柄取覆盖后的颜色，与终端里该槽的渲染色一致
+
 ### Requirement: 同一份菜单的重复显示沿用既有窗口
 
 同一份菜单被重复请求显示时 MUST 沿用已显示的窗口与视图实例，只重锚不重建；复用前

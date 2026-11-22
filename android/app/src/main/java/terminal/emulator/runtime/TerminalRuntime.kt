@@ -99,6 +99,14 @@ internal const val RENDER_HANG_TIMEOUT_NANOS = 10_000_000_000L // 10 seconds
 
 internal const val RUNTIME_LOG_TAG = "Runtime"
 
+/**
+ * 尚未解析出终端主题时的强调色兜底。
+ *
+ * 与 Material 主色同值：手柄覆盖层在主题就绪前就要画出来，兜底色取应用自身
+ * 的强调色而不是随机的硬编码值。
+ */
+internal val DEFAULT_ACCENT_COLOR: Int = 0xFF2196F3.toInt()
+
 data class RuntimeState(
     val isRunning: Boolean = false,
     val title: String = "Terminal",
@@ -961,7 +969,17 @@ constructor(
         nowNanos - entry.lastSignalNanos <= RENDER_IDLE_THRESHOLD_NANOS || entry.hasScrollMotion()
     }
 
-    @Volatile var accentColor: Int = 0xFF2196F3.toInt()
+    /**
+     * 当前终端主题的强调色（ANSI 槽位 5）。
+     *
+     * 以 [StateFlow] 发布而非裸字段：选区手柄的着色经 ViewModel 的 UI 状态转述，
+     * 裸字段只在「恰好另有状态变化」时才会被读到——改主题后手柄仍持旧主题的颜色，
+     * 直到下一次会话切换或网格变化才自愈。
+     */
+    private val accentColorState = MutableStateFlow(DEFAULT_ACCENT_COLOR)
+
+    /** 当前终端主题的强调色（ANSI 槽位 5）。 */
+    val accentColor: StateFlow<Int> = accentColorState.asStateFlow()
 
     @Volatile var cellWidth: Float = 0f
 
@@ -3693,11 +3711,19 @@ constructor(
      */
     private suspend fun buildRenderContract(fontSizeTenths: Int, fontFamily: String): RenderContract {
         val themeName = resolveThemeName()
-        // 强调色取主题 ANSI 槽位 5，与原生渲染同一份调色板。
-        accentColor = ThemeRepository.byName(themeName).ansi[5].toArgb()
         // termux.properties 只在应用启动时读过一次（见 start），这里取的是已读入的
         // 那份：设置重下发不是文件变化，重读会让同一进程里的配置随外部改写漂移。
         val termux = termuxProperties.configuration.value
+        // 强调色取主题 ANSI 槽位 5，与原生渲染同一份调色板：colors.properties
+        // 覆盖了该槽时取覆盖值，与原生合并后的调色板同源（覆盖色值是 0xRRGGBB，
+        // 合成 ARGB 时须补上不透明 alpha）。
+        val accentOverride = termux.colors.ansi[5]
+        accentColorState.value =
+            if (accentOverride != null) {
+                0xFF000000.toInt() or accentOverride
+            } else {
+                ThemeRepository.byName(themeName).ansi[5].toArgb()
+            }
         return RenderContract(
             fontSizeTenths = fontSizeTenths,
             fontFamily = fontFamily,
