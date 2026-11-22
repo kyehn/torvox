@@ -42,15 +42,6 @@ impl PowerPreference {
             _ => PowerPreference::None,
         }
     }
-
-    /// 写入原子量用的编码：与 `from_host` 共用同一组数值。
-    fn code(self) -> u8 {
-        match self {
-            PowerPreference::None => 0,
-            PowerPreference::LowPower => 1,
-            PowerPreference::HighPerformance => 2,
-        }
-    }
 }
 
 /// 宿主告知的功耗偏好。
@@ -61,16 +52,14 @@ static POWER_PREFERENCE: std::sync::atomic::AtomicU8 = std::sync::atomic::Atomic
 
 /// 记录宿主告知的功耗偏好。
 pub(crate) fn set_power_preference(preference: PowerPreference) {
-    POWER_PREFERENCE.store(preference.code(), std::sync::atomic::Ordering::Release);
+    POWER_PREFERENCE.store(preference as u8, std::sync::atomic::Ordering::Release);
 }
 
-/// 当前生效的功耗偏好。
+/// 当前生效的功耗偏好：与 `from_host` 共用同一组判别值，不另写一份映射。
 pub(crate) fn power_preference() -> PowerPreference {
-    match POWER_PREFERENCE.load(std::sync::atomic::Ordering::Acquire) {
-        1 => PowerPreference::LowPower,
-        2 => PowerPreference::HighPerformance,
-        _ => PowerPreference::None,
-    }
+    PowerPreference::from_host(i32::from(POWER_PREFERENCE.load(
+        std::sync::atomic::Ordering::Acquire,
+    )))
 }
 
 // `AndroidDisplayHandle` 未实现 `HasDisplayHandle`，而 wgpu 30 建 instance 时要求
@@ -229,10 +218,7 @@ mod tests {
             PowerPreference::LowPower,
             PowerPreference::HighPerformance,
         ] {
-            assert_eq!(
-                PowerPreference::from_host(preference.code() as i32),
-                preference
-            );
+            assert_eq!(PowerPreference::from_host(preference as i32), preference);
         }
     }
 }
