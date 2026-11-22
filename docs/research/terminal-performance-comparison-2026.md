@@ -386,7 +386,7 @@ meminfo 与 exit-info），Perfetto 只在归因深挖时开；轻量模式的 a
 | --- | --- | --- | --- | --- | --- | --- |
 | S1 | 冷启动 | 杀进程后 `am start -W` | 启动到首帧、退出归因 | `am start -W`、显示级 frametimeline、exit-info | 首帧在预算内、无异常退出 | 60 秒 |
 | S2 | 温启动 | Activity 重启不杀进程 | 首帧、帧数 | 显示级 frametimeline、应用内首帧探针 | 首帧在预算内 | 30 秒 |
-| S3 | 热启动 | 进程存活切前台 | 首帧、丢帧数 | 显示级 frametimeline、应用内呈现汇总 | 无丢帧、无 Surface 丢失 | 15 秒 |
+| S3 | 热启动 | 进程存活切前台 | 切前台耗时、内容层帧数 | `am start -W`、系统侧逐图层、gfxinfo | 切前台在预算内、内容层出帧 | 15 秒 |
 | S4 | 稳态空载 | 静置 10 秒 | 帧数、CPU 占用、内存 | 显示级 frametimeline、呈现汇总、meminfo | 空载不产生持续绘制 | 15 秒 |
 | S5 | 持续输出 | 连续字节流（逐行） | 吞吐、呈现间隔 p95、内存峰值 | 显示级 frametimeline、呈现汇总、meminfo | 无丢帧、内存有界 | 60 秒 / 8 MB |
 | S6 | 突发输出 | 单次大块字节流 | 无损、内存峰值、退出归因 | meminfo、exit-info、logcat | 输出无损、无异常退出 | 30 秒 / 8 MB |
@@ -405,6 +405,26 @@ SurfaceView，经 HWUI 的 `gfxinfo` 记不到），对照对象取其 HWUI 帧�
 逐图层通道（`--latency` 逐帧三列 + `--frametimeline` 的图层条目并按 `Owner Pid` 归属）。
 帧数类指标受系统侧保留窗口限制（见「系统侧通道的保留窗口」），跨应用对比帧数 MUST 用各应用
 自己的计数口径。
+
+### 热启动的取数口径与实测形态
+
+热启动不新建 Activity，宏基准自带的启动等待认不出这次启动：系统侧 `am start -W` 报
+「Warning: Activity not started, its current task has been brought to the front」，框架便退化成
+固定等两秒再返回（`androidx.benchmark.macro.MacrobenchmarkScope.amStartAndWait` 的
+「Unable to safely detect Activity launch, waiting 2s」分支）。实测每次启动都睡满两秒，测得的
+「启动耗时」中位数 2838ms，而同一次启动的系统侧总耗时只有 113ms——量到的是固定等待，不是应用。
+
+故热启动走系统侧 `am start -W`：取 `TotalTime` 作切前台耗时，并校验启动态是 `HOT`——启动态不是
+`HOT` 说明这轮量到的不是切前台（冷启动、或者系统没测到这次启动），当场判红而不是记成一份
+「热启动很慢」的数字。
+
+终端内容层的 Surface 随界面回到前台重新创建：实测按 home 之后内容层图层从图层清单里消失
+（`SurfaceView[com.termux/terminal.emulator.MainActivity](BLAST)#204` 不再出现），切回前台后
+以新的图层号重建（`#230`）。故内容层帧 MUST 取启动之后的图层：窗口开始前取名会直接失败，旧
+图层名在新图层上也不再命中。实测每轮内容层有 3 帧、`gfxinfo` 有 3–5 帧。
+
+实测（2026-11-22 本机 AVD，API 35 模拟器，软件渲染）十一轮（含框架的准备轮次）：切前台耗时
+中位 113ms、终端界面可见中位 858ms、总耗时 929–1568ms（中位 971ms）。
 
 ## 六、环境固定化
 
@@ -665,8 +685,12 @@ for device in targets:
 - 本轮落地：启动口径的健壮性——`am start -W` 的 `TotalTime` 行只在 AOSP `result.totalTime >= 0`
   时打印，启动即崩溃时该行缺失且启动态为 `UNKNOWN`，故总耗时按可空取、缺失显式判红；
   退出归因按「应用故障 → 环境 → 其它」排序，准备动作的强停记录不再盖掉真正的崩溃原因。
+- 本轮落地：热启动场景 S3——热启动不新建 Activity，框架的启动等待会退化成固定两秒，故该场景
+  改走系统侧 `am start -W` 并校验启动态为 `HOT`；终端内容层的 Surface 随界面回到前台重建，
+  内容层帧取启动之后的新图层（按 home 后旧图层已从图层清单消失），实测每轮内容层 3 帧、
+  `gfxinfo` 3–5 帧，总耗时中位 971ms（见第五节「热启动的取数口径与实测形态」）。
 - 缺：跨应用帧面端到端跑通（对照应用尚未装到设备上按本仓口径取帧）；场景矩阵剩余场景的
-  执行器（矩阵数据与上限执行已落地，S5／S6 等场景的负载生产与断言待接）；跨设备多应用
+  执行器（矩阵数据与上限执行已落地，S4／S5／S6 与 S8–S12 的负载生产与断言待接）；跨设备多应用
   编排（落点在受保护的 `scripts/`）。
 - 与既有规约一致性：本报告不改「模拟器只作数量级」「帧级数据面按绘制主体选源」「采集为空即
   判红」「设备侧命令不含 shell 语法」「不得用固定等待替代就绪信号」等既有口径，只在其上补

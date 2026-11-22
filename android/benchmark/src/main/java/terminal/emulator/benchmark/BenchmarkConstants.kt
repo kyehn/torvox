@@ -52,6 +52,22 @@ internal const val WARM_START_BUDGET_MILLIS = 2_400L
 
 internal const val WARM_START_HARD_LIMIT_MILLIS = 5_000L
 
+/**
+ * 热启动（进程存活切前台）各轮耗时中位数的上限，以及最差一轮的硬上限。
+ *
+ * 口径与 [COLD_START_BUDGET_MILLIS] 相同。实测（2026-11-22 本机 AVD，API 35 模拟器，
+ * 软件渲染）十一轮总耗时 929–1568ms（中位 971ms），其中系统侧切前台耗时中位 113ms、
+ * 终端界面可见中位 858ms；预算按中位数的约 2.5 倍定，硬上限按约 5 倍定。
+ */
+internal const val HOT_START_BUDGET_MILLIS = 2_400L
+
+internal const val HOT_START_HARD_LIMIT_MILLIS = 5_000L
+
+/** 等终端内容层出帧的重试次数与间隔：图层重建比出帧早，出帧要等一小会儿。 */
+internal const val CONTENT_FRAME_WAIT_ATTEMPT_COUNT = 10
+
+internal const val CONTENT_FRAME_WAIT_INTERVAL_MILLIS = 100L
+
 internal const val INTERACTION_BUDGET_MILLIS = 4_000L
 
 /**

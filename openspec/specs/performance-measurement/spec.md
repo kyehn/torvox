@@ -197,6 +197,32 @@ API 35 / SwiftShader），MUST NOT 因某条流水线缺席而停摆或降低覆
 - **WHEN** 宏基准记录启动耗时
 - **THEN** MUST 同时给出首帧段与终端界面可见段的实测值，MUST NOT 只给合并后的总数
 
+### Requirement: 热启动的系统侧口径与内容层取证
+
+热启动 MUST 用系统侧 `am start -W` 取切前台耗时，并校验启动态是 `HOT`；MUST NOT 用宏基准
+自带的启动等待的墙钟耗时作热启动耗时——热启动不新建 Activity，系统报「Activity not started」
+时该等待退化成固定两秒（实测十一轮每次都睡满两秒，测得中位 2838ms，而同一次启动的系统侧
+总耗时只有 113ms），量到的是固定等待而不是应用。
+
+热启动期间终端内容层的 Surface 随界面回到前台重新创建：内容层帧 MUST 取启动之后拿到的图层，
+MUST NOT 用窗口开始前的图层名——按 home 之后内容层图层已从图层清单消失，旧图层名在重建后的
+图层上也不再命中。
+
+#### Scenario: 热启动按启动态判红
+
+- **WHEN** 热启动场景测得的启动态不是 `HOT`
+- **THEN** 该次测量 MUST 判红，MUST NOT 把它记成一次热启动
+
+#### Scenario: 热启动不用固定等待当耗时
+
+- **WHEN** 热启动场景取切前台耗时
+- **THEN** MUST 取系统侧 `am start -W` 的总耗时，MUST NOT 取框架启动等待的墙钟耗时
+
+#### Scenario: 热启动的内容帧从重建后的图层取
+
+- **WHEN** 热启动场景读终端内容层的帧
+- **THEN** MUST 取启动之后重建的图层，MUST NOT 用窗口开始前的图层名
+
 ### Requirement: 宿主负载与进程 CPU 时间的记录口径
 
 每轮测量 MUST 记录宿主负载与被测进程的 CPU 时间。宿主负载取 `/proc/stat` 的 steal 计数占

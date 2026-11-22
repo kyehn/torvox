@@ -1,5 +1,6 @@
 package terminal.emulator.benchmark
 
+import android.os.SystemClock
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.MacrobenchmarkScope
 import androidx.benchmark.macro.StartupMode
@@ -117,6 +118,92 @@ class AppStartupBenchmark {
             },
         )
         assertStartupBudget("warmStart", iterations, WARM_START_BUDGET_MILLIS, WARM_START_HARD_LIMIT_MILLIS)
+    }
+
+    /**
+     * 热启动：进程存活，把已有界面切回前台（场景 S3）。
+     *
+     * 热启动不新建 Activity，宏基准自带的 `startActivityAndWait` 认不出这次启动：系统报
+     * 「Activity not started」，框架便退化成固定等两秒再返回（实测每轮都是 2s 起），量到的
+     * 是那两秒而不是应用。故这里自己走系统侧 `am start -W`：TotalTime 与冷启动同口径
+     * （跨应用可比），启动态顺带证明这轮确实是热启动而非冷启动或温启动。
+     *
+     * 终端内容层的 Surface 随界面回到前台重新创建：图层在窗口开始前并不存在，故窗口
+     * 结束后取名读到的帧全部落在本轮。取名 MUST 放在启动之后——按 home 后图层已被销毁，
+     * 窗口前取名会直接失败。
+     */
+    @Test
+    fun hotStart() {
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val store = openMeasurementStore("hotStart")
+        val iterations = mutableListOf<StartupIteration>()
+        val launcherActivity = readLauncherActivity(device, TARGET_PACKAGE)
+        benchmarkRule.measureRepeated(
+            packageName = TARGET_PACKAGE,
+            metrics = listOf(FrameTimingMetric()),
+            iterations = MEASURE_ITERATION_COUNT,
+            startupMode = StartupMode.HOT,
+            setupBlock = {
+                grantNotificationPermission(device)
+                startAndWait(device, launcherActivity)
+                device.waitForIdle()
+                pressHome()
+            },
+            measureBlock = {
+                measureScenario(device, "hotStart", store, iteration, scenarioById("S3")) { _ ->
+                    resetFrameStats(device)
+                    val launch = startAndWait(device, launcherActivity)
+                    check(launch.launchState == "HOT") {
+                        "热启动这轮的启动态不是 HOT（量到的不是切前台）：${launch.launchState}"
+                    }
+                    val launchMillis = checkNotNull(launch.totalTimeMillis) {
+                        "系统侧没测到这次热启动：$launch"
+                    }
+                    val visibleMillis = elapsedMillis { assertTerminalVisible(device) }
+                    val iteration = StartupIteration(launchMillis, visibleMillis)
+                    iterations += iteration
+                    val frames = readFrameStatsAfterRender(device)
+                    val (contentLayer, layerStats) = awaitTerminalContentFrames(device)
+                    // 实测值先于断言输出：断言失败时构建产物里仍留得下这轮的数字。
+                    printMeasured("hotStart", iteration.totalMillis, frames)
+                    check(frames.frames >= MIN_ANIMATION_FRAME_COUNT) {
+                        "热启动未产生任何界面帧：frames=${frames.frames}"
+                    }
+                    check(layerStats.contentFrameCount >= MIN_ANIMATION_FRAME_COUNT) {
+                        "热启动窗口内终端内容层没有帧记录：图层 $contentLayer"
+                    }
+                    mapOf(
+                        "launch_millis" to iteration.launchMillis.toDouble(),
+                        "visible_millis" to iteration.visibleMillis.toDouble(),
+                        "total_millis" to iteration.totalMillis.toDouble(),
+                        "gfxinfo_frames" to frames.frames.toDouble(),
+                        "layer_content_frames" to layerStats.contentFrameCount.toDouble(),
+                    )
+                }
+            },
+        )
+        assertStartupBudget("hotStart", iterations, HOT_START_BUDGET_MILLIS, HOT_START_HARD_LIMIT_MILLIS)
+    }
+
+    /**
+     * 等终端内容层出帧：图层随界面回到前台重建，出帧比图层出现晚。
+     *
+     * 等待有上限：等不到即判失败，不把「没出帧」当成通过。
+     */
+    private fun awaitTerminalContentFrames(device: UiDevice): Pair<String, LayerFrameStats> {
+        var failure: Throwable? = null
+        repeat(CONTENT_FRAME_WAIT_ATTEMPT_COUNT) {
+            try {
+                val contentLayer = findTerminalContentLayer(device)
+                val stats = readLayerFrameStats(device, contentLayer)
+                if (stats != null && stats.contentFrameCount > 0) return contentLayer to stats
+                failure = IllegalStateException("终端内容层还没有内容帧：图层 $contentLayer")
+            } catch (thrown: Throwable) {
+                failure = thrown
+            }
+            SystemClock.sleep(CONTENT_FRAME_WAIT_INTERVAL_MILLIS)
+        }
+        throw checkNotNull(failure) { "终端内容层始终没有出现" }
     }
 
     /** 测一轮启动：先等首帧，再等终端界面元素真的出现在界面上。 */
