@@ -1,6 +1,5 @@
 package terminal.emulator.benchmark
 
-import android.os.SystemClock
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.MacrobenchmarkScope
 import androidx.benchmark.macro.StartupMode
@@ -183,27 +182,6 @@ class AppStartupBenchmark {
             },
         )
         assertStartupBudget("hotStart", iterations, HOT_START_BUDGET_MILLIS, HOT_START_HARD_LIMIT_MILLIS)
-    }
-
-    /**
-     * 等终端内容层出帧：图层随界面回到前台重建，出帧比图层出现晚。
-     *
-     * 等待有上限：等不到即判失败，不把「没出帧」当成通过。
-     */
-    private fun awaitTerminalContentFrames(device: UiDevice): Pair<String, LayerFrameStats> {
-        var failure: Throwable? = null
-        repeat(CONTENT_FRAME_WAIT_ATTEMPT_COUNT) {
-            try {
-                val contentLayer = findTerminalContentLayer(device)
-                val stats = readLayerFrameStats(device, contentLayer)
-                if (stats != null && stats.contentFrameCount > 0) return contentLayer to stats
-                failure = IllegalStateException("终端内容层还没有内容帧：图层 $contentLayer")
-            } catch (thrown: Throwable) {
-                failure = thrown
-            }
-            SystemClock.sleep(CONTENT_FRAME_WAIT_INTERVAL_MILLIS)
-        }
-        throw checkNotNull(failure) { "终端内容层始终没有出现" }
     }
 
     /** 测一轮启动：先等首帧，再等终端界面元素真的出现在界面上。 */

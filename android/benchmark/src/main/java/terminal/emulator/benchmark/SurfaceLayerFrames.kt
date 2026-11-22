@@ -1,5 +1,6 @@
 package terminal.emulator.benchmark
 
+import android.os.SystemClock
 import androidx.test.uiautomator.UiDevice
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -143,6 +144,27 @@ private fun listLayerNames(device: UiDevice): List<String> = device.executeShell
     .map { layerNameOf(it) }
     .filter { it.isNotEmpty() }
     .toList()
+
+/**
+ * 等终端内容层出帧：图层出现比出帧早，出帧要等一小会儿。
+ *
+ * 等待有上限：等不到即抛出最后一次失败，不把「没出帧」当成通过。
+ */
+internal fun awaitTerminalContentFrames(device: UiDevice): Pair<String, LayerFrameStats> {
+    var failure: Throwable? = null
+    repeat(CONTENT_FRAME_WAIT_ATTEMPT_COUNT) {
+        try {
+            val contentLayer = findTerminalContentLayer(device)
+            val stats = readLayerFrameStats(device, contentLayer)
+            if (stats != null && stats.contentFrameCount > 0) return contentLayer to stats
+            failure = IllegalStateException("终端内容层还没有内容帧：图层 $contentLayer")
+        } catch (thrown: Throwable) {
+            failure = thrown
+        }
+        SystemClock.sleep(CONTENT_FRAME_WAIT_INTERVAL_MILLIS)
+    }
+    throw checkNotNull(failure) { "终端内容层始终没有出现" }
+}
 
 /**
  * 从 `--list` 的一行里取出图层名。

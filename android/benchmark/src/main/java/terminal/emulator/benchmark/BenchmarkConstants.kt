@@ -68,6 +68,35 @@ internal const val CONTENT_FRAME_WAIT_ATTEMPT_COUNT = 10
 
 internal const val CONTENT_FRAME_WAIT_INTERVAL_MILLIS = 100L
 
+/**
+ * 稳态空载场景的静置窗口（毫秒）：矩阵 S4 的负载是「静置 10 秒」。
+ */
+internal const val IDLE_WINDOW_MILLIS = 10_000L
+
+/**
+ * 静置窗口前等启动余波过去的时长（毫秒）。
+ *
+ * 进入稳态才量空载：刚画完首帧时启动工作还没散尽，那段尾巴不算空载成本。
+ */
+internal const val IDLE_SETTLE_MILLIS = 3_000L
+
+/**
+ * 静置窗口内允许的帧数上限（界面帧与终端内容层帧各按此判）。
+ *
+ * 实测（2026-11-22 本机 AVD，API 35 模拟器，软件渲染）静置十秒：界面帧 0 帧、终端
+ * 内容层 0 帧、进程 CPU 时间 150ms（三轮一致）。上限按每秒 1 帧定——持续绘制（60fps
+ * 一秒）是它的数十倍，一两帧的偶发重绘不误报。
+ */
+internal const val IDLE_MAX_FRAMES = 10
+
+/**
+ * 静置窗口内允许的进程 CPU 时间（毫秒）。
+ *
+ * 实测同上为 150ms（十秒窗口内），上限取约 2.7 倍余量：持续空转（每秒 10% CPU）
+ * 是 1000ms，上限拦得住；宿主抖动带来的几十毫秒波动不误报。
+ */
+internal const val IDLE_MAX_PROCESS_CPU_MILLIS = 400L
+
 internal const val INTERACTION_BUDGET_MILLIS = 4_000L
 
 /**

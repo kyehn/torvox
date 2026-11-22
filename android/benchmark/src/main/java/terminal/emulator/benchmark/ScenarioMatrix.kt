@@ -85,7 +85,7 @@ internal val SCENARIO_MATRIX: List<Scenario> = listOf(
         metrics = listOf("帧数", "CPU 占用", "内存"),
         surfaces = listOf("显示级 frametimeline", "呈现汇总", "meminfo"),
         verdict = "空载不产生持续绘制",
-        wallClockLimitMillis = 15_000L,
+        wallClockLimitMillis = 30_000L,
         outputByteLimit = SCENARIO_OUTPUT_BYTE_LIMIT,
         samplingIntervalFloorMillis = SCENARIO_SAMPLING_INTERVAL_FLOOR_MILLIS,
     ),

@@ -223,6 +223,26 @@ MUST NOT 用窗口开始前的图层名——按 home 之后内容层图层已�
 - **WHEN** 热启动场景读终端内容层的帧
 - **THEN** MUST 取启动之后重建的图层，MUST NOT 用窗口开始前的图层名
 
+### Requirement: 空载场景的判据面
+
+空载场景 MUST 同时取三个互相独立的面判定「没有持续绘制」：系统侧逐图层的终端内容帧、
+应用进程的 `gfxinfo` 帧数、被测进程的 CPU 时间（`/proc/<pid>/stat`）；MUST NOT 只用
+`gfxinfo` 帧数——终端内容直绘 SurfaceView，`gfxinfo` 记不到那些帧，只看它会把「终端内容
+还在刷」误判成空载。
+
+空载场景 MUST 以「终端内容层真的画出了第一帧」为就绪信号，MUST NOT 用固定等待替代就绪
+信号；进静置窗口前 MUST 让启动余波散尽，量到的才是稳态。
+
+#### Scenario: 空载只看得见主线程帧时判红
+
+- **WHEN** 被测应用在静置窗口内持续绘制终端内容
+- **THEN** 该次测量 MUST 判红，MUST NOT 因 `gfxinfo` 帧数为零而判通过
+
+#### Scenario: 空载的进程 CPU 占用超限时判红
+
+- **WHEN** 静置窗口内被测进程的 CPU 时间超过上限
+- **THEN** 该次测量 MUST 判红，MUST NOT 只看帧数而放过持续占用
+
 ### Requirement: 宿主负载与进程 CPU 时间的记录口径
 
 每轮测量 MUST 记录宿主负载与被测进程的 CPU 时间。宿主负载取 `/proc/stat` 的 steal 计数占
