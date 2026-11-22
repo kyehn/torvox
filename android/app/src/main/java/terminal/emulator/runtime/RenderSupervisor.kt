@@ -353,8 +353,12 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
     }
 
     /**
-     * 唤醒门控：没有唤醒源时驻留在原生输出闭锁上，直到 vsync、强制渲染、
-     * 任一 notifyRender 生产者或闭锁超时。
+     * 执行渲染循环的一次迭代（流程编排已拆成独立方法，本方法只做单次迭代的
+     * 控制流与异常处置）。拆出的原因：整条循环留在渲染线程的挂起函数里会被 ART
+     * 编成数兆的单方法（见 `logcat-hygiene`「渲染循环的待编译方法必须保持小体量」）。
+     *
+     * @return `true` 表示渲染循环应当结束（中断、失败超限、pumpOutput 要求退出），
+     *         `false` 表示继续下一次迭代。
      */
     private fun runOneIteration(
         entry: SessionEntry,
@@ -482,6 +486,10 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         return false
     }
 
+    /**
+     * 唤醒门控：没有唤醒源时驻留在原生输出闭锁上，直到 vsync、强制渲染、
+     * 任一 notifyRender 生产者或闭锁超时。
+     */
     private fun awaitRenderWake(entry: SessionEntry, bridge: Bridge) {
         // 循环仅在有唤醒源触发时才渲染：
         //   ① vsyncRequested — Choreographer 帧回调

@@ -1,5 +1,6 @@
 package terminal.emulator.benchmark
 
+import android.os.SystemClock
 import androidx.test.uiautomator.UiDevice
 
 /*
@@ -44,3 +45,46 @@ internal fun parsePresentedFrameSummary(record: LogcatRecord): PresentedFrameSum
 internal fun readPresentedFrameSummaries(device: UiDevice, sinceEpochMillis: Long): List<PresentedFrameSummary> =
     readLogcatSince(device, sinceEpochMillis, PRESENTED_SUMMARY_PATTERN)
         .mapNotNull { parsePresentedFrameSummary(it) }
+
+/** 呈现静默的判定时长：这么久没有新的呈现汇总即认为渲染已停。 */
+private const val PRESENT_SILENCE_MILLIS = 1_500L
+
+/** 静默判定的轮询间隔。 */
+private const val PRESENT_POLL_MILLIS = 300L
+
+/** 等渲染停摆的上限：超时说明输出或滚动没有真正发生。 */
+private const val PRESENT_SETTLE_TIMEOUT_MILLIS = 30_000L
+
+/**
+ * 等到终端不再呈现新帧，返回窗口内的呈现汇总。
+ *
+ * 呈现汇总是原生侧 500ms 窗口的产物，故静默判定取三个窗口：窗口刚交出时还有一窗
+ * 未交出，短于此会把「仍在渲染」误判成「渲染完毕」。拖动的惯性也会在这段时间里
+ * 继续出帧，等它停摆才能把整个滚动的呈现帧都收进来。
+ */
+internal fun awaitPresentedSettle(device: UiDevice, sinceEpochMillis: Long): List<PresentedFrameSummary> {
+    val deadline = SystemClock.elapsedRealtime() + PRESENT_SETTLE_TIMEOUT_MILLIS
+    var lastPresentedMillis = sinceEpochMillis
+    var presentedAny = false
+    val summaries = mutableListOf<PresentedFrameSummary>()
+    while (SystemClock.elapsedRealtime() < deadline) {
+        // `-T` 是闭区间：起点取上一条汇总的时刻加一毫秒，否则同一条会被反复
+        // 读出，误判成「没有新汇总」。
+        val newest = readPresentedFrameSummaries(device, lastPresentedMillis + 1)
+        if (newest.isNotEmpty()) {
+            summaries += newest
+            lastPresentedMillis = newest.last().epochMillis
+            presentedAny = true
+        } else if (
+            presentedAny &&
+            System.currentTimeMillis() - lastPresentedMillis >= PRESENT_SILENCE_MILLIS
+        ) {
+            return summaries
+        }
+        SystemClock.sleep(PRESENT_POLL_MILLIS)
+    }
+    error(
+        "呈现未停摆（${PRESENT_SILENCE_MILLIS}ms 内没有新的呈现）：" +
+            "shell 可能未就绪，输入没有送达终端，或滚动没有真正发生",
+    )
+}

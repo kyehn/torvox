@@ -45,6 +45,8 @@ internal data class LayerFrameStats(
     val medianIntervalMillis: Long,
     /** 呈现间隔的 p90（毫秒）。 */
     val p90IntervalMillis: Long,
+    /** 呈现间隔的 p95（毫秒）。 */
+    val p95IntervalMillis: Long,
     /** 呈现间隔的最大值（毫秒）。 */
     val maxIntervalMillis: Long,
     /** 呈现频率（帧/秒）：相邻呈现时刻之差折算。 */
@@ -92,6 +94,7 @@ internal fun parseLayerFrameStats(output: String): LayerFrameStats? {
         },
         medianIntervalMillis = percentileMillis(sortedIntervalsNanos, 0.5),
         p90IntervalMillis = percentileMillis(sortedIntervalsNanos, 0.9),
+        p95IntervalMillis = percentileMillis(sortedIntervalsNanos, 0.95),
         maxIntervalMillis = sortedIntervalsNanos.lastOrNull()?.div(1_000_000) ?: 0L,
         presentationRatePerSecond = if (spanNanos > 0) {
             (intervalsNanos.size * 1_000_000_000.0) / spanNanos

@@ -30,6 +30,18 @@ internal fun benchmarkLaunchIntent(): Intent = Intent(Intent.ACTION_MAIN).apply 
     putExtra(LOG_LEVEL_EXTRA, "DEBUG")
 }
 
+/**
+ * 按启动组件拉起，并把被测进程的日志等级提到 DEBUG。
+ *
+ * 宏基准走 `startActivityAndWait`（Intent 带 extra）；系统侧拉起没有 Intent，extra
+ * 得用 `am start` 的 `--es` 传。等级不够时原生呈现汇总是 debug 级，基准永远读不到
+ * 帧，只能以「没出帧」判红——测的是日志等级而不是性能。
+ */
+internal fun startAndWaitAtDebugLogLevel(device: UiDevice, launcherActivity: String): AppLaunchResult =
+    parseLaunchResult(
+        device.executeShellCommand("am start -W -n $launcherActivity --es $LOG_LEVEL_EXTRA DEBUG"),
+    )
+
 /** 输入法状态的等待上限：输入法可能在冷启动后过一会儿才弹起，不能立刻下结论。 */
 internal const val IME_STATE_TIMEOUT_MILLIS = 5_000L
 

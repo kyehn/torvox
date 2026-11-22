@@ -97,6 +97,87 @@ internal const val IDLE_MAX_FRAMES = 10
  */
 internal const val IDLE_MAX_PROCESS_CPU_MILLIS = 400L
 
+/**
+ * 持续输出场景 S5 的负载形状：批数、每批行数、批间隔。
+ *
+ * 负载是设备侧 shell 自己产的字节流，故字节流不依赖宿主的注入速度。批间停固定时间，
+ * 输出在整个窗口里持续到达——一次性灌进来的大块字节流是突发输出场景的负载。
+ *
+ * 形状按实测选定（本机 AVD）：60 批 × 1000 行约 287KB，批间 0.1 秒，负载窗口实测
+ * 7.0 秒（宿主轻载）到 10.4 秒（宿主被抢占）。
+ */
+internal const val SUSTAINED_OUTPUT_BATCH_COUNT = 60
+
+internal const val SUSTAINED_OUTPUT_LINES_PER_BATCH = 1_000
+
+internal const val SUSTAINED_OUTPUT_BATCH_PAUSE_SECONDS = "0.1"
+
+/** 等负载跑完的上限：超过即强停被测应用并判红，不让失败场景继续耗设备。 */
+internal const val SUSTAINED_OUTPUT_TIMEOUT_MILLIS = 45_000L
+
+/** 等完成标记的轮询间隔。 */
+internal const val SUSTAINED_OUTPUT_POLL_MILLIS = 300L
+
+/** 负载进行中的内存采样间隔。 */
+internal const val SUSTAINED_OUTPUT_MEMORY_SAMPLE_INTERVAL_MILLIS = 1_000L
+
+/**
+ * 持续输出期间至少要出帧的呈现窗口数下限。
+ *
+ * 实测（本机 AVD）负载窗口 7.0–10.4 秒，出帧窗口 12–19 个。下限取最差实测的约
+ * 三分之二：窗口塌到个位数即「输出还在跑、终端不画了」。
+ */
+internal const val MIN_SUSTAINED_OUTPUT_PRESENTED_WINDOWS = 8
+
+/**
+ * 呈现之间允许的最长停摆（毫秒）。
+ *
+ * 呈现汇总按 500ms 窗口交出，故正常的相邻窗口间隔约 600ms。实测最差 664ms（宿主
+ * 被抢占时），上限取约 1.8 倍：连着两个窗口没有呈现即判红。
+ */
+internal const val MAX_SUSTAINED_OUTPUT_PRESENTATION_GAP_MILLIS = 1_200L
+
+/**
+ * 终端内容层呈现间隔 p95 的上限（毫秒）。
+ *
+ * 实测（本机 AVD）宿主轻载 118–120ms、宿主被抢占 150ms。上限取最差实测的约 1.7
+ * 倍：软件渲染的模拟器一帧本身就要几十毫秒，间隔涨到几百毫秒即画不动了。
+ */
+internal const val MAX_SUSTAINED_OUTPUT_LAYER_INTERVAL_P95_MILLIS = 250L
+
+/**
+ * 终端内容层占用的刷新槽位比例下限。
+ *
+ * 呈现频率除以刷新率，与刷新率无关。实测 0.23–0.28（持续输出时终端不是满帧刷新，
+ * 负载是逐批到达的）；下限取约实测的三分之一，塌到零即「一帧都没出」。
+ */
+internal const val MIN_SUSTAINED_OUTPUT_LAYER_SLOT_UTILIZATION = 0.1
+
+/**
+ * 持续输出期间 PSS 增长的上限（千字节）。
+ *
+ * 实测（本机 AVD）增长 16.5–19.7MB：回滚区按配置封顶，增长有界。上限取最差实测
+ * 的约 1.6 倍。
+ */
+internal const val MAX_SUSTAINED_OUTPUT_PSS_GROWTH_KILOBYTES = 30L * 1024
+
+/**
+ * 持续输出期间进程 CPU 时间的上限（毫秒）。
+ *
+ * 实测（本机 AVD）宿主轻载 880–950ms、宿主被抢占 3710ms：宿主被抢占时应用等不到
+ * 帧就多转几圈，CPU 时间翻数倍，故上限按最差实测的约 1.6 倍定，不能拿空闲宿主的
+ * 数字当门禁。
+ */
+internal const val MAX_SUSTAINED_OUTPUT_PROCESS_CPU_MILLIS = 6_000L
+
+/**
+ * 持续输出的吞吐下限（字节/秒）。
+ *
+ * 实测（本机 AVD）宿主轻载 40.9–41.8KB/s、宿主被抢占 28.2KB/s。下限取最差实测的
+ * 约七成：字节流停摆时吞吐塌到接近零。
+ */
+internal const val MIN_SUSTAINED_OUTPUT_THROUGHPUT_BYTES_PER_SECOND = 20_000.0
+
 internal const val INTERACTION_BUDGET_MILLIS = 4_000L
 
 /**
@@ -185,7 +266,6 @@ internal const val MIN_ANIMATION_FRAME_COUNT = 1
  */
 internal const val MEASUREMENT_QUOTA_BYTES = 64L * 1024 * 1024
 
-/** 宏基准会重装被测应用并重置运行时权限，需在测量前重新授权。 */
 internal fun grantNotificationPermission(device: UiDevice) {
     device.executeShellCommand("pm grant $TARGET_PACKAGE $NOTIFICATION_PERMISSION")
 }
