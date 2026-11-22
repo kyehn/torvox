@@ -125,6 +125,47 @@ data class RuntimeState(
 )
 
 /**
+ * 会话状态的**同源快照**。
+ *
+ * [activeSessionId] 与 [sessionIds] MUST 来自同一次持锁读取：二者的增删都在
+ * 会话总闸内完成，分两次锁外读会拼出「活动会话已关闭却仍留在列表里」的组合。
+ */
+internal data class SessionStateSnapshot(val isRunning: Boolean, val activeSessionId: Long, val sessionIds: List<Long>)
+
+/**
+ * 把会话状态快照发布到运行期状态流。
+ *
+ * 快照 MUST 在 [sessionLock] 的同一次持锁区间内取出（[snapshot] 在持锁时被调用）：
+ * 活动会话与会话列表分两次锁外读会拼出「活动会话已关闭却仍在列表里」的组合，
+ * 界面随后把序号算成 0、抽屉高亮指向不存在的条目，且该状态不会自愈——
+ * 后续刷新只更新标题，不再改活动会话。
+ *
+ * 快照取在 CAS lambda 内：CAS 失败重试时重新取快照，慢线程不会用陈旧快照
+ * 盖掉别处刚发布的状态。
+ */
+internal fun publishSessionState(
+    state: MutableStateFlow<RuntimeState>,
+    sessionLock: Any,
+    snapshot: () -> SessionStateSnapshot,
+) {
+    state.update { current ->
+        val taken = synchronized(sessionLock) { snapshot() }
+        current.copy(
+            isRunning = taken.isRunning,
+            activeSessionId = taken.activeSessionId,
+            sessionIds = taken.sessionIds,
+            // 标题是**某个**会话的属性：活动会话换了（或一个都不剩）就清掉旧标题，
+            // 真实标题由随后的异步刷新填回（见 TerminalRuntime.scheduleActiveSessionTitleRefresh）。
+            title = if (taken.activeSessionId != current.activeSessionId || taken.activeSessionId == 0L) {
+                ""
+            } else {
+                current.title
+            },
+        )
+    }
+}
+
+/**
  * 冷启动度量（毫秒）：以**进程启动**为原点。
  *
  * - [startupToFirstFrameMs]：到第一帧真正上屏（用户看到的「app 打开了」）。
@@ -3810,25 +3851,23 @@ constructor(
     /**
      * 刷新会话状态。**不得**在此处查询会话标题。
      *
-     * 标题查询是一次阻塞式 VT 往返（最长约 1 秒），而本方法在会话总闸
-     * `sessionLock` 内被调用（关闭/切换/退出路径），压着锁查会把整个会话子系统
-     * 冻结住。标题由 [scheduleActiveSessionTitleRefresh] 在后台刷新。
+     * 标题查询是一次阻塞式 VT 往返（最长约 1 秒），压着会话总闸查会把整个
+     * 会话子系统冻结住。标题由 [scheduleActiveSessionTitleRefresh] 在后台刷新。
+     *
+     * 调用点既有持总闸的（关闭/退出/接替路径）也有不持的（切换/新建路径）：
+     * 快照一律由 [publishSessionState] 在总闸内取，故两种调用点发布出的
+     * 状态同源。
      */
     private fun updateState() {
         // 标题不在这里取：标题只能通过阻塞式 VT 往返获得（最长约 1 秒），
-        // 而本函数会在持有 sessionLock 时被调用。
-        runtimeState.update { current ->
-            val active = activeSessionId
-            current.copy(
+        // 持总闸查会把整个会话子系统冻结住。
+        publishSessionState(runtimeState, sessionLock) {
+            SessionStateSnapshot(
                 isRunning = sessions.isNotEmpty(),
-                activeSessionId = active,
+                activeSessionId = activeSessionId,
                 // 升序发布（契约见 [RuntimeState.sessionIds]）：`sessions` 是并发
                 // 映射，桶序不保证稳定，而标签序号按本列表下标换算。
                 sessionIds = sessions.keys.sorted(),
-                // 活动会话换了（或一个都不剩）就清掉旧标题：标题是**某个**会话的
-                // 属性，留在旧会话上会让 UI 显示别人的名字；真实标题由随后的
-                // 异步刷新填回（见 [scheduleActiveSessionTitleRefresh]）。
-                title = if (active != current.activeSessionId || active == 0L) "" else current.title,
             )
         }
     }

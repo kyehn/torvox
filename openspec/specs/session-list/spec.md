@@ -129,6 +129,25 @@ MUST 保留行内关闭按钮，点击条目 MUST 切换会话并关闭面板，
 的活动会话副作用）、图缓存与异会话渲染残留丢弃（`ffi.rs` `SessionScoped::enter_session`，
 Kitty 组件按会话键控）、输入目标重置（`TerminalRuntime` 的 `inputTargetSessionId`）。
 
+### Requirement: 活动会话与会话列表必须同源发布
+
+运行期发布的会话状态 MUST 是同一次持锁读取的快照：活动会话 id 与会话 id 列表
+MUST 来自同一时刻，MUST NOT 由两次独立读取拼成。
+
+二者不同源时会拼出「活动会话已关闭却仍留在列表里」的组合——序号按列表位置换算时
+算成 0，抽屉高亮指向不存在的条目，且该状态不会自愈：后续刷新只更新标题，
+不再改活动会话。
+
+#### Scenario: 关闭活动会话与切换并发时不发布分裂状态
+
+- **WHEN** 关闭活动会话与切换会话并发发生
+- **THEN** 发布的活动会话 id MUST 为 0，或属于发布的会话 id 列表
+
+#### Scenario: 活动会话换人时旧标题不得留下
+
+- **WHEN** 发布的活动会话 id 与上一份状态不同
+- **THEN** 发布的标题 MUST 为空，真实标题由随后的异步刷新填回
+
 ### Requirement: 抽屉布局与规范一致
 
 会话抽屉 MUST 与 `docs/specification/DESIGN.md` 侧边面板节一致：「新建会话」入口 MUST
