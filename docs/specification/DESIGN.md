@@ -52,6 +52,8 @@
 
 - 每个会话的 PTY 读取线程把输出送入有界通道，Ghostty VT 线程解析并维护终端状态；Kotlin 为当前活动会话运行一个渲染线程，经 JNI 调用 Rust 将当前帧绘制。切换会话时停止旧渲染线程并启动新线程。
 
+- 独立传输适配器，「会话」与「本地 PTY」解耦，字节源可替换。控制流与终端字节流分离的双通道设计，有界快照缓冲。请求退出、取退出码的生命周期设计。
+
 - Android Activity 生命周期要求应用正确处理以下场景：
   - Activity 重建（屏幕旋转、配置变更）复用现有会话
   - 进程被回收：系统可能终止应用进程，全部 Rust 状态与 PTY 进程随之消失。
@@ -92,8 +94,11 @@
   - 构建时从 <https://github.com/alacritty/alacritty-theme> 读取主题配置，仓库不硬编码颜色，`catppuccin_mocha` 等主题名称在代码中应该只出现一次，硬编码主题列表 dracula_plus catppuccin_latte catppuccin_mocha monokai gruvbox_light gruvbox_dark tomorrow tomorrow_night tokyo_night tokyo_night_light github_dark_high_contrast moonfly pastel_dark，不得转换名称，不使用 Dracula Plus 命名
   - 默认主题在第一次使用时即被应用。
   - 主题效果支持预览，主题名称不在预览框内，而是在其下方，长主题名称可以被正常显示。
-- **Shell 启动入口路径及参数设置框**。提供保存按钮，支持保存和显示设置的文本，未设置时为空。保存时不检查文本，不检查路径是否存在，不检查参数是否合法。
-  - 支持如 `/data/data/com.termux/files/usr/bin/sh` `/system/bin/sh /data/data/com.termux/files/usr/bin/login.sh` `/data/data/com.termux/files/usr/bin/bash -l` 等写法。
+- **Shell 启动入口**。支持保存多个 Shell 启动入口，但只有一个能被激活。每个条目包括“名称”和“Shell 启动入口命令行”。
+  - 默认列表为空。
+  - “名称”不可重复
+  - “Shell 启动入口命令行”可以为空，保存时不检查文本，不检查路径是否存在，不检查参数是否合法。
+  - “Shell 启动入口命令行”支持如 `/data/data/com.termux/files/usr/bin/sh` `/system/bin/sh /data/data/com.termux/files/usr/bin/login.sh` `/data/data/com.termux/files/usr/bin/bash -l` 等写法。
   - 不支持相对路径如 `login.sh`（须为绝对路径），不支持无解释器直接执行脚本路径如 `/data/data/com.termux/files/usr/bin/login.sh`（须经 `/system/bin/sh` 间接执行），支持具有 Shebang 的可执行文件
   - 启动入口应该是二进制文件且是绝对路径。
   - 启动目录为 `/data/data/com.termux/files/home`
@@ -164,7 +169,7 @@
 - 没有任何内建命令，不内置提供 `termux-setup-storage` `termux-open` 等，也没有替代实现。
 - bell character（`bell-character` 三态：`vibrate` / `beep` / `ignore`）实现和 termux-app 一致
 - 启动后自动弹出输入法和 termux-app 一致
-- 应用位于后台时能够继续活跃，参考 termux-app 实现唤醒锁，包括通知栏按钮
+- 应用位于后台时能够继续活跃，参考 termux-app 实现唤醒锁（不自动申请），包括通知栏按钮
 - 处理 OSC 9 等通知，输出会话序号和通知。应用位于前台时使用 Toast Notification。位于后台时使用“系统通知”，点击后切换到目标会话。
 
 ### 修饰键栏
@@ -198,7 +203,7 @@
   - 会话序号从 1 开始递增，序号动态更新。
   - 列表只在打开时刷新，标题由一次批量查询按会话顺序取回。
   - 切换会话时清空上一会话的选区。
-- 添加会话按钮。
+- **添加会话按钮**：支持点击和长按，长按显示“未被激活的 Shell 启动入口列表”（显示的是每个“Shell 启动入口”的名称），不包括激活的条目，也不包括 Failsafe，点击条目以对应的“Shell 启动入口命令行”启动新会话。
 - “重置终端”按钮，重置终端状态以恢复卡住的终端，清除回滚与滚动状态。终端页面应该干净，没有残余内容。
 - 文本搜索按钮。
 - 显示 / 隐藏输入法按钮。
@@ -220,3 +225,4 @@
 - 尽量减少非前台期间的资源消耗，设计尽量为事件触发，减少固定循环机制。适配设备省电设置和电源策略，如 `wgpu` 的 `PowerPreference` 应根据情况合理设置，也包括其他情况的相关代码。
 - 日志和计时器及其他相关代码应谨慎设计，避免过度影响性能。
 - 异常消耗资源时尽快尽早主动退出，不要降级强撑
+- 参考 termux-app 导出 TermuxActivity SettingsActivity RunCommandService TermuxService，无强一致性要求，允许合理的缺失

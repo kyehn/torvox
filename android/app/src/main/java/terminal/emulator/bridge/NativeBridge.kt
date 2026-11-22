@@ -347,7 +347,12 @@ object NativeBridge {
 
     // ── TerminalQueryPort（原生查询导出） ──
 
-    /** 会话的终端标题（OSC 0/2），会话未知时为 null。 */
+    /**
+     * 会话的终端标题（OSC 0/2）。
+     *
+     * 会话未知时抛 `IllegalStateException`（会话竞态），不返回 null——调用方要能区分
+     * 「没有标题」与「会话没了」。宿主侧由 `Bridge.getTitle` 统一转成缺省值。
+     */
     @JvmStatic external fun getTitle(sessionId: Long): String?
 
     /**
@@ -396,7 +401,8 @@ object NativeBridge {
 
     /**
      * 用 Ghostty 原生格式化器提取选中文本：软换行处不插入 '\n' 并去除尾部空白，
-     * 与 termux 的 TerminalBuffer.getSelectedText 同为换行感知语义。坐标为绝对网格行列（0 = 回滚顶部），出错返回 ""。
+     * 与 termux 的 TerminalBuffer.getSelectedText 同为换行感知语义。坐标为绝对网格行列
+     * （0 = 回滚顶部）；会话不存在返回 null，无选区或取文失败返回空串。
      */
     @JvmStatic
     external fun selectionText(sessionId: Long, startRow: Int, startCol: Int, endRow: Int, endCol: Int): String?
@@ -422,14 +428,15 @@ object NativeBridge {
     /**
      * 设置搜索 needle 并同步跑完搜索，返回命中总数。
      * 上游 `search::Search` 承担匹配、软换行跨行与增量同步；ASCII 字母不区分大小写，
-     * 无区分大小写开关。超时、断连或会话不存在返回 0。
+     * 无区分大小写开关。超时、断连返回 0；会话不存在抛 `IllegalStateException`（会话竞态）。
      */
     @JvmStatic
     external fun searchSetNeedle(sessionId: Long, needle: String): Int
 
     /**
      * 选中下一个（`forward = true`，朝更旧内容）或上一个命中，返回
-     * `[序号, 总数, 行, 起始列, 结束列]`；无命中、超时、断连或会话不存在返回 null。
+     * `[序号, 总数, 行, 起始列, 结束列]`；无命中、超时、断连返回 null；
+     * 会话不存在抛 `IllegalStateException`（会话竞态）。
      * 行号是绝对网格行（0 = 回滚顶部）；上游不移动视口，居中由视图侧完成。
      */
     @JvmStatic
