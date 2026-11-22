@@ -15,8 +15,8 @@ import terminal.emulator.runtime.pasteByteChunks
 import terminal.emulator.runtime.truncatePasteText
 import terminal.emulator.util.TerminalDispatchers
 
-/** 剪贴板文本上限：超出部分截断，避免一次性搬运超大文本。 */
-private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
+/** 剪贴板与分享文本上限：超出部分截断，避免一次性搬运超大文本（分享还受 Binder 事务上限约束）。 */
+internal const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
 
 /**
  * 选区状态机：开始/更新/结束、拖动手柄、剪贴板复制/分享/粘贴、全选。
@@ -289,11 +289,15 @@ internal class SelectionManager(
             LogUtil.warn("SelectionManager", "分享跳过: 选区文本为空 ${selectionBoundsForLog()}")
             return
         }
+        // 与复制同一上限：整段选区可达数百万字符（大回滚区全选），而 Intent 的
+        // extra 要经 Binder 传进目标应用，超过事务上限时 startActivity 直接抛
+        // TransactionTooLargeException——分享按钮变成崩溃入口。
+        val sharedText = rawText.take(CLIPBOARD_TEXT_MAX_LENGTH)
         val shareIntent =
             Intent.createChooser(
                 Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, rawText)
+                    putExtra(Intent.EXTRA_TEXT, sharedText)
                 },
                 null,
             )
