@@ -9,12 +9,17 @@ import androidx.test.uiautomator.UiDevice
  * 不可比；`am start -W` 的 TotalTime 与被测应用无关，是唯一能直接横向比的口径。
  */
 internal data class AppLaunchResult(
-    /** 启动状态（`COLD`／`WARM`／`HOT`）。 */
+    /** 启动状态（`COLD`／`WARM`／`HOT`；系统没测到这次启动时是 `UNKNOWN`）。 */
     val launchState: String,
     /** 真正被拉起的界面（可能是别的应用接管了这次启动）。 */
     val activity: String,
-    /** 启动总耗时（系统侧毫秒）。 */
-    val totalTimeMillis: Long,
+    /**
+     * 启动总耗时（系统侧毫秒）；系统没测到这次启动时为空。
+     *
+     * `am start -W` 只在 `result.totalTime >= 0` 时打印总耗时行（AOSP
+     * `ActivityManagerShellCommand`），系统没测到启动时该行缺失。
+     */
+    val totalTimeMillis: Long?,
     /** 等待首帧的耗时（系统侧毫秒）。 */
     val waitTimeMillis: Long,
 )
@@ -39,6 +44,10 @@ private const val LAUNCH_WAIT_TIME_PREFIX = "WaitTime: "
  *
  * 状态不是 `ok` 即判失败：启动没成功时后面的耗时字段没有意义，读成 0 会把「没启动」
  * 记成「启动很快」。
+ *
+ * 总耗时行可能缺失：系统只在测到启动时才给总耗时（AOSP `ActivityManagerShellCommand`
+ * 按 `result.totalTime >= 0` 打印），没测到时启动态是 `UNKNOWN` 且该行不存在——应用
+ * 启动即崩溃就是这种形态。此时总耗时记为空，由调用方判失败，而不是把它读成 0。
  */
 internal fun parseLaunchResult(output: String): AppLaunchResult {
     val status = output.lineSequence()
@@ -57,12 +66,13 @@ internal fun parseLaunchResult(output: String): AppLaunchResult {
         .firstOrNull { it.startsWith(LAUNCH_ACTIVITY_PREFIX) }
         ?.substringAfter(LAUNCH_ACTIVITY_PREFIX)
         ?: error("启动输出里没有界面行：$output")
-    val totalTimeMillis = output.lineSequence()
+    val totalTimeRow = output.lineSequence()
         .map { it.trim() }
         .firstOrNull { it.startsWith(LAUNCH_TOTAL_TIME_PREFIX) }
-        ?.substringAfter(LAUNCH_TOTAL_TIME_PREFIX)
-        ?.toLongOrNull()
-        ?: error("启动输出里没有总耗时行：$output")
+    val totalTimeMillis = totalTimeRow?.let { row ->
+        row.substringAfter(LAUNCH_TOTAL_TIME_PREFIX).trim().toLongOrNull()
+            ?: error("启动输出里的总耗时不是数字：$output")
+    }
     val waitTimeMillis = output.lineSequence()
         .map { it.trim() }
         .firstOrNull { it.startsWith(LAUNCH_WAIT_TIME_PREFIX) }

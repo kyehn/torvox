@@ -197,6 +197,29 @@ API 35 / SwiftShader），MUST NOT 因某条流水线缺席而停摆或降低覆
 - **WHEN** 宏基准记录启动耗时
 - **THEN** MUST 同时给出首帧段与终端界面可见段的实测值，MUST NOT 只给合并后的总数
 
+### Requirement: 宿主负载与进程 CPU 时间的记录口径
+
+每轮测量 MUST 记录宿主负载与被测进程的 CPU 时间。宿主负载取 `/proc/stat` 的 steal 计数占
+CPU 总时间的比例（设备读不到宿主负载，但读得到「自己没拿到多少 CPU」）；进程 CPU 时间取
+`/proc/<pid>/stat` 的 utime 与 stime 合计，配合 starttime 与 `/proc/uptime` 得进程年龄。
+判定 MUST 用负载无关的相对量，MUST NOT 按负载占比折算耗时——steal 记的是全部 vCPU 的被抢
+时间，空闲的 vCPU 被抢走并不拖慢被测进程，按占比缩放会把被测进程算得比实际更快。
+
+#### Scenario: 宿主被抢占时两个口径同时可见
+
+- **WHEN** 宿主被并发任务抢占，墙钟耗时整体变慢
+- **THEN** 该轮 MUST 同时给出墙钟耗时与进程 CPU 时间，MUST NOT 只给墙钟
+
+#### Scenario: 负载不折算进耗时
+
+- **WHEN** 该轮的 steal 占比高于抢占阈值
+- **THEN** 该轮 MUST 标为被抢占并保留原值，MUST NOT 按占比缩放耗时
+
+#### Scenario: 负载采集失败不覆盖原始失败
+
+- **WHEN** 场景本身失败且负载采集同时失败
+- **THEN** 原始失败 MUST 保留，负载采集的失败 MUST 作为附加信息附带
+
 ### Requirement: 宏基准的帧级数据面按绘制主体选源
 
 帧级数据面 MUST 按「谁画了这帧」选源，MUST NOT 用单一数据面覆盖所有被测路径：
@@ -614,10 +637,16 @@ MUST NOT 把两者混为一谈。退出记录的时刻是墙钟时刻，场景�
 - **WHEN** 场景本身失败且退出归因采集同时失败
 - **THEN** 该次测量 MUST 保留原始失败，退出归因采集的失败 MUST 作为附加信息附带，MUST NOT 替换或吞掉原始失败
 
+#### Scenario: 退出归因按可 actionable 程度取
+
+- **WHEN** 同一窗口内既有准备动作留下的强停记录又有应用崩溃记录
+- **THEN** 归因 MUST 取应用故障优先的记录，MUST NOT 让强停记录盖掉崩溃原因
+
 ### Requirement: 测量结果的落盘格式与配额
 
 每轮测量 MUST 产出一份 JSONL 行文件与一个制品目录。行 MUST 只放摘要与制品指针，字段 MUST
-含 `run_id`、设备环境、应用标识、场景标识（含迭代序号与起止时刻）、退出归因、制品指针与判定。
+含 `run_id`、设备环境、应用标识、场景标识（含迭代序号与起止时刻）、宿主负载、退出归因、
+制品指针与判定。
 
 制品 MUST 附字节数与校验和，并 MUST 有配额：腾不出空间时 MUST 轮转清理最旧的制品，单件超配额
 MUST 丢弃该件，MUST NOT 让设备存储被制品占满。
@@ -679,6 +708,16 @@ MUST NOT 让行数与框架迭代数的差异无从判读。
 
 - **WHEN** 一轮测量覆盖多个被测包
 - **THEN** 落盘行 MUST 带被测包的标识，MUST NOT 只能按场景名区分
+
+#### Scenario: 系统没测到启动时按缺失总耗时判红
+
+- **WHEN** `am start -W` 的输出没有总耗时行（系统只在测到启动时才打印该行）
+- **THEN** 该轮 MUST 判红，MUST NOT 把缺失的总耗时读成 0
+
+#### Scenario: 启动态未知即判红
+
+- **WHEN** 拉起后的启动态是 `UNKNOWN`
+- **THEN** 该轮 MUST 判红，MUST NOT 记成冷启动数据
 
 ### Requirement: 极端场景的资源上限
 

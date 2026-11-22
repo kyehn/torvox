@@ -2,6 +2,7 @@ package terminal.emulator.benchmark
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -41,15 +42,31 @@ class AppLaunchTest {
     }
 
     @Test
-    fun rejectsLaunchOutputWithoutTotalTimeRow() {
+    fun readsLaunchWithoutMeasuredTotalTime() {
+        // 实测：应用启动即崩溃时系统没测到这次启动，输出没有总耗时行且启动态是 UNKNOWN。
+        val result = parseLaunchResult(
+            "Starting: Intent { cmp=com.termux/terminal.emulator.MainActivity }\n" +
+                "Status: ok\nLaunchState: UNKNOWN (0)\n" +
+                "Activity: com.termux/terminal.emulator.MainActivity\nWaitTime: 858\nComplete\n",
+        )
+
+        assertEquals("UNKNOWN (0)", result.launchState)
+        assertEquals("com.termux/terminal.emulator.MainActivity", result.activity)
+        assertNull("系统没测到启动时总耗时为空", result.totalTimeMillis)
+        assertEquals(858L, result.waitTimeMillis)
+    }
+
+    @Test
+    fun rejectsLaunchOutputWithNonNumericTotalTime() {
         val failure = assertThrows(IllegalStateException::class.java) {
             parseLaunchResult(
                 "Status: ok\nLaunchState: COLD\n" +
-                    "Activity: com.termux/terminal.emulator.MainActivity\nWaitTime: 370\n",
+                    "Activity: com.termux/terminal.emulator.MainActivity\n" +
+                    "TotalTime: 不知道\nWaitTime: 370\n",
             )
         }
 
-        assertTrue(failure.message.orEmpty().contains("总耗时行"))
+        assertTrue(failure.message.orEmpty().contains("不是数字"))
     }
 
     @Test

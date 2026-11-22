@@ -56,8 +56,15 @@ class CrossAppLaunchBenchmark {
         emitMeasured("[bench-perms] package=$packageName denied=${deniedPermissions.joinToString(",")}")
         // 预热一次：安装后的首次启动含 dex 优化与首次初始化，把它算进测量会污染对比数据。
         forceStop(device, packageName)
-        launchChecked(device, packageName, launcherActivity)
+        val prewarmStartedAtMillis = System.currentTimeMillis()
+        try {
+            launchChecked(device, packageName, launcherActivity)
+        } catch (thrown: Throwable) {
+            // 预热失败也要归因：应用启动即崩溃时退出记录里有原因。
+            throw thrown.withProcessExitAttribution(device, prewarmStartedAtMillis, packageName)
+        }
         val totalTimes = mutableListOf<Long>()
+        val processCpuTimes = mutableListOf<Long>()
         repeat(CROSS_APP_ITERATION_COUNT) {
             measureScenario(
                 device = device,
@@ -70,24 +77,32 @@ class CrossAppLaunchBenchmark {
                 setup = { forceStop(device, packageName) },
             ) { iteration ->
                 val result = launchChecked(device, packageName, launcherActivity)
-                check(result.launchState == "COLD") {
-                    "启动态不是 COLD，测到的不是冷启动：${result.launchState}"
+                check(result.launchState == "COLD" && result.totalTimeMillis != null) {
+                    "系统没测到这次冷启动：启动态=${result.launchState} " +
+                        "总耗时=${result.totalTimeMillis}ms 等待=${result.waitTimeMillis}ms"
                 }
-                totalTimes += result.totalTimeMillis
+                val totalTimeMillis = requireNotNull(result.totalTimeMillis)
+                val processCpuTime = readProcessCpuTime(device, packageName)
+                totalTimes += totalTimeMillis
+                processCpuTimes += processCpuTime.totalMillis
                 emitMeasured(
                     "[bench-measure] crossAppLaunch package=$packageName iteration=$iteration " +
-                        "totalTime=${result.totalTimeMillis}ms waitTime=${result.waitTimeMillis}ms " +
-                        "launchState=${result.launchState}",
+                        "totalTime=${totalTimeMillis}ms waitTime=${result.waitTimeMillis}ms " +
+                        "launchState=${result.launchState} processCpu=${processCpuTime.totalMillis}ms " +
+                        "processAge=${processCpuTime.ageMillis}ms",
                 )
                 mapOf(
-                    "total_time_millis" to result.totalTimeMillis.toDouble(),
+                    "total_time_millis" to totalTimeMillis.toDouble(),
                     "wait_time_millis" to result.waitTimeMillis.toDouble(),
+                    "process_cpu_millis" to processCpuTime.totalMillis.toDouble(),
+                    "process_age_millis" to processCpuTime.ageMillis.toDouble(),
                 )
             }
         }
         emitMeasured(
             "[bench-measure] crossAppLaunch-summary package=$packageName count=${totalTimes.size} " +
-                "p50=${percentile(totalTimes, 0.5)}ms p95=${percentile(totalTimes, 0.95)}ms",
+                "p50=${percentile(totalTimes, 0.5)}ms p95=${percentile(totalTimes, 0.95)}ms " +
+                "cpuP50=${percentile(processCpuTimes, 0.5)}ms",
         )
     }
 

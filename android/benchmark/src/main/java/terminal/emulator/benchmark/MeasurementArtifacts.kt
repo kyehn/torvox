@@ -117,6 +117,8 @@ internal data class MeasurementRow(
     val app: AppIdentity,
     /** 指标（数值型；无指标的场次不写该字段）。 */
     val metrics: Map<String, Double>,
+    /** 测量窗口旁取到的宿主负载；负载读不出来时为空。 */
+    val hostLoad: HostLoad?,
     /** 测量窗口内的进程退出记录。 */
     val exits: List<ExitInfoRecord>,
     /** 该次测量关联的制品。 */
@@ -163,6 +165,17 @@ internal data class MeasurementRow(
             put(
                 "metrics",
                 JSONObject().apply { metrics.forEach { (name, value) -> put(name, value) } },
+            )
+        }
+        hostLoad?.let { load ->
+            put(
+                "host_load",
+                JSONObject().apply {
+                    put("steal_ratio", load.stealRatio)
+                    put("busy_ratio", load.busyRatio)
+                    put("window_millis", load.windowMillis)
+                    put("contended", load.contended)
+                },
             )
         }
         put(

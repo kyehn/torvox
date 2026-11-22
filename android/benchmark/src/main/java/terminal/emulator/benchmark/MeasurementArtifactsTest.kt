@@ -123,6 +123,7 @@ class MeasurementArtifactsTest {
             ),
             app = AppIdentity("com.termux", 2000L, "0.1.0"),
             metrics = mapOf("total_time_millis" to 363.0),
+            hostLoad = HostLoad(stealRatio = 0.387, busyRatio = 0.42, windowMillis = 812),
             exits = listOf(exit),
             artifacts = emptyList(),
             verdict = "FAIL",
@@ -147,6 +148,9 @@ class MeasurementArtifactsTest {
         )
         assertEquals("com.termux", json.getJSONObject("app").getString("package"))
         assertEquals(363.0, json.getJSONObject("metrics").getDouble("total_time_millis"), 0.0)
+        assertEquals(0.387, json.getJSONObject("host_load").getDouble("steal_ratio"), 0.0)
+        assertEquals(812, json.getJSONObject("host_load").getInt("window_millis"))
+        assertTrue(json.getJSONObject("host_load").getBoolean("contended"))
         assertEquals(1, json.getJSONArray("exit").length())
         assertTrue(json.getJSONArray("exit").getString(0).contains("APP CRASH(EXCEPTION)"))
         assertEquals("FAIL", json.getJSONObject("verdict").getString("result"))

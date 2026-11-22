@@ -1,5 +1,6 @@
 package terminal.emulator.benchmark
 
+import android.os.SystemClock
 import androidx.test.uiautomator.UiDevice
 
 /**
@@ -20,6 +21,9 @@ import androidx.test.uiautomator.UiDevice
  *
  * [measured] 标出该行是否计入结论：宏基准框架的温／热启动准备轮次不是测量，跨应用
  * 对比没有框架轮次，每一行都是测量。
+ *
+ * 宿主负载在场景前后各取一次 CPU 时间快照，落在场景窗口旁：本轮慢是应用慢还是宿主
+ * 被抢占，就看这两次快照之间的 steal 占比。
  */
 internal fun measureScenario(
     device: UiDevice,
@@ -38,16 +42,39 @@ internal fun measureScenario(
     val iteration = store.nextIteration(label)
     val preparedAtMillis = System.currentTimeMillis()
     var startedAtMillis = preparedAtMillis
+    var endedAtMillis = preparedAtMillis
     var failure: Throwable? = null
     var metrics: Map<String, Double> = emptyMap()
+    var hostLoad: HostLoad? = null
     try {
         setup()
+        val cpuBefore = readCpuTime(device)
+        val hostLoadStartedAt = SystemClock.elapsedRealtime()
         startedAtMillis = System.currentTimeMillis()
-        metrics = scenario(iteration)
+        try {
+            metrics = scenario(iteration)
+        } catch (thrown: Throwable) {
+            failure = thrown.withProcessExitAttribution(device, preparedAtMillis, packageName)
+        } finally {
+            endedAtMillis = System.currentTimeMillis()
+            try {
+                hostLoad = hostLoadBetween(
+                    cpuBefore,
+                    readCpuTime(device),
+                    SystemClock.elapsedRealtime() - hostLoadStartedAt,
+                )
+            } catch (collectionFailure: Throwable) {
+                // 负载读不出来也 MUST NOT 吃掉原始失败：读失败挂成附加信息，判定仍记失败。
+                if (failure == null) {
+                    failure = collectionFailure
+                } else {
+                    failure.addSuppressed(collectionFailure)
+                }
+            }
+        }
     } catch (thrown: Throwable) {
         failure = thrown.withProcessExitAttribution(device, preparedAtMillis, packageName)
     }
-    val endedAtMillis = System.currentTimeMillis()
     val exits = try {
         readExitInfoRecords(device, packageName).withinWindow(startedAtMillis, endedAtMillis)
     } catch (collectionFailure: Throwable) {
@@ -60,6 +87,7 @@ internal fun measureScenario(
         emptyList()
     }
     emitMeasured("[bench-measure] $label-process-exits count=${exits.size} causes=${exits.map { it.cause }}")
+    hostLoad?.let { emitMeasured("[bench-load] $label iteration=$iteration ${it.describe()}") }
     store.appendRow(
         MeasurementRow(
             runId = store.runId,
@@ -72,6 +100,7 @@ internal fun measureScenario(
             environment = environment,
             app = app,
             metrics = metrics,
+            hostLoad = hostLoad,
             exits = exits,
             artifacts = emptyList(),
             verdict = if (failure == null && exits.isEmpty()) "PASS" else "FAIL",

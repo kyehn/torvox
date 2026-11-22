@@ -184,6 +184,9 @@ internal fun List<ExitInfoRecord>.withinWindow(startMillis: Long, endMillis: Lon
 /**
  * 给失败补上进程退出归因：进程死了的话，原因就在退出记录里。
  *
+ * 归因按可 actionable 的程度取：应用自身故障优先，其次环境导致，最后才是预期退出
+ * （强停等）——预热或准备动作留下的强停记录不该盖掉真正的崩溃原因。
+ *
  * 读退出记录本身失败时保留原始失败（把读失败挂成 suppressed），不因归因失败而丢掉
  * 真正的失败原因。
  */
@@ -199,8 +202,11 @@ internal fun Throwable.withProcessExitAttribution(
         return this
     }
     if (exits.isEmpty()) return this
+    val attributed = exits.filter { it.cause == ProcessExitCause.APPLICATION_FAULT }
+        .ifEmpty { exits.filter { it.cause == ProcessExitCause.ENVIRONMENT } }
+        .ifEmpty { exits }
     return IllegalStateException(
-        "$message；进程退出归因：${exits.joinToString("；") { it.describe() }}",
+        "$message；进程退出归因：${attributed.joinToString("；") { it.describe() }}",
         this,
     )
 }
