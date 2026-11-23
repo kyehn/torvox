@@ -125,10 +125,15 @@ fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         let backtrace = std::backtrace::Backtrace::force_capture();
         let payload_text = crate::panic_text(info.payload());
+        // 载荷压成单行再记：wgpu 的判死载荷自带空行（正文与 `Caused by:` 原因树
+        // 之间），按行采集的日志通道会在空行处截断记录，原因就此丢失——真机日志
+        // 里只剩「Error in Device::poll: Validation Error」，判死原因
+        // 「Parent device is lost」整段不见。压平后原因仍在正文里。
+        let text = crate::panic_record_text(&payload_text, info.location());
         if payload_text.starts_with(EXPECTED_POLL_PANIC_PREFIX) {
-            log::debug!("panic (expected, classified by caller): {info}\n{backtrace}");
+            log::debug!("panic (expected, classified by caller): {text}\n{backtrace}");
         } else {
-            log::error!("panic: {info}\n{backtrace}");
+            log::error!("panic: {text}\n{backtrace}");
         }
     }));
 }

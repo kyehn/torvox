@@ -316,15 +316,12 @@ fn record_device_loss(detail: &str) {
     }
 }
 
-/// 把原因压成单行：wgpu 的错误文本自带缩进与换行树，压平后仍能一眼读出
-/// 「哪一步、什么错」，也不会在按行采集的日志里断成半截。
-pub(crate) fn one_line(text: &str) -> String {
-    text.lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join(" | ")
-}
+/// 把原因压成单行：实现见 [`crate::one_line`]。
+///
+/// 实现放在 crate 根而不在渲染层：诊断文本整形是跨层能力，Android 的 panic
+/// 钩子也要用同一个实现（载荷里的空行会让按行采集的日志通道丢掉原因链），
+/// 各写一份就会在某一侧退回多行形态。
+pub(crate) use crate::one_line;
 
 /// 设备丢失的文本判据。
 ///

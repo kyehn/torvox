@@ -40,6 +40,36 @@ pub(crate) fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     "non-string panic payload".to_string()
 }
 
+/// 把多行文本压成单行：行间以 ` | ` 相接，空行丢弃，行首尾空白裁掉。
+///
+/// 诊断文本常自带缩进与换行树（wgpu 的错误文本即如此：正文之后跟一段
+/// `Caused by:` 原因树，中间还夹着空行）。按行采集的日志通道把**空行**当作
+/// 记录分隔，载荷里的空行之后的内容就此消失——真机日志里
+/// `Error in Device::poll: Validation Error` 之后只剩空白，判死原因
+/// `Parent device is lost` 整段丢失，而那正是唯一能指认原因的文字。
+///
+/// 故诊断正文一律先压成单行：内容一条不少，只是以 ` | ` 相接。
+pub(crate) fn one_line(text: &str) -> String {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// panic 记录的单行正文：`panicked at 位置: 单行化载荷`。
+///
+/// 载荷里的空行会让按行采集的日志通道在空行处截断记录，原因链随之丢失
+/// （见 [`one_line`]）。此处把载荷压平后与位置拼成一行：判死原因仍完整
+/// 留在正文里，只是与其它行以 ` | ` 相接。
+pub(crate) fn panic_record_text(
+    payload: &str,
+    location: Option<&std::panic::Location<'_>>,
+) -> String {
+    let location = location.map_or_else(|| "unknown location".to_string(), ToString::to_string);
+    format!("panicked at {location}: {}", one_line(payload))
+}
+
 /// 进程内单调时钟读数（纳秒，自进程首次调用起算）。
 ///
 /// 忙标记（VT 忙、输出投递忙）存的是「自忙起时刻」的读数，判定方取一次当前读数
@@ -77,5 +107,33 @@ mod panic_text_tests {
         let fallback = panic_text(&42_u32);
         assert!(!fallback.is_empty(), "非字符串 panic 载荷必须给出非空诊断");
         assert_ne!(fallback, "42", "非字符串载荷不得直接回显 Debug 形式");
+    }
+}
+
+#[cfg(test)]
+mod panic_record_tests {
+    use super::{one_line, panic_record_text};
+
+    /// wgpu 的判死载荷：正文与原因树之间夹着空行。
+    ///
+    /// 回归钉：压平后原因必须仍在正文里，且正文不含换行——按行采集的日志通道
+    /// 会在空行处截断记录，原因随之消失（真机日志只剩「Validation Error」）。
+    #[test]
+    fn device_loss_payload_keeps_its_cause_on_one_line() {
+        let payload =
+            "Error in Device::poll: Validation Error\n\nCaused by:\n  Parent device is lost";
+        let text = panic_record_text(payload, None);
+        assert!(!text.contains('\n'), "panic 正文不得含换行：{text}");
+        assert!(text.contains("Caused by"), "原因链的引导词必须留在正文：{text}");
+        assert!(
+            text.contains("Parent device is lost"),
+            "判死原因必须留在正文：{text}"
+        );
+    }
+
+    /// 空行不占位、行首尾空白裁掉：压平后的正文仍是可读的一句话。
+    #[test]
+    fn one_line_drops_blank_lines_and_trims() {
+        assert_eq!(one_line("a\n\n  b  \n"), "a | b");
     }
 }

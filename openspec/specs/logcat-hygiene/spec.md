@@ -1028,6 +1028,59 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
       IME 弹出期间的空闲闭锁驻留，按去掉驻留后的判定不构成慢渲染
 - **AND** 平台/框架条目 MUST NOT 以过滤 tag 或降级日志处置
 
+#### Scenario: 2026-11-23 运行日志（11-05-03）的聚合归因
+
+- **WHEN** 审计 `logcat_2026-11-23_11-05-03.txt`（主进程 31683，同一冷启动会话内
+      14 次设备丢失、14 次重建成功、15 代设备，跨多次换窗与切后台）
+- **THEN** 应用自身 W/E 合计 MUST 为 76 条，逐条处置 MUST 为：
+      - `native::render::context::gpu` 28：14 条 error（每次丢失）与 14 条 warn
+        （每次重建完成）。多数新设备在挂载后 14–20ms（首帧后 6–15ms）再次丢失；
+        首次丢失在 `first frame presented`（11:02:36.555）后 6ms；11:03:05.9
+        重建的一代存活到日志结束。底层根因（Mali-G57 在首帧后丢失）未定位，
+        有界恢复是缓解而非消除，MUST NOT 表述为已解决
+      - `native::android::ffi::render::frame` 35：设备丢失期间的 `render skipped`
+        （warn，500ms 限频；丢失当帧的余波，MUST NOT 以过滤该 tag 处置）
+      - `Runtime` 13：`surface invalidated (attempt 2..5/5)` 与 slow retry 共 11 条
+        warn；5 次快试用尽的 error 2 条（11:02:38.599 与 11:03:05.795 两次用尽）。
+        11:03:03 单帧成功把预算清回 `attempt 1/5`，随即重演一次 5 连快试——该缺陷
+        已修（恢复确认需连续稳定 60 帧，见 `render-stability` 的「单帧成功不能
+        清零预算」）
+- **AND** `mali_gralloc` 144 条（72 次 R8 探测 × 2）MUST 归为平台 R8 格式探测：
+      AOSP `vulkan/libvulkan/swapchain.cpp` 对 `VK_FORMAT_R8_UNORM` 的
+      `AHardwareBuffer_isSupported` 探测，应用侧无 API 可改，MUST NOT 以换
+      surface 格式或过滤该 tag 处置
+- **AND** `wgpu_core::instance` 30 条（15 次适配器枚举 × 2）MUST 归为上游
+      `SURFACE_VIEW_FORMATS` 缺失，应用侧无 API 可关
+- **AND** `com.termux` 13 条 MUST 全部归为调试依赖与平台：12 条 hidden API 反射
+      告警，来源以依赖 jar 的字节码核实——`curtains` 1.2.5（LeakCanary 的传递
+      依赖）的 `RootViewsSpy`/`WindowManagerSpy` 读 `WindowManagerGlobal` 的
+      `getInstance`/`mViews`；`leakcanary.ServiceWatcher` 读
+      `ActivityThread.currentActivityThread`/`mH`/`mServices`、`Handler.mCallback`、
+      `Singleton.get`/`mInstance`、`ActivityManager.IActivityManagerSingleton`；
+      `leakcanary.RootViewWatcher` 读 `DecorView.mWindow`；`androidx.compose.ui` 的
+      `AndroidComposeView` 读 `SystemProperties.addChangeCallback`；
+      `androidx.compose.foundation` 的 `ScrollableNode` 调
+      `ViewTreeObserver.dispatchOnScrollChanged`。另有 1 条
+      `Cleared Reference was only reachable from finalizer`：debug 构建
+      `Late-enabling -Xcheck:jni` 下 ART 的引用清理诊断，无应用栈。LeakCanary 为
+      `debugImplementation`，release 包不含上述反射；MUST NOT 以过滤该 tag 处置
+- **AND** `Parcel` 3 条 MUST 归为平台编组路径读 null binder；`libc` 4 条
+      （`persist.unipnp.debug` 2、`persist.vendor.gpu.fbc` 1、`vendor.MB.running`
+      1）、`ziparchive` 6 条（`unisoc-framework.dm` 2、`base.dm` 2、
+      `unipnp-framework.dm` 2）与 `FeatureOpt` 2 条 MUST 归为厂商属性／dex 元数据／
+      折叠态探测；`Typeface` 1 条 MUST 归为平台字体资源；
+      `RemoteInputConnectionImpl` 3 条（`requestCursorAnchorInfo on inactive
+      InputConnection`）MUST 归为平台输入法对已失效连接的回调；以上 MUST NOT 记为
+      应用缺陷
+- **AND** 7 条 `native::android::logging` 的 panic（debug 级）MUST 记为被
+      `poll_outcome` 接住的预期内设备丢失 panic：`Error in Device::poll: Validation
+      Error` 的载荷确含 `Caused by: Parent device is lost`（上游 `format_error`
+      的固定格式），真机日志里只剩前半句是**按行采集在空行处截断**所致；修复后
+      正文压成单行，原因不再丢失
+- **AND** 本份日志 MUST NOT 被当作性能缺陷的证据：`SLOW_LOOP`、`SLOW_RENDER`、
+      `SLOW_CELL_BUILD` 均未出现在 W/E 清单中；平台/框架条目 MUST NOT 以过滤 tag
+      或降级日志处置
+
 ### Requirement: 未捕获 GPU 错误必须按来源分级
 
 未捕获 GPU 错误 MUST 按来源分级：只有「平台收走原生窗口后 wgpu 重新配置 surface
