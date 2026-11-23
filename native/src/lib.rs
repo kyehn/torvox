@@ -129,7 +129,10 @@ mod panic_record_tests {
             "Error in Device::poll: Validation Error\n\nCaused by:\n  Parent device is lost";
         let text = panic_record_text(payload, None);
         assert!(!text.contains('\n'), "panic 正文不得含换行：{text}");
-        assert!(text.contains("Caused by"), "原因链的引导词必须留在正文：{text}");
+        assert!(
+            text.contains("Caused by"),
+            "原因链的引导词必须留在正文：{text}"
+        );
         assert!(
             text.contains("Parent device is lost"),
             "判死原因必须留在正文：{text}"

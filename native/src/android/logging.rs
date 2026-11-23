@@ -72,11 +72,9 @@ impl Log for AndroidLogger {
         });
         // 消息里含内嵌 NUL 时截断到第一个 NUL：整条丢弃会把 panic 现场（路径、
         // 用户可控的字符串）变成空行，而空行既无处可查也读不出「出过什么事」。
-        let message_c = CString::new(message.clone()).unwrap_or_else(|_| {
-            let end = message.find('\0').unwrap_or(message.len());
-            // SAFETY: 已截断到首个 NUL 之前，该切片不含 NUL 字节。
-            CString::new(&message[..end]).expect("truncated before first NUL")
-        });
+        let message_end = message.find('\0').unwrap_or(message.len());
+        // SAFETY: 已截断到首个 NUL 之前，该切片不含 NUL 字节。
+        let message_c = CString::new(&message[..message_end]).expect("truncated before first NUL");
         // SAFETY: `__android_log_write` 是公开 NDK 函数，指针指向有效的 NUL 结尾 C 字符串。
         unsafe {
             __android_log_write(prio, tag_c.as_ptr(), message_c.as_ptr());
@@ -106,12 +104,6 @@ pub(crate) fn init() {
     });
 }
 
-/// 将任意 Rust 线程的 panic 连同 backtrace 导入日志系统。
-///
-/// 无此钩子时，非 JNI 线程（如 `session/spawn.rs` 起的 PTY 读取线程，无 `catch_unwind`）
-/// 的 panic 只进 stderr，在 Android 上不可见：线程静默死亡且丢失崩溃现场；
-/// Kotlin 的 `Thread.setDefaultUncaughtExceptionHandler` 不覆盖 Rust 线程。
-/// `Backtrace::force_capture()` 在 release 构建下无需 `RUST_BACKTRACE` 亦生效。
 /// wgpu 在 `Device::poll` 真出错时内部 panic 的消息前缀。
 ///
 /// 来自上游 `wgpu_core::backend::wgpu_core::handle_error_fatal`：`panic!("Error in {operation}: {f}")`，
@@ -121,6 +113,12 @@ pub(crate) fn init() {
 /// 副本（`render-stability` 要求只记一条）。其余 panic 均记 error，不吞、不滤 tag。
 const EXPECTED_POLL_PANIC_PREFIX: &str = "Error in Device::poll: ";
 
+/// 将任意 Rust 线程的 panic 连同 backtrace 导入日志系统。
+///
+/// 无此钩子时，非 JNI 线程（如 `session/spawn.rs` 起的 PTY 读取线程，无 `catch_unwind`）
+/// 的 panic 只进 stderr，在 Android 上不可见：线程静默死亡且丢失崩溃现场；
+/// Kotlin 的 `Thread.setDefaultUncaughtExceptionHandler` 不覆盖 Rust 线程。
+/// `Backtrace::force_capture()` 在 release 构建下无需 `RUST_BACKTRACE` 亦生效。
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         let backtrace = std::backtrace::Backtrace::force_capture();
