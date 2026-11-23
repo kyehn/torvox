@@ -111,13 +111,13 @@ internal fun emitMeasured(line: String) {
 }
 
 /** 清零被测应用的帧计数，让随后的读数只覆盖测量窗口。 */
-internal fun resetFrameStats(device: UiDevice) {
-    device.executeShellCommand("dumpsys gfxinfo $TARGET_PACKAGE reset")
+internal fun resetFrameStats(device: UiDevice, packageName: String = TARGET_PACKAGE) {
+    device.executeShellCommand("dumpsys gfxinfo $packageName reset")
 }
 
 /** 读取被测应用自上次清零以来的帧统计；读不到时按零值处理，交给断言判失败。 */
-internal fun readFrameStats(device: UiDevice): FrameStats =
-    parseFrameStats(device.executeShellCommand("dumpsys gfxinfo $TARGET_PACKAGE"))
+internal fun readFrameStats(device: UiDevice, packageName: String = TARGET_PACKAGE): FrameStats =
+    parseFrameStats(device.executeShellCommand("dumpsys gfxinfo $packageName"))
         ?: FrameStats.ZERO
 
 /**
@@ -129,11 +129,11 @@ internal fun readFrameStats(device: UiDevice): FrameStats =
  * 下一轮 frames=0，正是这个竞态。0 帧时按 vsync 周期短暂重读；重试耗尽仍为 0
  * 才交给断言判失败（动画真的没跑时依然拦得住）。
  */
-internal fun readFrameStatsAfterRender(device: UiDevice): FrameStats {
+internal fun readFrameStatsAfterRender(device: UiDevice, packageName: String = TARGET_PACKAGE): FrameStats {
     repeat(FRAME_READ_ATTEMPT_COUNT) { attempt ->
-        val stats = readFrameStats(device)
+        val stats = readFrameStats(device, packageName)
         if (stats.frames > 0) return stats
         if (attempt < FRAME_READ_ATTEMPT_COUNT - 1) SystemClock.sleep(FRAME_READ_RETRY_MILLIS)
     }
-    return readFrameStats(device)
+    return readFrameStats(device, packageName)
 }

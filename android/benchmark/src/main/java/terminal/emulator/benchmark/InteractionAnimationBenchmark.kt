@@ -51,7 +51,7 @@ class InteractionAnimationBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
-                measureScenario(device, "modifierKeyPress", store, iteration) { _ ->
+                measureScenario(device, "modifierKeyPress", store, iteration) { _, _ ->
                     startActivityAndWait()
                     val controlKey = requireElement(device, CONTROL_KEY_RESOURCE_ID, "CTRL 键")
                     resetFrameStats(device)
@@ -92,7 +92,7 @@ class InteractionAnimationBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
-                measureScenario(device, "imeShow", store, iteration) { _ ->
+                measureScenario(device, "imeShow", store, iteration) { _, _ ->
                     startActivityAndWait()
                     requireElement(device, CONTROL_KEY_RESOURCE_ID, "CTRL 键")
                     // 启动后输入法自动弹出（DESIGN）：先收起，否则「点终端弹输入法」无事发生，
@@ -133,7 +133,7 @@ class InteractionAnimationBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
-                measureScenario(device, "sessionDrawer", store, iteration) { _ ->
+                measureScenario(device, "sessionDrawer", store, iteration) { _, _ ->
                     startActivityAndWait()
                     val drawerKey = requireElement(device, DRAWER_KEY_RESOURCE_ID, "抽屉键")
                     resetFrameStats(device)

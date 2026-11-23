@@ -57,7 +57,7 @@ class ScrollPerformanceBenchmark {
                 recoverEmulator(device)
             },
             measureBlock = {
-                measureScenario(device, "scroll", store, iteration, scenarioById("S7")) { _ ->
+                measureScenario(device, "scroll", store, iteration, scenarioById("S7")) { _, _ ->
                     val startedMillis = System.currentTimeMillis()
                     startActivityAndWait(benchmarkLaunchIntent())
                     val terminal =

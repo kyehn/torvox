@@ -61,7 +61,7 @@ class ContinuousOutputBenchmark {
                 contentLayer = awaitTerminalContentFrames(device).first
                 awaitShellReady(device, sessionStartMillis)
             },
-        ) { _ ->
+        ) { _, _ ->
             val load = SustainedOutputLoad(
                 batchCount = SUSTAINED_OUTPUT_BATCH_COUNT,
                 linesPerBatch = SUSTAINED_OUTPUT_LINES_PER_BATCH,

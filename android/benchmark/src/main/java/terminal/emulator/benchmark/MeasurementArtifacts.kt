@@ -1,5 +1,6 @@
 package terminal.emulator.benchmark
 
+import androidx.test.uiautomator.UiDevice
 import androidx.test.platform.io.PlatformTestStorageRegistry
 import org.json.JSONArray
 import org.json.JSONObject
@@ -222,8 +223,27 @@ internal data class MeasurementRow(
 }
 
 /**
- * 打开本轮的落盘处。
+ * 截取一张 PNG 截图并落成制品，挂到 [artifacts]。
  *
+ * 截不到即判失败：截图是排版面的证据，拿不到证据就不能把「排版正常」写进结论。
+ */
+internal fun captureScreenshotArtifact(
+    device: UiDevice,
+    store: MeasurementStore,
+    name: String,
+    artifacts: MutableList<ArtifactRef>,
+): ArtifactRef {
+    val tempFile = File.createTempFile("screenshot", ".png")
+    val captured = device.takeScreenshot(tempFile)
+    check(captured) { "截取截图失败：$name" }
+    val bytes = tempFile.readBytes()
+    tempFile.delete()
+    val ref = store.writeArtifact(name, bytes)
+    check(ref != null) { "截图制品落盘失败：$name" }
+    artifacts += ref
+    return ref
+}
+/**
  * 目录落在测试输出目录里：宿主侧随测试结果一并回收，设备侧不留散落的副本。
  */
 internal fun openMeasurementStore(label: String): MeasurementStore {

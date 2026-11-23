@@ -9,10 +9,6 @@ import org.junit.runner.RunWith
 
 /** 每个被测包的冷启动轮数。 */
 private const val CROSS_APP_ITERATION_COUNT = 5
-
-/** 仪器参数名：逗号分隔的待测包名列表。 */
-private const val TARGET_PACKAGES_ARGUMENT = "targetPackages"
-
 /**
  * 跨应用的启动对比面：同一 `am start -W` 口径测任意包的冷启动。
  *
@@ -35,13 +31,6 @@ class CrossAppLaunchBenchmark {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val store = openMeasurementStore("crossAppLaunch")
         readTargetPackages().forEach { packageName -> measureColdStarts(device, packageName, store) }
-    }
-
-    /** 待测包列表：仪器参数优先，缺省只测本项目。 */
-    private fun readTargetPackages(): List<String> {
-        val argument = InstrumentationRegistry.getArguments().getString(TARGET_PACKAGES_ARGUMENT)
-        val packages = argument?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
-        return packages.ifEmpty { listOf(TARGET_PACKAGE) }
     }
 
     /**
@@ -76,7 +65,7 @@ class CrossAppLaunchBenchmark {
                 measured = true,
                 note = "deniedRuntimePermissions=${deniedPermissions.joinToString(",")}",
                 setup = { forceStop(device, packageName) },
-            ) { iteration ->
+            ) { iteration, _ ->
                 val result = launchChecked(device, packageName, launcherActivity)
                 check(result.launchState == "COLD" && result.totalTimeMillis != null) {
                     "系统没测到这次冷启动：启动态=${result.launchState} " +

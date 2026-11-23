@@ -46,7 +46,7 @@ class SteadyStateBenchmark {
                 recoverEmulator(device)
                 startAndWait(device, launcherActivity)
             },
-        ) { _ ->
+        ) { _, _ ->
             // 就绪信号：终端内容层真的画出了第一帧，之后才进静置窗口。
             val (contentLayer, _) = awaitTerminalContentFrames(device)
             // 应用必须在前台：被系统弹窗盖住时界面停画，零帧是遮挡造成的，不是空闲表现。

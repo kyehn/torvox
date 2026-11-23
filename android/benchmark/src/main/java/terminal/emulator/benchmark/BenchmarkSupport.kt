@@ -61,7 +61,7 @@ private const val CURRENT_FOCUS_MARKER = "mCurrentFocus="
  * 机型上会拿到焦点，而输入法弹出并不代表应用被遮挡。`mFocusedApp` 缺席的机型退到
  * `mCurrentFocus`，两者都读不到时按「无法确认在前台」判红。
  */
-internal fun assertAppInForeground(device: UiDevice) {
+internal fun assertAppInForeground(device: UiDevice, packageName: String = TARGET_PACKAGE) {
     val focusLines = device.executeShellCommand("dumpsys window")
         .lineSequence()
         .map { it.trimStart() }
@@ -69,10 +69,29 @@ internal fun assertAppInForeground(device: UiDevice) {
         .toList()
     val focusedApp = focusLines.firstOrNull { it.startsWith(FOCUSED_APP_MARKER) }
         ?: focusLines.firstOrNull { it.startsWith(CURRENT_FOCUS_MARKER) }
-    check(focusedApp != null && focusedApp.contains(TARGET_PACKAGE)) {
+    check(focusedApp != null && focusedApp.contains(packageName)) {
         "被测应用不在前台（读到的焦点状态：${focusedApp ?: "无"}）"
     }
 }
+
+/** 读取当前焦点所属应用（包名），读不到返回 null。 */
+internal fun readFocusedApp(device: UiDevice): String? {
+    val focusLines = device.executeShellCommand("dumpsys window")
+        .lineSequence()
+        .map { it.trimStart() }
+        .filter { it.startsWith(FOCUSED_APP_MARKER) || it.startsWith(CURRENT_FOCUS_MARKER) }
+        .toList()
+    val focusedApp = focusLines.firstOrNull { it.startsWith(FOCUSED_APP_MARKER) }
+        ?: focusLines.firstOrNull { it.startsWith(CURRENT_FOCUS_MARKER) }
+    if (focusedApp == null) return null
+    // extract package name: "mFocusedApp=Window{... u0 <pkg>/...}" or similar
+    val pkgMatch = Regex("""[A-Za-z0-9_]+\.[A-Za-z0-9_.]+""").find(focusedApp)
+    return pkgMatch?.value
+}
+
+/** 被测应用是否在前台。 */
+internal fun isAppInForeground(device: UiDevice, packageName: String = TARGET_PACKAGE): Boolean =
+    readFocusedApp(device)?.contains(packageName) == true
 
 /** 输入法状态的等待上限：输入法可能在冷启动后过一会儿才弹起，不能立刻下结论。 */
 internal const val IME_STATE_TIMEOUT_MILLIS = 5_000L
@@ -105,8 +124,8 @@ internal fun elapsedMillis(block: () -> Unit): Long {
  * 软件渲染的模拟器连续跑长宏基准会耗尽图形栈，任务以输出插件 EOF 崩溃，
  * 因此每个用例前先强制停止被测应用，再等设备空闲让图形栈恢复。
  */
-internal fun recoverEmulator(device: UiDevice) {
-    device.executeShellCommand("am force-stop $TARGET_PACKAGE")
+internal fun recoverEmulator(device: UiDevice, packageName: String = TARGET_PACKAGE) {
+    device.executeShellCommand("am force-stop $packageName")
     device.waitForIdle(EMULATOR_IDLE_TIMEOUT_MILLIS)
 }
 

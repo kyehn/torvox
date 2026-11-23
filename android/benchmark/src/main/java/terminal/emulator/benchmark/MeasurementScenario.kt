@@ -38,8 +38,9 @@ internal fun measureScenario(
     packageName: String = TARGET_PACKAGE,
     measured: Boolean = frameworkIteration != null,
     note: String = "",
+    expectProcessExit: Boolean = false,
     setup: () -> Unit = {},
-    scenarioBody: (iteration: Int) -> Map<String, Double>,
+    scenarioBody: (iteration: Int, budget: ScenarioBudget?) -> Map<String, Double>,
 ) {
     val environment = readDeviceEnvironment(device)
     val app = readAppIdentity(device, packageName)
@@ -58,7 +59,7 @@ internal fun measureScenario(
         val budget = scenario?.let { ScenarioBudget(it) }
         startedAtMillis = System.currentTimeMillis()
         try {
-            metrics = scenarioBody(iteration)
+            metrics = scenarioBody(iteration, budget)
         } catch (thrown: Throwable) {
             failure = thrown.withProcessExitAttribution(device, preparedAtMillis, packageName)
         } finally {
@@ -123,15 +124,25 @@ internal fun measureScenario(
             artifacts = emptyList(),
             verdict = when {
                 failure is ScenarioLimitExceeded -> "超限终止"
-                failure != null || exits.isNotEmpty() -> "FAIL"
+                failure != null -> "FAIL"
+                exits.any { it.cause == ProcessExitCause.UNKNOWN } -> "FAIL"
+                exits.isNotEmpty() && !expectProcessExit -> "FAIL"
                 else -> "PASS"
             },
             note = listOfNotNull(note.takeIf { it.isNotEmpty() }, failure?.message).joinToString("；"),
         ).toJson(),
     )
     failure?.let { throw it }
-    check(exits.isEmpty()) {
-        "$label 测量窗口内进程退出 ${exits.size} 次，测量结果作废：" +
-            exits.joinToString("；") { it.describe() }
+    if (exits.isNotEmpty() && !expectProcessExit) {
+        check(false) {
+            "$label 测量窗口内进程退出 ${exits.size} 次，测量结果作废：" +
+                exits.joinToString("；") { it.describe() }
+        }
+    }
+    if (exits.any { it.cause == ProcessExitCause.UNKNOWN }) {
+        check(false) {
+            "$label 测量窗口内进程以未知原因退出：" +
+                exits.joinToString("；") { it.describe() }
+        }
     }
 }

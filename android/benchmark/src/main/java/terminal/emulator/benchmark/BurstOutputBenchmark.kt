@@ -75,7 +75,7 @@ class BurstOutputBenchmark {
                 awaitShellReady(device, sessionStartMillis)
                 disablePromptTitleReport(device)
             },
-        ) { _ ->
+        ) { _, _ ->
             val load = BurstOutputLoad(lineCount = BURST_OUTPUT_LINE_COUNT, canary = BURST_OUTPUT_CANARY)
             check(load.bytes() <= scenarioById("S6").outputByteLimit) {
                 "突发负载 ${load.bytes()} 字节超过场景输出上限 " +

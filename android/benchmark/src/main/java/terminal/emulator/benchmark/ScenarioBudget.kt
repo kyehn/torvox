@@ -41,7 +41,24 @@ internal class ScenarioBudget(
         }
     }
 
-    /** 查 wall-clock 上限；超时即终止场景。 */
+    /** 场景剩余 wall-clock 毫秒；非负。 */
+    fun remainingMillis(): Long = (scenario.wallClockLimitMillis - elapsedMillis()).coerceAtLeast(0L)
+
+    /** 场景 wall-clock 是否已超限。 */
+    fun isScenarioLimitExceeded(): Boolean = elapsedMillis() > scenario.wallClockLimitMillis
+
+    /** 在预算内睡眠；超限时抛出 ScenarioLimitExceeded。 */
+    fun sleepWithinBudget(millis: Long) {
+        if (millis <= 0) return
+        val available = remainingMillis()
+        if (available <= 0) {
+            checkDeadline()
+            return
+        }
+        val toSleep = minOf(millis, available)
+        SystemClock.sleep(toSleep)
+        checkDeadline()
+    }
     fun checkDeadline() {
         val elapsed = elapsedMillis()
         if (elapsed > scenario.wallClockLimitMillis) {

@@ -176,6 +176,62 @@ internal fun awaitTerminalContentFrames(device: UiDevice): Pair<String, LayerFra
  * 空格（如 `Background for SurfaceView[...]`），故按「首个键值对之前的部分」取名字；
  * 更早的版本整行就是名字。
  */
+/**
+ * 等被测包属主的内容图层出现并带内容帧：按进程号归属，不预设图层名前缀。
+ *
+ * 跨应用时图层名前缀不再是 `SurfaceView[com.termux/...]`，只能靠帧时间线的
+ * `Owner Pid` 归属到内容图层。读不到即判失败，不把「没出帧」当成通过。
+ */
+internal fun awaitContentLayerOwnedBy(device: UiDevice, packageName: String): String {
+    val ownerPid = targetProcessId(device, packageName)
+    var failure: Throwable? = null
+    repeat(CONTENT_FRAME_WAIT_ATTEMPT_COUNT) {
+        try {
+            val ownedLayerNames = readFrameTimeline(device)
+                .layersOwnedBy(ownerPid)
+                .filter { it.isBuffer }
+                .map { it.name }
+                .distinct()
+            for (candidate in ownedLayerNames) {
+                if (candidate.none { it.isWhitespace() } && readLayerFrameStats(device, candidate) != null) {
+                    return candidate
+                }
+            }
+            failure = IllegalStateException("被测包 $packageName 的内容图层没有内容帧：$ownedLayerNames")
+        } catch (thrown: Throwable) {
+            failure = thrown
+        }
+        SystemClock.sleep(CONTENT_FRAME_WAIT_INTERVAL_MILLIS)
+    }
+    throw checkNotNull(failure) { "被测包 $packageName 的内容图层始终没有出现" }
+}
+
+/**
+ * 等图层在 [sinceMillis]（单调时钟毫秒）之后出现呈现帧，返回首个呈现时刻（纳秒）。
+ *
+ * 用于 S11 前后台恢复与旋转场景：切回前台/旋转完成后，按属主重新找新内容层，
+ * 取其首个呈现时刻算「恢复首帧」。超时抛异常，不把「没出帧」当成通过。
+ */
+internal fun awaitLayerPresentAfter(
+    device: UiDevice,
+    layerName: String,
+    sinceMillis: Long,
+    timeoutMillis: Long,
+    pollMillis: Long,
+): Long {
+    val sinceNanos = sinceMillis * 1_000_000L
+    val deadline = SystemClock.elapsedRealtime() + timeoutMillis
+    var lastFailure: Throwable? = null
+    while (SystemClock.elapsedRealtime() < deadline) {
+        val stats = readLayerFrameStats(device, layerName)
+        val firstAfter = stats?.presentTimesNanos?.firstOrNull { it >= sinceNanos }
+        if (firstAfter != null) return firstAfter
+        lastFailure = IllegalStateException("图层 $layerName 在 ${sinceMillis}ms 之后尚无呈现帧")
+        SystemClock.sleep(pollMillis)
+    }
+    throw checkNotNull(lastFailure) { "图层 $layerName 在 ${sinceMillis}ms 之后始终无呈现帧" }
+}
+
 private fun layerNameOf(listEntry: String): String = listEntry.trim()
     .removePrefix("RequestedLayerState{")
     .removeSuffix("}")

@@ -340,6 +340,90 @@ internal const val MIN_ANIMATION_FRAME_COUNT = 1
  */
 internal const val MEASUREMENT_QUOTA_BYTES = 64L * 1024 * 1024
 
-internal fun grantNotificationPermission(device: UiDevice) {
-    device.executeShellCommand("pm grant $TARGET_PACKAGE $NOTIFICATION_PERMISSION")
+/** S8 宽字符行：轮数（每轮五个宽字符模板）。 */
+internal const val WIDE_CHARACTER_LINE_COUNT = 1000
+
+/** S8 宽字符行：wall-clock 上限（毫秒）。 */
+internal const val WIDE_CHARACTER_TIMEOUT_MILLIS = 20_000L
+
+/** S8 宽字符行：标题哨兵。 */
+internal const val WIDE_CHARACTER_CANARY = "__s8tail"
+
+/** S8 宽字符行：logcat 标签。 */
+internal const val WIDE_CHARACTER_COUNT_TAG = "s8out"
+
+/** S8 宽字符行：完成标记（设备侧 ERE，不得含空白）。 */
+internal const val WIDE_CHARACTER_MARKER = "__s8done"
+
+/** S8 宽字符行：呈现窗口下限。 */
+internal const val WIDE_CHARACTER_MIN_PRESENTED_WINDOWS = 2
+
+/** S8 宽字符行：呈现最长停摆上限（毫秒）。 */
+internal const val WIDE_CHARACTER_MAX_PRESENTATION_GAP_MILLIS = 1_000L
+
+/** S8 宽字符行：呈现间隔 p95 上限（毫秒）。 */
+internal const val WIDE_CHARACTER_MAX_LAYER_INTERVAL_P95_MILLIS = 250L
+
+/** S8 宽字符行：刷新槽位占用下限。 */
+internal const val WIDE_CHARACTER_MIN_LAYER_SLOT_RATIO = 0.15
+
+/** S8 宽字符行：PSS 增长上限（千字节）。 */
+internal const val WIDE_CHARACTER_MAX_PSS_GROWTH_KILOBYTES = 16 * 1024L
+
+/** S8 宽字符行：进程 CPU 时间上限（毫秒）。 */
+internal const val WIDE_CHARACTER_MAX_PROCESS_CPU_MILLIS = 12_000L
+
+/** S9 交互延迟：轮数。 */
+internal const val INTERACTION_LATENCY_ROUND_COUNT = 5
+
+/** S9 交互延迟：回显超时（毫秒）。 */
+internal const val INTERACTION_LATENCY_ECHO_TIMEOUT_MILLIS = 5_000L
+
+/** S9 交互延迟：呈现超时（毫秒）。 */
+internal const val INTERACTION_LATENCY_PRESENT_TIMEOUT_MILLIS = 3_000L
+
+/** S9 交互延迟：回显延迟上限（毫秒）。 */
+internal const val MAX_INTERACTION_ECHO_LATENCY_MILLIS = 1_000L
+
+/** S9 交互延迟：按键到首个呈现上限（毫秒）。 */
+internal const val MAX_INTERACTION_PRESENT_LATENCY_MILLIS = 2_000L
+
+/** S9 交互延迟：logcat 标签。 */
+internal const val INTERACTION_LATENCY_PROBE_TAG = "s9lat"
+
+/** S10 输入洪水：按键数。 */
+internal const val INPUT_FLOOD_KEY_COUNT = 256
+
+/** S10 输入洪水：按键间隔（毫秒）。 */
+internal const val INPUT_FLOOD_KEY_DELAY_MILLIS = 5
+
+/** S10 输入洪水：KEYCODE_A。 */
+internal const val KEYCODE_A = 29
+
+/** S10 输入洪水：logcat 标签。 */
+internal const val INPUT_FLOOD_COUNT_TAG = "s10out"
+
+/** S10 输入洪水：活性探针标记。 */
+internal const val INPUT_FLOOD_ALIVE_MARKER = "__s10alive"
+
+/** S11 前后台切换：恢复首帧上限（毫秒）。 */
+internal const val MAX_RESTORE_FIRST_FRAME_MILLIS = 5_000L
+
+/** S11 前后台切换：旋转首帧上限（毫秒）。 */
+internal const val MAX_ROTATION_FIRST_FRAME_MILLIS = 5_000L
+
+/** S11 前后台切换：刷新槽位占用下限。 */
+internal const val BACKGROUND_FOREGROUND_MIN_LAYER_SLOT_RATIO = 0.1
+
+/** S12 资源极端：观察上限（毫秒）。 */
+internal const val MAX_RESOURCE_STRESS_OBSERVE_MILLIS = 15_000L
+
+/** S12 资源极端：轮询间隔（毫秒）。 */
+internal const val RESOURCE_STRESS_POLL_MILLIS = 200L
+
+/** S10 输入洪水：超时（毫秒）。 */
+internal const val INPUT_FLOOD_TIMEOUT_MILLIS = 30_000L
+
+internal fun grantNotificationPermission(device: UiDevice, packageName: String = TARGET_PACKAGE) {
+    device.executeShellCommand("pm grant $packageName $NOTIFICATION_PERMISSION")
 }

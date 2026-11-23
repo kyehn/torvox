@@ -148,10 +148,10 @@ internal fun readFrameTimeline(device: UiDevice): List<TimelineDisplayFrame> =
     parseFrameTimeline(device.executeShellCommand("dumpsys SurfaceFlinger --frametimeline -all"))
 
 /** 被测应用的进程号：帧时间线按属主归属到内容图层时用它。 */
-internal fun targetProcessId(device: UiDevice): Int {
-    val output = device.executeShellCommand("pidof $TARGET_PACKAGE").trim()
+internal fun targetProcessId(device: UiDevice, packageName: String = TARGET_PACKAGE): Int {
+    val output = device.executeShellCommand("pidof $packageName").trim()
     val processId = output.split(WHITESPACE).firstOrNull()?.toIntOrNull()
-    return checkNotNull(processId) { "取不到被测应用的进程号：pidof $TARGET_PACKAGE 返回「$output」" }
+    return checkNotNull(processId) { "取不到被测应用的进程号：pidof $packageName 返回「$output」" }
 }
 
 /** 某图层在帧时间线里的呈现时刻（相对 dump 基准，毫秒），按时间升序。 */
