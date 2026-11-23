@@ -33,6 +33,16 @@ const KEYCODE_NUMPAD_0: i32 = 144;
 /// `KEYCODE_NUMPAD_9`（`KEYCODE_NUMPAD_0`..`KEYCODE_NUMPAD_9` 连续段的末键）。
 const KEYCODE_NUMPAD_9: i32 = 153;
 
+/// 四段等差映射的前提：上游 `key::Key` 的判别值在段内连续且首尾对齐。上游插入
+/// 新键会让等差算术落到别的键上（`Key::try_from` 只在运行时报错，编译期无声），
+/// 这里把该前提固定为编译期断言，使上游重排表现为编译错误。
+const _: () = {
+    assert!(key::Key::Digit9 as i32 == key::Key::Digit0 as i32 + 9);
+    assert!(key::Key::Z as i32 == key::Key::A as i32 + 25);
+    assert!(key::Key::F12 as i32 == key::Key::F1 as i32 + 11);
+    assert!(key::Key::Numpad9 as i32 == key::Key::Numpad0 as i32 + 9);
+};
+
 /// Android 键码对应的上游逻辑键。布局差异（AZERTY 的 A/Q 互换）由调用方传来的
 /// 文本承担：编码器以逻辑键配修饰位、以文本定字面量，两者互补。
 pub(crate) fn key_for_android_keycode(key_code: i32) -> Option<key::Key> {
@@ -141,17 +151,22 @@ pub(crate) fn key_for_android_keycode(key_code: i32) -> Option<key::Key> {
 mod tests {
     use super::*;
 
-    /// 连续段的两端必须落在预期的上游键上：段的减法算术一旦写错，
-    /// 只有端点断言能立刻发现（例如 `KEYCODE_0` 之后不再是 Digit9）。
+    /// 连续段的两端与中点必须落在预期的上游键上：段的减法算术一旦写错，
+    /// 只有端点断言能立刻发现（例如 `KEYCODE_0` 之后不再是 Digit9）；段内顺序
+    /// 被打乱（如 `Digit1` 与 `Digit2` 互换）时两端仍正确，只有中点断言能发现。
     #[test]
     fn contiguous_key_ranges_land_on_expected_keys() {
         assert_eq!(key_for_android_keycode(7), Some(key::Key::Digit0));
+        assert_eq!(key_for_android_keycode(12), Some(key::Key::Digit5));
         assert_eq!(key_for_android_keycode(16), Some(key::Key::Digit9));
         assert_eq!(key_for_android_keycode(29), Some(key::Key::A));
+        assert_eq!(key_for_android_keycode(42), Some(key::Key::N));
         assert_eq!(key_for_android_keycode(54), Some(key::Key::Z));
         assert_eq!(key_for_android_keycode(131), Some(key::Key::F1));
+        assert_eq!(key_for_android_keycode(136), Some(key::Key::F6));
         assert_eq!(key_for_android_keycode(142), Some(key::Key::F12));
         assert_eq!(key_for_android_keycode(144), Some(key::Key::Numpad0));
+        assert_eq!(key_for_android_keycode(148), Some(key::Key::Numpad4));
         assert_eq!(key_for_android_keycode(153), Some(key::Key::Numpad9));
     }
 
