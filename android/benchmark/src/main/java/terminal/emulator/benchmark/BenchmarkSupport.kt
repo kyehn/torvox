@@ -42,6 +42,38 @@ internal fun startAndWaitAtDebugLogLevel(device: UiDevice, launcherActivity: Str
         device.executeShellCommand("am start -W -n $launcherActivity --es $LOG_LEVEL_EXTRA DEBUG"),
     )
 
+/** 窗口管理器 dump 里记录「焦点所属应用」的行前缀。 */
+private const val FOCUSED_APP_MARKER = "mFocusedApp="
+
+/** 窗口管理器 dump 里记录「当前焦点窗口」的行前缀（`mFocusedApp` 缺席时的退路）。 */
+private const val CURRENT_FOCUS_MARKER = "mCurrentFocus="
+
+/**
+ * 被测应用必须在前台：被系统弹窗盖住时量到的是遮挡，不是应用。
+ *
+ * 空载窗口里零帧既可能是「应用真的不画」，也可能是「应用被弹窗盖住、界面停画」，只看
+ * 帧数分不开。故核对焦点在被测应用上，不是就当场判红。
+ *
+ * 本函数取的是**调用那一刻**的焦点状态：窗口前后各取一次才能覆盖「弹窗在窗口中途
+ * 抢走前台」——那正是零帧被误记成空载的形状（只在窗口前取一次会漏掉它）。
+ *
+ * 取焦点所属应用（`mFocusedApp`）而不是焦点窗口（`mCurrentFocus`）：输入法窗口在部分
+ * 机型上会拿到焦点，而输入法弹出并不代表应用被遮挡。`mFocusedApp` 缺席的机型退到
+ * `mCurrentFocus`，两者都读不到时按「无法确认在前台」判红。
+ */
+internal fun assertAppInForeground(device: UiDevice) {
+    val focusLines = device.executeShellCommand("dumpsys window")
+        .lineSequence()
+        .map { it.trimStart() }
+        .filter { it.startsWith(FOCUSED_APP_MARKER) || it.startsWith(CURRENT_FOCUS_MARKER) }
+        .toList()
+    val focusedApp = focusLines.firstOrNull { it.startsWith(FOCUSED_APP_MARKER) }
+        ?: focusLines.firstOrNull { it.startsWith(CURRENT_FOCUS_MARKER) }
+    check(focusedApp != null && focusedApp.contains(TARGET_PACKAGE)) {
+        "被测应用不在前台（读到的焦点状态：${focusedApp ?: "无"}）"
+    }
+}
+
 /** 输入法状态的等待上限：输入法可能在冷启动后过一会儿才弹起，不能立刻下结论。 */
 internal const val IME_STATE_TIMEOUT_MILLIS = 5_000L
 

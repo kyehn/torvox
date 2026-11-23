@@ -50,6 +50,9 @@ class ContinuousOutputBenchmark {
             scenario = scenarioById("S5"),
             setup = {
                 sessionStartMillis = System.currentTimeMillis()
+                // 通知权限弹窗会抢走焦点：应用被弹窗盖住时输入法不弹出，终端也拿不到
+                // 输入焦点，场景会死在「输入法未弹出」而不是被测行为上。
+                grantNotificationPermission(device)
                 recoverEmulator(device)
                 // 本场景的呈现汇总是 debug 级日志，进程等级不够就读不到帧。
                 startAndWaitAtDebugLogLevel(device, launcherActivity)

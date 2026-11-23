@@ -40,17 +40,27 @@ class SteadyStateBenchmark {
             scenario = scenarioById("S4"),
             measured = true,
             setup = {
+                // 通知权限弹窗会盖住应用：被弹窗盖住时界面停画，空载窗口里零帧是弹窗
+                // 造成的，不是应用的空闲表现。
+                grantNotificationPermission(device)
                 recoverEmulator(device)
                 startAndWait(device, launcherActivity)
             },
         ) { _ ->
             // 就绪信号：终端内容层真的画出了第一帧，之后才进静置窗口。
             val (contentLayer, _) = awaitTerminalContentFrames(device)
+            // 应用必须在前台：被系统弹窗盖住时界面停画，零帧是遮挡造成的，不是空闲表现。
+            assertAppInForeground(device)
             SystemClock.sleep(IDLE_SETTLE_MILLIS)
+            // 测量窗口开始前再核对一次：弹窗可能在静置期间抢走前台。
+            assertAppInForeground(device)
             clearLayerFrameHistory(device, contentLayer)
             resetFrameStats(device)
             val cpuBefore = readProcessCpuTime(device, TARGET_PACKAGE)
             SystemClock.sleep(IDLE_WINDOW_MILLIS)
+            // 窗口结束后再核对一次：弹窗在窗口中途抢走前台时界面停画，
+            // 零帧会被误记成空载（本轮作废）。
+            assertAppInForeground(device)
             val cpuAfter = readProcessCpuTime(device, TARGET_PACKAGE)
             val frames = readFrameStats(device)
             // 内容层没有帧记录就是「没画」：图层在窗口开始前已确认存在，窗口内进程退出
