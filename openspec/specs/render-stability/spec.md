@@ -637,6 +637,25 @@ MUST NOT 逐条重复；旧世代的结局记 debug，如实保留原因，不�
       `ANativeWindow_setBuffersGeometry`）仍无证据为成因；恢复是有界缓解而非消除，
       MUST NOT 表述为「已解决」
 
+#### Scenario: 冷启动连续多次设备丢失仍按有界恢复收敛
+
+- **WHEN** 2026-11-22 18-04-41 真机日志（Mali-G57）在同一冷启动会话内连续出现 3 次
+      设备丢失，且第 2、3 次丢的是上一次重建刚建好的**新**设备：
+      `first frame presented`（18:00:16.592）→ 6ms 后第 1 次丢失 → 新窗口
+      `attachWindow`（16.850）→ `GPU rebuilt after device loss`（16.926）→ 新 surface
+      挂载（17.010）→ 28ms 后第 2 次丢失 → `attachWindow`（17.160）→ 重建（17.194）
+      → 挂载（17.268）→ 19ms 后第 3 次丢失 → `attachWindow`（17.666）→ 重建（17.691）
+      → 挂载（17.772），此后到日志结束未再丢失
+- **THEN** 每次丢失 MUST 各自记一条 error：判死位按设备世代归属，新一代设备是新的一份，
+      MUST NOT 因上一代已记账而吞掉新世代的丢失
+- **AND** 恢复 MUST 仍走既有的「换新窗口 → 重建 instance/device → 挂载」链：每次从丢失
+      到新 surface 挂载实测 412ms／230ms／485ms，MUST NOT 依赖人工干预或进程重启
+- **AND** 换视图预算 MUST NOT 因连续重建而复位：本样本 3 次记为 `attempt 1–3/5`，
+      限流（快试 5 次 ≥500ms）继续生效
+- **AND** 该样本 MUST NOT 被归因为「应用重建动作有缺陷」：每一代新设备都独立判死，
+      重建链本身未出现失败（3 次 `GPU rebuilt after device loss` 全部成功）；
+      底层根因 MUST 继续记为未定位，有界恢复是缓解而非消除，MUST NOT 表述为「已解决」
+
 ### Requirement: 判死的设备不得被复用
 
 判死后的重建 MUST 换掉判死的那个设备：全局槽位里若还是判死的设备，MUST 新建

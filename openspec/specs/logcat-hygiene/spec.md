@@ -974,10 +974,16 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 - **WHEN** 审计 `logcat_2026-11-22_18-04-41.txt`（主进程 15703，冷启动到 18:00:15，
       跨 9 次原生窗口创建、3 次设备丢失重建、IME 弹出/隐藏与 1 次会话正常退出）
 - **THEN** 应用进程 W/E 合计 MUST 为 11 条，逐条处置 MUST 为：
-      - `native::render::context::gpu` 6：3 条 error（首帧呈现后约 6ms 的设备丢失，
-        与 2026-11-20 同源，成因未定位）与 3 条 warn（设备丢失后的重建完成）；
-        有界恢复链自愈，从丢失到新窗口重新挂载 0.2–0.5 秒（首帧随后呈现），
-        MUST NOT 依赖人工干预或进程重启
+      - `native::render::context::gpu` 6：3 条 error（设备丢失）与 3 条 warn（每次丢失
+        后的重建完成）。3 条 error 是**同一冷启动会话内的连续三次**丢失，且第 2、3 次
+        丢的是上一次重建刚建好的**新**设备——判死位按设备世代归属，`mark_device_lost`
+        只在判死位仍属槽位里当前设备时才记 error，故每条 error 都对应当时那一代设备：
+        第 1 次在 `first frame presented`（18:00:16.592）后 6ms（新 surface 挂载后
+        28ms），第 2、3 次分别在各自新 surface 挂载（18:00:17.010／17.268）后
+        28ms／19ms；第 4 次重建的设备此后到日志结束未再丢失。底层根因未定位，
+        MUST NOT 表述为已解决
+      - 有界恢复链自愈，MUST NOT 依赖人工干预或进程重启：从丢失到新窗口 `attachWindow`
+        分别 252ms／122ms／379ms，到新 surface 挂载完成 412ms／230ms／485ms
       - `native::android::ffi::render::frame` 3：设备丢失当帧的 `render skipped`
         （warn，限频），与设备丢失同源，MUST NOT 以过滤该 tag 处置
       - `Runtime` 2：`surface invalidated (attempt 2/5)` 与 `attempt 3/5`
@@ -1003,6 +1009,15 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 - **AND** `Compiler allocated` 4 条（4237KB / 4972KB / 4232KB / 4972KB）MUST 记为
       渲染循环的待编译方法体量越线（`RenderSupervisor$startRenderThread$renderThread$1$1
       .invokeSuspend`），处置见「渲染循环的待编译方法必须保持小体量」要求
+- **AND** 上述 4 条 MUST 标为**拆分前**的证据：登记本样本的提交同时完成了渲染循环的
+      拆分，即日志先于拆分被采集；MUST NOT 据此宣称拆分后仍越线
+- **AND** 拆分后的复核 MUST 以「`invokeSuspend` 的 dex 指令数」与「热循环下该行是否
+      出现」两据并用：已安装构建（含拆分）中
+      `RenderSupervisor$startRenderThread$renderThread$1$1.invokeSuspend` 仅 87 条
+      dex 指令（整条循环已移到独立的 `runOneIteration`）；API 35 x86_64 模拟器上在
+      持续输出下渲染线程 60 秒内耗尽 60 秒 CPU（热循环），全程未出现
+      `Compiler allocated`。arm64 真机复测证据仍缺失，MUST NOT 据此表述为
+      「真机已达标」
 - **AND** IME 弹出/隐藏触发的 surface 销毁重建（18:00:18.815 showSoftInput →
       18:00:22.471 setRenderPaused(true) → 18:00:40.957 attachWindow）MUST 记为
       平台窗口生命周期，应用侧按 bounded recovery 自愈，MUST NOT 以降低重试频率处置
@@ -1658,3 +1673,12 @@ MUST 留在 warn，MUST NOT 由应用侧自行吞掉。
 - **THEN** MUST 写明它是编译期 arena 工作内存（判据为 AOSP `runtime/jit/jit.cc`
       的 `Jit::AddMemoryUsage` 与 `compiler/optimizing/optimizing_compiler.cc` 的
       `ArenaAllocator::BytesUsed()`），MUST NOT 写成编译产物的字节数
+
+#### Scenario: 不依赖真机日志的复核判据
+
+- **WHEN** 需要复核该要求是否仍成立（真机日志缺失或尚未采集）
+- **THEN** MUST 用 `dexdump` 统计 `RenderSupervisor$startRenderThread$renderThread$1$1
+      .invokeSuspend` 的 dex 指令数作为结构判据：整条循环留在挂起函数里时该方法是
+      数兆 arena 的来源，拆分后它只应是流程编排（数十条指令量级，实测 87 条）
+- **AND** 结构判据 MUST NOT 单独作为「已达标」的结论：仍需热循环下不出现
+      `Compiler allocated` 的运行证据；两者都缺时结论 MUST 为「未验证」
