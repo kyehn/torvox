@@ -42,9 +42,11 @@ nix develop .#nightly --command sh -c \
 `swap(false, AcqRel)` 的原子性；生产代码只有一个写者（PTY 线程）和若干消费者
 （渲染/诊断），不存在第二个 `store(false)`，所以这个不变量是完整的。
 
-**没有建模的**：渲染循环的 check-then-park 丢唤醒。那条路径跨 `parking_lot`
-的 `Condvar`/parker 与帧邮箱，loom 不支持这些原语；要验必须先把 park 抽成
-可替换的接口，属于重构而非测试。
+**没有建模的**：渲染循环的驻留点 `RenderWake`（代数计数 + `parking_lot`
+`Condvar`）。它用「代数变化才等待」消除丢唤醒：`wait` 在持锁状态下比较代数，
+不等则立即返回；等待与通知之间不存在丢信号的窗口。这不是已知缺陷，而是
+loom 够不着的原语（loom 不支持 `parking_lot` 的 `Condvar`）；要建模得先把
+等待原语抽成可替换接口，属于重构而非测试。
 
 建模时的坑（写 harness 前必读）：C++ 内存模型允许**同线程** `store` 后的
 `load` 读到并发线程**更晚**的 store（coherence 只要求不早于自己的 store）。
@@ -109,6 +111,7 @@ nix develop .#nightly --command sh -c \
 ## 后续建议
 
 1. Android 真机 ASan：先取得 `scripts/` 修改同意，再做一次真机仪器测试。
-2. 若渲染掉帧/卡死复现，先把 park 抽成接口，再把 check-then-park 纳入 loom。
+2. 若要把 `RenderWake` 纳入 loom，先把等待原语抽成接口；当前实现已有代数
+   握手，风险低。
 3. 新增原子协议时，按 `output_processor` 的模式补一条 loom 测试；不要给
    `std::sync::Mutex` 队列补 loom（模型里只是顺序逻辑）。
