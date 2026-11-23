@@ -18,6 +18,7 @@
         {
           pkgs,
           system,
+          config,
           ...
         }:
         {
@@ -204,6 +205,58 @@
                   ) 9>"/tmp/.terminal-devshell-$UID.lock"
               fi
             '';
+          };
+          # 模型检查 / Miri 用 nightly：与默认 stable 分开，避免重复下载两套
+          # Android target。只给主机的 x86_64 目标，Miri 无法跨到 Android。
+          devShells.nightly = pkgs.mkShell {
+            name = "nightly";
+            packages = with pkgs; [
+              (fenix.combine [
+                (fenix.latest.withComponents [
+                  "cargo"
+                  "clippy"
+                  "miri"
+                  "rust-src"
+                  "rustc"
+                  "rustfmt"
+                ])
+              ])
+              cargo-machete
+              zig_0_17
+            ];
+            # 复用默认 shell 的全部构建输入，满足 native/build.rs 的 nix 守卫；
+            # PATH 里 nightly 工具链在前（packages 先于 nativeBuildInputs）。
+            nativeBuildInputs = config.devShells.default.nativeBuildInputs;
+            env = {
+              LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (
+                with pkgs;
+                [
+                  pkg-config
+                  openssl
+                  vulkan-loader
+                  mesa
+                  stdenv.cc.cc
+                  libpulseaudio
+                ]
+              );
+              VK_ICD_FILENAMES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json";
+              VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
+              FONTCONFIG_FILE = pkgs.makeFontsConf {
+                fontDirectories = with pkgs; [
+                  (maple-mono.Normal-NF-CN.overrideAttrs (_: {
+                    installPhase = ''
+                      runHook preInstall
+
+                      install MapleMonoNormal-NF-CN-Regular.ttf -D --target-directory $out/share/fonts/truetype
+
+                      runHook postInstall
+                    '';
+                  }))
+                  noto-fonts-cjk-sans
+                  noto-fonts-color-emoji
+                ];
+              };
+            };
           };
         };
     };

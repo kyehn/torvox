@@ -253,7 +253,7 @@ struct SessionEntry {
     presented_frame_seq: AtomicU64,
     /// PTY 摄入标志的共享镜像。渲染线程每帧读清它；放在注册表而非会话里，
     /// 是因为取会话锁可能被 VT 解析按住数十毫秒。
-    new_output: Arc<AtomicBool>,
+    new_output: crate::terminal::output_processor::OutputFlagHandle,
     /// 备用屏激活的共享镜像，与 `new_output` 同批上报，读取同样不取会话锁。
     alt_screen_active: Arc<AtomicBool>,
     /// 鼠标上报（DECSET 1000/1002/1003）开关的共享镜像，与备用屏同款：

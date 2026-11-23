@@ -49,7 +49,10 @@ fn install_png_decoder() {
 }
 
 /// 库加载即安装 PNG 解码器，理由见 [`install_png_decoder`]。
-#[cfg(any(target_os = "android", target_os = "linux"))]
+///
+/// Miri 无法执行 FFI（`set_png_decoder`），且纯 Rust 单测不触及 PNG 解码，
+/// 故模型检查构建跳过这次进程级安装。
+#[cfg(all(any(target_os = "android", target_os = "linux"), not(miri)))]
 #[used]
 #[unsafe(link_section = ".init_array")]
 static PNG_DECODER_INIT: extern "C" fn() = {

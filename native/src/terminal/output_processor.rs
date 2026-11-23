@@ -4,8 +4,7 @@
 //! OSC 7/8/52 写入一律直达 Ghostty：工作目录、剪贴板写入、超链接状态
 //! 以 Ghostty 为单一来源（上游回调与查询 API），本仓不再自建 OSC 解析器。
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 
 /// 超长选择器告警的限频间隔（毫秒）。与渲染侧的洪泛告警同档。
 const OVERSIZED_SELECTION_WARN_INTERVAL_MS: u64 = 5_000;
@@ -39,6 +38,24 @@ pub struct OutputSnapshot {
     pub clipboard_reads: Vec<String>,
 }
 
+/// `new_output` 标志的原子类型。
+///
+/// `feature = "loom"` 下换成 loom 的模型化原子，供 `loom_tests` 穷举
+/// 「一次置位只被消费一次」；生产构建是标准库原子，零开销。
+#[cfg(feature = "loom")]
+pub type OutputFlag = loom::sync::atomic::AtomicBool;
+#[cfg(not(feature = "loom"))]
+pub type OutputFlag = std::sync::atomic::AtomicBool;
+
+/// 标志的跨线程共享句柄。
+///
+/// loom 构建必须用 loom 的 `Arc`，否则其 happens-before 不进模型；
+/// 生产构建与 `std::sync::Arc` 是同一类型。
+#[cfg(feature = "loom")]
+pub type OutputFlagHandle = loom::sync::Arc<OutputFlag>;
+#[cfg(not(feature = "loom"))]
+pub type OutputFlagHandle = std::sync::Arc<OutputFlag>;
+
 /// PTY 输出处理器：扫描 OSC 52 读取请求并旁路标记新输出。
 pub struct OutputProcessor {
     scan: ReadScan,
@@ -49,7 +66,7 @@ pub struct OutputProcessor {
     ///
     /// 用 `Arc` 共享给会话注册表：渲染线程每帧读它时不能去抢会话锁——PTY 洪流
     /// 下会话锁可能被 VT 解析按住数十毫秒，正是滚动掉帧的来源。
-    new_output: Arc<AtomicBool>,
+    new_output: OutputFlagHandle,
 }
 
 impl Default for OutputProcessor {
@@ -63,13 +80,13 @@ impl OutputProcessor {
     pub fn new() -> Self {
         Self {
             scan: ReadScan::default(),
-            new_output: Arc::new(AtomicBool::new(false)),
+            new_output: OutputFlagHandle::new(OutputFlag::new(false)),
         }
     }
 
     /// 会话注册表持有的共享标志：渲染线程每帧读它，不需要会话锁。
-    pub fn new_output_flag(&self) -> Arc<AtomicBool> {
-        Arc::clone(&self.new_output)
+    pub fn new_output_flag(&self) -> OutputFlagHandle {
+        OutputFlagHandle::clone(&self.new_output)
     }
 
     /// 取走并清除「新输出」标志。
@@ -606,5 +623,38 @@ mod tests {
             prop_assert_eq!(filtered, whole.filtered);
             prop_assert_eq!(clipboard_reads, whole.clipboard_reads);
         }
+    }
+}
+
+/// loom 穷举：`new_output` 的单次置位必须恰好被一个消费者取走。
+///
+/// 运行：`cargo test --features loom --lib loom_tests`（需 nightly 工具链）。
+/// 这里只建模「置位发生在两个消费者派生之前」的合法交错；置位与消费真正
+/// 交错时的丢唤醒风险在渲染循环的 check-then-park 一侧，不在本标志内。
+#[cfg(all(test, feature = "loom"))]
+mod loom_tests {
+    use super::OutputProcessor;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn one_set_is_consumed_exactly_once() {
+        loom::model(|| {
+            let mut processor = OutputProcessor::new();
+            let flag = processor.new_output_flag();
+            processor.process(b"output");
+
+            let first = flag.clone();
+            let second = flag.clone();
+            let a = loom::thread::spawn(move || first.swap(false, Ordering::AcqRel));
+            let b = loom::thread::spawn(move || second.swap(false, Ordering::AcqRel));
+            let taken_by_a = a.join().unwrap();
+            let taken_by_b = b.join().unwrap();
+
+            assert!(
+                taken_by_a ^ taken_by_b,
+                "一次置位必须恰好被一个消费者取走：a={taken_by_a} b={taken_by_b}"
+            );
+            assert!(!flag.swap(false, Ordering::AcqRel), "消费后不得残留置位");
+        });
     }
 }
