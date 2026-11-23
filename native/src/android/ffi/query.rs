@@ -454,7 +454,7 @@ pub(super) fn session_handle(session_id: u64) -> Option<Arc<Mutex<Session>>> {
         .map(|entry| Arc::clone(&entry.session))
 }
 
-/// [`Self::session_handle`] 的查询通道版。查询经 500 毫秒有界超时，VT 查询本身
+/// [`session_handle`] 的查询通道版。查询经 500 毫秒有界超时，VT 查询本身
 /// 在会话锁外跑。会话不存在时返回 None，由调用方抛出。
 pub(super) fn session_query_channel(
     session_id: u64,

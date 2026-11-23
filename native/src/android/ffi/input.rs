@@ -188,19 +188,9 @@ pub(super) fn feed_pty_inner(env: &mut Env<'_>, session_id: jlong, data: jbyteAr
     // 传原始字节而非 String：PTY 输入可能是任意二进制（粘贴的 GBK/ISO-8859-1 文本、
     // 协议数据）。经 Java String 会把非法 UTF-8 序列替换为 U+FFFD，静默破坏子进程
     // 收到的字节。
-    let input: Vec<u8> = {
-        // SAFETY: `data` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效。
-        // `from_raw` 只包装指针而不取得所有权；局部引用由 JVM 在本 native 方法返回时释放。
-        let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
-        if let Ok(bytes) = env.convert_byte_array(&byte_array) {
-            bytes
-        } else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/RuntimeException"),
-                jni_str!("feedPty: failed to read input bytes"),
-            );
-            return;
-        }
+    // SAFETY: `data` 是 JNI 方法参数，JVM 运行时保证其在本次调用期间有效。
+    let Some(input) = (unsafe { read_byte_array(env, data, "feedPty") }) else {
+        return;
     };
 
     // 写入在两把锁之外：主端满时 `write_all` 最多等 `pty::WRITE_DRAIN_TIMEOUT`，
@@ -271,9 +261,9 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedTer
 
 /// 读 JNI 字节数组：失败即抛 `RuntimeException` 并返回 `None`。
 ///
-/// 喂给终端（`feedTerminal`）与编码粘贴（`encodePaste`）都要这一步：数组读取
-/// 本身可能失败（数组已被释放），失败必须让调用方知道——静默当作空输入的表现
-/// 是「按键没反应」，无从归因。
+/// 喂 PTY（`feedPty`）、喂终端（`feedTerminal`）与编码粘贴（`encodePaste`）都要
+/// 这一步：数组读取本身可能失败（数组已被释放），失败必须让调用方知道——静默
+/// 当作空输入的表现是「按键没反应」，无从归因。
 ///
 /// # Safety
 /// `data` 须是本次 JNI 调用期间有效的 `jbyteArray`（JNI 方法参数即满足）。
