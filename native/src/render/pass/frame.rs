@@ -142,7 +142,9 @@ impl Renderer {
                 ..Default::default()
             });
         }
+        crate::render::context::note_gpu_op(crate::render::context::GpuOp::Submit);
         self.queue.submit(std::iter::once(encoder.finish()));
+        crate::render::context::note_gpu_op(crate::render::context::GpuOp::Present);
         self.queue.present(output);
     }
     /// 按需扩容并上传 KGP 实例数据，同 [`Self::upload_instances`]。
@@ -477,8 +479,10 @@ impl Renderer {
         let encode_done = std::time::Instant::now();
         let encoder = frame_ctx.encoder;
         let texture = frame_ctx.texture;
+        crate::render::context::note_gpu_op(crate::render::context::GpuOp::Submit);
         self.queue.submit(std::iter::once(encoder.finish()));
         let submit_done = std::time::Instant::now();
+        crate::render::context::note_gpu_op(crate::render::context::GpuOp::Present);
         self.queue.present(texture);
         let present_done = std::time::Instant::now();
 

@@ -78,6 +78,7 @@ impl Renderer {
                 );
                 return;
             }
+            super::gpu::note_gpu_op(super::gpu::GpuOp::Upload);
             self.queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture,

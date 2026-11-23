@@ -50,7 +50,9 @@ pub(crate) fn release_acquired_texture(
     background: wgpu::Color,
 ) {
     let command_buffer = clear_to_background(device, &texture.texture, background);
+    crate::render::context::note_gpu_op(crate::render::context::GpuOp::Submit);
     queue.submit(std::iter::once(command_buffer));
+    crate::render::context::note_gpu_op(crate::render::context::GpuOp::Present);
     queue.present(texture);
 }
 
@@ -305,6 +307,8 @@ fn spawn_acquire_worker() -> SyncSender<AcquireRequest> {
                     background,
                 } = request;
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    // 丢失面包屑：判死回调可能就在这次调用内部触发，故先记再调。
+                    crate::render::context::note_gpu_op(crate::render::context::GpuOp::Acquire);
                     surface.get_current_texture()
                 }));
                 // 顺序不可交换：先放下克隆（其下的 Vulkan surface 随最后一个克隆销毁），
@@ -378,6 +382,7 @@ impl Renderer {
         device: &wgpu::Device,
     ) {
         if let Some(config) = surface_config {
+            crate::render::context::note_gpu_op(crate::render::context::GpuOp::Configure);
             surface.configure(device, config);
         }
     }

@@ -531,6 +531,25 @@ internal const val SURFACE_RECREATE_SLOW_INTERVAL_NANOS = 5_000_000_000L
 internal const val SURFACE_RECREATE_SLOW_INTERVAL_MS = SURFACE_RECREATE_SLOW_INTERVAL_NANOS / 1_000_000
 
 /**
+ * 恢复确认所需的连续稳定帧数：新窗口连续出帧达到该数才清零换视图预算。
+ *
+ * 取 60（60fps 下约 1 秒）：2026-11-23 11-05-03 的每一代新设备都在首帧后
+ * 13–28ms 再次丢失，按「出过一帧」清零会让 5 次快试与 500ms 间隔在 29 秒内
+ * 反复失效（11:03:03 预算又从 `attempt 1/5` 起算）。稳定一秒才认定重建有效：
+ * 短时软重启的重建熬不过它，真正恢复的窗口一秒内必然出满 60 帧
+ * （渲染循环按 vsync 空转，空闲时同样计帧）。计数只算帧数不记时刻，不依赖挂钟。
+ */
+internal const val SURFACE_RECOVERY_HEALTHY_FRAMES = 60
+
+/**
+ * 恢复是否已确认：连续稳定帧数已达 [SURFACE_RECOVERY_HEALTHY_FRAMES]。
+ *
+ * 纯判定，供 [RenderSupervisor.handleSurfaceInvalidated] 与单测；
+ * 不以「已出过任何帧」作恢复信号，理由见常量注释。
+ */
+internal fun surfaceRecoverySettled(stableFrames: Int): Boolean = stableFrames >= SURFACE_RECOVERY_HEALTHY_FRAMES
+
+/**
  * 内容下沿像素：视口最后一个有内容的行的下沿（视口全空为 0）。
  *
  * 原生行顶为 `row * cellHeight`（浮点，见 `cell_builder.rs` 的 `quad_origin`），

@@ -3327,7 +3327,12 @@ constructor(
             // （会自行停机的条件是没有会话，而此时恒有会话）。
             stopSessionPump()
             synchronized(sessionLock) {
-                sessions.values.forEach { entry -> entry.surfaceInvalidated = false }
+                sessions.values.forEach { entry ->
+                    entry.surfaceInvalidated = false
+                    // 新窗口的稳定计数从头开始；恢复确认（pending）保留——
+                    // 刚挂上的窗口还没证明自己不是下一具尸体。
+                    entry.surfaceHealthyFrames = 0
+                }
                 // 只有活动会话渲染（见 switchSessionInternal）；
                 // 为每个会话启动线程会创建单一全局原生事件队列的多个消费者，
                 // 退出事件可能因此被错误的会话线程处理（关闭掉无辜的会话）。
@@ -3992,6 +3997,10 @@ constructor(
         synchronized(sessionLock) {
             sessions.values.forEach { entry ->
                 entry.surfaceRecreateBudget.set(SessionEntry.SurfaceRecreateBudget())
+                // 预算已是一份全新的，恢复确认也一并归零：此后的第一帧就是
+                // 新一次前台会话的起点，不必背着上次的稳定计数。
+                entry.surfaceRecoveryPending = false
+                entry.surfaceHealthyFrames = 0
             }
         }
     }

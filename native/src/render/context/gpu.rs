@@ -224,13 +224,94 @@ pub(crate) fn mark_current_device_lost(detail: &str) {
     }
 }
 
+/// 最近一次发起的 GPU 调用类别。
+///
+/// 丢失的**原因**由驱动决定，应用侧拿不到：Vulkan 只回 `VK_ERROR_DEVICE_LOST`，
+/// wgpu 因此只能给出 [`wgpu::DeviceLostReason::Unknown`]。但「哪一类调用先失败」
+/// 是应用自己能观测的事实——把它记进丢失那**唯一一条** error，下一次日志就能直接
+/// 指向 acquire／submit／present／poll／configure／upload 之一，不必再从时序反推。
+///
+/// 只记最近一次：判死回调在 wgpu 内部随失败的调用同步触发，故那一刻的值就是
+/// 出错的那次调用；多线程下它可能被别的线程覆盖，故措辞是「最近一次」而非
+/// 「失败的那次」，MUST NOT 据此单独定案。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub(crate) enum GpuOp {
+    Acquire = 1,
+    Submit = 2,
+    Present = 3,
+    Poll = 4,
+    Configure = 5,
+    Upload = 6,
+}
+
+impl GpuOp {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Acquire => "surface acquire",
+            Self::Submit => "queue submit",
+            Self::Present => "queue present",
+            Self::Poll => "device poll",
+            Self::Configure => "surface configure",
+            Self::Upload => "texture upload",
+        }
+    }
+
+    const fn from_code(code: u8) -> Option<Self> {
+        Some(match code {
+            1 => Self::Acquire,
+            2 => Self::Submit,
+            3 => Self::Present,
+            4 => Self::Poll,
+            5 => Self::Configure,
+            6 => Self::Upload,
+            _ => return None,
+        })
+    }
+}
+
+/// 最近一次 GPU 调用类别的存放处。
+///
+/// 独立成类型而非裸原子量：单测可自建实例，断言不受并行测试的写入干扰
+/// （全局槽位被别的用例改写会让断言随机失败，而失败原因与被测行为无关）。
+/// 互斥而非原子量：写与读要能各自取到一致的值，锁的开销在每帧数次调用的量级上可忽略。
+struct GpuOpSlot(parking_lot::Mutex<u8>);
+
+impl GpuOpSlot {
+    /// 记下最近一次调用类别。
+    fn note(&self, op: GpuOp) {
+        *self.0.lock() = op as u8;
+    }
+
+    /// 最近一次记录的调用类别文案；从未记录则为 `None`。
+    fn label(&self) -> Option<&'static str> {
+        GpuOp::from_code(*self.0.lock()).map(GpuOp::label)
+    }
+}
+
+/// 全局面包屑槽位（0 = 尚未记录任何调用）。
+static LAST_GPU_OP: GpuOpSlot = GpuOpSlot(parking_lot::Mutex::new(0));
+
+/// 记录即将发起的一次 GPU 调用（丢失面包屑，见 [`GpuOp`]）。
+///
+/// 必须在调用**之前**记录：判死回调可能就在这次调用内部触发。
+pub(crate) fn note_gpu_op(op: GpuOp) {
+    LAST_GPU_OP.note(op);
+}
+
+/// 最近一次记录的调用类别文案；从未记录则为 `None`。
+fn last_gpu_op_label() -> Option<&'static str> {
+    LAST_GPU_OP.label()
+}
+
 /// 判死记账：置全局丢失位，并且只在本进程**第一次**记账时记一条 error。
 ///
 /// 调用方已确认 `lost` 属于当前设备（见 [`mark_device_lost`]）。
 fn record_device_loss(detail: &str) {
     if !DEVICE_LOST.swap(true, std::sync::atomic::Ordering::Release) {
         log::error!(
-            "GPU device lost ({detail}); rendering stops until a new surface attach rebuilds the device"
+            "GPU device lost ({detail}; last GPU op: {}); rendering stops until a new surface attach rebuilds the device",
+            last_gpu_op_label().unwrap_or("none recorded"),
         );
     }
 }
@@ -444,9 +525,44 @@ pub(crate) static INITIALIZATION_COUNT: std::sync::atomic::AtomicU64 =
 
 #[cfg(test)]
 mod tests {
-    use super::same_device;
+    use super::{GpuOp, same_device};
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
+
+    /// 面包屑的编码必须可往返：写进去的类别与读出来的文案要一一对应，
+    /// 否则丢失那条 error 会指错调用（比不指更糟）。
+    #[test]
+    fn gpu_op_code_round_trips() {
+        for op in [
+            GpuOp::Acquire,
+            GpuOp::Submit,
+            GpuOp::Present,
+            GpuOp::Poll,
+            GpuOp::Configure,
+            GpuOp::Upload,
+        ] {
+            assert_eq!(GpuOp::from_code(op as u8), Some(op), "round-trip {op:?}");
+            assert!(!op.label().is_empty());
+        }
+        // 0 是「从未记录」，越界值一律不认——错误编码不得被解释成某个调用。
+        assert_eq!(GpuOp::from_code(0), None);
+        assert_eq!(GpuOp::from_code(u8::MAX), None);
+    }
+
+    /// 记录后读回的就是刚记录的那一类。
+    ///
+    /// 用自建的槽位实例断言：全局槽位会被并行用例改写，那种失败与被测行为无关。
+    #[test]
+    fn note_gpu_op_is_visible_to_loss_report() {
+        let slot = super::GpuOpSlot(parking_lot::Mutex::new(0));
+        slot.note(GpuOp::Present);
+        assert_eq!(slot.label(), Some("queue present"));
+        slot.note(GpuOp::Poll);
+        assert_eq!(slot.label(), Some("device poll"));
+        // 从未记录过的槽位不给出任何调用类别。
+        let empty = super::GpuOpSlot(parking_lot::Mutex::new(0));
+        assert_eq!(empty.label(), None);
+    }
 
     /// 没有当前设备时，任何丢失都无从归属（初始化尚未完成）。
     #[test]

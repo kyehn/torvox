@@ -628,16 +628,27 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
     }
 
     /**
-     * 表面失效处置：原生报告窗口失效时请求换窗，恢复后清零换窗预算。
+     * 表面失效处置：原生报告窗口失效时请求换窗；新窗口须连续健康出帧满
+     * [SURFACE_RECOVERY_HEALTHY_FRAMES] 才确认恢复并清零换窗预算。
+     *
+     * 判据取 [SessionEntry.surfaceRecoveryPending] 而非 [SessionEntry.surfaceInvalidated]：
+     * 后者由 `resumeRendering` 在每次 `surfaceCreated` 时清掉，只在它上面累计会让
+     * 恢复确认永远走不到；前者跨越换窗保留，直到稳定窗口证明重建有效，或回到前台
+     * 以全新预算重新开始。
      */
     private fun handleSurfaceInvalidated(entry: SessionEntry, renderResult: Bridge.RenderResult) {
         if (renderResult.surfaceInvalidated) {
+            entry.surfaceHealthyFrames = 0
+            entry.surfaceRecoveryPending = true
             entry.surfaceInvalidated = true
             runtime.maybeRequestSurfaceRecreate(entry)
-        } else if (entry.surfaceInvalidated) {
-            // 恢复即清零预算：下一次判死仍从满额开始。
-            entry.surfaceInvalidated = false
-            entry.surfaceRecreateBudget.set(SessionEntry.SurfaceRecreateBudget())
+        } else if (entry.surfaceRecoveryPending) {
+            entry.surfaceHealthyFrames++
+            if (surfaceRecoverySettled(entry.surfaceHealthyFrames)) {
+                entry.surfaceRecoveryPending = false
+                entry.surfaceHealthyFrames = 0
+                entry.surfaceRecreateBudget.set(SessionEntry.SurfaceRecreateBudget())
+            }
         }
     }
 

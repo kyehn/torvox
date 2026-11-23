@@ -191,6 +191,7 @@ impl Renderer {
         }
         config.width = scaled_width;
         config.height = scaled_height;
+        super::gpu::note_gpu_op(super::gpu::GpuOp::Configure);
         surface.configure(&self.device, config);
 
         // 累加器内容属于旧尺寸，reconfigure 后强制全量重绘（同 attach 慢路径）。

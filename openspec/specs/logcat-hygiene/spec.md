@@ -881,7 +881,8 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
         `≈60fps` 正常），`PowerPreference=HighPerformance`、`Mailbox`、
         `ANativeWindow_setBuffersGeometry` 在本日志与 15-46-03 日志下表现一致，无证据
         表明具体应用配置为成因。应用侧只能有界恢复（快试 5 次 ≥500ms、慢重试 5s、
-        渲染成功后由 RenderSupervisor 复位），MUST NOT 以降低重试频率或隐藏日志处置
+        新窗口连续稳定出帧 60 帧约 1 秒后由 RenderSupervisor 复位预算），
+        MUST NOT 以降低重试频率或隐藏日志处置
       - `SLOW_CELL_BUILD` build=22.097ms（997 单元 / 575 实例，`partial=true`）：出现在
         滚动重输出后的首屏重输出帧；本机 `cargo bench --bench cell_builder -- --quick`
         热路径为 0.358ms，`bench_end_to_end_cpu_pipeline_latency` 预热后为 3.0ms/帧，

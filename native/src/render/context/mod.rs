@@ -13,14 +13,14 @@ mod surface;
 pub use gpu::FrameContext;
 #[cfg(target_os = "android")]
 pub(crate) use gpu::rebuild_global_gpu;
+pub(crate) use gpu::{
+    GpuOp, clear_device_lost, device_lost, is_device_loss_text, mark_current_device_lost,
+    mark_device_lost, note_gpu_op, one_line, try_global_gpu,
+};
 #[cfg(test)]
 pub(crate) use gpu::{
     INITIALIZATION_COUNT, SURFACE_INVALIDATION_LOG_LEVEL, global_gpu_for_tests,
     gpu_error_is_surface_lost, gpu_slot_reusable, surface_loss_transition,
-};
-pub(crate) use gpu::{
-    clear_device_lost, device_lost, is_device_loss_text, mark_current_device_lost,
-    mark_device_lost, one_line, try_global_gpu,
 };
 #[cfg(any(target_os = "android", test))]
 pub(crate) use poll::{PollOutcome, poll_device_wait};

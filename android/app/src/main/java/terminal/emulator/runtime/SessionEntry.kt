@@ -201,6 +201,24 @@ internal data class SessionEntry(
     @Volatile var surfaceInvalidated: Boolean = false
 
     /**
+     * 等待恢复确认：见到原生失效位后置位，只有新窗口连续健康出帧达到
+     * [SURFACE_RECOVERY_HEALTHY_FRAMES] 才清零，届时同时复位 [surfaceRecreateBudget]
+     * （见 [RenderSupervisor.handleSurfaceInvalidated]）。
+     *
+     * MUST NOT 随 `resumeRendering`（每次 `surfaceCreated`）清零：新窗口刚挂上并不等于
+     * 恢复成立——2026-11-23 11-05-03 的每一代新设备都在首帧后 13–28ms 再次丢失，
+     * 只按「已出过一帧」清零会让快试上限反复失效。
+     */
+    @Volatile var surfaceRecoveryPending: Boolean = false
+
+    /**
+     * 恢复确认的稳定计数：本次新窗口连续出帧健康的帧数；达到
+     * [SURFACE_RECOVERY_HEALTHY_FRAMES] 才清零 [surfaceRecreateBudget]。
+     * 每次 `resumeRendering` 随新窗口从头计数；仅渲染线程读写。
+     */
+    @Volatile var surfaceHealthyFrames: Int = 0
+
+    /**
      * 换视图预算：已请求次数、上次请求时刻（纳秒）与「上限已告警」标志。
      *
      * 三项是一条逻辑记录，由渲染线程与 `surfaceTransitionExecutor` 线程各自成组读写。

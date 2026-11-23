@@ -503,10 +503,37 @@ MUST 换新的 `SurfaceView` 以取得新的原生窗口，且请求 MUST 受间
 - **THEN** `attach_surface` MUST 走重建慢路径（`attach_surface: configured`），
       MUST NOT 记 `RECONFIGURE_SWAPCHAIN`
 
-#### Scenario: 恢复即清零
+#### Scenario: 恢复先稳定若干帧再清零预算
+
+- **WHEN** 宿主因失效换上新窗口，原生 `attach_surface` 成功后失效位回落为 0
+- **THEN** 宿主 MUST 保留「恢复确认中」（`surfaceRecoveryPending`），
+      新窗口连续出帧达到 `SURFACE_RECOVERY_HEALTHY_FRAMES`（60，60fps 下约 1 秒）
+      之前 MUST NOT 清零换视图预算
+- **AND** 每次新窗口挂载 MUST 把稳定计数从头开始（只统计当前窗口），
+      但 MUST NOT 清除「恢复确认中」——刚挂上的窗口尚未证明不是下一具尸体
+- **WHEN** 连续稳定帧数达到阈值
+- **THEN** 预算 MUST 整条复位（`SurfaceRecreateBudget()`），恢复确认状态 MUST 清零，
+      新 surface 重新接受快试判定
+- **AND** 稳定计数以帧数累计，MUST NOT 依赖挂钟与周期帧节拍
+
+#### Scenario: 单帧成功不能清零预算
+
+- **WHEN** 2026-11-23 11-05-03 真机日志（Mali-G57）在同一冷启动会话内出现 14 次设备丢失
+      （14 条 `GPU device lost`、14 次重建成功、15 代设备）：前 5 次快试的每一代新设备
+      都在挂载后 14–20ms（首帧后 6–15ms）再次丢失；11:03:03 预算再次被单帧成功清到
+      `attempt 1/5`，随即重演 5 次快试，直到 11:03:05.9 重建的一代存活
+- **THEN** 单帧成功 MUST NOT 清零预算，只有连续稳定帧达到阈值才复位；
+      本样本的 14 次丢失 MUST 记为有界恢复，MUST NOT 归因为重建动作缺陷
+- **AND** 应用侧 MUST 如实记录：2026-11-22 18-04-41 与 2026-11-23 11-05-03 两簇设备
+      丢失的底层根因（Mali-G57 在首帧后丢失）未能定位，有界恢复是缓解而非消除，
+      MUST NOT 在规范中表述为「已解决」
+
+#### Scenario: 重建成功清零失效位
 
 - **WHEN** 重建成功或 `detachWindow` 释放 surface
-- **THEN** 失效位与连续计数 MUST 清零，新 surface 重新接受判定
+- **THEN** 原生失效位 MUST 清零，宿主侧稳定计数 MUST 从头开始，
+      新 surface 重新接受判定；「恢复确认中」只能由稳定出帧或回到前台解除
+      （见上一条场景）
 
 #### Scenario: 失效位随打包返回上报
 
@@ -527,11 +554,13 @@ MUST 换新的 `SurfaceView` 以取得新的原生窗口，且请求 MUST 受间
       用尽后 MUST 转为慢重试（间隔 ≥ 5s）并只告警一次，MUST NOT 永久停止请求——
       平台迟迟不交付新窗口时，停止请求等于把渲染线程钉在死窗口上，用户看到永久空白
 
-#### Scenario: 换视图预算只在回到前台时清零
+#### Scenario: 换视图预算不得随每次挂载清零
 
 - **WHEN** 同一前台会话内连续发生设备丢失并触发多次 `surfaceCreated`/`resumeRendering`
 - **THEN** 预算 MUST NOT 随每次 `surfaceCreated`/`resumeRendering` 清零；
-      只有 `resumeRenderingFromBackground`（`ON_RESUME`）MUST 清零
+      复位只允许两种时机：`resumeRenderingFromBackground`（`ON_RESUME`），
+      或新窗口连续稳定出帧达到 `SURFACE_RECOVERY_HEALTHY_FRAMES`
+      （见「恢复先稳定若干帧再清零预算」）
 - **AND** 否则每次 attach 都把 5 次快试上限与 500ms 最小请求间隔一并重置，限流永不生效：
       实测 2026-11-19 设备丢失两簇共 15 次（17:44 簇 10 次、17:46:03 簇 5 次），每次都
       换掉一个 `SurfaceView` 并重建一次 `VkInstance`，请求全部记为 `attempt 1/5`；17:44 簇

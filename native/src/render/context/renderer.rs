@@ -123,6 +123,7 @@ impl Renderer {
             if let Some(mut new_config) = self.surface_config.take() {
                 new_config.width = tex_size.width;
                 new_config.height = tex_size.height;
+                super::gpu::note_gpu_op(super::gpu::GpuOp::Configure);
                 surface.configure(&self.device, &new_config);
                 self.surface_config = Some(new_config);
             }
@@ -506,6 +507,7 @@ impl Renderer {
         // wgpu 30 的 configure 无返回值（错误经 get_current_texture 的 Lost 状态异步
         // 上报），故无可传播的 Result；render/pass.rs 的 acquire 路径在 Lost 时
         // 重新 configure 并丢弃该帧。
+        super::gpu::note_gpu_op(super::gpu::GpuOp::Configure);
         surface.configure(&self.device, &config);
         self.surface_config = Some(config);
         // 与**上一个**管线格式比较（该字段在下方更新）：重挂载时格式变化必须丢弃

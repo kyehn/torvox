@@ -53,6 +53,7 @@ pub(crate) fn poll_device_wait(
     match lost_device_outcome(lost.load(Ordering::Acquire)) {
         Some(outcome) => outcome,
         None => poll_outcome(|| {
+            super::gpu::note_gpu_op(super::gpu::GpuOp::Poll);
             device.poll(wgpu::PollType::Wait {
                 submission_index: None,
                 timeout: Some(timeout),
