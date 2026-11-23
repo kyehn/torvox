@@ -343,8 +343,13 @@ internal const val MEASUREMENT_QUOTA_BYTES = 64L * 1024 * 1024
 /** S8 宽字符行：轮数（每轮五个宽字符模板）。 */
 internal const val WIDE_CHARACTER_LINE_COUNT = 1000
 
-/** S8 宽字符行：wall-clock 上限（毫秒）。 */
-internal const val WIDE_CHARACTER_TIMEOUT_MILLIS = 20_000L
+/**
+ * S8 宽字符行：wall-clock 上限（毫秒）。
+ *
+ * 实测负载耗时 10.8–11.5 秒（本机 AVD，API 35 模拟器，软件渲染），上限取约两倍余量，
+ * 且仍在场景 30 秒 wall-clock 上限之内——先撞负载上限时失败信息更具体。
+ */
+internal const val WIDE_CHARACTER_TIMEOUT_MILLIS = 24_000L
 
 /** S8 宽字符行：标题哨兵。 */
 internal const val WIDE_CHARACTER_CANARY = "__s8tail"
@@ -355,8 +360,14 @@ internal const val WIDE_CHARACTER_COUNT_TAG = "s8out"
 /** S8 宽字符行：完成标记（设备侧 ERE，不得含空白）。 */
 internal const val WIDE_CHARACTER_MARKER = "__s8done"
 
-/** S8 宽字符行：呈现窗口下限。 */
-internal const val WIDE_CHARACTER_MIN_PRESENTED_WINDOWS = 2
+/**
+ * S8 宽字符行：呈现窗口下限。
+ *
+ * 实测（本机 AVD，API 35 模拟器，软件渲染）三轮出帧窗口均为 22 个（负载耗时 10.8–11.5
+ * 秒，呈现汇总按 500ms 一窗）。下限取 8：窗口数塌到个位数即「整段宽字符字节流把终端
+ * 压到几乎不画」，而负载本身至少要跑几秒，窗口数低于 8 说明呈现中途停了。
+ */
+internal const val WIDE_CHARACTER_MIN_PRESENTED_WINDOWS = 8
 
 /** S8 宽字符行：呈现最长停摆上限（毫秒）。 */
 internal const val WIDE_CHARACTER_MAX_PRESENTATION_GAP_MILLIS = 1_000L
@@ -367,11 +378,21 @@ internal const val WIDE_CHARACTER_MAX_LAYER_INTERVAL_P95_MILLIS = 250L
 /** S8 宽字符行：刷新槽位占用下限。 */
 internal const val WIDE_CHARACTER_MIN_LAYER_SLOT_RATIO = 0.15
 
-/** S8 宽字符行：PSS 增长上限（千字节）。 */
-internal const val WIDE_CHARACTER_MAX_PSS_GROWTH_KILOBYTES = 16 * 1024L
+/**
+ * S8 宽字符行：PSS 增长上限（千字节）。
+ *
+ * 实测三轮 6922–14585KB，增长来自字形缓存与回滚区。上限取最差实测的约 1.6 倍，与
+ * 持续输出场景同口径；采样按固定间隔取，峰值可能落在两次采样之间。
+ */
+internal const val WIDE_CHARACTER_MAX_PSS_GROWTH_KILOBYTES = 23_000L
 
-/** S8 宽字符行：进程 CPU 时间上限（毫秒）。 */
-internal const val WIDE_CHARACTER_MAX_PROCESS_CPU_MILLIS = 12_000L
+/**
+ * S8 宽字符行：进程 CPU 时间上限（毫秒）。
+ *
+ * 实测三轮 6310–7170ms。上限取最差实测的约 1.6 倍：宿主被抢占时应用等不到帧就多转
+ * 几圈，CPU 时间会明显变长。
+ */
+internal const val WIDE_CHARACTER_MAX_PROCESS_CPU_MILLIS = 11_500L
 
 /** S9 交互延迟：轮数。 */
 internal const val INTERACTION_LATENCY_ROUND_COUNT = 5
@@ -409,8 +430,21 @@ internal const val INPUT_FLOOD_ALIVE_MARKER = "__s10alive"
 /** S11 前后台切换：恢复首帧上限（毫秒）。 */
 internal const val MAX_RESTORE_FIRST_FRAME_MILLIS = 5_000L
 
+/**
+ * S11 前后台切换：等切回前台后内容层出帧的上限（毫秒）。
+ *
+ * 比首帧判据宽：判据判「慢」，这个上限判「没出帧」。两者分开，故上限大于判据。
+ */
+internal const val RESTORE_FIRST_FRAME_TIMEOUT_MILLIS = 8_000L
+
 /** S11 前后台切换：旋转首帧上限（毫秒）。 */
 internal const val MAX_ROTATION_FIRST_FRAME_MILLIS = 5_000L
+
+/** S11 前后台切换：等旋转后内容层出帧的上限（毫秒）：判的是「没出帧」而非「慢」。 */
+internal const val ROTATION_FIRST_FRAME_TIMEOUT_MILLIS = 8_000L
+
+/** 横屏对应的显示方向：`dumpsys window` 的 `mCurrentRotation=ROTATION_90`。 */
+internal const val ROTATION_LANDSCAPE_DISPLAY = "ROTATION_90"
 
 /** S11 前后台切换：刷新槽位占用下限。 */
 internal const val BACKGROUND_FOREGROUND_MIN_LAYER_SLOT_RATIO = 0.1

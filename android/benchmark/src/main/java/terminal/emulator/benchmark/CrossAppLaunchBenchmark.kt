@@ -9,6 +9,7 @@ import org.junit.runner.RunWith
 
 /** 每个被测包的冷启动轮数。 */
 private const val CROSS_APP_ITERATION_COUNT = 5
+
 /**
  * 跨应用的启动对比面：同一 `am start -W` 口径测任意包的冷启动。
  *

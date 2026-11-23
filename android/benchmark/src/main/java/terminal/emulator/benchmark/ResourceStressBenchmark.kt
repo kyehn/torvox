@@ -86,10 +86,18 @@ class ResourceStressBenchmark {
     private fun releaseResourceStress(device: UiDevice, screenWasAwake: Boolean) {
         device.executeShellCommand("dumpsys deviceidle unforce")
         device.executeShellCommand("cmd thermalservice override-status 0")
-        // 屏幕状态按原样恢复：压力期间按了一次电源键，再按一次回到原状态。
-        val screenIsAwakeNow = isScreenAwake(device)
-        if (screenIsAwakeNow != screenWasAwake) {
+        // 灭屏的复原按当前状态决定：电源键是切换语义，施加压力时按过一次，屏幕状态与原先
+        // 相反；当前状态与原值不同才再按一次，按当前状态复原才不会把设备留在被改过的状态里。
+        if (needsScreenStateRestore(screenWasAwake, isScreenAwake(device))) {
             device.executeShellCommand("input keyevent 26")
         }
     }
 }
+
+/**
+ * 屏幕状态是否需要按电源键复原：当前状态与原值不同即需要。
+ *
+ * 电源键是切换语义，按一次即翻转一次，故复原只看状态是否与原值一致。
+ */
+internal fun needsScreenStateRestore(screenWasAwake: Boolean, screenIsAwakeNow: Boolean): Boolean =
+    screenWasAwake != screenIsAwakeNow

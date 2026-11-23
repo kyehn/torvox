@@ -1,7 +1,7 @@
 package terminal.emulator.benchmark
 
-import androidx.test.uiautomator.UiDevice
 import androidx.test.platform.io.PlatformTestStorageRegistry
+import androidx.test.uiautomator.UiDevice
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -243,6 +243,7 @@ internal fun captureScreenshotArtifact(
     artifacts += ref
     return ref
 }
+
 /**
  * 目录落在测试输出目录里：宿主侧随测试结果一并回收，设备侧不留散落的副本。
  */

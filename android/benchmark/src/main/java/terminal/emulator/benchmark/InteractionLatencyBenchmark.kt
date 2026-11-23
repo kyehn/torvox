@@ -41,14 +41,16 @@ class InteractionLatencyBenchmark {
             val presentLatencies = mutableListOf<Long>()
             repeat(INTERACTION_LATENCY_ROUND_COUNT) { round ->
                 clearLayerFrameHistory(device, contentLayer)
-                val marker = "__s9probe${iteration}_${round}"
+                val marker = "__s9probe${iteration}_$round"
                 val presentStartElapsedMillis = SystemClock.elapsedRealtime()
                 val sentAtWallMillis = System.currentTimeMillis()
                 device.executeShellCommand("input text log%s-t%s$INTERACTION_LATENCY_PROBE_TAG%s$marker")
                 device.executeShellCommand("input keyevent 66")
                 // 回显延迟：logcat 墙钟。
-                val echoRecord = awaitEchoMarker(device, sentAtWallMillis, marker, INTERACTION_LATENCY_ECHO_TIMEOUT_MILLIS)
-                val echoLatency = echoRecord?.epochMillis?.minus(sentAtWallMillis) ?: INTERACTION_LATENCY_ECHO_TIMEOUT_MILLIS
+                val echoRecord =
+                    awaitEchoMarker(device, sentAtWallMillis, marker, INTERACTION_LATENCY_ECHO_TIMEOUT_MILLIS)
+                val echoLatency =
+                    echoRecord?.epochMillis?.minus(sentAtWallMillis) ?: INTERACTION_LATENCY_ECHO_TIMEOUT_MILLIS
                 echoLatencies += echoLatency
                 // 呈现延迟：按键到首个呈现（逐图层通道单调时钟）。
                 val firstPresentNanos = awaitLayerPresentAfter(
@@ -84,7 +86,12 @@ class InteractionLatencyBenchmark {
         }
     }
 
-    private fun awaitEchoMarker(device: UiDevice, sinceMillis: Long, marker: String, timeoutMillis: Long): LogcatRecord? {
+    private fun awaitEchoMarker(
+        device: UiDevice,
+        sinceMillis: Long,
+        marker: String,
+        timeoutMillis: Long,
+    ): LogcatRecord? {
         val deadline = SystemClock.elapsedRealtime() + timeoutMillis
         while (SystemClock.elapsedRealtime() < deadline) {
             val records = readLogcatSince(device, sinceMillis, Regex(marker))

@@ -21,7 +21,11 @@ class WideCharacterLoadTest {
         assertTrue(command.contains("\\344\\275\\240\\345\\245\\275\\344\\270\\226\\347\\225\\214"))
         assertTrue(command.contains("\\145\\314\\201"))
         assertTrue(command.contains("\\360\\237\\230\\200"))
-        assertTrue(command.contains("\\360\\237\\221\\250\\342\\200\\215\\360\\237\\221\\251\\342\\200\\215\\360\\237\\221\\247"))
+        assertTrue(
+            command.contains(
+                "\\360\\237\\221\\250\\342\\200\\215\\360\\237\\221\\251\\342\\200\\215\\360\\237\\221\\247",
+            ),
+        )
         assertTrue(command.contains("\\357\\274\\241\\357\\274\\242\\357\\274\\243"))
     }
 

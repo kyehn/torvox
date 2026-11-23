@@ -35,6 +35,22 @@ class SurfaceLayerFramesTest {
         assertNull(parseLayerFrameStats("0\n8482814103026\t8482834374814\t8482814549390\n"))
     }
 
+    @Test
+    fun findsFirstPresentAfterGivenMoment() {
+        val stats = requireNotNull(parseLayerFrameStats(LAYER_FRAME_OUTPUT_SAMPLE))
+
+        val presentMillis = requireNotNull(firstPresentMillisAfter(stats, 8_482_835L))
+
+        assertEquals(8_482_851.095309, presentMillis, 0.001)
+    }
+
+    @Test
+    fun reportsNoPresentAfterGivenMoment() {
+        val stats = requireNotNull(parseLayerFrameStats(LAYER_FRAME_OUTPUT_SAMPLE))
+
+        assertNull(firstPresentMillisAfter(stats, 9_000_000L))
+    }
+
     private companion object {
         /** 终端内容层的实测帧记录：首行是 60Hz 的刷新周期，其后每行三列纳秒。 */
         val LAYER_FRAME_OUTPUT_SAMPLE =

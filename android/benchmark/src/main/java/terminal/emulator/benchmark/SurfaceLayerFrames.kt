@@ -170,40 +170,78 @@ internal fun awaitTerminalContentFrames(device: UiDevice): Pair<String, LayerFra
 }
 
 /**
- * 从 `--list` 的一行里取出图层名。
- *
- * Android 15 起每行是 `RequestedLayerState{<名字> <键>=<值> ...}`，名字本身可能含
- * 空格（如 `Background for SurfaceView[...]`），故按「首个键值对之前的部分」取名字；
- * 更早的版本整行就是名字。
- */
-/**
  * 等被测包属主的内容图层出现并带内容帧：按进程号归属，不预设图层名前缀。
  *
  * 跨应用时图层名前缀不再是 `SurfaceView[com.termux/...]`，只能靠帧时间线的
  * `Owner Pid` 归属到内容图层。读不到即判失败，不把「没出帧」当成通过。
  */
 internal fun awaitContentLayerOwnedBy(device: UiDevice, packageName: String): String {
-    val ownerPid = targetProcessId(device, packageName)
     var failure: Throwable? = null
     repeat(CONTENT_FRAME_WAIT_ATTEMPT_COUNT) {
         try {
-            val ownedLayerNames = readFrameTimeline(device)
-                .layersOwnedBy(ownerPid)
-                .filter { it.isBuffer }
-                .map { it.name }
-                .distinct()
-            for (candidate in ownedLayerNames) {
-                if (candidate.none { it.isWhitespace() } && readLayerFrameStats(device, candidate) != null) {
-                    return candidate
-                }
+            val candidates = contentLayerCandidates(device, packageName)
+            for (candidate in candidates) {
+                if (readLayerFrameStats(device, candidate) != null) return candidate
             }
-            failure = IllegalStateException("被测包 $packageName 的内容图层没有内容帧：$ownedLayerNames")
+            failure = IllegalStateException("被测包 $packageName 的内容图层没有内容帧：$candidates")
         } catch (thrown: Throwable) {
             failure = thrown
         }
         SystemClock.sleep(CONTENT_FRAME_WAIT_INTERVAL_MILLIS)
     }
     throw checkNotNull(failure) { "被测包 $packageName 的内容图层始终没有出现" }
+}
+
+/**
+ * 按属主进程列出承载内容的候选图层名。
+ *
+ * 候选来源两条：帧时间线里属主为该进程的图层条目（最近的 64 个 display frame 内），
+ * 以及图层清单里名字含包名的图层（帧时间线窗口已滑走时的退路）。名字含空白的图层
+ * 在这条通道上不可寻址（命令不经 shell，按空白切词），故排除。
+ */
+internal fun contentLayerCandidates(device: UiDevice, packageName: String): List<String> {
+    val ownerPid = targetProcessId(device, packageName)
+    val ownedLayerNames = readFrameTimeline(device)
+        .layersOwnedBy(ownerPid)
+        .filter { it.isBuffer }
+        .map { it.name }
+    val namedCandidates = listLayerNames(device).filter { it.contains(packageName) }
+    return (ownedLayerNames + namedCandidates)
+        .distinct()
+        .filter { candidate -> candidate.none { character -> character.isWhitespace() } }
+}
+
+/**
+ * 等被测应用的内容层在指定时刻之后呈现。
+ *
+ * 「指定时刻之后」是这道取数的关键：界面重建（切回前台、旋转）之后旧图层的帧历史里
+ * 还留着重建之前的帧，把它们算进首帧延迟会让恢复看起来是零延迟。多个候选图层时取
+ * 最早的那一帧——首个出帧的图层才是这一轮真正恢复的证据。
+ *
+ * 等不到即返回 null，由调用方判失败，不把「没等到」当成通过。
+ */
+internal fun awaitContentLayerPresentAfter(
+    device: UiDevice,
+    packageName: String,
+    sinceElapsedMillis: Long,
+    timeoutMillis: Long,
+    pollMillis: Long,
+): Pair<String, LayerFrameStats>? {
+    val deadline = SystemClock.elapsedRealtime() + timeoutMillis
+    while (true) {
+        for (candidate in contentLayerCandidates(device, packageName)) {
+            val stats = readLayerFrameStats(device, candidate) ?: continue
+            if (firstPresentMillisAfter(stats, sinceElapsedMillis) != null) return candidate to stats
+        }
+        if (SystemClock.elapsedRealtime() >= deadline) return null
+        SystemClock.sleep(pollMillis)
+    }
+}
+
+/** 图层在指定时刻（单调时钟毫秒）之后的首个呈现时刻（毫秒）；没有则为 null。 */
+internal fun firstPresentMillisAfter(stats: LayerFrameStats, sinceElapsedMillis: Long): Double? {
+    val sinceNanos = sinceElapsedMillis * 1_000_000L
+    return stats.presentTimesNanos.firstOrNull { it >= sinceNanos }?.div(1_000_000.0)
 }
 
 /**
@@ -232,6 +270,13 @@ internal fun awaitLayerPresentAfter(
     throw checkNotNull(lastFailure) { "图层 $layerName 在 ${sinceMillis}ms 之后始终无呈现帧" }
 }
 
+/**
+ * 从 `--list` 的一行里取出图层名。
+ *
+ * Android 15 起每行是 `RequestedLayerState{<名字> <键>=<值> ...}`，名字本身可能含
+ * 空格（如 `Background for SurfaceView[...]`），故按「首个键值对之前的部分」取名字；
+ * 更早的版本整行就是名字。
+ */
 private fun layerNameOf(listEntry: String): String = listEntry.trim()
     .removePrefix("RequestedLayerState{")
     .removeSuffix("}")

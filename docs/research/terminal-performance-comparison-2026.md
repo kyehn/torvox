@@ -786,9 +786,34 @@ for device in targets:
   CPU 时间与 `dumpsys meminfo` 的 PSS／RSS；三个面任一出现持续绘制或持续占用即判红。实测
   三轮：界面帧 0 帧、内容层 0 帧、进程 CPU 时间 150ms、PSS 66–71 MB（见第五节「稳态空载的
   判据面与实测形态」）。
-- 缺：跨应用帧面端到端跑通（对照应用尚未装到设备上按本仓口径取帧）；场景矩阵剩余场景的
-  执行器（矩阵数据与上限执行已落地，S5／S6 与 S8–S12 的负载生产与断言待接）；跨设备多应用
-  编排（落点在受保护的 `scripts/`）。
+- 本轮落地：S5／S6 与 S8–S12 的场景执行器——`SustainedOutputLoad`／`BurstOutputLoad`／
+  `WideCharacterLoad` 生产设备侧负载并按 PTY 的 CRLF 展开记账字节，`OutputScenarioFrames`
+  收拢输出类场景共用的三通道取数与六项判据，`OutputLoadCompletion` 统一负载完成判定，
+  `SessionTitleProbe` 负责标题哨兵（测量前把提示符换成不含转义的普通提示符，否则哨兵会被
+  每次改写标题覆盖）。S8–S12 的执行器分别是 `WideCharacterBenchmark`、`InteractionLatencyBenchmark`、
+  `InputFloodBenchmark`、`BackgroundForegroundBenchmark`、`ResourceStressBenchmark`。
+- 本轮落地：S8–S12 的阈值按实测校准（本机 AVD，API 35 模拟器，软件渲染）——S8 负载实测
+  10.8–11.5 秒、呈现窗口 22 个、PSS 增长 6922–14585KB、进程 CPU 6310–7170ms，故负载上限
+  取 24 秒、窗口数下限取 8、PSS 上限取 23MB、CPU 上限取 11.5 秒。
+- 本轮落地：恢复与旋转的首帧取数口径——`SurfaceLayerFrames` 的 `firstPresentMillisAfter` 与
+  `awaitContentLayerPresentAfter` 取「重建确认之后」的首个呈现（旧图层的帧历史里留着重建
+  之前的帧，算进去会让恢复看起来是零延迟）；旋转的计时起点取「系统确认转到横屏」的时刻
+  （`dumpsys window` 的 `mCurrentRotation=ROTATION_90`），不是发起旋转的时刻——本应用在
+  清单里声明了 `configChanges`，旋转不重建 Activity，SurfaceView 的 Surface 也不重建，
+  变的是表面尺寸。等待出帧的上限（8 秒）与首帧判据的上限（5 秒）分开：前者判「没出帧」，
+  后者判「慢」。
+- 本轮落地：S12 的屏幕状态复原按当前状态判断——电源键是切换语义，施加压力时按过一次后屏幕
+  状态与原值相反，当前状态与原值不同才再按一次，按原值盲按会把设备留在被改过的状态里。
+- 本轮落地：共用辅助逻辑的单测——`ScenarioTargetTest` 覆盖被测包参数解析（空值、空串与只有
+  分隔符都退回默认包），`OutputScenarioFramesTest` 逐项覆盖输出类场景的六项帧面判据与两通道
+  一致性判据。
+- 本轮落地：模拟器实测形态——S7–S12 六个场景在本机 AVD 上逐个跑通（S7 需带
+  `androidx.benchmark.suppressErrors=EMULATOR`，与 Gradle 的连接测试一致），S8 的三轮实测
+  负载耗时 10.8–11.5 秒、呈现窗口 22 个、进程 CPU 6310–7170ms，判定均在预算内。缺 native
+  库的 APK 启动即崩（`native library not loaded: theme catalog unavailable`），退出归因给
+  `APP CRASH(EXCEPTION)`——构建顺序仍是先出 `.so` 再出 APK。
+- 缺：跨应用帧面端到端跑通（对照应用尚未装到设备上按本仓口径取帧）；跨设备多应用编排
+  （落点在受保护的 `scripts/`）。
 - 与既有规约一致性：本报告不改「模拟器只作数量级」「帧级数据面按绘制主体选源」「采集为空即
   判红」「设备侧命令不含 shell 语法」「不得用固定等待替代就绪信号」等既有口径，只在其上补
   跨应用一层。
