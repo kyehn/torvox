@@ -976,11 +976,12 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 - **THEN** 应用进程 W/E 合计 MUST 为 11 条，逐条处置 MUST 为：
       - `native::render::context::gpu` 6：3 条 error（首帧呈现后约 6ms 的设备丢失，
         与 2026-11-20 同源，成因未定位）与 3 条 warn（设备丢失后的重建完成）；
-        有界恢复链自愈，从丢失到恢复出帧约 190ms，MUST NOT 依赖人工干预或进程重启
+        有界恢复链自愈，从丢失到新窗口重新挂载 0.2–0.5 秒（首帧随后呈现），
+        MUST NOT 依赖人工干预或进程重启
       - `native::android::ffi::render::frame` 3：设备丢失当帧的 `render skipped`
         （warn，限频），与设备丢失同源，MUST NOT 以过滤该 tag 处置
       - `Runtime` 2：`surface invalidated (attempt 2/5)` 与 `attempt 3/5`
-        （attempt 1 在 18:00:16.611 未被日志捕获），换视图预算在前台会话内未复位，
+        （attempt 1 在 18:00:16.611 为 info，未计入 W/E），换视图预算在前台会话内未复位，
         限流生效（快试 5 次 ≥500ms、用尽后转慢重试 5s）
 - **AND** `mali_gralloc` 72 条（9 次新窗口 × 8 条）MUST 归为平台 R8 格式探测：
       AOSP `vulkan/libvulkan/swapchain.cpp` 对 `VK_FORMAT_R8_UNORM` 的
@@ -989,8 +990,8 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
 - **AND** `wgpu_core::instance` 8 条（4 次适配器枚举 × 2）MUST 归为上游
       `SURFACE_VIEW_FORMATS` 缺失，应用侧无 API 可关
 - **AND** `Parcel` 3 条 MUST 归为平台编组路径读 null binder，MUST NOT 记为应用缺陷
-- **AND** `libc` 5 条（`vendor.MB.running` 4 + `persist.vendor.gpu.fbc` 1）MUST 归为
-      厂商属性读取拒绝，MUST NOT 记为应用缺陷
+- **AND** `libc` 4 条（`persist.unipnp.debug` 2 + `persist.vendor.gpu.fbc` 1 +
+      `vendor.MB.running` 1）MUST 归为厂商属性读取拒绝，MUST NOT 记为应用缺陷
 - **AND** `ziparchive` 4 条（`unisoc-framework.dm` 2 + `unipnp-framework.dm` 2）MUST 归为
       平台 dex 元数据探测，MUST NOT 记为应用缺陷
 - **AND** `FeatureOpt` 2 条 MUST 归为厂商折叠态探测，MUST NOT 记为应用缺陷
