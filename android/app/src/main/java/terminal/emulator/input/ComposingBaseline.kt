@@ -40,13 +40,15 @@ class ComposingBaseline {
      * 抛异常——越界光标会让输入法的后续 diff 全部错位）。
      */
     internal fun resolveCursor(text: String, newCursorPosition: Int): Int {
+        // 输入法给出的偏移不可信：加法走 Long，Int 溢出后绝对值翻负，
+        // 钳位会把光标落到组字开头（差分重放据此删错内容）。
         val absolute =
             if (newCursorPosition > 0) {
-                text.length + newCursorPosition
+                text.length.toLong() + newCursorPosition.toLong()
             } else {
-                newCursorPosition
+                newCursorPosition.toLong()
             }
-        return absolute.coerceIn(0, text.length)
+        return absolute.coerceIn(0L, text.length.toLong()).toInt()
     }
 
     /** 提交/结束组字：文本与光标一并清空。 */
@@ -70,7 +72,8 @@ class ComposingBaseline {
     /** 光标后的 [length] 个 UTF-16 单位；越界时只返回已有的部分。 */
     fun textAfter(length: Int): String {
         if (length <= 0) return ""
-        val endIndex = (cursor + length).coerceAtMost(text.length)
+        // 长度同样不可信：加法走 Long，否则溢出后的负上界会让 substring 越界抛异常。
+        val endIndex = (cursor.toLong() + length.toLong()).coerceAtMost(text.length.toLong()).toInt()
         return text.substring(cursor, endIndex)
     }
 
@@ -108,15 +111,15 @@ class ComposingBaseline {
      * 越界值钳入替换后的文本范围。
      */
     internal fun replacedCursor(start: Int, end: Int, insertedLength: Int, newCursorPosition: Int): Int {
-        val replacedLength = text.length - (end - start) + insertedLength
+        val replacedLength = text.length.toLong() - (end - start).toLong() + insertedLength.toLong()
         val insertEnd = start + insertedLength
         val absolute =
             if (newCursorPosition > 0) {
-                insertEnd - 1 + newCursorPosition
+                (insertEnd - 1).toLong() + newCursorPosition.toLong()
             } else {
-                start + newCursorPosition
+                start.toLong() + newCursorPosition.toLong()
             }
-        return absolute.coerceIn(0, replacedLength)
+        return absolute.coerceIn(0L, replacedLength).toInt()
     }
 
     private fun addressable(start: Int, end: Int): Boolean = start >= 0 && end >= start && end <= text.length

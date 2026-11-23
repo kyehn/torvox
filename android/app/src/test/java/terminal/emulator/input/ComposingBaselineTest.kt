@@ -30,6 +30,14 @@ class ComposingBaselineTest {
     }
 
     @Test
+    fun `an overflowing positive offset clamps to the composing end`() {
+        val baseline = ComposingBaseline()
+        // 正值是「相对组字末尾的偏移」：Int.MAX_VALUE 会让加法溢出成负数，
+        // 钳位后落到组字开头（光标跳回开头，差分重放据此删错内容）。
+        assertEquals(3, baseline.resolveCursor("abc", newCursorPosition = Int.MAX_VALUE))
+    }
+
+    @Test
     fun `null text ends composing and clears both fields`() {
         val baseline = ComposingBaseline()
         baseline.composeAt("abc", cursor = 3)
@@ -243,6 +251,31 @@ class ComposingBaselineTest {
                 newCursorPosition = -99,
             ),
         )
+    }
+
+    @Test
+    fun `an overflowing replaced offset clamps to the replaced text end`() {
+        val baseline = ComposingBaseline()
+        baseline.composeAt("abcdef", cursor = 6)
+        // 同样会溢出：偏移加到插入点末尾时翻负，钳位后落到替换文本开头。
+        assertEquals(
+            6,
+            baseline.replacedCursor(
+                start = 2,
+                end = 4,
+                insertedLength = 2,
+                newCursorPosition = Int.MAX_VALUE,
+            ),
+        )
+    }
+
+    @Test
+    fun `textAfter tolerates a maximal length`() {
+        val baseline = ComposingBaseline()
+        baseline.composeAt("abcdef", cursor = 3)
+        // 长度参与加法：Int.MAX_VALUE 会让 `cursor + length` 溢出成负数，
+        // 负的上界会让 substring 抛越界异常。
+        assertEquals("def", baseline.textAfter(Int.MAX_VALUE))
     }
 
     @Test

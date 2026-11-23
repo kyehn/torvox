@@ -61,9 +61,11 @@ class SelectionMover(private val maxMagnitude: Int) {
 
     /** 把 [position] 折算为自上次位置以来的位移；不接受时返回空位移。 */
     fun moveTo(position: Int): SelectionDelta {
-        val raw = position - lastPosition
-        if (raw == 0) return SelectionDelta(0)
-        val step = raw.coerceIn(-maxMagnitude, maxMagnitude)
+        // 差值走 Long：位置来自输入法，Int 溢出后符号会反过来，
+        // 向左的移动被当成向右，终端光标走错方向。
+        val raw = position.toLong() - lastPosition.toLong()
+        if (raw == 0L) return SelectionDelta(0)
+        val step = raw.coerceIn(-maxMagnitude.toLong(), maxMagnitude.toLong()).toInt()
         // 即使被钳位也要推进记录位置：否则下一次折算会重复计入被丢掉的部分。
         lastPosition += step
         return SelectionDelta(step)

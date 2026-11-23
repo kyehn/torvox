@@ -91,6 +91,16 @@ class ImeCursorContractTest {
     }
 
     @Test
+    fun `an overflowing position does not flip the movement direction`() {
+        val mover = SelectionMover(maxMagnitude = 4096)
+        mover.resetTo(1)
+        // 位置减记录值溢出时符号会反过来：向左的移动被当成向右，终端光标走错方向。
+        val delta = mover.moveTo(Int.MIN_VALUE)
+        assertEquals(4096, delta.leftward())
+        assertEquals(0, delta.rightward())
+    }
+
+    @Test
     fun `magnitude counts input-method positions verbatim`() {
         val mover = SelectionMover(maxMagnitude = 4096)
         // 输入法给的是**它自己**文本里的下标，本层无从得知码点边界，
