@@ -62,6 +62,11 @@ pub(crate) fn one_line(text: &str) -> String {
 /// 载荷里的空行会让按行采集的日志通道在空行处截断记录，原因链随之丢失
 /// （见 [`one_line`]）。此处把载荷压平后与位置拼成一行：判死原因仍完整
 /// 留在正文里，只是与其它行以 ` | ` 相接。
+///
+/// panic 钩子只在 Android 上安装，宿主生产构建没有调用方；与 `surface.rs`
+/// 的 `surface_extent` 同理，限定为 Android 生产构建 + 测试，而非加
+/// `allow(dead_code)`。
+#[cfg(any(target_os = "android", test))]
 pub(crate) fn panic_record_text(
     payload: &str,
     location: Option<&std::panic::Location<'_>>,
