@@ -139,9 +139,10 @@ pub(crate) async fn initialize_wgpu()
     );
     let device_descriptor = wgpu::DeviceDescriptor {
         label: Some("Device"),
-        #[cfg(debug_assertions)]
-        required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
-        #[cfg(not(debug_assertions))]
+        // 不要求任何可选能力。`TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES` 的唯一
+        // 用途是让 `Adapter::get_texture_format_features` 返回适配器特化结果，而
+        // 本仓从不调用它；debug 构建曾无条件要求该能力，等于给「适配器不暴露它」
+        // 的设备多留一条设备创建失败路径，换不来任何行为差异。
         required_features: wgpu::Features::empty(),
         required_limits: adapter.limits(),
         ..Default::default()
