@@ -178,6 +178,80 @@ internal const val MAX_SUSTAINED_OUTPUT_PROCESS_CPU_MILLIS = 6_000L
  */
 internal const val MIN_SUSTAINED_OUTPUT_THROUGHPUT_BYTES_PER_SECOND = 20_000.0
 
+/**
+ * 突发输出场景 S6 的负载形状：一次灌入终端的行数。
+ *
+ * 突发与持续输出的区别在节奏：这里整段一次灌完，中间没有节流。行数按实测选定，
+ * 使字节流落在场景矩阵的输出字节上限之内（本机 AVD：50 万行送达 3888908 字节，约 3.9MB）。
+ */
+internal const val BURST_OUTPUT_LINE_COUNT = 500_000
+
+/** 等负载跑完的上限：超过即强停被测应用并判红，不让失败场景继续耗设备。 */
+internal const val BURST_OUTPUT_TIMEOUT_MILLIS = 20_000L
+
+/** 等完成标记的轮询间隔。 */
+internal const val BURST_OUTPUT_POLL_MILLIS = 300L
+
+/** 负载进行中的内存采样间隔。 */
+internal const val BURST_OUTPUT_MEMORY_SAMPLE_INTERVAL_MILLIS = 500L
+
+/** 等标题哨兵出现在会话抽屉里的上限。 */
+internal const val SESSION_TITLE_TIMEOUT_MILLIS = 5_000L
+
+/** 等标题哨兵的轮询间隔。 */
+internal const val SESSION_TITLE_POLL_MILLIS = 200L
+
+/** 关闭会话抽屉的返回键尝试次数：输入法在时返回键先被输入法吃掉。 */
+internal const val SESSION_DRAWER_CLOSE_ATTEMPTS = 3
+
+/**
+ * 突发输出期间至少要出帧的呈现窗口数下限。
+ *
+ * 突发是整段字节流一次到达，呈现窗口数天然少于逐批到达的持续输出：实测（本机 AVD）
+ * 突发窗口 1.4–1.7 秒、出帧窗口 3–4 个。下限取 2：连着两个窗口都没有呈现即
+ * 「整段字节流把终端压到几乎不画」。
+ */
+internal const val MIN_BURST_OUTPUT_PRESENTED_WINDOWS = 2
+
+/**
+ * 突发输出期间呈现之间允许的最长停摆（毫秒）。
+ *
+ * 呈现汇总按 500ms 窗口交出，故正常的相邻窗口间隔约 500–600ms。实测 506–515ms，
+ * 上限取 1000ms：连着两个窗口没有呈现即判红。
+ */
+internal const val MAX_BURST_OUTPUT_PRESENTATION_GAP_MILLIS = 1_000L
+
+/**
+ * 突发输出期间终端内容层呈现间隔 p95 的上限（毫秒）。
+ *
+ * 实测（本机 AVD）19ms：突发时终端基本满帧。上限取 250ms，与持续输出场景同档
+ * （持续输出在宿主被抢占时实测 150ms），软件渲染的模拟器一帧本身就要几十毫秒。
+ */
+internal const val MAX_BURST_OUTPUT_LAYER_INTERVAL_P95_MILLIS = 250L
+
+/**
+ * 突发输出期间终端内容层占用的刷新槽位比例下限。
+ *
+ * 与刷新率无关。实测 0.94–0.96（突发时终端基本满帧）；宿主被抢占时刷新槽位会掉
+ * （持续输出被抢占时实测 0.278），下限取 0.15：塌到接近零即「一帧都没出」。
+ */
+internal const val MIN_BURST_OUTPUT_LAYER_SLOT_UTILIZATION = 0.15
+
+/**
+ * 突发输出期间 PSS 增长的上限（千字节）。
+ *
+ * 实测（本机 AVD）2.4–7.9MB：回滚区按配置封顶（默认 2000 行），增长有界。上限取
+ * 16MB，约为最差实测的两倍——采样按固定间隔取，峰值可能落在两次采样之间。
+ */
+internal const val MAX_BURST_OUTPUT_PSS_GROWTH_KILOBYTES = 16L * 1024
+
+/**
+ * 突发输出期间进程 CPU 时间的上限（毫秒）。
+ *
+ * 实测（本机 AVD）1220–1500ms。上限取 6000ms，与持续输出场景同档。
+ */
+internal const val MAX_BURST_OUTPUT_PROCESS_CPU_MILLIS = 6_000L
+
 internal const val INTERACTION_BUDGET_MILLIS = 4_000L
 
 /**
