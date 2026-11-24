@@ -134,4 +134,12 @@
     <string name="toggle_keyboard">显示/隐藏输入法</string>
     <string name="log_level">日志等级</string>
     <string name="log_level_desc">同时作用于应用与原生日志。等级低于所选值的日志不写入 logcat。</string>
+    <string name="shell_entries_empty">未配置启动入口，使用默认入口</string>
+    <string name="shell_entry_name">名称</string>
+    <string name="shell_entry_command">Shell 启动入口命令行</string>
+    <string name="shell_entry_add">添加入口</string>
+    <string name="shell_entry_activate">激活</string>
+    <string name="shell_entry_active">已激活</string>
+    <string name="shell_entry_delete">删除</string>
+    <string name="shell_entry_new_session">用此入口新建会话</string>
 </resources>

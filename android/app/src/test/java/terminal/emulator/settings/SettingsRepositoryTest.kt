@@ -397,8 +397,9 @@ class SettingsRepositoryTest {
                 listOf(ShellEntry("alpha", "/usr/bin/alpha -l"), ShellEntry("beta", "/usr/bin/beta")),
                 state.shellEntries,
             )
-            // 激活项保存的是命令；更新同名条目不会改变激活状态。
-            assertEquals("/usr/bin/alpha", state.shell)
+            // 激活项保存的是命令与名称；更新同名条目不会改变激活状态。
+            assertEquals("/usr/bin/alpha -l", state.shell)
+            assertEquals("alpha", state.activeShellName)
         }
     }
 
@@ -410,6 +411,8 @@ class SettingsRepositoryTest {
         withTimeout(5_000) { repository.settings.first { it.shell == "/usr/bin/beta" } }
         repository.removeShellEntry("beta")
         withTimeout(5_000) { repository.settings.first { it.shell == "" } }
-        assertEquals(listOf(ShellEntry("alpha", "/usr/bin/alpha")), repository.settings.first().shellEntries)
+        val state = repository.settings.first()
+        assertEquals("", state.activeShellName)
+        assertEquals(listOf(ShellEntry("alpha", "/usr/bin/alpha")), state.shellEntries)
     }
 }

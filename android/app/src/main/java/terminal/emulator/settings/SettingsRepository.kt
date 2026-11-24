@@ -52,6 +52,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
         val NIGHT_THEME_NAME = stringPreferencesKey("night_theme_name")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val SHELL = stringPreferencesKey("shell")
+        val SHELL_ACTIVE_NAME = stringPreferencesKey("shell_active_name")
         val SHELL_ENTRIES = stringPreferencesKey("shell_entries")
         val APP_THEME_MODE = stringPreferencesKey("app_theme_mode")
         val BOOTSTRAP_URL = stringPreferencesKey("bootstrap_url")
@@ -257,6 +258,8 @@ constructor(private val provider: SettingsDataStoreProvider) {
         val nightThemeName: String,
         val themeMode: String = DEFAULT_THEME_MODE,
         val shell: String = DEFAULT_SHELL,
+        /** 激活入口的名称；与命令行分开存，避免两条同名不同内容的入口同时显示激活。 */
+        val activeShellName: String = "",
         /** 具名启动入口列表；默认空，详见 [ShellEntry]。 */
         val shellEntries: List<ShellEntry> = emptyList(),
         val bootstrapUrl: String = "",
@@ -276,6 +279,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
                 nightThemeName = prefs[Keys.NIGHT_THEME_NAME] ?: defaultTheme(),
                 themeMode = TerminalThemeMode.normalize(prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE),
                 shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
+                activeShellName = prefs[Keys.SHELL_ACTIVE_NAME] ?: "",
                 shellEntries = decodeShellEntries(prefs[Keys.SHELL_ENTRIES]),
                 bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
                 logLevel = LogLevel.fromOrdinal(prefs[Keys.LOG_LEVEL] ?: LogLevel.DEFAULT.ordinal).ordinal,
@@ -375,7 +379,13 @@ constructor(private val provider: SettingsDataStoreProvider) {
 
     suspend fun setAppThemeMode(mode: String) = put(Keys.APP_THEME_MODE, mode)
 
-    suspend fun setShell(shell: String) = put(Keys.SHELL, shell)
+    /** 直接写命令行（无具名入口）时不再有激活条目。 */
+    suspend fun setShell(shell: String) {
+        provider.dataStore.edit { prefs ->
+            prefs[Keys.SHELL] = shell
+            prefs.remove(Keys.SHELL_ACTIVE_NAME)
+        }
+    }
 
     /**
      * 非法设置数据按「没有条目」处理：规范不设迁移与回退，损坏的一项不能让
@@ -399,18 +409,26 @@ constructor(private val provider: SettingsDataStoreProvider) {
                 entries + entry
             }
             prefs[Keys.SHELL_ENTRIES] = Json.encodeToString(updated)
-            if (prefs[Keys.SHELL].isNullOrEmpty()) prefs[Keys.SHELL] = entry.command
+            if (prefs[Keys.SHELL_ACTIVE_NAME].isNullOrEmpty()) {
+                prefs[Keys.SHELL_ACTIVE_NAME] = entry.name
+                prefs[Keys.SHELL] = entry.command
+            } else if (prefs[Keys.SHELL_ACTIVE_NAME] == entry.name) {
+                // 更新激活项的命令行时命令必须同步，否则界面显示新值、会话仍用旧值。
+                prefs[Keys.SHELL] = entry.command
+            }
         }
     }
 
     /** 删除条目；被删除的是当前激活项时清空激活命令，走默认启动入口链。 */
     suspend fun removeShellEntry(name: String) {
         provider.dataStore.edit { prefs ->
-            val removed = decodeShellEntries(prefs[Keys.SHELL_ENTRIES]).firstOrNull { it.name == name }
             prefs[Keys.SHELL_ENTRIES] = Json.encodeToString(
                 decodeShellEntries(prefs[Keys.SHELL_ENTRIES]).filterNot { it.name == name },
             )
-            if (removed != null && removed.command == prefs[Keys.SHELL]) prefs[Keys.SHELL] = DEFAULT_SHELL
+            if (prefs[Keys.SHELL_ACTIVE_NAME] == name) {
+                prefs.remove(Keys.SHELL_ACTIVE_NAME)
+                prefs[Keys.SHELL] = DEFAULT_SHELL
+            }
         }
     }
 
@@ -419,7 +437,10 @@ constructor(private val provider: SettingsDataStoreProvider) {
         val entry = decodeShellEntries(provider.dataStore.data.first()[Keys.SHELL_ENTRIES])
             .firstOrNull { it.name == name }
             ?: throw IllegalArgumentException("Unknown shell entry: $name")
-        setShell(entry.command)
+        provider.dataStore.edit { prefs ->
+            prefs[Keys.SHELL] = entry.command
+            prefs[Keys.SHELL_ACTIVE_NAME] = entry.name
+        }
     }
 
     /** 设置日志等级（`LogLevel` 的序号）。 */

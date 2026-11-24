@@ -160,8 +160,11 @@ fun SettingsScreen(
                     }
                     item {
                         TerminalConfigSection(
-                            selectedShell = settings.shell,
-                            onShellSaved = { viewModel.setShell(it) },
+                            activeShellName = settings.activeShellName,
+                            shellEntries = settings.shellEntries,
+                            onShellEntrySaved = { name, command -> viewModel.saveShellEntry(name, command) },
+                            onShellEntryRemoved = { viewModel.removeShellEntry(it) },
+                            onShellEntryActivated = { viewModel.activateShellEntry(it) },
                             textColor = textColor,
                             accentColor = accentColor,
                             cardBackground = cardBackground,

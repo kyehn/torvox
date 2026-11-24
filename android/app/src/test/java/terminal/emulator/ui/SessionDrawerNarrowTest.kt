@@ -8,10 +8,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -20,6 +24,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import terminal.emulator.SessionInfo
+import terminal.emulator.settings.ShellEntry
 import kotlin.math.abs
 
 /** 抽屉高度，单位像素。 */
@@ -57,6 +62,9 @@ class SessionDrawerNarrowTest {
         sessions: List<SessionInfo> = emptyList(),
         activeSessionId: Long = 0L,
         drawerHeight: Dp? = null,
+        shellEntries: List<ShellEntry> = emptyList(),
+        activeShellName: String = "",
+        onAddSessionFromEntry: (String) -> Unit = {},
     ) {
         composeRule.setContent {
             MaterialTheme {
@@ -69,6 +77,9 @@ class SessionDrawerNarrowTest {
                         onSwitchSession = {},
                         onCloseSession = {},
                         onAddSession = {},
+                        shellEntries = shellEntries,
+                        activeShellName = activeShellName,
+                        onAddSessionFromEntry = onAddSessionFromEntry,
                         onSettings = {},
                         onSearch = {},
                         onKeyboardToggle = {},
@@ -181,5 +192,20 @@ class SessionDrawerNarrowTest {
             "会话列表区必须留出足够高度（标题下沿 $titleBottom，新建会话上沿 $addTop）",
             addTop - titleBottom >= DRAWER_HEIGHT * SESSION_LIST_MIN_FRACTION,
         )
+    }
+
+    @Test
+    fun long_press_add_session_uses_only_inactive_entries() {
+        var selected: String? = null
+        setDrawer(
+            shellEntries =
+            listOf(ShellEntry("alpha", "/usr/bin/alpha"), ShellEntry("beta", "/usr/bin/beta")),
+            activeShellName = "alpha",
+            onAddSessionFromEntry = { selected = it },
+        )
+        composeRule.onNodeWithTag("AddSessionButton").performTouchInput { longClick() }
+        composeRule.onNodeWithText("beta").assertIsDisplayed()
+        composeRule.onNodeWithText("beta").performClick()
+        assertEquals("/usr/bin/beta", selected)
     }
 }

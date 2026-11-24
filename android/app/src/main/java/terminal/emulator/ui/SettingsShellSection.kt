@@ -1,11 +1,16 @@
 package terminal.emulator.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -15,18 +20,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import terminal.emulator.R
+import terminal.emulator.settings.ShellEntry
 
-/** 终端设置分区：Shell 启动入口。 */
+/** 终端设置分区：具名 Shell 启动入口。 */
 @Composable
 internal fun TerminalConfigSection(
-    selectedShell: String,
-    onShellSaved: (String) -> Unit,
+    activeShellName: String,
+    shellEntries: List<ShellEntry>,
+    onShellEntrySaved: (String, String) -> Unit,
+    onShellEntryRemoved: (String) -> Unit,
+    onShellEntryActivated: (String) -> Unit,
     textColor: Color,
     accentColor: Color,
     cardBackground: Color,
@@ -35,53 +45,83 @@ internal fun TerminalConfigSection(
     Column {
         SectionHeader(stringResource(R.string.terminal), sectionTitleColor)
         SettingsCard(cardBackground) {
-            ShellInput(
-                shellPath = selectedShell,
-                onShellSaved = { onShellSaved(it) },
-                textColor = textColor,
-                accentColor = accentColor,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+            if (shellEntries.isEmpty()) {
+                Text(stringResource(R.string.shell_entries_empty), color = textColor)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            shellEntries.forEach { entry ->
+                val active = entry.name == activeShellName
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(entry.name, style = MaterialTheme.typography.bodyLarge, color = textColor)
+                        Text(entry.command, style = MaterialTheme.typography.bodySmall, color = textColor)
+                    }
+                    Button(
+                        onClick = { onShellEntryActivated(entry.name) },
+                        enabled = !active,
+                        colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                        modifier = Modifier.testTag("ShellActivate-${entry.name}"),
+                    ) {
+                        val actionLabel =
+                            stringResource(if (active) R.string.shell_entry_active else R.string.shell_entry_activate)
+                        Text(actionLabel)
+                    }
+                    IconButton(onClick = { onShellEntryRemoved(entry.name) }) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = stringResource(R.string.shell_entry_delete),
+                            tint = textColor,
+                        )
+                    }
+                }
+            }
+            ShellEntryInput(onSaved = onShellEntrySaved, textColor = textColor, accentColor = accentColor)
         }
     }
 }
 
 @Composable
-private fun ShellInput(shellPath: String, onShellSaved: (String) -> Unit, textColor: Color, accentColor: Color) {
-    val isSmallScreen = rememberIsSmallScreen()
-    val labelStyle =
-        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+private fun ShellEntryInput(onSaved: (String, String) -> Unit, textColor: Color, accentColor: Color) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var command by rememberSaveable { mutableStateOf("") }
+    val fieldColors =
+        OutlinedTextFieldDefaults.colors(
+            focusedTextColor = textColor,
+            unfocusedTextColor = textColor,
+            cursorColor = accentColor,
+            focusedBorderColor = accentColor,
+            unfocusedBorderColor = textColor.copy(alpha = 0.5f),
+        )
     Column {
-        Text(stringResource(R.string.shell), style = labelStyle, color = textColor)
-        Spacer(modifier = Modifier.height(4.dp))
-        // `rememberSaveable` 而非 `remember`：本项在 LazyColumn 的 item 内，滚出再滚回
-        // 会离开组合并丢弃普通 remember 的状态——用户已敲入但未保存的内容被静默吞掉。
-        var text by rememberSaveable(shellPath) { mutableStateOf(shellPath) }
         OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            modifier = Modifier.fillMaxWidth().testTag("ShellEntryInput"),
+            value = name,
+            onValueChange = { name = it },
+            label = { Text(stringResource(R.string.shell_entry_name)) },
             singleLine = true,
-            placeholder = {
-                Text(stringResource(R.string.shell_placeholder), color = textColor.copy(alpha = 0.5f))
-            },
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
-            colors =
-            OutlinedTextFieldDefaults.colors(
-                focusedTextColor = textColor,
-                unfocusedTextColor = textColor,
-                cursorColor = accentColor,
-                focusedBorderColor = accentColor,
-                unfocusedBorderColor = textColor.copy(alpha = 0.5f),
-            ),
+            modifier = Modifier.fillMaxWidth().testTag("ShellEntryName"),
+            colors = fieldColors,
+        )
+        OutlinedTextField(
+            value = command,
+            onValueChange = { command = it },
+            label = { Text(stringResource(R.string.shell_entry_command)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().testTag("ShellEntryInput"),
+            colors = fieldColors,
         )
         Spacer(modifier = Modifier.height(8.dp))
         Button(
-            onClick = { onShellSaved(text) },
-            modifier = Modifier.fillMaxWidth().testTag("ShellSaveButton"),
+            onClick = {
+                if (name.isNotBlank() && command.isNotBlank()) {
+                    onSaved(name, command)
+                    name = ""
+                    command = ""
+                }
+            },
+            modifier = Modifier.fillMaxWidth().testTag("ShellEntrySaveButton"),
             colors = ButtonDefaults.buttonColors(containerColor = accentColor),
         ) {
-            Text(text = stringResource(R.string.save), color = textColor)
+            Text(stringResource(R.string.shell_entry_add))
         }
     }
 }

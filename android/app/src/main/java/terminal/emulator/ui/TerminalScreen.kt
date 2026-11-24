@@ -428,6 +428,9 @@ fun TerminalScreen(
                     onSwitchSession = { viewModel.switchSession(it) },
                     onCloseSession = { viewModel.closeSession(it) },
                     onAddSession = { viewModel.createSession() },
+                    shellEntries = settings.shellEntries,
+                    activeShellName = settings.activeShellName,
+                    onAddSessionFromEntry = { viewModel.createSession(it) },
                     onSettings = {
                         scope.launch { drawerState.close() }
                         onSettings()

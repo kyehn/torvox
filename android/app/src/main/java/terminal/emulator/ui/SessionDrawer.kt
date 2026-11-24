@@ -3,6 +3,7 @@ package terminal.emulator.ui
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,11 +29,16 @@ import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import terminal.emulator.R
 import terminal.emulator.SessionInfo
+import terminal.emulator.settings.ShellEntry
 
 /** 抽屉里每个会话的关闭按钮 testTag 前缀：测试据此关闭指定会话，无需按位置猜节点。 */
 const val CLOSE_SESSION_TAG_PREFIX = "CloseSession-"
@@ -62,6 +69,9 @@ fun SessionDrawer(
     onSwitchSession: (Long) -> Unit,
     onCloseSession: (Long) -> Unit,
     onAddSession: () -> Unit,
+    shellEntries: List<ShellEntry>,
+    activeShellName: String,
+    onAddSessionFromEntry: (String) -> Unit,
     onSettings: () -> Unit,
     onSearch: () -> Unit,
     onKeyboardToggle: () -> Unit,
@@ -69,6 +79,7 @@ fun SessionDrawer(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var shellMenuExpanded by remember { mutableStateOf(false) }
     val backgroundColor = MaterialTheme.colorScheme.surfaceVariant
     val textColor = MaterialTheme.colorScheme.onSurfaceVariant
     val accent = MaterialTheme.colorScheme.primary
@@ -143,6 +154,15 @@ fun SessionDrawer(
                 onClose()
                 onAddSession()
             },
+            entries = shellEntries.filter { it.name != activeShellName },
+            expanded = shellMenuExpanded,
+            onExpand = { shellMenuExpanded = true },
+            onDismiss = { shellMenuExpanded = false },
+            onEntrySelected = { command ->
+                shellMenuExpanded = false
+                onClose()
+                onAddSessionFromEntry(command)
+            },
             textColor = textColor,
             accent = accent,
         )
@@ -166,31 +186,50 @@ fun SessionDrawer(
  * 位置按 `DESIGN.md` 侧边面板节：新增入口 MUST 位于会话列表底部，MUST NOT 放在标题栏。
  */
 @Composable
-private fun AddSessionButton(onClick: () -> Unit, textColor: Color, accent: Color) {
-    Row(
-        modifier =
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 6.dp)
-            .testTag("AddSessionButton"),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Default.Add,
-            contentDescription = stringResource(R.string.cd_new_session),
-            tint = accent,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = stringResource(R.string.new_session),
-            color = textColor,
-            fontSize = 13.sp,
-        )
+private fun AddSessionButton(
+    onClick: () -> Unit,
+    entries: List<ShellEntry>,
+    expanded: Boolean,
+    onExpand: () -> Unit,
+    onDismiss: () -> Unit,
+    onEntrySelected: (String) -> Unit,
+    textColor: Color,
+    accent: Color,
+) {
+    Box {
+        Row(
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .combinedClickable(onClick = onClick, onLongClick = onExpand)
+                .padding(vertical = 6.dp)
+                .testTag("AddSessionButton"),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = stringResource(R.string.cd_new_session),
+                tint = accent,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.new_session),
+                color = textColor,
+                fontSize = 13.sp,
+            )
+        }
+        DropdownMenu(expanded = expanded && entries.isNotEmpty(), onDismissRequest = onDismiss) {
+            entries.forEach { entry ->
+                DropdownMenuItem(
+                    text = { Text(entry.name, color = textColor) },
+                    onClick = { onEntrySelected(entry.command) },
+                )
+            }
+        }
     }
 }
 
