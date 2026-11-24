@@ -31,7 +31,7 @@
 ## ProGuard/R8
 
 - 尽量保持优化，不做混淆，方便调试
-- 不添加 -dontoptimize 
+- 不添加 -dontoptimize
 - 添加 -dontobfuscate
 - -assumenosideeffects 需谨慎使用
 

@@ -57,6 +57,7 @@
 
   结论登记要求与语料判定／能力裁定／参照面收敛／禁改区四张补齐表，把原只存在于归档的
   逐份结论写入规范）。
+
 - Affected code: `native/src/render/context.rs`、`native/src/render/tests.rs`。
 - Affected docs: `docs/research/ecosystem.md`（本变更期间尚在；随后由
   `2026-10-15-research-docs-retirement` 整体删除，内容并入规范表）。

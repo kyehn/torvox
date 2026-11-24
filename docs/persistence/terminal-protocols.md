@@ -11,7 +11,6 @@
 
 ## 架构前提
 
-
 环境声明（`docs/specification/DESIGN.md` Shell 节）：`TERM=xterm-256color`、`COLORTERM=truecolor`。
 
 ## 本项目支持的协议
@@ -28,7 +27,6 @@
 | 设备属性应答 | DA1（默认应答 `?62;22c`，VT220 一致性等级，`test_helpers.rs` 的 `test_output_capture_da` 钉住）、DA2、DA3、DSR、DECRPM、XTVERSION、XTWINOPS（CSI 14/16/18t，走 `on_size` 回调）、DECRQSS、DCS `+q` termcap/terminfo 查询 |
 
 ### OSC 操作系统命令
-
 
 | OSC 段 | 作用 | 本项目状态 |
 | --- | --- | --- |
@@ -69,7 +67,6 @@
 
 ### 明确不接线（规范已登记，非缺口）
 
-
 ## 每个协议的作用（速查）
 
 - **CSI/ESC/SGR**：终端控制的母语——光标、擦除、滚动、颜色、属性。
@@ -106,7 +103,6 @@
 - **OSC 1337 CurrentDir**：上游 pwd 解析的来源之一（`terminal.rs` 的 `on_pwd_changed` 文档），目前本仓只展示 OSC 7 来源的 pwd。
 
 ### 绑定层缺口
-
 
 ### 对照结论
 

@@ -25,7 +25,6 @@
 - `text-search`: 搜索定位上下文与导航重扫行为
 - `cjk-rendering`: 宽字符边界守卫
 
-
 ## Impact
 
 - 影响 Rust 会话/PTY 层、Kotlin 设置下发链路、搜索导航与 CJK 宽表实现。

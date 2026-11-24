@@ -29,7 +29,6 @@
 
 ### Modified Capabilities
 
-
 ## Impact
 
 - `openspec/specs/logcat-hygiene/spec.md`（新增）

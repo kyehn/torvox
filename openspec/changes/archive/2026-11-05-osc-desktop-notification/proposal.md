@@ -34,6 +34,7 @@
 ## Impact
 
   表述随本变更更新（归档时同步）。
+
 - 原生侧：`native/src/terminal/ghostty_terminal/` 注册上游回调并把通知推入独立队列；
   `native/src/event.rs` 增通知事件；`native/src/android/ffi/` 增通知队列的轮询导出。
 - Android 侧：`bridge/` 增通知事件解码与轮询；`runtime/` 增前台/后台分派与系统通知发布；

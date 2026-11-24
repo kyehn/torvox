@@ -73,7 +73,6 @@
 
 ## 六、禁改区待维护者裁定（AGENTS.md：`scripts/`、`.github/`、`android/app/build.gradle.kts`）
 
-
 - [x] aislop / jscpd 门禁（TESTING.md 环境节）——已登记，未实施
 - [x] rapidocr OCR 自动化（TESTING.md 环境节 + 外部基准优先级 4）——已登记，未实施
 - [x] CI 产物哈希比对（vercel-labs-wterm 研究结论）——已登记，未实施

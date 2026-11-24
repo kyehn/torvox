@@ -25,6 +25,7 @@
       - `termux-app.md` 索引行的 `termux.properties` 判定理由由「`PROHIBITED.md` 明禁解析该文件」
         更正为「上游设置项体系本仓无该设置面；文件本身按 `termux-configuration` 只解析
         `config.md` 列出的允许键」。
+
 - [x] 增量由脚本从主 spec 原文切出整块 Requirement 再做定点替换生成，
       每个被替换串断言在全文只出现一次；归档前逐字 diff 确认只有上述 5 处改动，
       111 行索引表全部保持单行（不得在表格行内换行，否则表格断裂）。

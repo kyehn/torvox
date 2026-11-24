@@ -20,9 +20,10 @@
 ## What Changes
 
   研究报告口径由「已退役 105 份 + 现役 6 份」改为「全部 111 份已整体退役」。
-  - 正文与索引表说明改为「6 份综合研究报告曾现役，后随 `docs/research/` 整体删除，
+
+- 正文与索引表说明改为「6 份综合研究报告曾现役，后随 `docs/research/` 整体删除，
     其结论由同键索引行承接」；
-  - `termux-app.md` 索引行的 `termux.properties` 判定理由由「`PROHIBITED.md` 明禁解析该文件」
+- `termux-app.md` 索引行的 `termux.properties` 判定理由由「`PROHIBITED.md` 明禁解析该文件」
     更正为「上游设置项体系本仓无该设置面；文件本身按 `termux-configuration` 只解析
     `config.md` 列出的允许键」。
 - 同步订正 `docs/spec-code-gaps.md`（审计记录，非规范）：

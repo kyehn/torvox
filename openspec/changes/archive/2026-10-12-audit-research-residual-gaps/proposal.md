@@ -88,11 +88,13 @@
 ### Modified Capabilities
 
   依据。
+
 - `terminal-state-regression`：网格状态断言的覆盖口径与快照装置的存废依据。
 
 ## Non-goals
 
   已判定其无 Kotlin 消费者，本变更只清理与之矛盾的注释。
+
 - 不改「跳过干净快照」的网格级缓存（`snapshot_needs_rebuild`）语义，也不改渲染侧的
   `CachedInstances` 行级增量——两者保持原样。
 - 不采纳上游 `selection::gesture` 的拖动与自动滚动，不重构 Kotlin 侧选择拖动路径。

@@ -16,9 +16,9 @@
    「全部 111 份已退役」，不是新造的数字。
 4. `docs/specification/PROHIBITED.md` 现行「配置文件」节写的是
    「解析 `termux.properties` 中未在 `config.md` 列出的键，以及 `colors.properties`、
-   `termux.float.properties`。允许读取的键仅按 `config.md` 列出；其他键一律忽略。」
+   `termux.float.properties`。允许读取的键仅按`config.md`列出；其他键一律忽略。」
    ——禁的是**未列出的键**，不是这个文件本身。
-5. 实现的键面：`TermuxPropertiesParser.parse` 读 16 个标量键
+5. 实现的键面：`TermuxPropertiesParser.parse`读 16 个标量键
    （`TermuxProperties.kt` 的 `boolean`／`integer`／`float`／枚举分支与
    `extra-keys`／`default-working-directory`），外加
    `SessionShortcut.entries` 的 4 个 `shortcut.*` 键，合计 20 个，

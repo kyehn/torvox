@@ -56,6 +56,7 @@
 ## Impact
 
   （新增切会话清空条款）。
+
 - Affected code: `native/Cargo.toml`（构建配置）。
 - Affected docs: `docs/persistence/ecosystem.md`。
 - 行为变化仅一处：release 构建体积与链接时间（用户可感知的 `.so` 更小）。

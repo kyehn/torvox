@@ -67,7 +67,6 @@
 
 ### Modified Capabilities
 
-
 ## Non-goals
 
 - 不改输入法提交语义（`encodeCommittedText` 及其 CR 归一保持原样）。

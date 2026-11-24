@@ -26,6 +26,7 @@
   以**报告文件名为键**的 74 行索引表，每行写明实质、判定（采纳／不采纳及门槛／
   未声明不立项／PROHIBITED／仅参照）、依据位置；并写入可移除性条款
   （索引完整后 `docs/research` MUST 可整体删除；日后若重新引入报告，索引行 MUST 同批提交）。
+
 - **删除 `docs/research/`**：全部 74 份（73 份逐仓报告 + `ecosystem.md`）。
   `ecosystem.md` 仍有效的判断（参照面评级、禁止项、测试边界）由索引表与既有台账承接。
 - **清引用**：`FontFileOverrideInstrumentedTest` 的注释指向 `docs/research`，改为指向

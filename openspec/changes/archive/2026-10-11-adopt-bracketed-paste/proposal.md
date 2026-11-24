@@ -66,6 +66,7 @@
 ### Modified Capabilities
 
   依据），新增 `paste::encode` 采用与 `paste::is_safe` 不采用两行
+
 - `modifier-bar-sticky-encoding`: bracketed 缺口声明精确化——粘贴路径已实现，
   输入法提交路径不受影响
 

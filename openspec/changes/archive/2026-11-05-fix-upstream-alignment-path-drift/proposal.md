@@ -29,6 +29,4 @@
 
 ## Capabilities
 
-
 ## Impact
-
