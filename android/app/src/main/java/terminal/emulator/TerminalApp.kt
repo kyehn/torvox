@@ -4,8 +4,8 @@ import android.app.Application
 import android.content.Context
 import android.os.PowerManager
 import android.os.StrictMode
-import dagger.hilt.android.HiltAndroidApp
 import android.util.Log
+import dagger.hilt.android.HiltAndroidApp
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.hostPowerPreference
 import terminal.emulator.bridge.nativeClassInitStarted
