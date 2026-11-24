@@ -105,11 +105,16 @@
 - **Bootstrap**：支持 URL 与本地文件安装。
   - 提供 Termux 预设选项，不提供旧版本如 `apt-android-5 2022.04.28-r6`，从 `termux-app/app/build.gradle` 提取逻辑。
   - 原子化替换 `/data/data/com.termux/files/usr/` 目录，下载/安装前目录 `/data/data/com.termux/files/usr-staging` 如果存在则拒绝执行，原 `usr` 重命名为 `usr.xxxxx`（随机后缀），安装完成后旧目录由用户手动删除，不自动删除。
+  - 使用 context.cacheDir 保存临时文件
+  - 不限制安装包大小
   - 不进行任何 SHA-256 校验或其他类似检查，所有文件中亦不得保存此类数据，不考虑传输安全。
   - 尽量避免非必要的文件复制，不得考虑“安装时文件变动”等用户不会做的事。
   - 不记录 Bootstrap 状态，不得生成安装标记，不创建 profileInstalled 这类文件。
   - 不得特殊化设置权限，按照 Termux 同款流程设置，不额外设置。
-  - 禁止对其他 bootstrap 特殊处理，`postinstall` 只在存在时运行，不做无意义检查/校验，出现问题正常报错。
+  - 禁止对其他 bootstrap 特殊处理，不做无意义检查/校验，出现问题正常报错。
+  - `postinstall` 等不得运行，不得运行 `termux-bootstrap-second-stage.sh`，不得设计替代或类似流程。一旦运行此类命令如果切换失败选择回滚具有风险。`termux-bootstrap-second-stage.sh` 的运行或失败交给用户处理。
+  - 正确处理 SYMLINKS.txt 文件，参考 termux-app 和 <https://github.com/nix-community/nix-on-droid/blob/3264519d7df25f82e716e83607acf5e61f89b1ea/pkgs/bootstrap.nix#L30>
+  - 正确处理 EXECUTABLES.txt 文件，参考 <https://github.com/nix-community/nix-on-droid/blob/3264519d7df25f82e716e83607acf5e61f89b1ea/pkgs/bootstrap.nix#L28>
 - **日志等级**：允许调整日志等级和关闭日志，`INFO` 和 `DEBUG` 等无需语言翻译和转换，显示原始信息
 - **清除应用数据按钮**，清除设置数据/缓存数据等。不得影响 `/data/data/com.termux/files` 目录
 
@@ -119,7 +124,7 @@
 
 - 脏跟踪，跳过干净快照，跳过逐行复制，减少突发输出期间的工作量。
 - 减少固定时间轮询机制，使用事件触发或更优机制。
-- 根据系统提供的刷新率/分辨率工作，不假设固定数值，不能假设屏幕刷新率都是 60
+- 根据系统提供的刷新率/分辨率工作，不假设固定数值，不能假设屏幕刷新率都是 60Hz
 - 对于 `nix --help` 这类输出分页显示的命令，修饰键栏的向右按键（`->`）和向左按键（`<-`）以及向上和向下按键应该正确发送信号
 - 部分接口支持批量查询以保证性能。
 - 只渲染当前使用的会话，后台会话/切换应用/进入设置时暂停渲染。
@@ -130,6 +135,7 @@
 - 支持 CJK 字体，比如退格一次一个汉字而不是两次一个汉字。CJK 字体渲染速度应该和英文字体基本一致，退格 CJK 字符的速度应该和英文基本一致，不卡顿。
 - **文本选择**：应该和 Termux 设计一致，终端支持长按文本选择，被长按文本单元格反色，文本左右侧出现可拖动控制柄（可灵活拖动，流畅不卡顿，拖动时菜单隐藏），文本附近显示选项菜单：
   - 长按有内容区域：复制、分享、全选；无可复制文本时不显示复制/分享；选区起点为 OSC 8 超链接时增加打开链接。
+  - 复制内容超过 CLIPBOARD_TEXT_MAX_LENGTH 时仅取后段
   - 长按无内容区域：仅反色该单元格；剪贴板有文本时显示粘贴，无文本时不显示菜单。
   - 控制柄/菜单等样式遵循 Termux 设计和系统样式。
   - 选区随滚动跟随，支持宽字符吸附 交叉交换归属 拖动时隐藏菜单 下缘拖动逐行滚动
@@ -142,6 +148,7 @@
   - 链接识别仅查询 `libghostty-vt` 的 OSC 8 超链接，不扫描纯文本裸 URL，不检查链接的实际可用性，点击后交系统 API 跳转。
   - 控制柄必须位于选区两端
   - 一侧选区移动不会干扰另一侧
+  - 拖动、滚动应该有合适的阻尼，要求流畅、跟手、受控制
 - 支持全功能输入法，不限制输入法特性
 - 支持单码位整形与复杂文种叠加、kitty 图像协议等特性（参考 ghostty-android-terminal 实现），不做跨单元连字。
 - 支持触摸操作。
@@ -162,14 +169,14 @@
   - `ENV` 为 `/data/data/com.termux/.mkshrc`，文件不存在时创建，注入 `PROMPT_COMMAND` 以上报会话标题。
 - 不得设置 `LD_LIBRARY_PATH` `PWD` `LD_PRELOAD` 等环境变量
 - 仅宿主存在时透传环境变量，不硬编码：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
-- 设置中 Shell 启动入口为空时依次寻找 `/data/data/com.termux/files/usr/bin/bash` 和 `/data/data/com.termux/files/usr/bin/login` 以及 `/system/bin/sh`，文件存在即启动，不检查文件权限，失败输出错误，无其他回退。
+- 设置中 Shell 启动入口为空时依次寻找 `/data/data/com.termux/files/usr/bin/{login, bash, zsh, fish, sh}`（仅为这些情况设置 argv[0] = "-login"） 以及 `/system/bin/sh`，文件存在即启动，不检查文件权限，失败输出错误，无其他回退。
 - shell 崩溃（非主动正常退出）保留现场不关闭会话（参考 Termux，如执行 `exit -1` 后输出 `[Process completed (code 255) - press Enter]`，不主动关闭会话），正常退出时（如 `exit` 命令或用户点击关闭按钮）关闭会话。
 - 回滚行数和 termux-app 保持一致。
 - 较快的启动速度，能够在启动动画结束后直接显示 Shell 和主题背景，而不是从黑屏花费较长时间过渡。
 - 没有任何内建命令，不内置提供 `termux-setup-storage` `termux-open` 等，也没有替代实现。
 - bell character（`bell-character` 三态：`vibrate` / `beep` / `ignore`）实现和 termux-app 一致
 - 启动后自动弹出输入法和 termux-app 一致
-- 应用位于后台时能够继续活跃，参考 termux-app 实现唤醒锁（不自动申请），包括通知栏按钮
+- 应用的 Shell 位于后台时能够继续活跃，参考 termux-app 实现唤醒锁（不自动申请），包括通知栏按钮，不自动持锁，锁由通知栏按钮切换，无超时机制
 - 处理 OSC 9 等通知，输出会话序号和通知。应用位于前台时使用 Toast Notification。位于后台时使用“系统通知”，点击后切换到目标会话。
 
 ### 修饰键栏
@@ -219,10 +226,11 @@
 - 实现文档提供器，向系统文件选择器暴露 `/data/data/com.termux/files/home`，可读可写，可执行文件被修改后不丢失权限。
 - 参考 termux-app 实现前台通知常驻，显示会话数量，提供“唤醒锁”、“退出”按钮，申请通知权限。
 - **不得修改用户文件**：`/data/data/com.termux/files` 由用户管理，应用自身不得修改 `/data/data/com.termux/files/home`，不得创建 `/data/data/com.termux/files/home/.termux/fonts` `/data/data/com.termux/files/home/storage` `/data/data/com.termux/files/home/storage/shared` 等路径，对于 `/data/data/com.termux/files/usr` 只有在 Bootstrap 安装阶段可以作为重命名目标，其他情况不得修改。不自动清理 `/data/data/com.termux/files/usr/tmp` 等目录。
-- 适配 Android 软件启动屏动画
+- 适配 Android 软件启动屏动画，启动屏显示直到首帧呈现，超时不死等
 - 遵循 Material Design 3
 - 声明文件权限（不提示，允许用户自行授权），支持 `/sdcard` 目录
 - 尽量减少非前台期间的资源消耗，设计尽量为事件触发，减少固定循环机制。适配设备省电设置和电源策略，如 `wgpu` 的 `PowerPreference` 应根据情况合理设置，也包括其他情况的相关代码。
 - 日志和计时器及其他相关代码应谨慎设计，避免过度影响性能。
 - 异常消耗资源时尽快尽早主动退出，不要降级强撑
 - 参考 termux-app 导出 TermuxActivity SettingsActivity RunCommandService TermuxService，无强一致性要求，允许合理的缺失
+- 不检查电池优化，被杀后不自动重启

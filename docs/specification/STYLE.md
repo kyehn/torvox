@@ -49,7 +49,6 @@
 - 尽可能少写注释
 - Torvox/torvox 仅为软件名称，除部分介绍文档、少量必要代码外一律不得出现，使用如 terminal 等通用词。
 - 除了 `nativeBuildInputs` 检查代码，`nix/store` 不得出现在任何代码中
-- `fish` `dash` `zsh` 不得出现在任何代码中。
 - 不得定义任何 crate features。
 - 不得保留死代码。
 - 代码量不得超过 ghostty-android-terminal + termux，必须最小实现。
@@ -73,7 +72,8 @@
 
 ## Android
 
-- 多语言支持只包括简体中文，无其他语言支持（如不支持日文），Shell 及其他技术词汇不得翻译。
+- 多语言支持只包括英文（美国）和简体中文，无其他语言支持（如不支持日文），Shell 及其他技术词汇不得翻译。
+- 关闭 MIN_SDK_VERSION_GREATER_THAN_TARGET_SDK ExpiredTargetSdkVersion 等检查
 
 ## Git
 

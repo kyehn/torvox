@@ -9,7 +9,11 @@ package terminal.emulator.benchmark
  * 三位八进制转义；`command()` 设备侧 `for` 循环重复输出；`inputTextArgument()` 把空格
  * 转成 `%s`；`bytes()` 按 PTY 展开 CRLF 计算字节数。
  */
-internal class WideCharacterLoad(val lineCount: Int, val canary: String) {
+internal class WideCharacterLoad(
+    val lineCount: Int,
+    val canary: String,
+    private val completion: String = "log -t $WIDE_CHARACTER_COUNT_TAG $WIDE_CHARACTER_MARKER",
+) {
     init {
         require(lineCount > 0) { "轮数必须为正：$lineCount" }
         require(canary.isNotEmpty()) { "标题哨兵不能为空" }
@@ -30,7 +34,7 @@ internal class WideCharacterLoad(val lineCount: Int, val canary: String) {
     fun command(): String {
         val format = lines.joinToString("") { line -> octalEscaped(line) + "\\n" }
         return "for i in \$(seq 1 $lineCount); do printf '$format'; done; " +
-            "printf '\\033]2;$canary\\007'; log -t $WIDE_CHARACTER_COUNT_TAG $WIDE_CHARACTER_MARKER"
+            "printf '\\033]2;$canary\\007'; $completion"
     }
 
     /** 适配 `input text` 的参数：空格转 `%s`。 */
