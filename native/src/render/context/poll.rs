@@ -13,13 +13,13 @@
 //! （不吞、不掩盖），只是不再让它掀桌子。取纹理的 `get_current_texture` 早先已按
 //! 同一思路兜住（见 `pass::acquire`），此处是同一规范的另一半。
 //!
-//! 两种轮询粒度：需要等某次提交完成的路径用 [`poll_device_wait`]（带超时的阻塞
-//! 等待）；只想推进内部维护、不信任驱动阻塞等待的路径用 [`poll_device_now`]
+//! 测试脚手架用 [`poll_device_wait`]（带超时的阻塞等待）；生产路径只用非阻塞轮询
 //! （`PollType::Poll`，见其文档里 Mali-G57 的实证）。
 
 use super::gpu::one_line;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(test)]
 use std::time::Duration;
 
 /// 一次设备轮询的原始结局：wgpu 返回的结果，或 wgpu 内部 panic 的载荷。
@@ -44,7 +44,7 @@ const DEVICE_LOST_REASON: &str = "device is lost";
 /// 非阻塞轮询设备一次：只推进 wgpu 的内部维护（映射回调、已完成提交的回收），
 /// 不进入驱动的阻塞等待。
 ///
-/// 遮罩回读用它而不是 [`poll_device_wait`]：后者的 `PollType::Wait` 在 Vulkan 后端
+/// 遮罩回读用它而不是带超时的阻塞等待（`poll_device_wait`，仅测试脚手架仍用）：
 /// 走 `vkWaitSemaphores`（带有限超时，见 wgpu-hal 的 `Device::wait`）。Mali-G57 上
 /// 这条带超时的等待在首帧提交后数毫秒内返回 `VK_ERROR_DEVICE_LOST`（2026-11-24
 /// 三份真机日志：每次丢失前最后一条 GPU 调用都是非渲染线程的 `device poll`，
@@ -75,6 +75,7 @@ pub(crate) fn poll_device_now(device: &wgpu::Device, lost: &Arc<AtomicBool>) -> 
 /// 前移——回读等的就不再是自己那次拷贝，而是渲染线程后来提交的呈现帧，等不到就是
 /// 等满超时（实测遮罩回读因此拖满 250ms）。指名等自己那次提交，等待目标固定，
 /// 且不会把后续呈现帧的完成时刻算进来。
+#[cfg(test)]
 pub(crate) fn poll_device_wait(
     device: &wgpu::Device,
     lost: &Arc<AtomicBool>,
