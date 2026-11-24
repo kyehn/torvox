@@ -1737,42 +1737,47 @@ MUST 留在 warn，MUST NOT 由应用侧自行吞掉。
 - **AND** 结构判据 MUST NOT 单独作为「已达标」的结论：仍需热循环下不出现
       `Compiler allocated` 的运行证据；两者都缺时结论 MUST 为「未验证」
 
-### Requirement: 2026-11-24 三份真机日志的 W/E 逐类归因
+### Requirement: 三份真机日志的 W/E 条目必须逐类归因
 
 样本为 Mali-G57 设备上的三份同日日志（10-13-40、10-52-29、17-40-54）。全部
-W/E 条目 MUST 按下表逐类归因；MUST NOT 以过滤 tag、降级日志或调阈值的方式让其中
-任何一条「消失」。
+W/E 条目 MUST 按来源逐类归因；MUST NOT 以过滤 tag、降级日志或调阈值的方式让其中
+任何一条「消失」。逐类判据与计数由下列场景给出。
 
-- `E/mali_gralloc`（40／8／95 条）：每次表面格式查询产生 4 对
-  `Requested R8 format is not supported with this allocator` 与
-  `ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00`
-  （`0x38` 即 `AHARDWAREBUFFER_FORMAT_R8_UNORM`）。来源是平台 libvulkan 的
-  `GetPhysicalDeviceSurfaceFormatsKHR` 对 `R8_UNORM` 调 `AHardwareBuffer_isSupported`；
-  MUST NOT 据此改动交换链格式选择（`select_surface_format` 已指名 `Rgba8Unorm`）。
-- `W/wgpu_core::instance`（10／2／18 条，每次设备创建 2 条）：
-  `Missing downlevel flags: DownlevelFlags(SURFACE_VIEW_FORMATS)` 与其后的
-  `DownlevelCapabilities { .. }` 转储。MUST 归因为驱动能力声明，MUST NOT 据此改配置。
-- `E/native::render::context::gpu`（3／0／8 条）：`GPU device lost`，每次丢失一条
-  error；其余波按 `render-stability` 的「丢失余波不得再记 error」处理。
-- `W/native::render::context::gpu`（3／1／8 条）：`GPU rebuilt after device loss`。
-- `W/native::android::ffi::render::frame`（3／0／35 条）：`render skipped`，限频 warn。
-- `W/Runtime`（1／0／8 条）：`SLOW_FRAME` 与 `SLOW_LOOP`。`SLOW_LOOP` 的 `render`
-  分量含 `attach_surface` 首帧的管线创建（实测 32.8ms），MUST 与稳态帧区分；
-  稳态窗口实测 avg≈14ms（≈70fps，vsync 16.7ms），MUST NOT 当作卡顿证据。
-- `E/Runtime`（0／0／1 条）：换视图快预算用尽、转每 5000ms 一次慢重试。这是设计内
-  降级，MUST 记 **warn**，MUST NOT 记 error（错误已由丢失那一条负责）。
-- `E/com.termux`：`Not starting debugger since process cannot load the jdwp agent.`
-  debuggable 构建的平台提示，每次进程启动一条。
-- `E/Typeface`：`updateDefaultTypeface(fontPath: /data/resource-cache/font/default_font_android_id)`
-  由框架 Typeface 自身记出，每个进程一条。
-- `W/fish`／`W/git`／`W/login`／`W/eza`／`W/nix-your-shell`／`W/chroot-ng`：
-  终端子进程自身的输出。PTY 不可写时 bionic 把 stderr 回退到 logd 并以
-  `__progname` 作 tag；内容属用户命令，MUST NOT 当作应用日志过滤或改写。
-- `W/libc`／`W/Parcel`／`W/ziparchive`／`W/DefaultDispatch`／
-  `W/RemoteInputConnectionImpl`／`W/FeatureOpt`：平台与框架噪声，
-  MUST 按各自既有条目归因。
-- `E/native::android::ffi: render state prefetch skipped: ... GPU device lost`：
-  设备丢失余波，MUST 记 **debug**，见 `render-stability` 同名场景。
+#### Scenario: 平台与驱动条目的判据
+
+- **WHEN** 归因 `E/mali_gralloc`（40／8／95 条）与 `W/wgpu_core::instance`（10／2／18 条）
+- **THEN** MUST 分别归因为每次表面格式查询与每次设备创建的平台/驱动输出；
+      `0x38` 即 `AHARDWAREBUFFER_FORMAT_R8_UNORM`，MUST NOT 据此改动交换链格式或
+      downlevel 配置
+- **AND** 每次格式查询产生 4 对 `Requested R8 format is not supported with this
+      allocator` 与 `ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00`
+
+#### Scenario: 应用侧设备丢失条目的判据
+
+- **WHEN** 归因 `E/native::render::context::gpu`（3／0／8 条）与
+      `W/native::render::context::gpu`（3／1／8 条）
+- **THEN** MUST 按每次丢失一条 error、每次重建一条 warn 归因；丢失余波按
+      `render-stability` 的「丢失余波不得再记 error」处理
+- **AND** `render state prefetch skipped: ... GPU device lost` MUST 记 debug
+
+#### Scenario: 渲染限频与慢循环条目的判据
+
+- **WHEN** 归因 `W/native::android::ffi::render::frame`（3／0／35 条）与
+      `W/Runtime`（1／0／8 条）
+- **THEN** MUST 把 `render skipped` 记为限频 warn；`SLOW_LOOP` 的 `render` 分量含
+      `attach_surface` 首帧的管线创建（实测 32.8ms），MUST 与稳态帧区分；稳态窗口
+      实测 avg≈14ms（≈70fps，vsync 16.7ms），MUST NOT 当作卡顿证据
+- **AND** `E/Runtime`（0／0／1 条）的换视图快预算降级 MUST 记 warn，MUST NOT 记 error
+
+#### Scenario: 框架条目与用户命令输出的判据
+
+- **WHEN** 归因 `E/com.termux`、`E/Typeface`、`W/libc` 等框架条目，以及以
+      `__progname` 为 tag 的终端子进程输出（`W/fish`／`W/git`／`W/login`／
+      `W/eza`／`W/nix-your-shell`／`W/chroot-ng`）
+- **THEN** MUST 分别记为进程启动提示、框架自身输出、平台噪声与用户命令；
+      PTY 不可写时 bionic 把 stderr 回退到 logd，MUST NOT 当作应用日志过滤或改写
+- **AND** `W/Parcel`／`W/ziparchive`／`W/DefaultDispatch`／
+      `W/RemoteInputConnectionImpl`／`W/FeatureOpt` MUST 按各自既有条目归因
 
 #### Scenario: 同一条目跨日志的计数口径
 
