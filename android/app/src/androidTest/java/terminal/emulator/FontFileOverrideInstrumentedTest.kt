@@ -40,7 +40,6 @@ class FontFileOverrideInstrumentedTest : TerminalLogcatTest() {
                     home = home.absolutePath,
                     workingDirectory = home.absolutePath,
                     prefix = "",
-                    mkshrcPath = "",
                     fontSizeTenths = 140,
                 ),
             )

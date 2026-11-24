@@ -1,12 +1,11 @@
 //! Shell 环境设置：子进程 pre-exec 的环境配置。
 //!
 //! 只保留规范白名单所需的输入：home（HOME 与 `TERMUX_HOME_DIR_PATH`）、
-//! `working_directory`（子进程 chdir 目标，非环境变量）、prefix（PREFIX 相关变量）、
-//! `mkshrc_path`（ENV 指向的应用私有 mksh rc，见 DESIGN Shell 节）。
+//! `working_directory`（子进程 chdir 目标，非环境变量）与 prefix（PREFIX 相关变量）。
 //! 用户名/路径/自定义变量已按规范删除，不再经环境变量接收或传递数据。
 
 #[derive(Debug, Clone)]
-/// 子进程启动所需的环境输入：家目录、工作目录、prefix 与 mkshrc 路径。
+/// 子进程启动所需的环境输入：家目录、工作目录与引导前缀。
 pub struct ShellEnv {
     /// 家目录：写入 `HOME` 与 `TERMUX_HOME_DIR_PATH`。
     pub home: String,
@@ -14,8 +13,6 @@ pub struct ShellEnv {
     pub working_directory: String,
     /// 引导前缀路径：决定 `PREFIX` 相关变量与临时目录。
     pub prefix: Option<String>,
-    /// 应用私有 mksh rc 路径：写入 `ENV` 变量。
-    pub mkshrc_path: Option<String>,
 }
 
 impl ShellEnv {
@@ -39,7 +36,6 @@ impl Default for ShellEnv {
             home: "/".to_string(),
             working_directory: "/".to_string(),
             prefix: None,
-            mkshrc_path: None,
         }
     }
 }
@@ -50,7 +46,6 @@ mod tests {
 
     /// DESIGN 声明的规范路径常量（测试断言专用）。
     const TEST_PREFIX: &str = "/data/data/com.termux/files/usr";
-    const TEST_MKSHRC: &str = "/data/data/com.termux/.mkshrc";
 
     #[test]
     fn shell_env_default_is_minimal() {
@@ -58,7 +53,6 @@ mod tests {
         assert_eq!(env.home, "/");
         assert_eq!(env.working_directory, env.home);
         assert!(env.prefix.is_none());
-        assert!(env.mkshrc_path.is_none());
     }
 
     #[test]
@@ -93,11 +87,9 @@ mod tests {
             home: "/custom/home".to_string(),
             working_directory: "/custom/work".to_string(),
             prefix: Some("/custom/prefix".to_string()),
-            mkshrc_path: Some(TEST_MKSHRC.to_string()),
         };
         assert_eq!(env.home, "/custom/home");
         assert_eq!(env.working_directory, "/custom/work");
         assert_eq!(env.prefix, Some("/custom/prefix".to_string()));
-        assert_eq!(env.mkshrc_path, Some(TEST_MKSHRC.to_string()));
     }
 }

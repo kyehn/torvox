@@ -448,7 +448,7 @@ fun awaitShellPrompt(bridge: Bridge, timeoutMs: Long = 30_000) {
 fun withShellProbeSession(homeName: String, timeoutMs: Long = 20_000, body: (sessionId: Long) -> Unit) {
     val context = InstrumentationRegistry.getInstrumentation().targetContext
     val home = context.filesDir.resolve(homeName).apply { mkdirs() }.absolutePath
-    val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", "", 2000)
+    val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", 2000)
     assertTrue("会话创建失败", sessionId != 0L)
     try {
         NativeBridge.switchSession(sessionId)

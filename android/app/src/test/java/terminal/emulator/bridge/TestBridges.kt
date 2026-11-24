@@ -12,7 +12,6 @@ internal object TestBridges {
             home = "",
             workingDirectory = "",
             prefix = "",
-            mkshrcPath = "",
             fontSizeTenths = 140,
         ),
     )

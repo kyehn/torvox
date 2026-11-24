@@ -187,7 +187,6 @@ fn test_env() -> ShellEnv {
         home: "/tmp/test_home".to_string(),
         working_directory: "/tmp/test_home".to_string(),
         prefix: None,
-        mkshrc_path: Some("/tmp/test_app_data/.mkshrc".to_string()),
     }
 }
 
@@ -426,48 +425,10 @@ fn build_env_includes_term() {
 }
 
 #[test]
-fn build_env_includes_mksh_startup_pointer() {
-    let env = test_env();
-    let result = build_env(&env);
-    assert!(
-        result
-            .iter()
-            .any(|(key, value)| key == "ENV" && value == "/tmp/test_app_data/.mkshrc")
-    );
-}
-
-#[test]
-fn bash_sessions_get_a_title_report_hook() {
-    // bash 自己不发 OSC 0/2：没有 PROMPT_COMMAND 就没有会话标题。
-    let hook = super::title_report_hook("/data/data/com.termux/files/usr/bin/bash");
-    assert_eq!(hook.map(|(name, _)| name), Some("PROMPT_COMMAND"));
-    let value = hook.map(|(_, value)| value).unwrap_or_default();
-    assert!(
-        value.contains("]0;") && value.contains("PWD"),
-        "钩子必须发出 OSC 0 并带上当前目录，实际：{value}"
-    );
-}
-
-#[test]
-fn non_bash_sessions_get_no_title_report_hook() {
-    // mksh 走应用写的 rc 文件；其他 shell 不注入未知变量。
-    for shell in [
-        "/system/bin/sh",
-        "/data/data/com.termux/files/usr/bin/mksh",
-        "/data/data/com.termux/files/usr/bin/other-shell",
-        "/usr/bin/other-shell",
-    ] {
-        assert_eq!(super::title_report_hook(shell), None, "shell={shell}");
-    }
-}
-
-#[test]
-fn build_env_omits_env_without_mkshrc_path() {
-    let env = ShellEnv {
-        mkshrc_path: None,
-        ..test_env()
-    };
-    let result = build_env(&env);
+fn build_env_omits_shell_hooks() {
+    let result = build_env(&test_env());
+    // DESIGN 禁止注入 PROMPT_COMMAND 与 ENV：标题与提示符由 shell 自己决定。
+    assert!(!result.iter().any(|(key, _)| key == "PROMPT_COMMAND"));
     assert!(!result.iter().any(|(key, _)| key == "ENV"));
 }
 
@@ -725,36 +686,6 @@ fn chdir_changes_working_directory() {
             .any(|window| window == temp.path().to_string_lossy().as_bytes()),
         "did not see working directory '{}' in pwd output: {}",
         temp.path().display(),
-        String::from_utf8_lossy(&output)
-    );
-}
-
-// ── mkshrc 路径端到端：build_env 注入的 ENV 必须真实到达子进程环境。
-// 子进程 `echo $ENV` 回显传入的 mkshrc_path，证明 ShellEnv → execve 整链透传。
-#[test]
-fn spawned_child_sees_env_mkshrc_path() {
-    use crate::terminal::pty::Pty;
-
-    let marker = "/tmp/vt_test_mkshrc/.mkshrc";
-    let env = ShellEnv {
-        mkshrc_path: Some(marker.to_string()),
-        ..ShellEnv::default()
-    };
-
-    let pty = PtyPair::spawn("/bin/sh", 24, 80, &env, None).expect("spawn failed");
-    pty.set_nonblocking().expect("set_nonblocking failed");
-    Pty::write_all(&pty, b"echo \"ENV-is:$ENV\"\n", WRITE_DRAIN_TIMEOUT, true)
-        .1
-        .expect("write failed");
-
-    let needle = format!("ENV-is:{marker}");
-    let output = read_until(&pty, needle.as_bytes());
-    assert!(
-        output
-            .windows(needle.len())
-            .any(|window| window == needle.as_bytes()),
-        "did not see ENV '{}' in child output: {}",
-        needle,
         String::from_utf8_lossy(&output)
     );
 }

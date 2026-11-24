@@ -22,7 +22,7 @@ use child::{
     child_exit_with_reason, close_stray_fds, configure_raw_mode_child, is_pie,
     read_shebang_interpreter,
 };
-use env::{build_env, title_report_hook};
+use env::build_env;
 
 /// 对外声明的 Termux 版本：子进程据此判断自身是 Termux 环境。
 pub(crate) const TERMUX_VERSION: &str = "0.119.0-beta.3";
@@ -343,10 +343,6 @@ impl PtyPair {
             .collect::<Result<Vec<_>, _>>()?;
         let env_cstrings: Vec<std::ffi::CString> = build_env(env)
             .into_iter()
-            .chain(
-                title_report_hook(shell_executable)
-                    .map(|(name, value)| (name.to_string(), value.to_string())),
-            )
             .map(|(key, value)| {
                 std::ffi::CString::new(format!("{key}={value}")).map_err(|null_error| {
                     let message = format!("env var contains null byte: {null_error}");

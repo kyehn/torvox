@@ -20,7 +20,6 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSes
     home: JString<'_>,
     working_directory: JString<'_>,
     prefix: JString<'_>,
-    mkshrc_path: JString<'_>,
     scrollback_lines: jint,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, 0, |env| {
@@ -32,7 +31,6 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSes
             home,
             working_directory,
             prefix,
-            mkshrc_path,
             scrollback_lines,
         )
     })
@@ -72,7 +70,6 @@ pub(super) fn init_session_inner(
     home: JString<'_>,
     working_directory: JString<'_>,
     prefix: JString<'_>,
-    mkshrc_path: JString<'_>,
     scrollback_lines: jint,
 ) -> jlong {
     let Ok(rows) = u32::try_from(rows) else {
@@ -104,7 +101,7 @@ pub(super) fn init_session_inner(
         return 0;
     }
 
-    // 读取 Kotlin 侧从 bootstrap 解析出的环境（home / 工作目录 / prefix / mkshrc 路径）。
+    // 读取 Kotlin 侧从 bootstrap 解析出的环境（home / 工作目录 / prefix）。
     // 空串按“未指定”处理：prefix 空表示无 PREFIX（failsafe 会话与未装引导程序时
     // 正是如此，见 TerminalRuntime 的 buildConfig），工作目录空则取 home。
     // 注意这里**不读进程环境**——子进程环境由 `pty::build_env` 按白名单逐项重建。
@@ -119,10 +116,6 @@ pub(super) fn init_session_inner(
     let Some(prefix) = read_jni_string(env, &prefix, "initSession", "prefix") else {
         return 0;
     };
-    let Some(mkshrc_path) = read_jni_string(env, &mkshrc_path, "initSession", "mkshrcPath") else {
-        return 0;
-    };
-
     let default = ShellEnv::default();
     let home = if home.is_empty() { default.home } else { home };
     let working_directory = if working_directory.is_empty() {
@@ -137,11 +130,6 @@ pub(super) fn init_session_inner(
             None
         } else {
             Some(prefix)
-        },
-        mkshrc_path: if mkshrc_path.is_empty() {
-            None
-        } else {
-            Some(mkshrc_path)
         },
     };
 

@@ -87,33 +87,9 @@ pub(super) fn base_env_with_host(
     result
 }
 
-/// bash 的会话标题上报钩子。
-///
-/// bash 不自带标题上报：只有用户自己设置 `PROMPT_COMMAND` 时才发
-/// OSC 0/2。经**环境变量**注入是唯一不碰用户 rc 文件的做法——bash 启动时若
-/// shell 内未定义该变量，就用环境里的值；用户 rc 里自己设了则以用户为准。
-/// 值里写的是 printf 的转义序列（bash 执行时才展开），故用普通字符串。
-const BASH_PROMPT_COMMAND: &str = "printf \"\\033]0;%s\\007\" \"${PWD##*/}\"";
-
-/// 该 shell 需要注入的标题上报钩子（变量名 + 值），不需要时为空。
-///
-/// 只有 bash 一族需要：mksh 的钩子由应用写的 rc 文件承担（见
-/// `TerminalRuntime.ensureMkshPromptRc`），其余自带标题上报的 shell 不必注入。
-pub(super) fn title_report_hook(shell: &str) -> Option<(&'static str, &'static str)> {
-    let name = std::path::Path::new(shell).file_name()?.to_str()?;
-    if name == "bash" || name.starts_with("bash-") {
-        Some(("PROMPT_COMMAND", BASH_PROMPT_COMMAND))
-    } else {
-        None
-    }
-}
-
 pub(super) fn build_env(env: &ShellEnv) -> Vec<(String, String)> {
     let mut result = base_env(env.prefix.as_deref());
     result.push(("HOME".to_string(), env.home.clone()));
-    if let Some(mkshrc_path) = env.mkshrc_path.as_deref() {
-        result.push(("ENV".to_string(), mkshrc_path.to_string()));
-    }
     result.push(("TERMUX_HOME_DIR_PATH".to_string(), env.home.clone()));
     if let Some(prefix) = env.prefix.as_deref() {
         result.push(("TERMUX_PREFIX_DIR_PATH".to_string(), prefix.to_string()));

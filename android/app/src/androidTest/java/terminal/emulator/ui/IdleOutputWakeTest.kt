@@ -119,7 +119,7 @@ class IdleOutputWakeTest : ComposeTerminalLogcatTest() {
         //
         // 「命令已被 shell 接收」的判据取命令**自己打印的短标记**（ACK），不取命令行回显：
         // 输入超过屏宽时 mksh 的行编辑器改用横向滚动重绘（`\r` + 滚动窗口 + `<` 标记 +
-        // 退格串，见 TerminalRuntime.ensureMkshPromptRc），回显会被截断并覆写——长命令的
+        // 退格串），回显会被截断并覆写——长命令的
         // 回显在可见文本里根本凑不齐（实测冷样本只剩标记尾部的几个字符，回显判据恒超时）。
         // ACK 由 shell 直接输出，不经行编辑器，出现在屏幕上即证明命令已被接收并开始执行；
         // 这与共享 shell 复位（restoreSharedShellState）用输出而非回显判活是同一口径。
