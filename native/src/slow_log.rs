@@ -13,11 +13,11 @@
 //! 回跳会把间隔算成零而让告警在时钟追上之前长期沉默。
 
 use governor::{
+    Quota, RateLimiter,
     clock::Clock,
     middleware::NoOpMiddleware,
     nanos::Nanos,
     state::{InMemoryState, NotKeyed},
-    Quota, RateLimiter,
 };
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -89,7 +89,10 @@ impl SlowLogThrottle {
     #[cfg(test)]
     pub(crate) fn reset(&self) {
         self.clock().nanos.store(0, Ordering::Release);
-        *self.gate.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        *self
+            .gate
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
 
     fn clock(&self) -> &LogClock {
@@ -97,7 +100,10 @@ impl SlowLogThrottle {
     }
 
     fn gate(&self) -> MutexGuard<'_, Option<Gate>> {
-        let mut gate = self.gate.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut gate = self
+            .gate
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if gate.is_none() {
             let quota = Quota::with_period(Duration::from_millis(self.interval_ms))
                 .expect("interval must be nonzero")

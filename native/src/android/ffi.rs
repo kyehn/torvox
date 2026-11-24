@@ -709,7 +709,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_prefetchRender
                 // 设备已判死时这次预热注定失败，且随后必有宿主发起的重建：如实归因，
                 // 不把它当成「GPU 初始化失败」再记一条 error（真机上每次丢失后必现）。
                 if crate::render::context::device_lost() {
-                    log::debug!("render state prefetch skipped (device lost): {initialization_error}");
+                    log::debug!(
+                        "render state prefetch skipped (device lost): {initialization_error}"
+                    );
                 } else {
                     log::error!("render state prefetch skipped: {initialization_error}");
                 }

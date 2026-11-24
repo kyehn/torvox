@@ -176,9 +176,12 @@ impl Renderer {
 
         // 设备轮询的失败形态不止 `Err`：wgpu 内部会在设备真出错时直接 panic。
         // 走统一封装，失败带原因上来，别让测试死于一道看不懂的 panic。
-        if let PollOutcome::Failed(reason) =
-            poll_device_wait(&self.device, &self.lost, &submission_index, GPU_POLL_TIMEOUT)
-        {
+        if let PollOutcome::Failed(reason) = poll_device_wait(
+            &self.device,
+            &self.lost,
+            &submission_index,
+            GPU_POLL_TIMEOUT,
+        ) {
             return Err(GpuError::Readback(format!("device poll failed: {reason}")));
         }
 

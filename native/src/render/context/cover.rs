@@ -117,9 +117,10 @@ impl CoverReadbackSource {
             return None;
         }
         // 判死位到 panic 之间仍有一瞬：提交本身也在归一范围内。
-        let submitted = super::poll::catch_device_loss_panic("read_cover_frame: 提交回读拷贝", || {
-            self.queue.submit(std::iter::once(encoder.finish()));
-        });
+        let submitted =
+            super::poll::catch_device_loss_panic("read_cover_frame: 提交回读拷贝", || {
+                self.queue.submit(std::iter::once(encoder.finish()));
+            });
         submitted?;
         let slice = buffer.slice(..);
         let (map_tx, map_rx) = std::sync::mpsc::channel();

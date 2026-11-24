@@ -22,10 +22,10 @@ pub(crate) use gpu::{
     INITIALIZATION_COUNT, SURFACE_INVALIDATION_LOG_LEVEL, global_gpu_for_tests,
     gpu_error_is_surface_lost, gpu_slot_reusable, surface_loss_transition,
 };
-#[cfg(any(target_os = "android", test))]
-pub(crate) use poll::{PollOutcome, poll_device_now};
 #[cfg(test)]
 pub(crate) use poll::poll_device_wait;
+#[cfg(any(target_os = "android", test))]
+pub(crate) use poll::{PollOutcome, poll_device_now};
 #[cfg(test)]
 pub(crate) use renderer::{rebuild_blocked_by_in_flight_surface, reuse_attached_surface};
 #[cfg(test)]

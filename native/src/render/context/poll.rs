@@ -149,7 +149,9 @@ fn classify(polled: PollAttempt) -> PollOutcome {
 #[cfg(test)]
 mod tests {
     use super::super::gpu::{is_device_loss_text, one_line};
-    use super::{PollOutcome, catch_device_loss_panic, classify, lost_device_outcome, poll_outcome};
+    use super::{
+        PollOutcome, catch_device_loss_panic, classify, lost_device_outcome, poll_outcome,
+    };
 
     /// 轮询成功的两种形态都算「继续」。
     #[test]
