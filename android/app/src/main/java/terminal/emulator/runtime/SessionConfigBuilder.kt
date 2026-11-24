@@ -21,7 +21,15 @@ internal class SessionConfigBuilder(
     private val settingsRepository: SettingsRepository,
     private val termuxProperties: TermuxPropertiesRepository,
 ) {
-    internal suspend fun buildConfig(failsafeRequested: Boolean, fontSizeTenths: suspend () -> Int): TerminalConfig {
+    /**
+     * [shell] 只用于长按未激活入口新建会话：它绕过设置里的激活项，
+     * 但不改变激活状态，也不影响后续会话。
+     */
+    internal suspend fun buildConfig(
+        failsafeRequested: Boolean,
+        fontSizeTenths: suspend () -> Int,
+        shell: String? = null,
+    ): TerminalConfig {
         val configReads = coroutineScope {
             val shellDeferred = async { settingsRepository.shell.first() }
             val fontDeferred = async { fontSizeTenths() }
@@ -30,7 +38,7 @@ internal class SessionConfigBuilder(
                 fontSizeTenths = fontDeferred.await(),
             )
         }
-        val shell = resolveShell(configReads.shellPath)
+        val configuredShell = resolveShell(shell ?: configReads.shellPath)
         val prefixDir = File(context.filesDir, "usr").absolutePath
         val homeDir =
             File(context.filesDir, "home")
@@ -69,7 +77,7 @@ internal class SessionConfigBuilder(
             "prefixShell=$prefixShell prefixDir=$prefixDir",
         )
         val effectivePrefix = if (prefixShell != null) prefixDir else ""
-        val effectiveShell = resolveEffectiveShell(prefixDir, prefixShell, shell)
+        val effectiveShell = resolveEffectiveShell(prefixDir, prefixShell, configuredShell)
         // 启动目录由 `default-working-directory` 决定，未配置时是家目录。
         return TerminalConfig(
             shell = effectiveShell,

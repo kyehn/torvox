@@ -381,4 +381,35 @@ class SettingsRepositoryTest {
             )
         }
     }
+
+    @Test
+    fun `shell entries stay unique and the first one becomes active`() = runTest {
+        repository.settings.test {
+            assertEquals(emptyList<ShellEntry>(), awaitItem().shellEntries)
+            repository.saveShellEntry(ShellEntry("alpha", "/usr/bin/alpha"))
+            assertEquals(ShellEntry("alpha", "/usr/bin/alpha"), awaitItem().shellEntries.single())
+            repository.saveShellEntry(ShellEntry("beta", "/usr/bin/beta"))
+            assertEquals(2, awaitItem().shellEntries.size)
+            // 同名保存是更新，不是新增：抽屉菜单不会出现两个同名项。
+            repository.saveShellEntry(ShellEntry("alpha", "/usr/bin/alpha -l"))
+            val state = awaitItem()
+            assertEquals(
+                listOf(ShellEntry("alpha", "/usr/bin/alpha -l"), ShellEntry("beta", "/usr/bin/beta")),
+                state.shellEntries,
+            )
+            // 激活项保存的是命令；更新同名条目不会改变激活状态。
+            assertEquals("/usr/bin/alpha", state.shell)
+        }
+    }
+
+    @Test
+    fun `removing the active entry clears the active command`() = runTest {
+        repository.saveShellEntry(ShellEntry("alpha", "/usr/bin/alpha"))
+        repository.saveShellEntry(ShellEntry("beta", "/usr/bin/beta"))
+        repository.activateShellEntry("beta")
+        withTimeout(5_000) { repository.settings.first { it.shell == "/usr/bin/beta" } }
+        repository.removeShellEntry("beta")
+        withTimeout(5_000) { repository.settings.first { it.shell == "" } }
+        assertEquals(listOf(ShellEntry("alpha", "/usr/bin/alpha")), repository.settings.first().shellEntries)
+    }
 }

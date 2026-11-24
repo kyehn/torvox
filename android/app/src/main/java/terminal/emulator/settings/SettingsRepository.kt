@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import terminal.emulator.runtime.LogLevel
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.ui.theme.AppThemeMode
@@ -34,6 +36,10 @@ import kotlin.math.roundToInt
 
 private const val TAG = "SettingsRepository"
 
+/** 一条具名 Shell 启动入口：名称用于列表与长按菜单，命令行原样交给 shell 解析。 */
+@Serializable
+data class ShellEntry(val name: String, val command: String)
+
 @Singleton
 class SettingsRepository
 @Inject
@@ -46,6 +52,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
         val NIGHT_THEME_NAME = stringPreferencesKey("night_theme_name")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val SHELL = stringPreferencesKey("shell")
+        val SHELL_ENTRIES = stringPreferencesKey("shell_entries")
         val APP_THEME_MODE = stringPreferencesKey("app_theme_mode")
         val BOOTSTRAP_URL = stringPreferencesKey("bootstrap_url")
         val LOG_LEVEL = intPreferencesKey("log_level")
@@ -250,6 +257,8 @@ constructor(private val provider: SettingsDataStoreProvider) {
         val nightThemeName: String,
         val themeMode: String = DEFAULT_THEME_MODE,
         val shell: String = DEFAULT_SHELL,
+        /** 具名启动入口列表；默认空，详见 [ShellEntry]。 */
+        val shellEntries: List<ShellEntry> = emptyList(),
         val bootstrapUrl: String = "",
         /** 日志等级，见 `terminal.emulator.runtime.LogLevel`。 */
         val logLevel: Int = LogLevel.DEFAULT.ordinal,
@@ -267,6 +276,7 @@ constructor(private val provider: SettingsDataStoreProvider) {
                 nightThemeName = prefs[Keys.NIGHT_THEME_NAME] ?: defaultTheme(),
                 themeMode = TerminalThemeMode.normalize(prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE),
                 shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
+                shellEntries = decodeShellEntries(prefs[Keys.SHELL_ENTRIES]),
                 bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
                 logLevel = LogLevel.fromOrdinal(prefs[Keys.LOG_LEVEL] ?: LogLevel.DEFAULT.ordinal).ordinal,
             )
@@ -366,6 +376,51 @@ constructor(private val provider: SettingsDataStoreProvider) {
     suspend fun setAppThemeMode(mode: String) = put(Keys.APP_THEME_MODE, mode)
 
     suspend fun setShell(shell: String) = put(Keys.SHELL, shell)
+
+    /**
+     * 非法设置数据按「没有条目」处理：规范不设迁移与回退，损坏的一项不能让
+     * 整个设置页崩溃。读取时不重写文件，下一次合法写入自然覆盖它。
+     */
+    private fun decodeShellEntries(raw: String?): List<ShellEntry> {
+        if (raw.isNullOrEmpty()) return emptyList()
+        return runCatching { Json.decodeFromString<List<ShellEntry>>(raw) }
+            .getOrDefault(emptyList())
+            .filter { it.name.isNotBlank() }
+    }
+
+    /** 按名称保存条目；同名即更新，故列表中的名称始终唯一。首个条目自动激活。 */
+    suspend fun saveShellEntry(entry: ShellEntry) {
+        require(entry.name.isNotBlank()) { "Shell entry name must not be blank" }
+        provider.dataStore.edit { prefs ->
+            val entries = decodeShellEntries(prefs[Keys.SHELL_ENTRIES])
+            val updated = if (entries.any { it.name == entry.name }) {
+                entries.map { if (it.name == entry.name) entry else it }
+            } else {
+                entries + entry
+            }
+            prefs[Keys.SHELL_ENTRIES] = Json.encodeToString(updated)
+            if (prefs[Keys.SHELL].isNullOrEmpty()) prefs[Keys.SHELL] = entry.command
+        }
+    }
+
+    /** 删除条目；被删除的是当前激活项时清空激活命令，走默认启动入口链。 */
+    suspend fun removeShellEntry(name: String) {
+        provider.dataStore.edit { prefs ->
+            val removed = decodeShellEntries(prefs[Keys.SHELL_ENTRIES]).firstOrNull { it.name == name }
+            prefs[Keys.SHELL_ENTRIES] = Json.encodeToString(
+                decodeShellEntries(prefs[Keys.SHELL_ENTRIES]).filterNot { it.name == name },
+            )
+            if (removed != null && removed.command == prefs[Keys.SHELL]) prefs[Keys.SHELL] = DEFAULT_SHELL
+        }
+    }
+
+    /** 激活具名条目；激活只改命令，不改条目列表。 */
+    suspend fun activateShellEntry(name: String) {
+        val entry = decodeShellEntries(provider.dataStore.data.first()[Keys.SHELL_ENTRIES])
+            .firstOrNull { it.name == name }
+            ?: throw IllegalArgumentException("Unknown shell entry: $name")
+        setShell(entry.command)
+    }
 
     /** 设置日志等级（`LogLevel` 的序号）。 */
     suspend fun setLogLevel(level: Int) = put(Keys.LOG_LEVEL, level)

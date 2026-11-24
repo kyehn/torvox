@@ -35,6 +35,7 @@ import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.MacroParser
 import terminal.emulator.settings.MacroStep
 import terminal.emulator.settings.SettingsRepository
+import terminal.emulator.settings.ShellEntry
 import terminal.emulator.settings.TermuxConfiguration
 import terminal.emulator.settings.TermuxPropertiesRepository
 import terminal.emulator.ui.TerminalInputEncoder
@@ -764,6 +765,18 @@ constructor(
         viewModelScope.launch { settingsRepository.setShell(shell) }
     }
 
+    fun saveShellEntry(name: String, command: String) {
+        viewModelScope.launch { settingsRepository.saveShellEntry(ShellEntry(name.trim(), command)) }
+    }
+
+    fun removeShellEntry(name: String) {
+        viewModelScope.launch { settingsRepository.removeShellEntry(name) }
+    }
+
+    fun activateShellEntry(name: String) {
+        viewModelScope.launch { settingsRepository.activateShellEntry(name) }
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // 四、键盘与硬件按键处理
 
@@ -875,7 +888,8 @@ constructor(
         runtime.setScrollActive(_state.value.scrollActive)
     }
 
-    fun createSession() {
+    /** [shellCommand] 仅在长按未激活入口时使用：新建该入口的会话，不改变激活项。 */
+    fun createSession(shellCommand: String? = null) {
         val surface = currentSurface
         if (surface == null || !surface.isValid) {
             LogUtil.error(
@@ -905,7 +919,7 @@ constructor(
             }
             try {
                 val newId =
-                    runtime.createSession(currentSurfaceNow, surfaceWidthPixels, surfaceHeightPixels)
+                    runtime.createSession(currentSurfaceNow, surfaceWidthPixels, surfaceHeightPixels, shellCommand)
                 if (newId > 0) {
                     _state.update { current ->
                         // 运行期的 sessionIds 收集器可能已在此更新运行前

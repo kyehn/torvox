@@ -2090,7 +2090,7 @@ constructor(
                 }
             }
             val configStartNs = System.nanoTime()
-            val config = sessionConfigBuilder.buildConfig(failsafeRequested) { computeFontSizeTenths() }
+            val config = sessionConfigBuilder.buildConfig(failsafeRequested, { computeFontSizeTenths() }, null)
             LogUtil.debug(
                 "Runtime",
                 "buildConfig: fontSizeTenths=${config.fontSizeTenths} elapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms",
@@ -2355,11 +2355,10 @@ constructor(
      * 两次并发创建会各自 spawn 原生会话并启动渲染线程，
      * 而两个渲染线程消费唯一的全局事件队列会导致事件错投（退出事件被丢弃、会话泄漏）。
      */
-    suspend fun createSession(surface: Surface, width: Int, height: Int): Long = createSessionMutex.withLock {
-        createSessionInner(surface, width, height)
-    }
+    suspend fun createSession(surface: Surface, width: Int, height: Int, shell: String? = null): Long =
+        createSessionMutex.withLock { createSessionInner(surface, width, height, shell) }
 
-    private suspend fun createSessionInner(surface: Surface, width: Int, height: Int): Long {
+    private suspend fun createSessionInner(surface: Surface, width: Int, height: Int, shell: String? = null): Long {
         if (starting) {
             LogUtil.warn(
                 "Runtime",
@@ -2389,7 +2388,7 @@ constructor(
         var hangGuardedEntry: SessionEntry? = null
         try {
             val configStartNs = System.nanoTime()
-            val config = sessionConfigBuilder.buildConfig(failsafeRequested) { computeFontSizeTenths() }
+            val config = sessionConfigBuilder.buildConfig(failsafeRequested, { computeFontSizeTenths() }, shell)
             val bridgeStartNs = System.nanoTime()
             val bridge = Bridge(config).also { createdBridge = it }
             LogUtil.debug(
