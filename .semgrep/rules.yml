@@ -313,6 +313,7 @@ rules:
   # 而不是把别人的法律文本复制进来：复制件会随上游改版失效，且没有任何构建步骤读它。
   - id: no-license-files
     pattern-regex: '(?s).'
+    message: "不得在仓库保存上游许可证文件；血统与出处记在 openspec 规范里。"
     severity: ERROR
     languages: [generic]
     paths:
