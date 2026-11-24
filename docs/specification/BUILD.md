@@ -23,7 +23,8 @@
 - 代码、Gradle 配置等不得出现 `cargo build`、`cargo test`、`./gradlew`、`git clone` 等未受管理的构建和外部源引入。
 - 只支持 `arm64-v8a`、`x86_64` 架构；`x86_64` 用于构建、测试与模拟器测试。
 - Cargo/Gradle 等配置必须保持简洁和效率，Gradle 构建配置不进行 `jniLibs/` 检查（避免影响并发构建，测试任务等除外）
-- release 构建日志等级 `INFO`，需尽可能设置，避免输出调试信息，避免影响性能
+- release 构建的日志等级 `INFO`/`Info`，需尽可能设置，包括 Android、Rust、Kotlin等，避免输出调试信息，避免影响性能
+- debug 构建的日志等级 `DEBUG`/`Debug`
 - release 构建必须尽可能确保性能，正确设置构建参数
 - 关闭 android.enableJetifier
 - 避免在 release 版本进行可能有负作用的 debug 行为，正确编码处理，不使用不可靠的 assumenosideeffects 规则

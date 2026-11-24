@@ -166,10 +166,10 @@
   - `TERM` 为 `xterm-256color`。
   - `TERMUX_VERSION` 为 `0.119.0-beta.3`。
   - `PATH` 为 原 `PATH` 附加 `/data/data/com.termux/files/usr/bin`，仅目录存在时附加设置。failsafe 时，保留原 `PATH`，不附加。
-  - `ENV` 为 `/data/data/com.termux/.mkshrc`，文件不存在时创建，注入 `PROMPT_COMMAND` 以上报会话标题。
-- 不得设置 `LD_LIBRARY_PATH` `PWD` `LD_PRELOAD` 等环境变量
+- 不得设置 `LD_LIBRARY_PATH` `PWD` `LD_PRELOAD` `ENV` 等环境变量
+- 不得设置 `.mkshrc`，不得注入 `PROMPT_COMMAND`
 - 仅宿主存在时透传环境变量，不硬编码：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
-- 设置中 Shell 启动入口为空时依次寻找 `/data/data/com.termux/files/usr/bin/{login, bash, zsh, fish, sh}`（仅为这些情况设置 argv[0] = "-login"） 以及 `/system/bin/sh`，文件存在即启动，不检查文件权限，失败输出错误，无其他回退。
+- 设置中 Shell 启动入口为空时依次寻找 `/data/data/com.termux/files/usr/bin/{login, bash, zsh, fish, sh}`（仅为这些情况设置 argv[0] = "-login"）以及 `/system/bin/sh`，文件存在即启动，不检查文件权限，失败输出错误，无其他回退。
 - shell 崩溃（非主动正常退出）保留现场不关闭会话（参考 Termux，如执行 `exit -1` 后输出 `[Process completed (code 255) - press Enter]`，不主动关闭会话），正常退出时（如 `exit` 命令或用户点击关闭按钮）关闭会话。
 - 回滚行数和 termux-app 保持一致。
 - 较快的启动速度，能够在启动动画结束后直接显示 Shell 和主题背景，而不是从黑屏花费较长时间过渡。
@@ -206,12 +206,12 @@
   ```
 
 - **会话列表**：列表可能超出可显示范围，可滚动列表，参考 termux-app 实现，保持一致
-  - 每一项包括“会话序号、终端标题”（点击切换会话并关闭面板，斜体显示终端标题，不支持修改终端标题），关闭按钮。示例：[1] ~
+  - 每一项包括“会话序号、终端标题”（点击切换会话并关闭面板，斜体显示终端标题，不支持修改终端标题，仅通过 OSC 0/2，不使用 OSC 7），关闭按钮。示例：[1] ~
   - 会话序号从 1 开始递增，序号动态更新。
   - 列表只在打开时刷新，标题由一次批量查询按会话顺序取回。
   - 切换会话时清空上一会话的选区。
 - **添加会话按钮**：支持点击和长按，长按显示“未被激活的 Shell 启动入口列表”（显示的是每个“Shell 启动入口”的名称），不包括激活的条目，也不包括 Failsafe，点击条目以对应的“Shell 启动入口命令行”启动新会话。
-- “重置终端”按钮，重置终端状态以恢复卡住的终端，清除回滚与滚动状态。终端页面应该干净，没有残余内容。
+- “重置终端”按钮，重置终端状态以恢复卡住的终端，重置 VT 状态 、显示状态、会话/渲染缓存 等，不得终止进程。终端页面应该干净，没有残余内容。
 - 文本搜索按钮。
 - 显示 / 隐藏输入法按钮。
 - 设置按钮。
@@ -223,7 +223,7 @@
 ## 软件
 
 - 应用启动时检查应用数据兼容性：无法解析或引用不存在的主题/字体时清除该项并回退默认；不得清除 `/data/data/com.termux/files`。
-- 实现文档提供器，向系统文件选择器暴露 `/data/data/com.termux/files/home`，可读可写，可执行文件被修改后不丢失权限。
+- 实现文档提供器，向系统文件选择器暴露 `/data/data/com.termux/files/home`，可读可写，可执行文件被修改后不丢失权限，正确处理链接文件。
 - 参考 termux-app 实现前台通知常驻，显示会话数量，提供“唤醒锁”、“退出”按钮，申请通知权限。
 - **不得修改用户文件**：`/data/data/com.termux/files` 由用户管理，应用自身不得修改 `/data/data/com.termux/files/home`，不得创建 `/data/data/com.termux/files/home/.termux/fonts` `/data/data/com.termux/files/home/storage` `/data/data/com.termux/files/home/storage/shared` 等路径，对于 `/data/data/com.termux/files/usr` 只有在 Bootstrap 安装阶段可以作为重命名目标，其他情况不得修改。不自动清理 `/data/data/com.termux/files/usr/tmp` 等目录。
 - 适配 Android 软件启动屏动画，启动屏显示直到首帧呈现，超时不死等
