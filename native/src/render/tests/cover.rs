@@ -8,17 +8,25 @@
 use super::*;
 use crate::render::context::Renderer;
 
-#[test]
-fn cover_readback_returns_the_accumulator_pixels() {
+/// 建好测试 GPU 上下文并打开交换链拷贝支持，产出累加器视图。
+///
+/// 累加器只在交换链支持拷贝时创建（生产路径由 `attach_surface` 打开），
+/// 故凡要触碰累加器的用例都从这里起步。
+fn setup_context_with_accumulator() -> (Renderer, wgpu::TextureView) {
     let Some((_instance, _adapter, device, queue)) = create_test_device() else {
         panic!("requires GPU adapter but none available");
     };
     let mut context = setup_test_gpu_context(device, queue);
-    // 累加器只在交换链支持拷贝时创建（生产路径由 attach_surface 打开）。
     context.swapchain_copy_supported = true;
     let view = context
         .ensure_frame_texture(4, 4, wgpu::TextureFormat::Rgba8Unorm)
         .expect("累加器视图");
+    (context, view)
+}
+
+#[test]
+fn cover_readback_returns_the_accumulator_pixels() {
+    let (mut context, view) = setup_context_with_accumulator();
     // 把累加器清成不透明红色：回读必须一字不差地拿到它。
     {
         let mut encoder = context
@@ -93,21 +101,13 @@ fn cover_readback_without_accumulator_yields_nothing() {
         context.cover_readback_source().is_none(),
         "没有累加器时不得返回空遮罩"
     );
-    let _ = Renderer::select_surface_format;
 }
 
 /// 累加器刚建好、内容未定义时不得回读：回读上来是未初始化的显存，
 /// 画进开孔比没有遮罩更糟（用户看到的是雪花而不是离开时的画面）。
 #[test]
 fn cover_readback_of_undefined_accumulator_yields_nothing() {
-    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
-        panic!("requires GPU adapter but none available");
-    };
-    let mut context = setup_test_gpu_context(device, queue);
-    context.swapchain_copy_supported = true;
-    context
-        .ensure_frame_texture(4, 4, wgpu::TextureFormat::Rgba8Unorm)
-        .expect("累加器视图");
+    let (context, _) = setup_context_with_accumulator();
     assert!(
         context.cover_readback_source().is_none(),
         "内容未定义的累加器不得被回读"
@@ -122,14 +122,7 @@ fn cover_readback_of_undefined_accumulator_yields_nothing() {
 /// 最终以 panic 收场。
 #[test]
 fn cover_readback_of_a_lost_device_yields_nothing() {
-    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
-        panic!("requires GPU adapter but none available");
-    };
-    let mut context = setup_test_gpu_context(device, queue);
-    context.swapchain_copy_supported = true;
-    context
-        .ensure_frame_texture(4, 4, wgpu::TextureFormat::Rgba8Unorm)
-        .expect("累加器视图");
+    let (mut context, _) = setup_context_with_accumulator();
     // 累加器里已有一帧已渲染的内容：内容判据不是本用例的拦路虎。
     context.frame_content_valid = true;
     context.has_presented_frame = true;
@@ -150,14 +143,7 @@ fn cover_readback_of_a_lost_device_yields_nothing() {
 /// 触发丢失的调用。
 #[test]
 fn cover_readback_before_the_first_presented_frame_yields_nothing() {
-    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
-        panic!("requires GPU adapter but none available");
-    };
-    let mut context = setup_test_gpu_context(device, queue);
-    context.swapchain_copy_supported = true;
-    context
-        .ensure_frame_texture(4, 4, wgpu::TextureFormat::Rgba8Unorm)
-        .expect("累加器视图");
+    let (mut context, _) = setup_context_with_accumulator();
     // 累加器里有旧设备留下的已渲染内容，但本设备世代尚未出过帧。
     context.frame_content_valid = true;
     assert!(!context.has_presented_frame);
