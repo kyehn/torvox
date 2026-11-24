@@ -1592,8 +1592,10 @@ constructor(
             val decision = decideSurfaceRecreate(budget.attempts, budget.lastRequestNanos, now)
             if (decision.exhausted && !budget.exhaustedLogged) {
                 // 只告警一次：慢重试仍然每轮都发请求，重复告警只会淹没日志。
+                // 级别是 warn：这是设计内的降级（快预算用尽后转慢重试），不是错误；
+                // 真正的错误已由设备丢失那一条 error 记下。
                 if (budgetRef.compareAndSet(budget, budget.copy(exhaustedLogged = true))) {
-                    LogUtil.error(
+                    LogUtil.warn(
                         RUNTIME_LOG_TAG,
                         "surface invalidated and $SURFACE_RECREATE_MAX_ATTEMPTS fast recreate attempts exhausted; " +
                             "falling back to one attempt every $SURFACE_RECREATE_SLOW_INTERVAL_MS ms",
