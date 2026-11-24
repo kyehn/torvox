@@ -1736,3 +1736,54 @@ MUST 留在 warn，MUST NOT 由应用侧自行吞掉。
       数兆 arena 的来源，拆分后它只应是流程编排（数十条指令量级，实测 87 条）
 - **AND** 结构判据 MUST NOT 单独作为「已达标」的结论：仍需热循环下不出现
       `Compiler allocated` 的运行证据；两者都缺时结论 MUST 为「未验证」
+
+### Requirement: 2026-11-24 三份真机日志的 W/E 逐类归因
+
+样本为 Mali-G57 设备上的三份同日日志（10-13-40、10-52-29、17-40-54）。全部
+W/E 条目 MUST 按下表逐类归因；MUST NOT 以过滤 tag、降级日志或调阈值的方式让其中
+任何一条「消失」。
+
+- `E/mali_gralloc`（40／8／95 条）：每次表面格式查询产生 4 对
+  `Requested R8 format is not supported with this allocator` 与
+  `ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00`
+  （`0x38` 即 `AHARDWAREBUFFER_FORMAT_R8_UNORM`）。来源是平台 libvulkan 的
+  `GetPhysicalDeviceSurfaceFormatsKHR` 对 `R8_UNORM` 调 `AHardwareBuffer_isSupported`；
+  MUST NOT 据此改动交换链格式选择（`select_surface_format` 已指名 `Rgba8Unorm`）。
+- `W/wgpu_core::instance`（10／2／18 条，每次设备创建 2 条）：
+  `Missing downlevel flags: DownlevelFlags(SURFACE_VIEW_FORMATS)` 与其后的
+  `DownlevelCapabilities { .. }` 转储。MUST 归因为驱动能力声明，MUST NOT 据此改配置。
+- `E/native::render::context::gpu`（3／0／8 条）：`GPU device lost`，每次丢失一条
+  error；其余波按 `render-stability` 的「丢失余波不得再记 error」处理。
+- `W/native::render::context::gpu`（3／1／8 条）：`GPU rebuilt after device loss`。
+- `W/native::android::ffi::render::frame`（3／0／35 条）：`render skipped`，限频 warn。
+- `W/Runtime`（1／0／8 条）：`SLOW_FRAME` 与 `SLOW_LOOP`。`SLOW_LOOP` 的 `render`
+  分量含 `attach_surface` 首帧的管线创建（实测 32.8ms），MUST 与稳态帧区分；
+  稳态窗口实测 avg≈14ms（≈70fps，vsync 16.7ms），MUST NOT 当作卡顿证据。
+- `E/Runtime`（0／0／1 条）：换视图快预算用尽、转每 5000ms 一次慢重试。这是设计内
+  降级，MUST 记 **warn**，MUST NOT 记 error（错误已由丢失那一条负责）。
+- `E/com.termux`：`Not starting debugger since process cannot load the jdwp agent.`
+  debuggable 构建的平台提示，每次进程启动一条。
+- `E/Typeface`：`updateDefaultTypeface(fontPath: /data/resource-cache/font/default_font_android_id)`
+  由框架 Typeface 自身记出，每个进程一条。
+- `W/fish`／`W/git`／`W/login`／`W/eza`／`W/nix-your-shell`／`W/chroot-ng`：
+  终端子进程自身的输出。PTY 不可写时 bionic 把 stderr 回退到 logd 并以
+  `__progname` 作 tag；内容属用户命令，MUST NOT 当作应用日志过滤或改写。
+- `W/libc`／`W/Parcel`／`W/ziparchive`／`W/DefaultDispatch`／
+  `W/RemoteInputConnectionImpl`／`W/FeatureOpt`：平台与框架噪声，
+  MUST 按各自既有条目归因。
+- `E/native::android::ffi: render state prefetch skipped: ... GPU device lost`：
+  设备丢失余波，MUST 记 **debug**，见 `render-stability` 同名场景。
+
+#### Scenario: 同一条目跨日志的计数口径
+
+- **WHEN** 汇总三份日志的同一 tag
+- **THEN** MUST 分别给出每份的条数与出现条件（每次表面格式查询／每次设备创建／
+      每次丢失各几条），MUST NOT 只给总数——计数随查询与重建次数变化，
+      单看总数无法判断是否回归
+
+#### Scenario: 丢失循环的证据链
+
+- **WHEN** 复核 17-40-54 日志的 8 次丢失
+- **THEN** MUST 以「丢失前最后一条 GPU 调用 + 距 `attach_surface: configured` 的
+      毫秒数」为证据：8 次全部是非渲染线程的 `device poll`、全部在挂载后 1–14ms，
+      据此归因到回读的阻塞等待（见 `render-stability`）

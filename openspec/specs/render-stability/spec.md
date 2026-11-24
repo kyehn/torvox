@@ -685,6 +685,38 @@ MUST NOT 逐条重复；旧世代的结局记 debug，如实保留原因，不�
       重建链本身未出现失败（3 次 `GPU rebuilt after device loss` 全部成功）；
       底层根因 MUST 继续记为未定位，有界恢复是缓解而非消除，MUST NOT 表述为「已解决」
 
+### Requirement: 遮罩回读不得以阻塞等待换取映射完成
+
+遮罩回读（`read_cover_frame`）在非渲染线程上等自己的拷贝完成时，MUST 用
+`PollType::Poll` 分步轮询，MUST NOT 用 `PollType::Wait`：后者的有限超时在 Vulkan
+后端落到 `vkWaitSemaphores`，而 Mali-G57 上这条带超时的等待本身会返回
+`VK_ERROR_DEVICE_LOST`。
+
+回读 MUST 只在本设备世代已出过至少一帧后放行：重建会保留累加器内容供 warmup
+呈现，那内容是上一代设备的，在新设备上等它（或基于它做拷贝）没有意义。
+
+回读的提交 MUST 与轮询同处设备丢失归一范围内：判死位到 wgpu panic 之间仍有一瞬，
+`Queue::submit` 在这个窗口里撞上 `Parent device is lost` 会穿出 JNI 杀掉进程。
+
+#### Scenario: 2026-11-24 真机日志的丢失循环
+
+- **WHEN** 2026-11-24 17-40-54 真机日志（Mali-G57）在 14.6s 内出现 8 次设备丢失，
+      每次丢失前最后一条 GPU 调用都是非渲染线程的 `device poll`，且每次都在
+      `attach_surface: configured` 之后 1–14ms（首帧呈现后 5–20ms）
+- **THEN** MUST 归因为回读的阻塞等待：回读线程等在 `vkWaitSemaphores` 上，首帧后
+      数毫秒内返回丢失，重建后的第一次回读再次触发，形成「重建→丢失」循环
+- **AND** 处置 MUST 是上述非阻塞轮询与「出过帧才回读」，MUST NOT 以过滤日志、
+      降级 error 或跳过回读功能来掩盖
+- **AND** 底层驱动缺陷 MUST 继续记为未定位：本修复移除的是应用侧触发条件，
+      MUST NOT 表述为「Mali-G57 的设备丢失已解决」；须在同一设备上重新采日志确认
+      丢失不再出现
+
+#### Scenario: 丢失后的预热失败不算新的 error
+
+- **WHEN** 设备已判死，宿主触发的 `prefetchRenderState` 因 GPU 不可用而失败
+- **THEN** MUST 记 **debug**（如实保留原因），MUST NOT 记 error：它随后必被宿主发起
+      的重建取代，按「丢失余波不得再记 error」处理
+
 ### Requirement: 判死的设备不得被复用
 
 判死后的重建 MUST 换掉判死的那个设备：全局槽位里若还是判死的设备，MUST 新建
