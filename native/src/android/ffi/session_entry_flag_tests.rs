@@ -12,7 +12,6 @@ use crate::terminal::session::Session;
 #[test]
 fn entry_shares_session_flags_for_lock_free_sampling() {
     let (session, _handle) = crate::terminal::mock_pty::mock_session();
-    #[cfg(not(feature = "loom"))]
     let new_output = session.new_output_flag();
     let alt_screen = session.alt_screen_active_flag();
     let mouse_tracking = session.mouse_tracking_active_flag();
@@ -20,9 +19,6 @@ fn entry_shares_session_flags_for_lock_free_sampling() {
         Arc::new(Mutex::new(session)),
         Arc::new(RenderWake::default()),
     );
-    // loom 构建下句柄是 loom::sync::Arc，没有 std 的 ptr_eq；指针相等
-    // 与原子协议无关，不在模型里验证。
-    #[cfg(not(feature = "loom"))]
     assert!(Arc::ptr_eq(&entry.new_output, &new_output));
     assert!(Arc::ptr_eq(&entry.alt_screen_active, &alt_screen));
     assert!(Arc::ptr_eq(&entry.mouse_tracking_active, &mouse_tracking));

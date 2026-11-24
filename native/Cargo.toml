@@ -57,11 +57,7 @@ wgpu = { version = "30", default-features = false, features = [
   "vulkan",
 ] }
 wgpu-types = "30"
-# 仅测试用：`cargo test --features loom --lib loom_tests` 穷举原子协议交错。
-loom = { version = "0.7.3", optional = true }
 
-[features]
-loom = ["dep:loom"]
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = [
   "cargo_bench_support",

@@ -1,12 +1,12 @@
-# 验证工具调研：loom、Miri、ASan、Turbine（2026）
+# 验证工具调研：Miri、ASan、Turbine（2026）
 
 ## 摘要
 
 结论先行：
 
-- **loom**：已落地一条真实协议测试（`new_output` 单次置位恰好消费一次），
-  `--features loom` 构建，生产构建零开销。更高价值的并发风险在渲染循环的
-  check-then-park，需要先有可注入的 parker 才能建模。
+- **loom**：不采用。loom 要在测试构建里替换生产原子量，切换只能靠 crate
+  feature 或自定义 `--cfg`：前者违反「不得定义任何 crate features」，后者只是
+  绕过 Semgrep 门禁。相关不变量改由标准库线程用例直接覆盖生产类型。
 - **Miri**：已可运行，但只能覆盖纯 Rust 单测。库加载时的 PNG 解码器
   `.init_array` 会调用 FFI，Miri 必须跳过它（`cfg(miri)`）。目前验证面为
   `terminal::output_processor` 的 25 条测试。
@@ -21,37 +21,31 @@
 | --- | --- | --- |
 | 默认 stable | `nix develop` | Android 交叉编译、日常测试 |
 | nightly + Miri | `nix develop .#nightly` | 只装主机目标；复用默认 shell 的构建输入 |
-| loom | `cargo test --features loom --lib loom_tests` | 用 nightly shell |
+| loom（不采用） | — | 需 crate feature 切换原子类型，规范禁止 |
 | Miri | `MIRIFLAGS=-Zmiri-disable-isolation cargo miri test --lib terminal::output_processor` | 用 nightly shell |
 | ASan（host） | 见下 | 用 nightly shell |
 
 `rust-toolchain.toml` 固定 stable，但 nix shell 直接暴露 fenix 的 `cargo`，
 不经过 rustup，故 nightly shell 内不会回落到 stable。
 
-## loom
+## loom（不采用）
 
-`OutputFlag` 在 `feature = "loom"` 下换成 `loom::sync::atomic::AtomicBool`，
-共享句柄换成 `loom::sync::Arc`；其余构建就是标准库类型。
+loom 的建模要求在测试构建里把生产原子量换成 `loom::sync::atomic::AtomicBool`，
+切换只能靠 crate feature 或自定义 `--cfg`：前者违反
+`docs/specification/STYLE.md` 的「不得定义任何 crate features」，后者只是绕过
+Semgrep 门禁，两者都不采纳。
 
-```sh
-nix develop .#nightly --command sh -c \
-  'cd native && cargo test --features loom --lib loom_tests'
-```
+被建模的不变量是**一次置位恰好被一个消费者取走**。该性质由
+`AtomicBool::swap` 的原子性直接保证，现由
+`terminal::output_processor::new_output_flag_is_consumed_by_exactly_one_consumer`
+在生产类型上直接覆盖；事件队列侧的并发语义仍由 `tests/concurrency.rs`
+（shuttle）穷举。
 
-只建模一个不变量：**一次置位必须恰好被一个消费者取走**。这覆盖
-`swap(false, AcqRel)` 的原子性；生产代码只有一个写者（PTY 线程）和若干消费者
-（渲染/诊断），不存在第二个 `store(false)`，所以这个不变量是完整的。
-
-**没有建模的**：渲染循环的驻留点 `RenderWake`（代数计数 + `parking_lot`
+**未建模的**：渲染循环的驻留点 `RenderWake`（代数计数 + `parking_lot`
 `Condvar`）。它用「代数变化才等待」消除丢唤醒：`wait` 在持锁状态下比较代数，
 不等则立即返回；等待与通知之间不存在丢信号的窗口。这不是已知缺陷，而是
 loom 够不着的原语（loom 不支持 `parking_lot` 的 `Condvar`）；要建模得先把
 等待原语抽成可替换接口，属于重构而非测试。
-
-建模时的坑（写 harness 前必读）：C++ 内存模型允许**同线程** `store` 后的
-`load` 读到并发线程**更晚**的 store（coherence 只要求不早于自己的 store）。
-因此“store 后立刻 load 必须读到自己的值”是错误断言，loom 会如实报出那个
-合法交错。断言只能写真正由 happens-before 保证的性质。
 
 ## Miri
 
@@ -102,7 +96,7 @@ nix develop .#nightly --command sh -c \
 
 ## 已有但未在本轮扩展
 
-- `tests/concurrency.rs` 用 **shuttle** 做随机调度探索；与 loom 的穷举互补。
+- `tests/concurrency.rs` 用 **shuttle** 做随机调度探索，覆盖事件队列的并发不变量。
 - `proptest` 覆盖分块/等价类；`criterion` 承担基准。
 - 解析器 fuzz（`SYMLINKS.txt`、`fonts.xml`、shell entry 切分）可接
   `cargo-fuzz`，但当前 proptest 已覆盖主要边界，优先级低于真机 ASan。
@@ -111,7 +105,5 @@ nix develop .#nightly --command sh -c \
 ## 后续建议
 
 1. Android 真机 ASan：先取得 `scripts/` 修改同意，再做一次真机仪器测试。
-2. 若要把 `RenderWake` 纳入 loom，先把等待原语抽成接口；当前实现已有代数
-   握手，风险低。
-3. 新增原子协议时，按 `output_processor` 的模式补一条 loom 测试；不要给
-   `std::sync::Mutex` 队列补 loom（模型里只是顺序逻辑）。
+2. 新增原子协议时，在对应模块补一条直接覆盖生产类型的不变量用例；不要为
+   `std::sync::Mutex` 队列补并发模型（模型里只是顺序逻辑）。

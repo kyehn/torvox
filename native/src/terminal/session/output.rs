@@ -218,7 +218,7 @@ impl Session {
 
     /// 会话注册表持有的 `new_output` 共享标志：渲染线程直接读它，
     /// 不抢会话锁（PTY 洪流下锁可能被 VT 解析按住数十毫秒）。
-    pub fn new_output_flag(&self) -> crate::terminal::output_processor::OutputFlagHandle {
+    pub fn new_output_flag(&self) -> Arc<AtomicBool> {
         self.output_processor.new_output_flag()
     }
 
