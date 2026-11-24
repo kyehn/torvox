@@ -268,6 +268,17 @@ internal data class SessionEntry(
     }
 
     /**
+     * 新输出把视口贴回底部：整行偏移与亚行余量必须同拍清零。
+     *
+     * 只清偏移时，上一手势残留的余量会继续把画面推离底边一截；手势收尾再清
+     * 余量时画面又弹回，表现为新输出到来时的抽搐与闪动。
+     */
+    fun resetScrollToBottom() {
+        scrollOffset = 0
+        clearScrollRemainder()
+    }
+
+    /**
      * 滚动手势是否正在移动：最近的滚动运动事件（逐像素 `setScrollRemainderPx` 或整行 `setScrollOffset`）
      * 在 [SCROLL_MOTION_WINDOW_NANOS] 内刷新过 [lastScrollNanos]。
      * 使渲染循环在手势期间保持活跃节奏，不被 ~500ms 空闲闭锁驻留。

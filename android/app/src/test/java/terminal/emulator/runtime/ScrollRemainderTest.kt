@@ -79,6 +79,20 @@ class ScrollRemainderTest {
     }
 
     @Test
+    fun `新输出贴底时亚行余量与整行偏移同拍清零`() {
+        val session = activeSession()
+        session.scrollOffset = 9
+        runtime.setScrollRemainderPx(17f)
+        val stampedAt = session.lastScrollNanos
+
+        session.resetScrollToBottom()
+
+        assertEquals("整行偏移必须回底", 0, session.scrollOffset)
+        assertEquals("亚行余量必须同拍清掉，否则画面先冲过底边再弹回", 0f, session.scrollRemainderPx, 0f)
+        assertEquals("贴底不是手势，滚动运动时钟不得被刷新", stampedAt, session.lastScrollNanos)
+    }
+
+    @Test
     fun `从未滚动过的会话清零后仍无滚动运动`() {
         val session = activeSession()
 

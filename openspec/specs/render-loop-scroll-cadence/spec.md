@@ -47,6 +47,20 @@ latch 超时 MUST 同时咨询 `hasScrollMotion()`，使 idle-clocks 过期后�
 - **WHEN** 会话切换把亚行余量清零
 - **THEN** `lastScrollNanos` 不被刷新，该会话的新输出仍可自动回底
 
+### Requirement: 新输出贴底必须同拍清掉亚行余量
+
+新输出触发的自动贴底 MUST 同时把整行偏移与亚行余量归零；MUST NOT 只清整行偏移。
+上一手势残留的亚行余量会在贴底后继续把画面推离底边，手势收尾清余量时又弹回，
+用户看到的就是「新输出到来时抽搐/闪屏」。清零走不清时钟的入口，保持
+`recentlyScrolled` 语义不变。
+
+#### Scenario: 手势余量未清时来了新输出
+
+- **WHEN** 会话的整行偏移为 9、亚行余量为 17px，无选区且 SCROLL 锁关闭，
+      渲染线程消费到 `new_output`
+- **THEN** 两个量 MUST 同拍归零，且 `lastScrollNanos` MUST NOT 刷新；
+      `ScrollRemainderTest` 钉住该状态迁移
+
 ### Requirement: 滚动更新由 vsync 合并
 
 滚动入口（`setScrollRemainderPx` / `setScrollOffset`）MUST 只更新偏移与滚动/空闲时钟，

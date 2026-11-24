@@ -721,7 +721,9 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         ) {
             // 渲染线程上的单点复位写入；已下发的偏移保持不动，
             // 使既有的差量推送在下一帧把偏移 0 转发给原生。
-            entry.scrollOffset = 0
+            // 同拍清掉亚行余量，否则上一手势的残量会在贴底后再把画面推出一截，
+            // 手势收尾清量时又弹回（抽搐/闪屏）。
+            entry.resetScrollToBottom()
             // 搜索高亮按 Compose 镜像换算绘制：此处同步递增复位计数，
             // 使订阅方重读真实偏移，否则高亮按旧偏移错位。
             runtime.runtimeState.update { current ->
