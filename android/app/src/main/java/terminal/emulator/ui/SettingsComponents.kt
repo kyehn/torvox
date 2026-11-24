@@ -4,6 +4,7 @@ package terminal.emulator.ui
 // （滑块行、选择器行与分区卡片——每处都有相同的
 // isSmallScreen/labelStyle/valueStyle/color 逻辑）。参照 ghostty-android 的声明式 Setting 模式。
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -83,6 +84,8 @@ data class SettingsColors(
 
 /** 滑块行：标题 + 格式化数值 + 带强调色的滑块。[enabled] 为假时滑块置灰、数值文本暗淡 50% 且忽略改动。 */
 @Composable
+// lint 按函数名标记弃用，实际调用的 SliderState 重载并未弃用（Kotlin 编译器无告警）。
+@SuppressLint("DeprecatedCall")
 fun SettingsSliderRow(
     title: String,
     value: Float,
@@ -126,8 +129,7 @@ fun SettingsSliderRow(
             }
         LaunchedEffect(value) { sliderState.value = value }
         Slider(
-            state = sliderState,
-            enabled = enabled,
+            sliderState,
             onValueChange = { newValue: Float ->
                 if (enabled) {
                     sliderState.value = newValue

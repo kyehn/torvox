@@ -203,18 +203,20 @@ class BehaviorInstrumentedTest : ComposeTerminalLogcatTest() {
     @Test
     fun behavior_settings_shell_entry_empty_until_saved() {
         composeTestRule.openSettings()
-        scrollSettingsTo(hasTestTag("ShellEntryInput"))
-        // 规范要求未设置时显示空文本、不预填任何路径（shell-entry：
-        // 「未设置时显示空文本」）；预填 `/system/bin/sh` 即违规。空输入框的语义树里
-        // 根本没有 EditableText 条目，故按「有文本则必须为空」判。
-        val shellSemantics =
-            composeTestRule.onNodeWithTag("ShellEntryInput").fetchSemanticsNode().config
-        val shellText = shellSemantics.getOrNull(SemanticsProperties.EditableText)?.text
-        assertTrue("shell 设置框未设置时必须为空（实际=$shellText）", shellText.isNullOrEmpty())
-        // 保存按钮在输入框下方 8dp：`performScrollToNode` 只滚到目标刚好可见
-        // （贴视口下沿），按钮仍在视口外。与 bootstrap 用例同一口径，逐个滚逐个断言。
-        scrollSettingsTo(hasTestTag("ShellSaveButton"))
-        composeTestRule.onNodeWithTag("ShellSaveButton").assertIsDisplayed()
+        // 入口列表默认空：未配置时显示提示，两个输入框都不预填路径。
+        scrollSettingsTo(hasText("未配置启动入口，使用默认入口"))
+        composeTestRule.onNodeWithText("未配置启动入口，使用默认入口").assertIsDisplayed()
+        for (tag in listOf("ShellEntryName", "ShellEntryInput")) {
+            scrollSettingsTo(hasTestTag(tag))
+            val text =
+                composeTestRule.onNodeWithTag(tag).fetchSemanticsNode().config
+                    .getOrNull(SemanticsProperties.EditableText)?.text
+            assertTrue("$tag 未设置时必须为空（实际=$text）", text.isNullOrEmpty())
+        }
+        // 保存按钮在输入框下方：`performScrollToNode` 只滚到目标刚好可见，
+        // 按钮仍在视口外。与 bootstrap 用例同一口径，逐个滚逐个断言。
+        scrollSettingsTo(hasTestTag("ShellEntrySaveButton"))
+        composeTestRule.onNodeWithTag("ShellEntrySaveButton").assertIsDisplayed()
     }
 
     @Test
