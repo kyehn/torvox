@@ -147,7 +147,7 @@ fn classify(polled: PollAttempt) -> PollOutcome {
 #[cfg(test)]
 mod tests {
     use super::super::gpu::{is_device_loss_text, one_line};
-    use super::{PollOutcome, classify, lost_device_outcome, poll_outcome};
+    use super::{PollOutcome, catch_device_loss_panic, classify, lost_device_outcome, poll_outcome};
 
     /// 轮询成功的两种形态都算「继续」。
     #[test]
@@ -235,5 +235,27 @@ mod tests {
             Some(PollOutcome::Proceed) => panic!("判死的设备不得判成继续"),
             None => panic!("判死的设备必须给出失败结局"),
         }
+    }
+
+    /// 设备丢失类的 panic 必须被归一成 `None`：它穿出 JNI 就是整进程退出。
+    #[test]
+    fn device_loss_panic_is_normalized_to_none() {
+        let result = catch_device_loss_panic("read_cover_frame", || -> () {
+            panic!("Error in Device::poll: device is lost")
+        });
+        assert!(result.is_none(), "设备丢失 panic 不得向上传播");
+    }
+
+    /// 非设备丢失的 panic MUST 原样抛出：不得掩盖真正的逻辑缺陷。
+    #[test]
+    fn unrelated_panic_is_not_swallowed() {
+        let result = std::panic::catch_unwind(|| {
+            catch_device_loss_panic("read_cover_frame", || -> () {
+                panic!("unrelated logic bug")
+            });
+        });
+        let payload = result.expect_err("非设备丢失的 panic 必须原样抛出");
+        let text = crate::panic_text(payload.as_ref());
+        assert!(text.contains("unrelated logic bug"), "{text}");
     }
 }
