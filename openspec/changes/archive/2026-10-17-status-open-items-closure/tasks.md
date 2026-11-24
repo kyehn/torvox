@@ -546,7 +546,6 @@
 - [x] openspec 严格校验基线留档（不属本变更，只记录不重写）：
       `openspec validate --all --strict` 原为 `26 passed / 6 failed (32)`，6 个失败项
       （`documents-provider`、`font-selection`、`grid-extraction-incremental`、
-      `modifier-bar-sticky-encoding`、`render-stability`、`upstream-alignment`）
       **全部**只是「Requirement text is very long (>500 characters)」这一条警告
       （共 14 处，最长 3223 字），没有一条真实错误。
 - [x] 上述 14 处长需求按校验器语义拆分（`+29 -0` 行）：

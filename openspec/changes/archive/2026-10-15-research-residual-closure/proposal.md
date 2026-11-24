@@ -18,7 +18,6 @@
 2. **OSC 覆盖无逐项核对表**。生态深度研究报告 §14 把 terminator 的
    OSC checklist（0/1/2、4、7、10/11/12、52、133、1337、777/9）列为「逐项核对
    libghostty-vt 覆盖」的 P1 参考点。核对结论散落在测试断言、函数注释与
-   `upstream-alignment` 的回调判定表里，没有一张集中表，后续复查无法一次看全。
 3. **切换会话的状态清空无规范条款**。实现已具备（清选区、关搜索、滚动归零、
    丢弃异会话渲染残留、重置输入目标），`docs/persistence/ecosystem.md` 的
    ghostty `attachSession` 对照项仍写「值得对照自查」——实现到位而契约缺失，
@@ -34,7 +33,6 @@
   `codegen-units = 1`、`opt-level = "z"`、`strip = true`；不设 `panic` 键
   （默认 unwind 是 `jni_export_guard` 的前提）。dev/bench 档不设——默认档
   满足测试与基准，`STYLE` 要求最小实现。
-- **新增 `upstream-alignment` 能力「OSC 覆盖逐项核对」**：一张表列全
   terminator checklist 各 OSC 段的本仓行为（上游解析并观察 / 上游处理并有测试 /
   内嵌方所有走原生 setter / 本仓收割应答 / 不接），每项给文件行号依据。
 - **新增 `session-list` 能力「切换活动会话清空全部会话态」**：切会话 MUST
@@ -50,7 +48,6 @@
   OSC 7 cwd 消费、OSC 133 语义、synchronized output、命令面板、分屏、bell
   通知、Sixel/ZMODEM、远程会话、TalkBack 朗读等）——逐份判定见 `tasks.md`。
 - 不引入任何外部测试语料（vttest/esctest/contour vtconformance/qwertty 差分
-  语料/konsole autotests）：采纳门槛已在 `upstream-alignment` 与
   `terminal-state-regression` 逐项登记，本变更只补 OSC 核对表。
 - 不修改 `scripts/` 与 `.github/`（AGENTS.md 禁改区）：`TESTING.md` 要求的
   aislop/jscpd 门禁与 rapidocr OCR 自动化两项登记为待维护者裁定，
@@ -58,7 +55,6 @@
 
 ## Impact
 
-- Affected specs: `upstream-alignment`（新增 OSC 核对）、`session-list`
   （新增切会话清空条款）。
 - Affected code: `native/Cargo.toml`（构建配置）。
 - Affected docs: `docs/persistence/ecosystem.md`。

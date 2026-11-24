@@ -21,7 +21,6 @@
   - **未声明**：`docs/specification/` 全文无引导屏与发行版选择条款，`STYLE.md:54`「不实现未在
     docs/specification/ 声明的功能」。另与 `PROHIBITED.md:20`「内嵌 bootstrap，预装发行版」张力。
 - [ ] 1.4 Add config export/import: JSON format with theme, font, font_size, scrollback, opacity, autohide_keys, wakelock
-  - **违禁**：`upstream-alignment`「跨 JNI 扁平数据 MUST 用直接量而非 JSON」与「保留 JSON 的边界登记」
     已把 JSON 限定在 `pollEvent` 一处；27 号收敛文档记录用户明确要求不生成 JSON。
     另 `opacity`（背景透明）与 `autohide_keys` 属 `PROHIBITED.md:17` 禁止项。
 - [ ] 1.5 Add backup/restore system: Distro rootfs backup to /sdcard/RedTerm + settings restore

@@ -41,7 +41,6 @@
   安全控制字节中化（控制字节换空格、bracketed 终止序列换空格）全部由上游承担，
   且不需要任何确认流程。
 
-这不是妥协：`Terminal::paste` 的额外能力属「按需取用」，`upstream-alignment`
 已登记该模式。
 
 ### 上游编码实测（本轮探针）
@@ -66,7 +65,6 @@
 
 ### Modified Capabilities
 
-- `upstream-alignment`: `Terminal::paste` 由「待办」改为「不采用」（`PROHIBITED`
   依据），新增 `paste::encode` 采用与 `paste::is_safe` 不采用两行
 - `modifier-bar-sticky-encoding`: bracketed 缺口声明精确化——粘贴路径已实现，
   输入法提交路径不受影响

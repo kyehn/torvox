@@ -17,7 +17,6 @@
 
 - 不实现录制回放金标语料（`terminal-state-regression` 已按 TESTING 不做回归，不引入）。
 - 不引入 Monet 取色、自研 URL 扫描、正则搜索、会话持久化等禁区功能。
-- 不改 `upstream-alignment` 台账行与门槛（见提案说明）。
 - 不动 IME 编辑契约实现（在途变更负责）。
 
 ## Decisions

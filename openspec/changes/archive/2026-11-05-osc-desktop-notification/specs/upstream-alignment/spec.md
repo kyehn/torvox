@@ -135,9 +135,7 @@ MUST NOT 留空使后来者重复调研或把合规分叉移植回来。每项 M
 | 8（超链接） | 上游解析；本仓经 `hyperlink_at` 查询网格单元 URI | `internal.rs` `hyperlink_at_impl`（4KiB 内联缓冲 + 越界精确重读） |
 | 9（iTerm2 通知） | 上游解析并观察：本仓注册 `on_desktop_notification` 回调，通知按会话归属投递 | `DESIGN.md` 软件节要求处理 OSC 9 通知（前台 Toast、后台系统通知、点击切换会话）；回调注册见 `ghostty_terminal/internal/run.rs`，分派见 `runtime/DesktopNotificationPlayer.kt`，规约见 `desktop-notification` |
 | 10 / 11 / 12（默认前背景色 / 光标色查询与设置） | 上游不处理，默认值归内嵌方；本仓经原生主题 setter 置默认色 | `internal.rs` 初始主题段落三处注释（默认色归内嵌方、OSC 4 覆盖归上游、故走原生 setter 而非手写 OSC 序列） |
-| 52（剪贴板读写） | 写走上游回调；读取请求由本仓扫描器收割并拼帧应答 | `upstream-alignment`「OSC 52 读取请求的收割与应答须对每个会话有界」；`output_processor.rs` `ReadScan` 状态机 |
 | 104 / 110 / 111 / 112（色重置） | 上游处理；跨分块重组有测试 | `tests.rs` OSC color reset 跨分块用例 |
-| 133（shell 集成标记） | 上游解析（若支持）；本仓不消费 | DESIGN 未声明 prompt 标记语义；`upstream-alignment` 预测线条目判「未声明，需先补 DESIGN」 |
 | 777（rxvt 桌面通知） | 上游解析并观察：走上游 `on_desktop_notification` 回调（同 OSC 9） | 上游 `rxvt_extension.zig` 把 `777;notify;标题;正文` 归到 `show_desktop_notification`，与 OSC 9 同一条命令 |
 | 1337（iTerm2 媒体 / 通知） | 不接：零消费者 | 上游 `iterm2.zig` 只实现 `Copy` 与 `CurrentDir`，通知类负载（`RequestAttention`）上游记为未实现；本仓不消费 |
 

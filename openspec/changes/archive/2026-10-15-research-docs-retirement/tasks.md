@@ -2,7 +2,6 @@
 
 ## 一、索引表（规范增量）
 
-- [x] `upstream-alignment` 新增 Requirement「研究报告逐份索引与文档可移除性」
 - [x] 索引表录入 74 行：73 份逐仓报告 + `ecosystem.md`，另加旧编号文档集处置行
 - [x] 逐行核对：五组子代理并行审计 73 份报告，逐条比对报告内容与
       索引行/台账；发现并修掉两类缺口——依据指向空表（分屏、Web 壳语料、libtsm 语料
@@ -21,7 +20,6 @@
       由 Requirement 正文与 `terminal-state-regression` 承接，两处悬问闭合结果
       （shitty 许可双轨、ratty font/atlas）与字体表真值对照位置一并登记
 - [x] 删除 `docs/research/` 全部 74 份（`git rm -r docs/research`，目录随之移除）
-- [x] `FontFileOverrideInstrumentedTest` 注释改指 `openspec/specs/upstream-alignment` 的
       禁改区待维护者裁定项台账（rapidocr OCR 自动化未实施），不再引用 `docs/research`
 
 ## 三、在途变更收尾
@@ -64,7 +62,6 @@
       与 research docs retirement 变更」），即依据表的解析依赖并未按先后两次提交兑现。
       以 git 事实为准，故更正为同一提交归档。
 
-      **主 spec 条目数（实测数，归档后状态）**：`openspec/specs/upstream-alignment/spec.md`
       含 32 条 `### Requirement:`、68 条 `#### Scenario:`。该数为
       `research-per-doc-resolution` 归档后（次日补记时）实测；两变更同一提交归档
       （即上一段的提交）时该 spec 为 29 条 Requirement / 61 条 Scenario，

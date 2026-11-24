@@ -2,7 +2,6 @@
 
 ## Why
 
-`openspec/specs/upstream-alignment/spec.md` 的表格与索引行里以代码路径形式给出的
 **本仓文件**指针，有四处指向工作树中不存在的路径：
 
 1. 「Android 侧终端项目的复查台账」行的「详见 `docs/persistence/android-thoth-term.md`」
@@ -26,14 +25,10 @@
   `native/src/android/ffi/render/pump.rs`。
 - 三处指向已删除 `docs/persistence/android-thoth-term.md` 的指针改为不指向具体文件
   的表述：结论由本规范的台账行与索引行承接（判定与依据本就写在那里）。
-- `upstream-alignment` ADDED「规范内的路径指针必须指向现存文件」：规范中的本仓路径
   指针 MUST 可解析；历史性路径 MUST 带状态标记，MUST NOT 冒充现役指针。
 
 ## Capabilities
 
-- `upstream-alignment`（增量）：规范内的路径指针必须指向现存文件。
 
 ## Impact
 
-- `openspec/specs/upstream-alignment/spec.md`（四处指针订正 + 新增一条 Requirement）
-- `openspec/changes/2026-11-05-fix-upstream-alignment-path-drift/`（新增变更目录）

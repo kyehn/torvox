@@ -2,7 +2,6 @@
 
 ## Why
 
-`code-health` 能力把审计留档的落点写死在 `upstream-alignment` 的「实测基线」小节：
 静态形状扫描与重复率的实测数字、扫描参数与逐处判定写在该处，依赖活跃度的核对结论
 也 MUST 写入同一小节。
 
@@ -20,7 +19,6 @@
 
 ## What Changes
 
-- 在 `upstream-alignment` 的「实测基线」小节补写**静态形状扫描**的扫描参数、当日实测
   数字与 10 处命中的逐处判定（判据取各命中指向的陷阱文档，结论取现场代码）。
 - 同节补写**依赖活跃度**核对：crates.io 侧 28 个直接依赖的累计下载量、近 90 天下载量
   与最近发布（当日采样），Maven/Google 侧 47 个直接依赖的最近发布事实，以及两仓库
@@ -37,10 +35,8 @@
 
 ### Modified Capabilities
 
-- `upstream-alignment`：「禁改区待维护者裁定项台账」的实测基线小节补入审计留档。
 
 ## Impact
 
 - `openspec/changes/2026-11-14-record-scan-and-dependency-audit/`：提案、任务与规约增量。
-- `openspec/specs/upstream-alignment/spec.md`：归档时同步上述补写内容。
 - 源码、`docs/specification/`、受保护文件：均不修改。

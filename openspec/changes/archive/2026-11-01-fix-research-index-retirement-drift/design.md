@@ -4,7 +4,6 @@
 
 见 proposal.md 的 Why。此处只记实现本变更时必须成立的事实前提：
 
-1. `openspec/specs/upstream-alignment/spec.md` 是**次级规范**，行为与架构的真值在
    `docs/specification/`（禁改区）。本变更只订正次级规范里与真值不符的陈述。
 2. 该规范里带索引表的两条 Requirement 分别是
    「研究报告逐份结论登记在本规范内」（正文 29 行）与
@@ -29,7 +28,6 @@
 
 **Goals:**
 
-- 让 `upstream-alignment` 的每处事实陈述都能被 `git` 或文件实测复核。
 - 索引表的 111 行仍能独立回答「该报告的结论与依据」，删除文档后不丢结论。
 - `docs/spec-code-gaps.md` 的键面计数与 `config.md`／实现一致。
 
@@ -89,7 +87,6 @@
 ## Risks / Trade-offs
 
 - [Risk] MODIFIED 增量要完整复制两条 Requirement（其中一条含 111 行索引表），
-  手抄必然出错 → 用脚本从 `openspec/specs/upstream-alignment/spec.md` 原文切出整块
   Requirement，再对切出的文本做定点替换，逐条断言被替换串在全文只出现一次；
   归档后逐字 diff 主 spec，确认只有预期改动。
 

@@ -19,6 +19,5 @@
 
 ## 4. 规范对齐
 
-- [x] 4.1 `upstream-alignment` 的 `Terminal::paste` 条目从「待办」改为「不采用」并写明 `PROHIBITED` 依据；新增 `paste::encode` 采用与 `paste::is_safe` 不采用两行
 - [x] 4.2 `modifier-bar-sticky-encoding` 的 bracketed 缺口声明精确化：粘贴路径已实现，输入法提交路径不受影响
 - [x] 4.3 归档后核对 `openspec/specs/` 确实含新条目数（`spec/paste-encoding` 3 条requirement 已在 `openspec/specs/`）

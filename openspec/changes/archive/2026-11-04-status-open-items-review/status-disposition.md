@@ -112,7 +112,6 @@ SwiftShader 模拟器）无法复现；**非本仓缺陷**＝经查证不对应�
 - `libghostty.md`：`session.rs` → `session/`、`render/context.rs` → `render/context/`
   （两处已由单文件拆为目录）。
 
-同时修正 `openspec/specs/upstream-alignment/spec.md` 的响铃取用台账：原把 `on_bell`
 列为「不采用 / Kotlin 侧零消费者」，与实现相反；现拆出独立行并改为「采用」，其余
 引用该前提的行一并订正。
 

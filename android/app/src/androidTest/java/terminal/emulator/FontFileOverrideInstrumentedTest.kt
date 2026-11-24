@@ -21,7 +21,6 @@ import java.io.File
  *
  * 源字体取模拟器镜像内的系统字体文件（运行期复制，不 vendor 进仓）。字形像素
  * 判定需宿主 OCR（`TESTING.md` 环境节的 rapidocr），该自动化尚未实现、登记于
- * `openspec/specs/upstream-alignment` 的禁改区待维护者裁定项台账，因此此处判据为
  * 解析出的族名、等宽标记翻转与单元格度量变化——三者同时成立即证明主字体
  * 确实来自该文件而非回落 notdef。
  */

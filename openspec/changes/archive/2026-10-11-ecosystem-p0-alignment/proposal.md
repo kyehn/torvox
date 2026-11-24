@@ -25,10 +25,8 @@
 - `text-search`: 搜索定位上下文与导航重扫行为
 - `cjk-rendering`: 宽字符边界守卫
 
-`upstream-alignment` 台账本次不改：`sohan-f` 含真 Monet 合成文件（`MonetTerminalColors.java` 22KB）而 `ownerroc` 同路径无该文件、仅 `monet_background` 开关，系同源换皮；其余口径差异位于生态研究报告正文，以 `docs/research/` 附录收敛，不触及规范门槛与台账行。
 
 ## Impact
 
 - 影响 Rust 会话/PTY 层、Kotlin 设置下发链路、搜索导航与 CJK 宽表实现。
-- 影响 `openspec/specs/` 中两项新增能力与两项既有能力行为增补；不引入 `PROHIBITED.md` 禁区功能，不改 `upstream-alignment` 台账行。
 - 影响 `docs/research/` 生态报告附录；不修改 `docs/specification/`、`Cargo.toml`、`build.gradle.kts` 等受限文件。

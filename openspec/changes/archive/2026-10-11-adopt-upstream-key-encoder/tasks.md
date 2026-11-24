@@ -19,6 +19,5 @@
 
 ## 4. 规范对齐
 
-- [x] 4.1 `upstream-alignment` 的 `key::Encoder` 条目从「待办」改为「采用」并写明阻塞点如何解除；`Terminal::paste` 条目保持待办并指向本批另一变更
 - [x] 4.2 `modifier-bar-arrow-encoding` 的 Kotlin 侧自实现部分改指 `key-input-encoding`；行为要求保持不变
 - [x] 4.3 归档后核对 `openspec/specs/` 确实含新条目数，不以 `openspec validate` 与 markdownlint 通过即认定落地

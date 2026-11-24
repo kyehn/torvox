@@ -63,14 +63,12 @@
 ## What Changes
 
 - 把逐项判定、实测数字与采纳口径补进本提案。
-- 在 `upstream-alignment` 规范中要求：判定上游语料 MUST 实测通过数而非凭印象；
   采纳 MUST 按「输入是否格式合规」分流，畸形序列 MUST 按标准另写断言。
 
 ## Capabilities
 
 ### New Capabilities
 
-- `upstream-alignment`：依赖与上游测试资产的对齐口径。
 
 ### Modified Capabilities
 
@@ -78,7 +76,6 @@
 
 ## Impact
 
-- `openspec/specs/upstream-alignment/spec.md`：新增两条采纳判定要求。
 - `Cargo.toml` / `Cargo.lock`：libghostty-vt 跟进上游 master（`8953a74` → `d2036ba`，
   唯一适配点是 `on_clipboard_write` 回调签名）。
 - 无运行时行为改动；探针已删除，未留任何常红的测试。

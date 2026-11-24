@@ -15,7 +15,6 @@
 ## 二、规范增量（已完成）
 
 - [x] 新增 `render-stability` Requirement「Surface 尺寸钳制到设备上限」
-- [x] 新增 `upstream-alignment` Requirement「研究报告逐份结论登记在本规范内」
       （语料判定补齐行 33 行 + 能力裁定补齐行 37 行 + 参照面与反面做法收敛补齐行 15 行
       + 禁改区待维护者裁定项台账 4 行）
 - [x] 审阅发现的两类缺口已补：索引行依据指向空表（分屏、Web 壳语料等）与
@@ -74,7 +73,6 @@
 
 ## 六、禁改区待维护者裁定（AGENTS.md：`scripts/`、`.github/`、`android/app/build.gradle.kts`）
 
-维护者已裁定「都不改，只登记」，落地方案见 `upstream-alignment` 新 Requirement：
 
 - [x] aislop / jscpd 门禁（TESTING.md 环境节）——已登记，未实施
 - [x] rapidocr OCR 自动化（TESTING.md 环境节 + 外部基准优先级 4）——已登记，未实施

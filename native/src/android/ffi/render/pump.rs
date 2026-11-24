@@ -18,7 +18,6 @@ pub(crate) fn pump_sessions() {
     // 绝不在持有 `Session` 锁时锁 `EVENT_QUEUE`。
     let mut pending_events: Vec<Event> = Vec::new();
     // 桌面通知单列：通知队列与事件队列分开，故后台推进泵取通知时不碰退出事件
-    // （退出事件的处理与渲染循环耦合，见 `upstream-alignment` 的通知通道判定）。
     let mut pending_notifications: Vec<Event> = Vec::new();
     // 本帧可上报 Exit 事件的会话（退出码已就绪者）及其退出结果与存活时长。
     // 退出码在会话锁内就地判定：只读一次 Mutex，不再有原先「先锁存上报标志、再忙等

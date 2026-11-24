@@ -5,6 +5,5 @@
 - [x] 1.3 取终端上游 master 与绑定层所钉提交两处源码事实，确认 DECSACE 与 kitty
       共享内存介质均为上游缺口
 - [x] 1.4 新增 `logcat-hygiene` 能力：应用自身分级、诊断限频、外部条目逐条归因
-- [x] 1.5 `upstream-alignment` 增量：补「终端上游与绑定层同时缺失」的场景口径
 - [x] 1.6 审计留档只保留聚合结论，不写入原始日志行与设备细节
 - [x] 1.7 `openspec validate --all --strict` 通过

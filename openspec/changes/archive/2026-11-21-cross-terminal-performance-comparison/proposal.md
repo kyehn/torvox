@@ -41,7 +41,6 @@
   Perfetto `android.log`、跨设备 `gpu.counters`、跨设备 `PowerMetric`、`screenrecord` 作判据、
   引用对照应用自述性能数字，逐条写明理由。
 - 新增研究报告 `docs/research/terminal-performance-comparison-2026.md`，并在
-  `research-ledger` 登记索引行与逐份处置行、在 `upstream-alignment` 登记两个对照对象的性能
   对比资产事实。
 
 ## 不做什么
@@ -57,7 +56,6 @@
 ## Impact
 
 - Affected specs: `performance-measurement`（新增四条要求，扩充一条不采纳要求）、
-  `research-ledger`（索引行、逐份处置行、在库计数）、`upstream-alignment`（性能对比资产
   登记表）。
 - Affected code: 无（本次只出方法学与规范，不改实现）。
 - 行为变化：无。

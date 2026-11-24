@@ -27,7 +27,6 @@ AGENTS.md 禁改区，维护者已裁定「都不改，只登记」。问题在�
   - `2026-10-12-audit-research-residual-gaps` 真机渲染确认：本宿主具备 KVM 但模拟器
     镜像为部分下载且下载包损坏，无法起模拟器，缺口从「环境未探索」升级为
     「阻塞点已探明」，维持未勾选并写明具体错误。
-- **`upstream-alignment` 的「禁改区待维护者裁定项台账」补入实测基线**（MODIFIED）：
   - `aislop scan --json` 实测：score 90 / Healthy，0 errors / 14 warnings，
     全部为 `complexity/*` 且评级 `style-policy`、confidence `medium`、
     0 `confirmed-defect`；**覆盖限制**：`supportedFiles=42`、`unsupportedFiles=125`、
@@ -51,12 +50,10 @@ AGENTS.md 禁改区，维护者已裁定「都不改，只登记」。问题在�
 
 ### Modified Capabilities
 
-- `upstream-alignment`：其「禁改区待维护者裁定项台账」Requirement 正文补入
   实测基线、工具覆盖面限制与实施验收判据（登记内容扩充，裁定与禁令不变）。
 
 ## Impact
 
-- Affected specs: `openspec/specs/upstream-alignment/spec.md`（MODIFIED 一条 Requirement）。
 - Affected docs: `openspec/changes/archive/2026-10-15-research-residual-closure/tasks.md`、
   `openspec/changes/archive/2026-10-15-research-docs-retirement/tasks.md`（补勾与依据）、
   `openspec/changes/archive/2026-10-12-audit-research-residual-gaps/tasks.md`（缺口写明）。

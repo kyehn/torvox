@@ -11,7 +11,6 @@
 
 ## 架构前提
 
-本项目的 VT 解析与终端状态 100% 由上游 `libghostty-vt`（Ghostty 终端仿真库）承担，`native/src/terminal/ghostty_terminal/` 只是接线与查询封装（`internal/run.rs` 的 `configure_terminal` 注册回调，`internal/dispatch.rs` 处理查询）。因此「本项目支持哪些协议」= Ghostty VT 核支持的协议，减去 `openspec/specs/upstream-alignment/spec.md`「上游 API 取用判定登记」中明确判为不采用的回调。
 
 环境声明（`docs/specification/DESIGN.md` Shell 节）：`TERM=xterm-256color`、`COLORTERM=truecolor`。
 
@@ -30,7 +29,6 @@
 
 ### OSC 操作系统命令
 
-解析归属见 `openspec/specs/upstream-alignment/spec.md` 的「OSC 覆盖逐项核对」表。
 
 | OSC 段 | 作用 | 本项目状态 |
 | --- | --- | --- |
@@ -46,7 +44,6 @@
 | 104 / 110 / 111 / 112 | 颜色重置 | 上游处理，跨分块重组有测试 |
 | 133 | shell 集成标记（prompt 起止） | 上游解析，本仓不消费（DESIGN 未声明 prompt 标记语义） |
 | 7501 | 程序状态上报 | 上游解析（`ProgramStatus`） |
-| 9 / 1337 / 777 | iTerm2 通知 / 媒体 / 进度 | 不接：零消费者（upstream-alignment「OSC 覆盖逐项核对」表） |
 
 ### Kitty 系协议
 
@@ -72,7 +69,6 @@
 
 ### 明确不接线（规范已登记，非缺口）
 
-`on_title_changed`/`on_pwd_changed`（改用 Query 拉取）、`on_render_hold`（自建 2026 门控）、`on_desktop_notification`/`on_progress_report`、`on_clipboard_read`（OSC 52 读走异步自研链，避免冻结 VT 线程）、`on_device_attributes`/`on_xtversion`（缺省应答已够）、`set_terminfo_name`、`gesture`/`select_output`/`format_selection_*`/`snapshot decoder` 等。依据：`openspec/specs/upstream-alignment/spec.md`「上游 API 取用判定登记」。`on_bell` 原判不接线（2026-11-03 已改判接线：无锁标志 + 每帧收割 `Event::Bell`，Kotlin 按 `bell-character` 三态执行，见 `docs/persistence/osc-notifications.md`）。
 
 ## 每个协议的作用（速查）
 
@@ -102,7 +98,6 @@
 
 - **Sixel 图像协议**（DCS `q`）：termux-app master 已支持，ghostty 不支持。本仓图像通道走 Kitty 图形协议。
 - **iTerm2 图像协议（OSC 1337 `File=`）**：termux-app master 已支持（`ITermImage.java`），ghostty 不支持。
-- **Regis、Tektronix 4010/4014**：`upstream-alignment`「能力裁定补齐行台账」已判「未声明，不立项（Ghostty 无该协议）」。
 
 ### 上游解析了但本仓不消费的（接线即可，但须先补 DESIGN 声明）
 
@@ -112,7 +107,6 @@
 
 ### 绑定层缺口
 
-- **DECRQCRA 矩形校验和**（`AssertScreenCharsInRectEqual` 的底层）：esctest2 语料实测阻塞点——上游终端已具备分发与校验和计算，但 `libghostty-vt-sys` 绑定层未暴露（`upstream-alignment` 语料判定表已登记）。
 
 ### 对照结论
 
@@ -161,18 +155,15 @@ termux-app 是自研 VT 引擎（Java，`terminal-emulator` 模块），与本�
 - **OSC 133 shell 集成标记消费**：上游已解析，接线即可。前置：DESIGN 声明 prompt 分段/退出状态着色语义；消费者为「命令状态高亮」类 UI。
 - **OSC 1337 CurrentDir 纳入 pwd 展示**：上游 pwd 解析已覆盖 OSC 9/1337，只需在会话 pwd 展示侧确认多来源口径。前置：DESIGN 声明 pwd 多来源优先级。
 - **桌面通知/进度上报（OSC 9/1337/777）**：上游 `on_desktop_notification`/`on_progress_report` 回调已存在。前置：DESIGN 声明通知语义（Android 通知栏形态），并与已接线的 BEL 响铃（`bell-character` 三态）区分职责。外部实现对比、协议细节与接线路径见 `docs/persistence/osc-notifications.md`。
-- **跟随上游 master rev**：`upstream-alignment` 要求依赖跟踪 master。计划内例行动作：升级 `native/Cargo.toml` 钉定的 rev，全量 `cargo test` + JNI 驱动的 JVM 测试保持全绿，并把「落后多少」登记进 `upstream-alignment`（提交日期与提交数差口径，不用 hash）。
 
 ### 中期（绑定层/上游依赖）
 
 - **DECRQCRA 校验和**：阻塞在 `libghostty-vt-sys` 绑定层未暴露。上游终端已具备分发与计算。计划：向上游提绑定补丁或等上游发布；落地后 vttest 系语料的 `AssertScreenCharsInRectEqual` 类断言才具备引入前提。
-- **区分大小写搜索**：上游 `Search` 仅 ASCII 折叠、无开关（`upstream-alignment` 对标表已登记）。计划：推动上游 `SearchOption` 扩展；本仓不改自研（违单一来源）。
 
 ### 长期（产品决策，违「单一来源」原则，需维护者裁定）
 
 - **Sixel 图像协议**：termux-app master 已支持，ghostty 核没有。补齐意味着自研 VT 组件或换核，撞 DESIGN「不重复实现 Ghostty 已有功能」与「终端状态单一来源」。计划：仅当产品明确要求对齐 termux 图像生态（sixel 系工具链）时立项，形态为独立可选模块而非替换 VT 核。
 - **iTerm2 图像协议（OSC 1337 `File=`）**：同上，termux-app master 支持而 ghostty 核不支持。计划：与 sixel 同批裁定。
-- **BiDi/RTL**：上游 ghostty 核不输出 bidi 整形（gat 亦明确不支持）。计划：依赖上游或换核，未声明不立项（`upstream-alignment` 能力裁定表已判）。
 
 ### 不纳入计划（明禁或已判不立项）
 

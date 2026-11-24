@@ -5,7 +5,6 @@
 `docs/specification/DESIGN.md` 的软件节明确要求「处理 OSC 9 等通知，输出会话序号和通知。
 应用位于前台时使用 Toast Notification。位于后台时使用“系统通知”，点击后切换到目标会话」，
 而本仓既没有 OSC 9/777 的消费者（上游 `on_desktop_notification` 回调未注册），台账
-（`openspec/specs/upstream-alignment/spec.md` 的「OSC 覆盖逐项核对」）还把 OSC 9 记为
 「不接：零消费者」并写明理由是「DESIGN 未声明通知语义」——该理由与 DESIGN 的现状直接矛盾。
 规格与实现两头落空：终端程序发出的通知（长任务完成、提醒类输出）在本仓完全静默，用户
 只能回到终端窗口才看得见。
@@ -19,7 +18,6 @@
   「后台用系统通知」的意义所在。
 - 前台用 Toast、后台用系统通知；两者的内容都带会话序号；点击系统通知切换到目标会话
   （表面尚未就绪时须等待就绪，不得静默丢弃切换请求）。
-- 新增能力 `desktop-notification` 承载上述行为；修正 `upstream-alignment` 中与 DESIGN
   冲突的判定：OSC 逐项核对表、上游回调取用登记、OSC 回调通道描述与 JSON 边界登记。
 
 ## Capabilities
@@ -30,13 +28,11 @@
 
 ### Modified Capabilities
 
-- `upstream-alignment`：「OSC 覆盖逐项核对」表中 OSC 9 与 777 的行为归属、「上游 API 取用
   判定登记」中 `on_desktop_notification` 的结论、「不采用的上游回调不得留有通道描述」中
   OSC 回调通道的承载内容，以及「保留 JSON 的边界登记」中新增的通知队列一行。
 
 ## Impact
 
-- 规约：新增 `openspec/specs/desktop-notification/spec.md`；`upstream-alignment` 四条要求的
   表述随本变更更新（归档时同步）。
 - 原生侧：`native/src/terminal/ghostty_terminal/` 注册上游回调并把通知推入独立队列；
   `native/src/event.rs` 增通知事件；`native/src/android/ffi/` 增通知队列的轮询导出。

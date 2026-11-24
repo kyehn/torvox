@@ -15,7 +15,6 @@
   本变更只交付评估与裁定，不交付实现。
 - **VT 核不采纳**：Warp 自研终端模型（alacritty 血统 + `vte` 状态机）与本仓 `libghostty-vt` 单一来源相悖。
 - **渲染栈不采纳**：Warp 主走 Metal，wgpu 仅实验性；本仓 Vulkan 唯一、无回退。
-- **AI/云/远程/Drive 整面不立项**：撞 `PROHIBITED.md` 明禁或 `upstream-alignment`「未声明，不立项」裁定。
 - **测试资产不采纳**：`ref_tests` 期望值由实现自身产出（门槛 1 成立）；`escape_sequences_tests` 断言上游字节
   属不测依赖行为。
 - **秘密脱敏登记为候选**：技术上可落地但 `DESIGN.md` 未声明，维持未立项，先登记。

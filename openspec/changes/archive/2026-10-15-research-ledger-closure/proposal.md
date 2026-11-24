@@ -17,7 +17,6 @@
    `vercel-labs-wterm`、`wilsonglasser-oryxis`、`migueldeicaza-SwiftTerm`。
    它们的**具体可执行项**（第三方测试语料、MCP/agent 面、copy-on-selection、bell cooldown、
    会话恢复、CRT 特效、DBus 控制、i18n、RTL 整形、O(1) row-map、单帧 deadline/quantum 等）
-   从未逐条登记；而 `upstream-alignment` 的「已复查结论登记在本规范内」明文要求
    **MUST NOT 把结论只留在归档变更里**——这些行现状正是只存在于归档 tasks.md。
 3. **一处真实代码缺口**：`par-term` 研究报告的「GPU surface clamping」只落实了 no-op
    configure 早退，缩放后的 surface 尺寸未钳制到 `max_texture_dimension_2d`。
@@ -27,14 +26,12 @@
    且没有直接错误，属「不隐藏错误」意义上的盲区。
 4. **两处持久结论漂移**：RTL/BiDi 在 `PROHIBITED` 无条目，台账口径「BiDi 已禁止」
    依据不足，正确口径是「未声明不立项」；SwiftTerm 与已采纳的 ghostty fuzz 语料在
-   `upstream-alignment` 台账无行，违反该 spec 自己的可脱离归档复核条款。
 
 ## What Changes
 
 - **新增 `render-stability` Requirement「Surface 尺寸钳制到设备上限」**：交换链尺寸
   MUST 由唯一纯函数计算（缩放后钳制到设备 `max_texture_dimension_2d`），两条挂载路径
   MUST 共用；超限钳制 MUST 可被宿主单测直接判定（判定表，不经 GPU）。
-- **新增 `upstream-alignment` Requirement「研究报告逐份结论登记在本规范内」**：把上述
   逐份结论写进规范正文，使每条结论可脱离归档独立复核；落点为其后四个 Requirement：
   逐条判定行归「语料判定补齐行台账」与「能力裁定补齐行台账」，参照面与反面做法归
   「参照面与反面做法收敛补齐行」，禁改区四项归「禁改区待维护者裁定项台账（只登记，不实施）」。
@@ -58,7 +55,6 @@
 
 ## Impact
 
-- Affected specs: `render-stability`（新增钳制条款）、`upstream-alignment`（新增逐份
   结论登记要求与语料判定／能力裁定／参照面收敛／禁改区四张补齐表，把原只存在于归档的
   逐份结论写入规范）。
 - Affected code: `native/src/render/context.rs`、`native/src/render/tests.rs`。

@@ -49,7 +49,6 @@ xterm.js 的一致性语料（vttest 血统，76 例输入 + 76 份期望屏幕�
 > `target/xterm-js`（`git log --all -S "target/xterm-js"` 只命中收录本文件的提交），
 > `native/tests/common/mod.rs` 从未存在。实际路径是把语料内联进
 > `native/tests/vt_corpus.rs`，随后随该测试整条删除；现况见常驻规范
-> `openspec/specs/upstream-alignment` 的「已采纳语料的落地形态」。详见同目录
 > `tasks.md` 末尾「归档后补记」。
 
 ### 3. 仓库卫生 semgrep 规则

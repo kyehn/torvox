@@ -4,7 +4,6 @@
 
 `docs/specification/DESIGN.md` 的软件节要求处理 OSC 9 等通知：输出会话序号与通知，前台用
 Toast，后台用系统通知，点击切换到目标会话。本仓既无该消费者，台账
-（`upstream-alignment` 的「OSC 覆盖逐项核对」）还把 OSC 9 记为「不接：零消费者」并写明
 理由是「DESIGN 未声明通知语义」——与 DESIGN 现状矛盾。
 
 上游已具备能力：`libghostty-vt` 的 `Terminal::on_desktop_notification` 回调覆盖 OSC 9 与

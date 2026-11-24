@@ -19,7 +19,6 @@ semgrep 的 Kotlin 解析器解析不了，104 个区域（每个步骤定义的
   均不变：cucumber 按正则匹配步骤文本，不校验注解的关键词类别（仓内已有反例——
   特性文件里的 `而且 …` 由 `@那么` 的步骤定义接住）。
 - 规格：`code-health` 的「规范声明的静态检查工具必须与验证门禁一致」增「解析失败即跳过」
-  的禁止条款与对应场景；`upstream-alignment` 的门禁留档补记 semgrep 的覆盖面基线
   （11 文件 / 104 区域 → 0）。
 
 ## Capabilities
@@ -31,4 +30,3 @@ semgrep 的 Kotlin 解析器解析不了，104 个区域（每个步骤定义的
 ### Modified Capabilities
 
 - `code-health`：门禁内静态检查工具不得留下解析缺口，缺口须计入留档并被消除。
-- `upstream-alignment`：门禁留档补记 semgrep 的覆盖面基线与消除方式。

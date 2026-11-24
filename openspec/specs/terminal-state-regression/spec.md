@@ -6,7 +6,6 @@
 `docs/specification/TESTING.md` 的「只测试本项目功能」「被测试部分应当曾经发生过错误
 或该测试可以证明最终功能正确」与「不保留无意义或低价值测试」：语料回放考的是上游
 `libghostty-vt` 的 VT 语义，属 `TESTING.md` 明禁的「不测试依赖行为」，且
-`upstream-alignment`「上游 VT 语义不由本仓测试覆盖」已登记该门槛。终端状态行为改由
 `ghostty_terminal::tests` 中针对具体行为的断言覆盖，其中回滚区旧行顺序、输入回显与
 光标、显示宽度、字重与颜色四类均逐项直接断言网格输出（逐格读 `CellSnapshot` 或
 `CellData`，不经中间文本层）。
@@ -58,9 +57,7 @@ shuttle 在安装全局 panic 钩子时会先访问自身的调度状态，在�
 
 期望值来源为本仓实现自身输出的网格快照装置 MUST NOT 引入：它把本仓的输出当成
 本仓的正确答案，无法在实现出错时失败。期望值来自标准文本、上游协议文档或真机实测的
-语料不在此限，按 `upstream-alignment` 的采纳门槛单独判定。
 
-本能力的规范依据 MUST 以 `docs/specification/TESTING.md` 与 `upstream-alignment` 的实际
 条款为准，MUST NOT 引用该文件中不存在的表述。
 
 #### Scenario: 外部基准经运行期取数
@@ -82,12 +79,10 @@ shuttle 在安装全局 panic 钩子时会先访问自身的调度状态，在�
 
 - **WHEN** 评估是否引入网格快照语料
 - **THEN** 期望值由本仓实现自身产出的不引入，理由记为自验证；外部真相来源的语料
-      单独按 `upstream-alignment` 的门槛评估
 
 #### Scenario: 规范引用不得超出被引用文件
 
 - **WHEN** 本能力引用 `docs/specification/TESTING.md` 作为某项取舍的依据
-- **THEN** 被引用的表述在该文件中确实存在，否则改引 `upstream-alignment` 的对应条款
 
 ### Requirement: 重置终端同步归位 OSC 52 扫描器
 

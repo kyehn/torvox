@@ -15,11 +15,9 @@
 
 ## What Changes
 
-- **`upstream-alignment` 新增 Requirement「研究报告逐份处置台账」**：105 份按 `tasks.md` 的固定顺序
   逐份处置（30 份编号报告 → 编号集内那份非编号的生态汇总报告 → 74 份现行报告），每份 MUST 四步
   留证（读全、逐句判入五类去向、补齐缺失去向、删除该份），并写入三条硬约束：单份删除 MUST 与其
   结论落点同批提交；同一提交 MUST NOT 删除两份及以上；指出本仓代码 MUST 用符号名、MUST NOT 用行号。
-- **`upstream-alignment` 新增 Requirement「逐份处置补齐行台账」**：逐份核对中发现的、此前无
   规范去向的可执行句逐句补一行（键为报告文件名 + 该句 + 去向），共 105 个键、187 行；
   每行 MUST 给得出可检索的去向（规范条目名、代码路径或不立项判定），且与该份的删除同批提交。
 - **`pty-lifecycle` 增量三则**：拆卸可重入／读循环可中断／组杀不误伤本进程、
@@ -34,12 +32,10 @@
 ## Capabilities
 
 - **New Capabilities**: 无。
-- **Modified Capabilities**: `upstream-alignment`（新增逐份处置台账 Requirement；逐份核对
   中若发现某能力缺口，其 delta 追加到本变更对应能力目录并在 `tasks.md` 登记）。
 
 ## Impact
 
-- Affected specs: `openspec/specs/upstream-alignment/spec.md`（新增两条台账 Requirement）、
   `openspec/specs/pty-lifecycle/spec.md`（新增拆卸／resize／fork-exec 三则增量）。
 - Affected docs: `docs/research/`（105 份逐份删除）。
 - Affected code: 仅当逐份核对发现真实缺口时改动触发该缺口的实现与用例。

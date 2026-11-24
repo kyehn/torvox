@@ -15,7 +15,6 @@
 或删掉标点那个公式，都不会有用例变红。
 
 AndroidThothTerm 沿用 jackpal/androidterm 谱系的 `TermKeyListenerTest`，对全部
-数字行与标点行给出了字面期望。按 `upstream-alignment` 的采纳门槛，这些期望来自
 外部真相（VT100 传统 + 既有实现），不是本仓实现输出的回抄，故采纳。
 
 ### 2. 缩放往返的重排回归（采纳 phanes）

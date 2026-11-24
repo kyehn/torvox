@@ -23,7 +23,6 @@
 而每次重建的触发条件是 `batch_dirty`——即一个渲染帧内有 PTY 输出。持续输出时每帧仍要
 把整张网格逐格过一遍跨语言边界，而其中绝大多数行逐字节未变。
 
-本次已用探针实测复核（探针跑完即删，按 `upstream-alignment` 的「判定完成不留红测试」）：
 同一 `RenderState` 跨帧复用、首帧写满 24 行、次帧只在第 0 行写一个字符并逐帧标记快照已
 消费，脏标记为 `[true, false × 22, true]`——仅写入行与光标离开的末行判脏，其余 22 行
 干净；去掉快照已消费标记后 24 行全脏。故行级判定在上游确实可用，0% 命中率是两个条件
@@ -49,12 +48,10 @@
 - `native/src/terminal/session.rs` 的收割路径另有 5 处文档注释（`:525`、`:533`、`:539`、
   `:575`、`:1185`）同样把 BEL 列为回调事件。
 
-`upstream-alignment` 已判定 `on_bell` 不采用（Kotlin 侧零消费者），故取「删注释」一侧。
 `STYLE.md`「不得保留死代码」「代码注释和文档保持极简」同样指向删除。
 
 ### 依据三：选择手势类上游 API 的不采用依据不完整
 
-`upstream-alignment` 的台账把 `selection/gesture` 一族列为不采用，理由是「DESIGN 禁双击
 三击多击选择」。该理由只覆盖连击计数，未覆盖该族真正的主体：拖动手势与边缘自动滚动。
 本次核对了上游 `Gesture`、`PressEvent`/`DragEvent`/`AutoscrollTickEvent` 的接口与本仓
 拖动路径的实际形态，结论与台账一致但依据不同，逐条记录于 `design.md` §4。
@@ -74,7 +71,6 @@
 - 新增 `grid-extraction-incremental` 能力：VT 线程持有跨帧复用的 `RenderState`，逐帧标记
   快照已消费，按上游行级脏标记跳过未变行的逐格抽取，干净行自上一帧缓存复制；尺寸变更、
   主题变更与终端重置使缓存失效并退化为全量重建。
-- 修改 `upstream-alignment`：已判定不采用的上游回调，其通道不得以注释形式留在代码中；
   选择手势类上游 API 的不采用依据须覆盖拖动路径的跨线程往返成本。
 - 修改 `terminal-state-regression`：把「不做回归快照」从 Purpose 里的失实引用改为可执行
   的行为条款，断言覆盖口径与删除语料装置的真实理由一并写明。
@@ -91,13 +87,11 @@
 
 ### Modified Capabilities
 
-- `upstream-alignment`：不采用的上游回调在代码中的残留形态；选择手势类上游 API 的不采用
   依据。
 - `terminal-state-regression`：网格状态断言的覆盖口径与快照装置的存废依据。
 
 ## Non-goals
 
-- 不接线 `Terminal::on_bell` 及任何桌面通知、进度上报回调。`upstream-alignment`
   已判定其无 Kotlin 消费者，本变更只清理与之矛盾的注释。
 - 不改「跳过干净快照」的网格级缓存（`snapshot_needs_rebuild`）语义，也不改渲染侧的
   `CachedInstances` 行级增量——两者保持原样。
@@ -117,5 +111,4 @@
 - 测试：行级抽取须有「跨帧后未变行判干净」「未标记已消费则脏状态不重置」「增量与全量
   一致」「失效后退化为全量重建」等用例，并测量改动前后的单帧抽取耗时；沿用现有
   `cargo test` 与 `native/benches/` 体系，不新增测试框架。
-- 规范：新增 `grid-extraction-incremental` 一项；`upstream-alignment` 增补两项
   Requirement（回调通道注释、手势 API 判定口径），`terminal-state-regression` 增补一项。

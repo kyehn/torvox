@@ -2,7 +2,6 @@
 
 ## Why
 
-`upstream-alignment` 的复查台账把 `Lord1Egypt/AndroidThothTerm` 的安全契约登记为
 「仅参照，建议落为规范正面不变量」：外部 Intent 数据不得键入 PTY、外部路径逐段校验
 且检查失败即拒绝。本仓的规范目前只有禁止项（`prohibited-features`），没有对应的正面
 不变量条目；实现大体满足，但有两处缺口：
@@ -22,7 +21,6 @@
 - 规格：`app-lifecycle` 增「外部 Intent 的数据只走结构化通道」，`documents-provider`
   增「外部寻址一律按根内包含性判定」，`bootstrap-install` 增「引导归档的来源路径
   必须限定在应用私有目录内」。
-- 规格：`upstream-alignment` 的复查台账把该行由「建议落为正面不变量」改为「已采纳」，
   并写明三条落点。
 
 ## Capabilities
@@ -36,7 +34,6 @@
 - `app-lifecycle`：新增外部 Intent 输入的不变量。
 - `documents-provider`：新增外部寻址的根内包含性判据。
 - `bootstrap-install`：新增引导归档来源路径的边界。
-- `upstream-alignment`：复查台账该行改为已采纳并写明落点。
 
 ## Impact
 

@@ -1,11 +1,9 @@
 # 任务
 
-顺序固定：先补 `upstream-alignment` 的禁改区实测基线，再逐处按事实补勾归档 tasks，
 最后闭合真机项。**严格串行**，每小步一次提交。
 
 ## 一、规范增量
 
-- [x] `upstream-alignment` MODIFIED「禁改区待维护者裁定项台账（只登记，不实施）」：
       正文保留原禁令与落地方案表，新增「实测基线」小节（aislop 90/Healthy/0 error/
       14 style-policy/0 confirmed-defect + Kotlin 不覆盖；jscpd 31 克隆/423 行/0.78%；
       rapidocr 模型就绪但无消费方；两项未实测显式标注），Scenario 由原有 1 条
@@ -24,10 +22,8 @@
       两变更实际在同一提交归档（提交标题「openspec: 归档 research ledger closure
       与 research docs retirement 变更」，`git log --diff-filter=A` 核实），
       与原文「先 ledger-closure，本变更后」不符；补记主 spec 条目数实测值
-      （`upstream-alignment` 32 条 Requirement / 68 条 Scenario）。
       验证：重跑 `git log --diff-filter=A` 复核提交标题；重算主 spec 条目数与文中数字一致。
 - [x] `2026-10-15-research-residual-closure` 第四节两项禁改区待办：勾选为
-      **已登记未实施**，并指向本变更写入 `upstream-alignment` 的实测基线。
       验证：grep 该节读到指向常驻规范的基线条目名，非悬空描述。
 
 ## 三、真机渲染确认（5.4）
@@ -110,7 +106,6 @@
 - [x] 归档本变更（归档后以 `openspec validate --all` 复核）。
       归档前 `openspec validate research-residual-audit-closure --strict` is valid、
       `scripts/check.nu` 退出码 0。归档后 delta 并入常驻
-      `openspec/specs/upstream-alignment/spec.md`，该 Requirement 的 Scenario 由 1 条
       增至 3 条、条目总数 32→32（MODIFIED 不新增 Requirement）。
 
 ## 遗留（需真机复测）

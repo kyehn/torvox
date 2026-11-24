@@ -5,7 +5,6 @@
 - [x] `native/Cargo.toml` 删 `[[test]] name = "bdd"` 与 dev-dependencies `cucumber`／`tokio`／`ureq`；`criterion`／`proptest`／`shuttle` 保留。
 - [x] `native/tests/concurrency.rs` 保留（`EventQueue`，非上游、非重复）。
 - [x] `cargo machete` 通过（无孤儿 dev-dependency）；`Cargo.lock` 随之收缩 934 行。
-- [x] `openspec/specs/upstream-alignment/spec.md` 直改（`skip_specs: true`）：新增「外部基准不入仓」Scenario、台账行「外部基准与 BDD 套件的退场」，8 处「已落地」引用改为「已撤回」。
 
 ## 验证证据
 

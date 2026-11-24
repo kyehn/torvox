@@ -33,5 +33,4 @@
 
 ## 影响
 
-只改文档。`openspec/specs/upstream-alignment/spec.md` 新增一个 Requirement，
 既有 Requirement 的措辞不变。不引入依赖、不 vendor 代码或测试数据、不改 `docs/specification/`。

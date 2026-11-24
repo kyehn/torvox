@@ -26,19 +26,16 @@
 - [x] 2.8 全部用例进入现有 `cargo test` 体系，不新增测试框架、不加 `#[ignore]`
 - [x] 2.9 以现有 `native/benches/` 体系测量持续输出场景下单帧抽取耗时（改动前/改动后），确认收益成立；若实测无显著收益，MUST 如实记录并重新评估本变更是否值得保留，不得以「规范要求」代替效果证据
 
-## 3. 失真注释清理（`upstream-alignment`）
 
 - [x] 3.1 删除描述 BEL 回调通道的悬空注释：`ghostty_terminal/commands.rs` 的 `RunConfig`（`cell_size_px` 保留自身关于单元格像素几何与 XTWINOPS 应答的文档）
 - [x] 3.2 `ghostty_terminal/types.rs` 的 `EVENT_CHANNEL_CAPACITY` 说明只保留剪贴板写入，删除「振铃」；`session.rs:525`、`:533`、`:539`、`:575`、`:1185` 的收割路径注释同样删除「振铃」，保留 OSC 52 应答终止符相关的 `:612`、`:1028`、`:1040`
 - [x] 3.3 确认 `on_bell` 仍未接线、无新增事件变体、无新增消费者；确认无其他文件描述该通道
-- [x] 3.4 在 `upstream-alignment` 的「上游 API 取用判定」表中补记振铃通道的两处注释残留与处理方式
 - [x] 3.5 把台账中 `selection/gesture` 一行的不采用理由由「DESIGN 禁多击选择」改为拖动路径的往返成本（见 `design.md` §4），并逐项登记四项优势（吸附策略、词粒度拖拽、边缘自动滚动、单一来源）的已覆盖情况：已走上游或已由本仓覆盖者不构成采纳理由
 - [x] 3.6 按 5.6 的裁定（收窄声明）处理 `render/font/shaping.rs` 模块文档：删去「以支持连字」，改为单码位整形与复杂文种叠加的表述
 
 ## 4. 网格状态断言口径（`terminal-state-regression`）
 
 - [x] 4.1 核对 `ghostty_terminal::tests` 中回滚区旧行顺序、输入回显与光标、简体中文显示宽度、字重与颜色四类断言确实直接读取网格输出；缺项补断言
-- [x] 4.2 更正 `openspec/specs/terminal-state-regression/spec.md` 的 Purpose 与实现细节：删除「`TESTING.md` 明确不进行回归测试」及据此的推论，改为引用 `upstream-alignment` 的自验证门槛
 - [x] 4.3 确认 `native/src/terminal/testdata/`、`snapshot_test.rs` 与相关依赖不在仓库内，不以任何形式恢复语料装置
 
 ## 5. 验证

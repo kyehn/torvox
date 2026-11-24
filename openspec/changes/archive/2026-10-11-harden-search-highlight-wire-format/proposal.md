@@ -23,7 +23,6 @@
 对照同类项目 termux-ghostty（`terminal-emulator/src/test/java/com/termux/terminal/
 ScreenSnapshotE2ETest.java`）的 F6「Out-of-Bounds & Malformed Input Hardening」：
 它逐类断言畸形载荷被拒绝为安全异常而非越界崩溃。但其**往返类**用例（native 序列化
-→ Java 反序列化 → 比对）属自验证，按本仓 `upstream-alignment` 的
 「自验证的对照断言不得反向采纳」不予采纳；只有「拒绝畸形」这组期望值锚定安全契约，
 可以采纳为判据来源。
 

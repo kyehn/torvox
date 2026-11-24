@@ -1,4 +1,3 @@
-# upstream-alignment Specification
 
 ## MODIFIED Requirements
 

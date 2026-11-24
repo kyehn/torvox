@@ -16,7 +16,6 @@
 
 - 新增能力 `logcat-hygiene`：应用自身日志的分级纪律、诊断日志限频、外部与上游条目的
   归因留档要求。
-- `upstream-alignment` 增量：补「终端上游与绑定层同时缺失的能力」的取证口径，
   并登记本轮确认的两条缺口（DECSACE 选区擦除、kitty 共享内存介质）。
 - 新增审计文档 `logcat-audit.md`：753 条 W/E/F 的逐类计数、归因与结论；
   **不保留任何原始日志行、时间戳、PID、设备标识或下载链接**。
@@ -30,12 +29,10 @@
 
 ### Modified Capabilities
 
-- `upstream-alignment`: 补「终端上游与绑定层同时缺失」的场景口径。
 
 ## Impact
 
 - `openspec/specs/logcat-hygiene/spec.md`（新增）
-- `openspec/specs/upstream-alignment/spec.md`
 - `openspec/changes/2026-10-23-logcat-second-pass/logcat-audit.md`
 - 实现侧无改动：本轮只补规范与归因留档；此前已落地的分级、限频与 kitty 介质启用
   保持不变。

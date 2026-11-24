@@ -128,4 +128,3 @@
       （补记于 `research-residual-audit-closure`，2026-10-16 实测：该 spec 存在，
       含 9 条 `### Requirement:`、22 条 `#### Scenario:`，`openspec list --specs`
       列为 `ime-editor-contract requirements 9`）
-- [x] 7.4 `upstream-alignment` 台账补记：本变更取 charon 的 IME 契约经验，`updateSelection` 一项经实测为框架内部 @hide、公开接口不可覆写，记为不采纳并给出依据

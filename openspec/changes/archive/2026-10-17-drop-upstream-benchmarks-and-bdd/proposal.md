@@ -23,7 +23,6 @@
   `cucumber`、`tokio`、`ureq`；`criterion`／`proptest`／`shuttle` 保留
   （分别服务 benches、`output_processor` 单测、`EventQueue`）。
 - 保留 `native/tests/concurrency.rs`（测本仓 `EventQueue`）。
-- `openspec/specs/upstream-alignment/spec.md` 直改（`skip_specs: true`）：
   「上游 VT 语义不由本仓测试覆盖」补外部真值类断言的删除事实与新增
   「外部基准不入仓」Scenario；把「已落地」的台账行更新为「采纳后撤回／已退场」，
   新增台账行「外部基准与 BDD 套件的退场」并写明日后复查 MUST NOT 重建。

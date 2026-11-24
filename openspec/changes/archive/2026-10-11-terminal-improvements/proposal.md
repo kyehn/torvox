@@ -7,7 +7,6 @@
 >    `openspec/specs/theme-configuration` 已声明 "Custom themes are a prohibited
 >    implementation"。提案 §1.1 的 configurable themes + custom builder 直接违禁。
 > 2. **JSON 配置导出/导入**：任务 1.4/2.4 要求 JSON 格式的设置存取，而
->    `upstream-alignment`「跨 JNI 扁平数据 MUST 用直接量而非 JSON」与「保留 JSON
 >    的边界登记」已把 JSON 限定在事件与字体两个边界；且用户明确要求「不生成 JSON」。
 >
 > 另有提案 §1 节「Update DESIGN.md」的任务，而 `docs/specification/` 是禁止修改目录

@@ -3,7 +3,6 @@
 ## Why
 
 `native/Cargo.toml` 钉的 `libghostty-vt` rev 落后上游 `Uzaaft/libghostty-rs` master
-50 个提交，而 `upstream-alignment` 的「终端状态依赖跟踪上游 master」要求本仓不得长期
 停在旧 rev 上。这批提交里有四处**改变了含义**的 API 变化，只看签名发现不了：
 
 - `Terminal::set_scrollback_max_bytes(None)` 由「解除字节上限」变为「恢复默认的
@@ -24,11 +23,9 @@
   「查询失败」不再混为一谈。
 - 回滚字节预算改传 `Some(usize::MAX)`，行数仍是唯一约束。
 - 鼠标编码器尺寸写失败时记错误并丢弃该事件，不再沿用旧尺寸换算坐标。
-- `upstream-alignment` 的上游 API 取用判定表与回滚上限台账按新 API 更正。
 
 ## Capabilities
 
 ### Modified Capabilities
 
-- `upstream-alignment`：新增「上游改的是语义而非签名」的场景，要求逐条核对既有
   取值的含义并用本地用例钉住行为。

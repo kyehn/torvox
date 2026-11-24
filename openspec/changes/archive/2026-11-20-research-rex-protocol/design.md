@@ -22,7 +22,6 @@
   JNI 入口是同向先例，`rexpocket` 把协议状态放 Kotlin 侧是反向先例。
 - **传输依赖暂不引入**：新增 WebSocket／TLS 依赖须改 `native/Cargo.toml`，属受保护文件，未获明确同意前不引入。
 - **维持「不立项」**：能力面未在 `docs/specification/` 声明，`STYLE.md` 禁止实现未声明功能；
-  `upstream-alignment` 的「能力裁定补齐行台账」已把「远程会话」与「WebSocket／网络终端形态」判为「未声明，
   不立项」。本变更只交付评估与方法步骤，不交付实现。
 
 ## 风险与边界

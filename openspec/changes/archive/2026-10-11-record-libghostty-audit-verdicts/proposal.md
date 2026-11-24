@@ -20,10 +20,8 @@
 
 ### Modified Capabilities
 
-- `upstream-alignment`：新增上游 API 取用判定表（采用 / 不采用 / 待办三态，每项
   附可复核依据：上游源码位置、本仓文件行号或 DESIGN 条款）。
 
 ## Impact
 
-- `openspec/specs/upstream-alignment/spec.md`：新增一条 Requirement（含结论表）。
 - 无新增依赖、无二进制资产、不改运行时行为。

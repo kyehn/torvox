@@ -2,7 +2,6 @@
 
 ## Why
 
-`openspec/specs/upstream-alignment` 的「上游 API 取用判定」把 `key::Encoder` 按键编码
 登记为「待办」，阻塞点写的是「Android 键码到上游 `Key` 的映射裁定与 JNI 桥形态」。
 本变更解除该阻塞并完成取用。
 
@@ -68,7 +67,6 @@
 
 ### Modified Capabilities
 
-- `upstream-alignment`: `key::Encoder` 条目由「待办」改为「采用」并写明阻塞点解除方式
 
 ## Non-goals
 
@@ -82,6 +80,5 @@
   `bridge/NativeBridge.kt`（新增 `encodeKeyEvent`，视核实结果删 `getMode`）
 - native：`terminal/ghostty_terminal/{commands,internal,public_api,types}.rs`、
   `android/ffi.rs`
-- 规范：`upstream-alignment`、`modifier-bar-arrow-encoding`（实现归属改指新规范）
 - 测试：`TerminalInputEncoderTest` 的传统编码期望改由 native 侧承载，Kotlin 只留
   映射与输入法提交路径断言

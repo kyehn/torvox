@@ -313,7 +313,6 @@ rules:
   # 而不是把别人的法律文本复制进来：复制件会随上游改版失效，且没有任何构建步骤读它。
   - id: no-license-files
     pattern-regex: '(?s).'
-    message: "不得存放许可证文件（LICENSE/COPYING/NOTICE）。血统记在 openspec/specs/upstream-alignment，指向标签与上游仓库地址，不复制上游法律文本。"
     severity: ERROR
     languages: [generic]
     paths:

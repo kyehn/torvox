@@ -85,7 +85,6 @@ None`。本变更在这两处既有的失效时机上追加行缓存失效，不
 
 ## 2. 注释清理的边界
 
-振铃回调的处理取「删注释」一侧，依据是 `upstream-alignment` 的台账已判定 `on_bell`
 不采用。清理范围是全部 7 处描述该通道的注释文本：`commands.rs:197-198`（悬空附着于
 `cell_size_px`）、`types.rs:257`（`EVENT_CHANNEL_CAPACITY`），以及 `session.rs:525`、
 `:533`、`:539`、`:575`、`:1185`（收割路径的文档注释，均称回调事件含 BEL）。`clipboard_tx`
@@ -101,13 +100,11 @@ MUST NOT 顺手接线 `on_bell`：`DESIGN.md` 未声明振铃行为（音效、�
 ## 3. `terminal-state-regression` 的口径修正
 
 删除语料装置的真实理由不是「`TESTING.md` 不做回归测试」——该文件无此表述——而是
-`upstream-alignment` 的「上游测试资产只在不产生自验证时采纳」：语料期望值由本仓实现
 自身产出，属自验证，采纳后不净增外部真相。本变更把该理由写为行为条款，并要求断言直接
 针对网格输出，使 Purpose 与条款不再互相依赖一份不存在的引用。
 
 ## 4. 上游选择手势 API 的权衡
 
-`upstream-alignment` 台账已把 `selection/gesture` 一族列为不采用，原理由只提连击计数。
 本次逐项核对了上游接口与本仓拖动路径，结论不变但依据不同。
 
 上游 `Gesture` 提供一个可复用的手势状态机：`PressEvent`/`DragEvent`/`ReleaseEvent`/

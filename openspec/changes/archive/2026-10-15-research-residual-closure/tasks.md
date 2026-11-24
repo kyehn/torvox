@@ -20,7 +20,6 @@
 
 ## 三、规范增量
 
-- [x] `upstream-alignment` 新增「OSC 覆盖逐项核对」Requirement 与核对表
 - [x] `session-list` 新增「切换活动会话清空全部会话态」Requirement
 - [x] `docs/persistence/ecosystem.md`：attachSession 对照项改「已核对」；
       参照面表补入五份外部研究报告结论
@@ -30,7 +29,6 @@
 ## 四、禁改区待维护者裁定（AGENTS.md：`scripts/`、`.github/` 不得擅改）
 
 维护者已裁定「都不改，只登记」，故本节两项**已登记且维持未实施**；实测基线与实施
-验收判据见常驻规范 `upstream-alignment` 的「禁改区待维护者裁定项台账」Requirement
 （补记于 `research-residual-audit-closure`，2026-10-16）。
 
 - [x] **aislop / jscpd 门禁**：`TESTING.md` 第 24 行明文要求，
@@ -74,7 +72,6 @@
 - [x] `01-ghostty-android-terminal`（S）：搜索/选择/PTY 收尾/像素 winsize/
       备份原子暂存均已实现；OSC 8 二次确认经 `text-selection` 明拒（点击即跳转）。
 - [x] `02-termux-app`（S）：保留现场文案/键矩阵/staging→rename/回滚 2K/通知
-      均已实现；VT 单测向量转写经 `upstream-alignment`「上游 VT 语义不由本仓
       测试覆盖」拒绝。
 - [x] `03`–`07`、`11`、`12`、`15`–`17`、`19`、`20`、`22`–`25` 单仓深研：
       可落地结论均已收敛进 `openspec/specs`（见各 spec 的参照），反面结论
@@ -98,7 +95,6 @@
       仍未做项维持原判：`focus_event` 写出半边（结构性不可稳定测，覆盖缺口
       据实登记）、37 项过度复杂（仅记录不立项）。
 - [x] `29-减码杠杆`：P0 L1 批量合并已执行；P0 的 517 未用项经复核仅
-      `color_scheme` 真未接线（无 DESIGN 消费者，`upstream-alignment` 已登记
       不采用），`size_report`/`modes`/`screen` 均已接线；L2–L6 为有界重构
       建议（P1/P2），不扩大为本次变更；sugaloaf spike 维持不做。
 - [x] `30-VT测试边界`：优先级 1–3 已落地（fuzz 语料回放 + UCD 全量宽度 +
@@ -115,7 +111,6 @@
 - [x] `Kuddev-pebrel`：profile 优化建议本轮落地；GPT 自研 VT 已禁止；
       vi mode / copy mode 未声明不立项。
 - [x] `contour-terminal-contour`：conformance 外部真相候选经「不测依赖行为」
-      拒绝（upstream-alignment 已登记）；glyph atlas/文本簇已实现；
       daemon 持久会话已禁止；reflow/synchronized output 未声明不立项。
 - [x] `dakra-ghostel`：同 VT 引擎参照；Android PTY 经验已被 pty-lifecycle 覆盖。
 - [x] `orhun-ratty`：wgpu present shader 仅参照（本仓渲染已越过该层）。

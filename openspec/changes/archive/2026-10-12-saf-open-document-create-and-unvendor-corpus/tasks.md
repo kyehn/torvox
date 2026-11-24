@@ -25,7 +25,6 @@
   `native/tests/vt_corpus.rs`（`aeb67297`，提交题注即「把 VT 语料内联进源码」）。
   该文件与宿主 `native/tests/vt_conformance.rs` 在 36 分钟后随「上游 VT 语义不由
   本仓测试覆盖」一并删除（`a46e19ad`）。现况是 `native/tests/external_benchmarks/`
-  运行期取数，落地形态见常驻规范 `upstream-alignment` 的同名 Scenario。
 - 夹具实删 154 个文件：152 份用例（76 `.in` + 76 `.text`）加上游 `LICENSE` 与
   `PROVENANCE.md`。
 - 本变更其余任务在实现中可验：SAF 模式位（`DocumentsProviderTest.kt`、

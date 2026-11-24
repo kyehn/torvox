@@ -2,7 +2,6 @@
 
 ## Why
 
-第 6 轮全量审计发现 `openspec/specs/upstream-alignment/spec.md` 有四处事实漂移，
 都指向「规范说的不是仓库现在的样子」：
 
 1. 该规范三处仍称有 6 份综合研究报告「现役在 `docs/research/`」，但 `docs/research/`
@@ -20,9 +19,7 @@
 
 ## What Changes
 
-- 订正 `upstream-alignment` 的「研究报告逐份结论登记在本规范内」：
   研究报告口径由「已退役 105 份 + 现役 6 份」改为「全部 111 份已整体退役」。
-- 订正 `upstream-alignment` 的「研究报告逐份索引与文档可移除性」：
   - 正文与索引表说明改为「6 份综合研究报告曾现役，后随 `docs/research/` 整体删除，
     其结论由同键索引行承接」；
   - `termux-app.md` 索引行的 `termux.properties` 判定理由由「`PROHIBITED.md` 明禁解析该文件」
@@ -40,7 +37,6 @@
 
 ### Modified Capabilities
 
-- `upstream-alignment`：两条 Requirement 的事实陈述订正——
   「研究报告逐份结论登记在本规范内」（研究文档全部退役后的份数口径）与
   「研究报告逐份索引与文档可移除性」（索引表是唯一常驻载体；`termux-app.md`
   索引行的 `termux.properties` 判定理由）。
@@ -55,6 +51,5 @@
 
 ## Impact
 
-- Affected specs: `upstream-alignment`（两条 Requirement 的 MODIFIED 增量）。
 - Affected docs: `docs/spec-code-gaps.md`（键面计数与审计轮次顺序）。
 - Affected code: 无。纯规范与文档订正，不改变任何运行时行为。
