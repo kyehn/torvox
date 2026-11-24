@@ -7,6 +7,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import terminal.emulator.detectDeviceArchitecture
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.truncateTextAtCharBoundary
 import terminal.emulator.util.DirectoryListing
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
@@ -246,7 +247,7 @@ class SecondStageRunner(
             stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
             val exitCode = process.exitValue()
             if (exitCode == 0) return true
-            val detail = stderrText.get().trim().take(400)
+            val detail = truncateTextAtCharBoundary(stderrText.get().trim(), 400)
             val report =
                 "$packageName postinst exited with code $exitCode" +
                     if (detail.isEmpty()) "" else " (stderr: $detail)"

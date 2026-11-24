@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.isElf
 import terminal.emulator.runtime.isSystemShellScript
+import terminal.emulator.runtime.truncateTextAtCharBoundary
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.readAtMost
 import java.io.File
@@ -184,7 +185,9 @@ class BootstrapInstaller(
             // 截断到 300 字符以便诊断而不泄露完整路径。
             LogUtil.error(
                 "BootstrapInstaller",
-                "Install failed: ${exception.javaClass.simpleName}: ${exception.message?.take(300)}",
+                "Install failed: ${exception.javaClass.simpleName}: ${exception.message?.let {
+                    truncateTextAtCharBoundary(it, 300)
+                }}",
             )
             // 丢弃部分解压的 staging 目录：它可能有数百 MB，
             // 而系统从不清理 filesDir，故安装失败会一直泄漏磁盘直到下次重试。
