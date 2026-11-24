@@ -12,8 +12,17 @@
 //! 墙上时钟被校准时可能前跳或回跳，前跳会把两次输出的真实间隔压到下限以下，
 //! 回跳会把间隔算成零而让告警在时钟追上之前长期沉默。
 
+use governor::{
+    clock::Clock,
+    middleware::NoOpMiddleware,
+    nanos::Nanos,
+    state::{InMemoryState, NotKeyed},
+    Quota, RateLimiter,
+};
+use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::time::Instant;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, Instant};
 
 /// 诊断输出的最小间隔（毫秒）。与 `logcat-hygiene` 规范的 500ms 下限同档。
 pub(crate) const SLOW_LOG_INTERVAL_MS: u64 = 500;
@@ -21,22 +30,40 @@ pub(crate) const SLOW_LOG_INTERVAL_MS: u64 = 500;
 /// 进程内单调时钟原点。`Instant` 不可存成整数，取进程启动时刻作基准，
 /// 之后一律用相对毫秒比较。
 fn now_ms() -> u64 {
-    static EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
     EPOCH.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
+/// governor 的闸门：进程内状态 + 可钉住时刻的单调时钟。
+type Gate = RateLimiter<NotKeyed, InMemoryState, LogClock, NoOpMiddleware<Nanos>>;
+
+/// 供 governor 使用的时钟：时刻由调用方写入原子量，与闸门共享同一份。
+/// 测试写入给定时刻即可推进窗口，无需睡眠；生产由 [`now_ms`] 写入。
+#[derive(Clone, Default)]
+struct LogClock {
+    nanos: Arc<AtomicU64>,
+}
+
+impl Clock for LogClock {
+    type Instant = Nanos;
+
+    fn now(&self) -> Nanos {
+        Nanos::from(self.nanos.load(Ordering::Acquire))
+    }
 }
 
 /// 一类诊断的限频闸门。
 ///
 /// 语义：首次调用放行；此后两次放行之间的间隔 MUST 不小于本闸门的窗口长度。
-/// 并发调用只有一方能推进窗口起点，故同一时刻不会输出两行。
+/// 闸门用 governor 的 GCRA，`allow_burst(1)` 使突发容忍为零，两次放行严格相隔
+/// 一个窗口；闸门自身的原子状态保证并发调用只有一方通过。
 ///
 /// 窗口在构造时给定：逐帧诊断取 [`SLOW_LOG_INTERVAL_MS`]，窗口更长的调用点
 /// （如帧丢弃告警）用 [`Self::with_interval`] 另给。
 pub(crate) struct SlowLogThrottle {
-    /// 上次放行的时刻（毫秒）。0 表示「尚未放行过」。
-    last_logged_ms: AtomicU64,
-    /// 两次放行之间的最小间隔（毫秒）。
     interval_ms: u64,
+    clock: OnceLock<LogClock>,
+    gate: Mutex<Option<Gate>>,
 }
 
 impl SlowLogThrottle {
@@ -49,8 +76,9 @@ impl SlowLogThrottle {
     /// 而非另写一份闸门。
     pub(crate) const fn with_interval(interval_ms: u64) -> Self {
         Self {
-            last_logged_ms: AtomicU64::new(0),
             interval_ms,
+            clock: OnceLock::new(),
+            gate: Mutex::new(None),
         }
     }
 
@@ -60,7 +88,23 @@ impl SlowLogThrottle {
     /// 过窗口起点，用例需要回到首条必定可见的初始态才敢断言放行次数。
     #[cfg(test)]
     pub(crate) fn reset(&self) {
-        self.last_logged_ms.store(0, Ordering::Release);
+        self.clock().nanos.store(0, Ordering::Release);
+        *self.gate.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+
+    fn clock(&self) -> &LogClock {
+        self.clock.get_or_init(LogClock::default)
+    }
+
+    fn gate(&self) -> MutexGuard<'_, Option<Gate>> {
+        let mut gate = self.gate.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if gate.is_none() {
+            let quota = Quota::with_period(Duration::from_millis(self.interval_ms))
+                .expect("interval must be nonzero")
+                .allow_burst(NonZeroU32::MIN);
+            *gate = Some(RateLimiter::direct_with_clock(quota, self.clock().clone()));
+        }
+        gate
     }
 
     /// 该次诊断是否允许输出；放行时同时推进窗口起点。
@@ -72,21 +116,13 @@ impl SlowLogThrottle {
     ///
     /// 时刻由调用方给出，使测试无需靠睡眠推进时钟（睡眠会让用例变慢且不稳定）。
     pub(crate) fn should_log_at(&self, now_ms: u64) -> bool {
-        let last = self.last_logged_ms.load(Ordering::Acquire);
-        // 0 是「尚未放行过」的哨兵：首条必须可见。
-        if last != 0 && now_ms.saturating_sub(last) < self.interval_ms {
-            return false;
-        }
-        // CAS：并发调用只有一方能把窗口起点推进到当前时刻，
-        // 否则同一帧的并发诊断会输出多行。
-        self.last_logged_ms
-            .compare_exchange(
-                last,
-                // 0 与「尚未放行过」同义，故实际起点至少取 1ms。
-                now_ms.max(1),
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
+        self.clock()
+            .nanos
+            .store(now_ms.saturating_mul(1_000_000).max(1), Ordering::Release);
+        self.gate()
+            .as_ref()
+            .expect("gate initialized")
+            .check()
             .is_ok()
     }
 }
