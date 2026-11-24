@@ -111,22 +111,23 @@ impl CoverReadbackSource {
                 depth_or_array_layers: 1,
             },
         );
-        // 提交前再判一次死：上面建缓冲与编码的间隙里设备可能已丢失，那时的提交
-        // 会撞上 wgpu 的 `Parent device is lost` panic（穿出 JNI 即整进程退出）。
+        // 提交前再判一次死：上面建缓冲与编码的间隙里设备可能已丢失。
         if self.is_lost() {
             return None;
         }
-        // 判死位到 panic 之间仍有一瞬：提交本身也在归一范围内。
-        let submitted =
+        // 判死位与 wgpu 内部的 `Parent device is lost` panic 之间总有一瞬：提交与
+        // 注册映射都会撞上同一道 panic（2026-11-24 真机日志的栈顶正是
+        // `readCoverFrame`）。两者同处一个归一范围，不留逐调用的窗口。
+        let (slice, map_rx) =
             super::poll::catch_device_loss_panic("read_cover_frame: 提交回读拷贝", || {
                 self.queue.submit(std::iter::once(encoder.finish()));
-            });
-        submitted?;
-        let slice = buffer.slice(..);
-        let (map_tx, map_rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |map_result| {
-            let _ = map_tx.send(map_result);
-        });
+                let slice = buffer.slice(..);
+                let (map_tx, map_rx) = std::sync::mpsc::channel();
+                slice.map_async(wgpu::MapMode::Read, move |map_result| {
+                    let _ = map_tx.send(map_result);
+                });
+                (slice, map_rx)
+            })?;
         let deadline = std::time::Instant::now() + READBACK_TIMEOUT;
         loop {
             // 设备轮询的失败形态不止 `Err`：wgpu 内部会在设备真出错时直接 panic，
