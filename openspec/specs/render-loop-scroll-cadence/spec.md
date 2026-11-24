@@ -61,6 +61,14 @@ latch 超时 MUST 同时咨询 `hasScrollMotion()`，使 idle-clocks 过期后�
 - **THEN** 两个量 MUST 同拍归零，且 `lastScrollNanos` MUST NOT 刷新；
       `ScrollRemainderTest` 钉住该状态迁移
 
+#### Scenario: 模拟器端到端滚动回归
+
+- **WHEN** 在在线模拟器（x86_64，API 35）运行 `ScrollBehaviorQuantifiedTest`
+- **THEN** 三个用例 MUST 全部通过：拖动进入历史后回车在预算内贴底、PTY 输出洪流
+      期间手势不被中途复位、拖动期间帧节奏平稳（实测 3/3 通过，0 失败）
+- **AND** 该结论只覆盖宿主滚动管线：模拟器的 GPU 与 Mali-G57 不同，MUST NOT 用它
+      宣称真机设备丢失循环已消失；后者仍须在同一真机上重新采日志确认
+
 ### Requirement: 滚动更新由 vsync 合并
 
 滚动入口（`setScrollRemainderPx` / `setScrollOffset`）MUST 只更新偏移与滚动/空闲时钟，
