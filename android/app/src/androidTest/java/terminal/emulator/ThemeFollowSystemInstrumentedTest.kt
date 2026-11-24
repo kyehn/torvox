@@ -101,6 +101,17 @@ class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
                 composeTestRule.getBridge() != null
             }
         assertNotNull("运行时桥必须就绪（30s 未孵化）", bridgeReady)
+        // 等输出稳定再清屏：上一用例/启动期的残留若仍在陆续到达，清屏后紧接着的
+        // 文本检查会读到新到的字节，把「清屏失败」误报成前序残留。
+        var previousText: String? = null
+        val settled =
+            UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 200) {
+                val current = composeTestRule.pumpedTerminalText()
+                val stable = current == previousText
+                previousText = current
+                stable
+            }
+        assertNotNull("终端输出在清屏前未稳定", settled)
         checkNotNull(composeTestRule.getBridge())
             .feedTerminal("\u001B[2J\u001B[H".toByteArray(Charsets.UTF_8))
         val cleared =

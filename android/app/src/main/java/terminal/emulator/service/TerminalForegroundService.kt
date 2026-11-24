@@ -22,8 +22,8 @@ class TerminalForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "terminal"
         private const val NOTIFICATION_ID = 1
-        private const val WAKE_LOCK_TAG = "termvox:wakelock"
-        private const val WIFI_LOCK_TAG = "termvox:wifilock"
+        private const val WAKE_LOCK_TAG = "terminal:wakelock"
+        private const val WIFI_LOCK_TAG = "terminal:wifilock"
         private const val EXTRA_SESSION_COUNT = "session_count"
         private const val ACTION_EXIT = "terminal.emulator.action.EXIT"
         private const val ACTION_WAKE_LOCK = "terminal.emulator.action.WAKE_LOCK"
