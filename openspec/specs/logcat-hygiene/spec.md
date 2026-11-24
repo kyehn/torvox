@@ -1779,6 +1779,20 @@ W/E 条目 MUST 按来源逐类归因；MUST NOT 以过滤 tag、降级日志或
 - **AND** `W/Parcel`／`W/ziparchive`／`W/DefaultDispatch`／
       `W/RemoteInputConnectionImpl`／`W/FeatureOpt` MUST 按各自既有条目归因
 
+#### Scenario: 极小条目也必须逐项归因
+
+- **WHEN** 归因三份日志里各自只有 1–2 条的 `W/com.termux`（`Reducing the number of
+      considered missed Gc histogram windows`）、`W/native::android::ffi::render::diagnostics`
+      （`SLOW_RENDER_SAMPLE`）与 `W/native::android::ffi`（`render state prefetch skipped`）
+- **THEN** `W/com.termux` MUST 归为 ART 并发 GC 的自适应窗口调整（平台内部启发式，
+      无应用栈；本条即 10-52-29 的那 1 条）
+- **AND** `SLOW_RENDER_SAMPLE` MUST 与同拍的 `SLOW_FRAME`／`SLOW_LOOP`／
+      `SLOW_RENDER_INNER` 并为**同一帧**的记账（17-40-54：四条落在 39.546–39.585 的
+      39ms 内，`slow_frames` 均为 1，`phase1` 是 `attach_surface` 的首帧管线创建），
+      MUST NOT 计为多次独立慢帧
+- **AND** `render state prefetch skipped` MUST 记 **debug** 并保留原因全文，按
+      `render-stability` 的「丢失后的预热失败不算新的 error」处置
+
 #### Scenario: 同一条目跨日志的计数口径
 
 - **WHEN** 汇总三份日志的同一 tag
