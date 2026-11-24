@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import terminal.emulator.runtime.LogLevel
 import terminal.emulator.runtime.LogUtil
@@ -393,9 +394,15 @@ constructor(private val provider: SettingsDataStoreProvider) {
      */
     private fun decodeShellEntries(raw: String?): List<ShellEntry> {
         if (raw.isNullOrEmpty()) return emptyList()
-        return runCatching { Json.decodeFromString<List<ShellEntry>>(raw) }
-            .getOrDefault(emptyList())
-            .filter { it.name.isNotBlank() }
+        val decoded =
+            try {
+                Json.decodeFromString<List<ShellEntry>>(raw)
+            } catch (exception: SerializationException) {
+                emptyList()
+            } catch (exception: IllegalArgumentException) {
+                emptyList()
+            }
+        return decoded.filter { it.name.isNotBlank() }
     }
 
     /** 按名称保存条目；同名即更新，故列表中的名称始终唯一。首个条目自动激活。 */

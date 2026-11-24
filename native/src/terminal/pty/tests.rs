@@ -174,12 +174,26 @@ fn spawn_rejects_empty_shell_before_forking() {
 
 #[test]
 fn shell_entry_splits_executable_and_arguments() {
-    let (executable, arguments) = split_shell_entry("/data/data/com.termux/files/usr/bin/bash -l");
+    let (executable, arguments) =
+        split_shell_entry("/data/data/com.termux/files/usr/bin/bash -l").expect("命令行可解析");
     assert_eq!(executable, "/data/data/com.termux/files/usr/bin/bash");
     assert_eq!(arguments, vec!["-l"]);
-    let (single, empty) = split_shell_entry("/system/bin/sh");
+    let (single, empty) = split_shell_entry("/system/bin/sh").expect("命令行可解析");
     assert_eq!(single, "/system/bin/sh");
-    assert_eq!(empty.len(), 0);
+    assert!(empty.is_empty());
+    // 带空格的参数：上游按 shell 引号规则解析，本项目不再把引号当普通字符。
+    let (executable, arguments) =
+        split_shell_entry("/system/bin/sh -c 'echo a b'").expect("引号闭合");
+    assert_eq!(executable, "/system/bin/sh");
+    assert_eq!(arguments, vec!["-c", "echo a b"]);
+}
+
+#[test]
+fn malformed_shell_entry_reports_the_offending_command() {
+    let error = split_shell_entry("/system/bin/sh 'unclosed").expect_err("引号未闭合必须报错");
+    assert!(
+        matches!(error, PtyError::InvalidShellCommand(command) if command == "/system/bin/sh 'unclosed")
+    );
 }
 
 fn test_env() -> ShellEnv {

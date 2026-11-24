@@ -34,6 +34,11 @@ Shell 启动入口设置与解析行为：具名入口列表默认空、名称�
 - **WHEN** 长按新建会话并点选一个未激活入口
 - **THEN** 新会话使用点选的命令行启动，激活入口保持不变
 
+#### Scenario: 命令行按 shell 引号规则解析
+
+- **WHEN** 命令行含带引号的参数（如 `-c 'echo a b'`）
+- **THEN** 参数按引号规则切分；引号不闭合时启动失败并报出原命令行，不静默传给 execve
+
 ### Requirement: 启动目录默认家目录且可由 termux.properties 覆盖
 
 MUST NOT 提供启动目录设置框；`workingDirectory` MUST 默认为家目录，MAY 由 `termux.properties` 的 `default-working-directory` 覆盖，非法值回退家目录。

@@ -42,12 +42,19 @@ pub(crate) const WRITE_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration:
 /// 下一次收割重试（VT 引擎的应答缓冲仍在，不丢）。
 pub(crate) const WRITE_BACK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(50);
 
-/// 切分 Shell 启动入口为可执行路径与附加参数（DESIGN Shell 节支持
-/// `/data/.../bash -l` 形态）。以 ASCII 空白切分，无引号转义语义。
-fn split_shell_entry(shell: &str) -> (&str, Vec<&str>) {
-    let mut words = shell.split_ascii_whitespace();
-    let executable = words.next().unwrap_or(shell);
-    (executable, words.collect())
+/// 把 Shell 启动入口命令行切成可执行路径与参数。
+///
+/// 解析交给 `shell-words`（遵循 UNIX shell 引号规则），本项目只负责把上游的
+/// 解析失败转成可定位的错误——命令行是用户设置，不合法的引号必须报出而不是
+/// 被当成普通字符静默传给 execve。
+fn split_shell_entry(shell: &str) -> Result<(String, Vec<String>), PtyError> {
+    let words = shell_words::split(shell).map_err(|error| {
+        log::error!("invalid shell entry {shell:?}: {error}");
+        PtyError::InvalidShellCommand(shell.to_string())
+    })?;
+    let mut words = words.into_iter();
+    let executable = words.next().ok_or(PtyError::EmptyShell)?;
+    Ok((executable, words.collect()))
 }
 
 #[derive(Debug, Error)]
@@ -65,6 +72,9 @@ pub enum PtyError {
     #[error("shell path is empty")]
     /// shell 路径为空。
     EmptyShell,
+    #[error("invalid shell command line: {0}")]
+    /// 启动入口命令行无法解析（如引号不闭合）。
+    InvalidShellCommand(String),
     #[error("fcntl failed: {0}")]
     /// fcntl 调用失败。
     Fcntl(nix::errno::Errno),
@@ -320,18 +330,19 @@ impl PtyPair {
 
         // fork 之前构建好子进程的全部数据，避免子进程中分配
         // （多线程进程中 fork 可能破坏 malloc 堆）。
-        // 空 shell 早于 fork 就拒绝：`split_shell_entry("")` 会产出 `("", [])`，
-        // 随后 `execve("")` 失败，errno 是 ENOENT——用户看到的是「空会话 + 一个查不到
-        // 文件的错误」，既不像「没配置 shell」，也不指向真正的配置项。明确报错才可定位。
+        // 空 shell 早于 fork 就拒绝：`execve("")` 的 errno 是 ENOENT——用户看到的是
+        // 「空会话 + 一个查不到文件的错误」，既不像「没配置 shell」，也不指向真正的
+        // 配置项。明确报错才可定位。
         if shell.trim_ascii().is_empty() {
             return Err(PtyError::EmptyShell);
         }
-        let (shell_executable, shell_argument_texts) = split_shell_entry(shell);
-        let shell_cstr = std::ffi::CString::new(shell_executable).map_err(|null_error| {
-            let message = format!("shell path contains null byte: {null_error}");
-            log::error!("{message}");
-            PtyError::Fork(nix::errno::Errno::EINVAL)
-        })?;
+        let (shell_executable, shell_argument_texts) = split_shell_entry(shell)?;
+        let shell_cstr =
+            std::ffi::CString::new(shell_executable.as_bytes()).map_err(|null_error| {
+                let message = format!("shell path contains null byte: {null_error}");
+                log::error!("{message}");
+                PtyError::Fork(nix::errno::Errno::EINVAL)
+            })?;
         let shell_argument_cstrs: Vec<std::ffi::CString> = shell_argument_texts
             .into_iter()
             .map(|argument| {
@@ -371,7 +382,7 @@ impl PtyPair {
         let use_linker = !prefix.is_empty()
             && shell_executable.starts_with(&format!("{prefix}/"))
             && !shell_executable.contains('\0')
-            && is_pie(shell_executable);
+            && is_pie(&shell_executable);
         if use_linker {
             log::info!("SPAWN_LINKER: shell={shell} prefix={prefix}");
         } else if !prefix.is_empty() && shell_executable.starts_with(&format!("{prefix}/")) {
@@ -394,7 +405,7 @@ impl PtyPair {
         };
         let script_dispatch: Option<(std::ffi::CString, Option<std::ffi::CString>)> =
             if linker_cstr.is_none() {
-                read_shebang_interpreter(shell_executable)
+                read_shebang_interpreter(&shell_executable)
             } else {
                 None
             };

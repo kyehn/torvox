@@ -8,8 +8,8 @@ import timber.log.Timber
  * 不做日志分块（PROHIBITED 禁止）：超出 logcat 单条上限的部分由 logcat 截断。
  *
  * 等级由 [LogLevel] 全局门控：当前等级低于本条日志的优先级时直接跳过，
- * 不构造消息也不进日志 sink。实际输出经 Timber 的已种植树（[TerminalApp] 中
- * 种植的 logcat 树）写入 logcat，便于统一输出通道与 Lint 检查。
+ * 不构造消息也不进日志 sink。实际输出经 Timber 的已种植树
+ * （`terminal.emulator.TerminalApp` 中种植的 logcat 树）写入 logcat，便于统一输出通道与 Lint 检查。
  */
 object LogUtil {
     /**
