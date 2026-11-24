@@ -94,7 +94,7 @@ pub(crate) fn poll_device_wait(
     }
 }
 
-/// 把一次可能 panic 的 GPU 调用归一：**预期内的设备丢失** panic 记一条 error 并给
+/// 把一次可能 panic 的 GPU 调用归一：**预期内的设备丢失** panic 记一条 debug 并给
 /// `None`，其余 panic 原样抛出。
 ///
 /// 只归一设备丢失这一类：wgpu 在致命 HAL 错误上先调丢失回调、再 panic，而判死位
@@ -106,7 +106,8 @@ pub(crate) fn catch_device_loss_panic<T>(context: &str, call: impl FnOnce() -> T
         Err(payload) => {
             let text = one_line(&crate::panic_text(payload.as_ref()));
             if super::gpu::is_device_loss_text(&text) || super::gpu::device_lost() {
-                log::error!("{context}: {text}");
+                // 丢失回调已记过那一条 error：这里的 panic 是余波，按规范只记 debug。
+                log::debug!("{context}: {text}");
                 None
             } else {
                 std::panic::resume_unwind(payload)
