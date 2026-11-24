@@ -40,7 +40,6 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSes
 
 // JNI 导出函数体可以合法地拥有很多参数：参数表由 Kotlin 的 `NativeBridge` 声明
 // 决定，而非设计选择。参数个数由 ABI 固定，不可能在不配套修改 Kotlin 的情况下减少。
-/// 读取 initSession 的 JNI 字符串参数，失败时抛 Java 异常并返回 None。
 /// 解码一个 JNI 字符串参数。解码失败即抛 `RuntimeException` 并返回 `None`，
 /// 由调用方按各自的返回类型提前退出。
 ///

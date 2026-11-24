@@ -177,12 +177,7 @@ class CrossAppTerminalBenchmark {
     }
 
     /** S4：静置十秒，记内容层帧数、进程 CPU 时间与 PSS。 */
-    private fun measureIdle(
-        device: UiDevice,
-        packageName: String,
-        store: MeasurementStore,
-        paths: CrossAppLoadPaths,
-    ) {
+    private fun measureIdle(device: UiDevice, packageName: String, store: MeasurementStore, paths: CrossAppLoadPaths) {
         val launcherActivity = readLauncherActivity(device, packageName)
         var contentLayer = ""
         var refreshPeriodNanos = 0L
@@ -436,11 +431,7 @@ class CrossAppTerminalBenchmark {
     }
 
     /** 等显示转到指定方向，返回确认到的时刻（单调时钟毫秒）；超时即失败。 */
-    private fun awaitDisplayRotation(
-        device: UiDevice,
-        expectedRotation: String,
-        budget: ScenarioBudget,
-    ): Long {
+    private fun awaitDisplayRotation(device: UiDevice, expectedRotation: String, budget: ScenarioBudget): Long {
         val deadline = SystemClock.elapsedRealtime() +
             minOf(CROSS_APP_ROTATION_TIMEOUT_MILLIS, budget.remainingMillis())
         while (SystemClock.elapsedRealtime() < deadline) {
@@ -454,11 +445,7 @@ class CrossAppTerminalBenchmark {
     }
 
     /** 复原方向设置：原先未设置时写回系统默认值。 */
-    private fun restoreRotationSettings(
-        device: UiDevice,
-        accelerometer: String?,
-        userRotation: String?,
-    ) {
+    private fun restoreRotationSettings(device: UiDevice, accelerometer: String?, userRotation: String?) {
         device.executeShellCommand("settings put system accelerometer_rotation ${accelerometer ?: "1"}")
         device.executeShellCommand("settings put system user_rotation ${userRotation ?: "0"}")
     }

@@ -7,7 +7,7 @@ plugins {
   id("org.jetbrains.kotlin.plugin.serialization") version "2.4.21" apply false
   id("com.google.dagger.hilt.android") version "2.60.1" apply false
   id("com.google.devtools.ksp") version "2.3.14" apply false
-  id("com.diffplug.spotless") version "8.11.0" apply false
+  id("com.diffplug.spotless") version "8.12.0" apply false
   id("dev.detekt") version "2.0.0-alpha.6" apply false
   id("androidx.benchmark") version "1.6.0-alpha02" apply false
   id("androidx.baselineprofile") version "1.6.0-alpha02" apply false
