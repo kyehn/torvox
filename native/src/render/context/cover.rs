@@ -15,15 +15,21 @@
 //! 实测可达数十毫秒）在锁外做。锁内等待会把**所有**会话的渲染线程一起
 //! 卡住——真机日志 2026-11-12：遮罩回读期间另一会话的渲染采样多花 38.98ms，
 //! 触发 SLOW_FRAME/SLOW_LOOP 告警。
+//!
+//! 等待用非阻塞轮询（[`poll_device_now`]）而不是带超时的阻塞等待：Mali-G57 上
+//! 带有限超时的 `vkWaitSemaphores` 在首帧提交后数毫秒内返回 `VK_ERROR_DEVICE_LOST`
+//! （2026-11-24 三份真机日志），每次重建后同一条等待再次触发丢失。非阻塞轮询
+//! 只读围栏值、回收已完成提交，不进入驱动等待。
 
 use crate::render::context::Renderer;
-use crate::render::context::{PollOutcome, poll_device_wait};
+use crate::render::context::{PollOutcome, poll_device_now};
+use std::sync::atomic::Ordering;
 
 /// 回读超时：遮罩是一次性补救，超时即放弃（终端照常恢复）。
 const READBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
 
-/// 轮询步长：每次 `device.poll` 的等待时长，避免忙等。
-const POLL_STEP: std::time::Duration = std::time::Duration::from_millis(5);
+/// 轮询间隔：非阻塞轮询之间让出 CPU，避免忙等。
+const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(2);
 
 /// 一帧的 CPU 像素（RGBA8）与尺寸。
 pub(crate) struct CoverFrame {
@@ -47,6 +53,15 @@ pub(crate) struct CoverReadbackSource {
 }
 
 impl CoverReadbackSource {
+    /// 设备是否已判死：判死后不再触碰 GPU。
+    ///
+    /// 死设备上的任何 wgpu 调用都只会换来 wgpu 内部的一道 panic（`Parent device is
+    /// lost`），那道 panic 穿出 JNI 边界就是整进程退出（2026-11-12 真机日志）。
+    /// 判死位按设备而非进程：新设备活着不代表这个旧快照能继续轮询。
+    fn is_lost(&self) -> bool {
+        crate::render::context::device_lost() || self.lost.load(Ordering::Acquire)
+    }
+
     /// 把快照里的累加器内容回读成 CPU 像素。
     ///
     /// 返回 `None` 表示回读失败或超时：调用方沿用已发布的缓存帧（没有缓存时开孔
@@ -55,10 +70,7 @@ impl CoverReadbackSource {
     pub(crate) fn read(&self) -> Option<CoverFrame> {
         // 快照在锁内取、回读在锁外做，两者之间设备可能恰好丢失：死设备上的 poll
         // 同样在 wgpu 内部 panic。放弃遮罩即可（恢复全程走 attach 重建）。
-        // 判死位按设备而非进程：新设备活着不代表这个旧快照能继续轮询。
-        if crate::render::context::device_lost()
-            || self.lost.load(std::sync::atomic::Ordering::Acquire)
-        {
+        if self.is_lost() {
             return None;
         }
         let width = self.width;
@@ -99,7 +111,16 @@ impl CoverReadbackSource {
                 depth_or_array_layers: 1,
             },
         );
-        self.queue.submit(std::iter::once(encoder.finish()));
+        // 提交前再判一次死：上面建缓冲与编码的间隙里设备可能已丢失，那时的提交
+        // 会撞上 wgpu 的 `Parent device is lost` panic（穿出 JNI 即整进程退出）。
+        if self.is_lost() {
+            return None;
+        }
+        // 判死位到 panic 之间仍有一瞬：提交本身也在归一范围内。
+        let submitted = super::poll::catch_device_loss_panic("read_cover_frame: 提交回读拷贝", || {
+            self.queue.submit(std::iter::once(encoder.finish()));
+        });
+        submitted?;
         let slice = buffer.slice(..);
         let (map_tx, map_rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |map_result| {
@@ -110,7 +131,11 @@ impl CoverReadbackSource {
             // 设备轮询的失败形态不止 `Err`：wgpu 内部会在设备真出错时直接 panic，
             // 那道 panic 穿出 JNI 边界就是整进程退出（2026-11-12 真机日志）。
             // 故走统一封装：常态继续，真错误带原因退出，panic 也归成「失败」。
-            match poll_device_wait(&self.device, &self.lost, POLL_STEP) {
+            //
+            // 非阻塞：带超时的阻塞等待在 Mali-G57 上本身会触发设备丢失
+            // （见 `poll_device_now` 的文档）。这里只等自己的映射回调，不需要
+            // 驱动层的阻塞等待。
+            match poll_device_now(&self.device, &self.lost) {
                 PollOutcome::Proceed => {}
                 PollOutcome::Failed(reason) => {
                     // 设备丢失是**一次**事件：由标记点记一条并停止渲染，余波不再逐帧记 error。
@@ -141,6 +166,7 @@ impl CoverReadbackSource {
                 );
                 return None;
             }
+            std::thread::sleep(POLL_INTERVAL);
         }
         let data = match slice.get_mapped_range() {
             Ok(data) => data,
@@ -192,6 +218,14 @@ impl Renderer {
         // 内容」这一事实（warmup 呈现保留帧用的是同一个判据，见
         // `Renderer::retained_frame_presentable`）。
         if !self.frame_content_valid {
+            return None;
+        }
+        // 新设备世代还没呈现过任何一帧时不得回读：那时累加器里的内容是旧设备画成
+        // 的（重建保留了它供 warmup 呈现），而回读要在新设备上等第一次拷贝完成
+        // ——Mali-G57 上正是这条等待触发设备丢失（2026-11-24 真机日志：每次重建
+        // 后 1-4ms 内 `readCoverFrame` 的轮询报设备丢失）。等新设备真正出过一帧，
+        // 回读才有意义，也才安全。
+        if !self.has_presented_frame {
             return None;
         }
         let texture = self.frame_texture.as_ref()?;

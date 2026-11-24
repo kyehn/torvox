@@ -23,7 +23,7 @@ pub(crate) use gpu::{
     gpu_error_is_surface_lost, gpu_slot_reusable, surface_loss_transition,
 };
 #[cfg(any(target_os = "android", test))]
-pub(crate) use poll::{PollOutcome, poll_device_wait};
+pub(crate) use poll::{PollOutcome, poll_device_now, poll_device_wait};
 #[cfg(test)]
 pub(crate) use renderer::{rebuild_blocked_by_in_flight_surface, reuse_attached_surface};
 #[cfg(test)]
@@ -138,6 +138,13 @@ pub struct Renderer {
     /// 用户离开时看到的那一帧，正是要呈现的；而从未渲染过的累加器内容未定义，
     /// 呈现它等于把未初始化纹理端到屏幕上。
     pub(crate) frame_content_valid: bool,
+    /// 本设备世代是否**真正呈现过**一帧（`queue.present` 成功返回）。
+    ///
+    /// 与 [`Self::frame_content_valid`] 的区别：后者说的是「累加器里有已渲染内容」，
+    /// 可能来自 warmup 呈现的保留帧（重建后的新设备上，累加器内容其实由旧设备画成）。
+    /// 遮罩回读要求前者：新设备上若还没出过一帧就回读，拿到的是旧设备留下的画面，
+    /// 且回读本身要等新设备的第一次拷贝完成——那正是 Mali 上触发设备丢失的等待。
+    pub(crate) has_presented_frame: bool,
     /// 交换链是否支持 `COPY_DST`（挂载时依据 `usages` 检查）；为 false 时走旧的
     /// 直接渲染路径并忽略脏带。
     pub(crate) swapchain_copy_supported: bool,

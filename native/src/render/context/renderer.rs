@@ -281,6 +281,7 @@ impl Renderer {
             frame_view: None,
             frame_invalidated: true,
             frame_content_valid: false,
+            has_presented_frame: false,
             swapchain_copy_supported: false,
             present_log: crate::slow_log::CountedLogThrottle::new(),
         }

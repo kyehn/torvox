@@ -12,6 +12,10 @@
 //! 故在此把三种形态归一：常态继续，真错误带原因退出。panic 也照原样带出原因
 //! （不吞、不掩盖），只是不再让它掀桌子。取纹理的 `get_current_texture` 早先已按
 //! 同一思路兜住（见 `pass::acquire`），此处是同一规范的另一半。
+//!
+//! 两种轮询粒度：需要等某次提交完成的路径用 [`poll_device_wait`]（带超时的阻塞
+//! 等待）；只想推进内部维护、不信任驱动阻塞等待的路径用 [`poll_device_now`]
+//! （`PollType::Poll`，见其文档里 Mali-G57 的实证）。
 
 use super::gpu::one_line;
 use std::sync::Arc;
@@ -37,6 +41,25 @@ pub(crate) enum PollOutcome {
 /// 设备丢失的记账点（只记一条 error），MUST NOT 再单记一条「轮询失败」。
 const DEVICE_LOST_REASON: &str = "device is lost";
 
+/// 非阻塞轮询设备一次：只推进 wgpu 的内部维护（映射回调、已完成提交的回收），
+/// 不进入驱动的阻塞等待。
+///
+/// 遮罩回读用它而不是 [`poll_device_wait`]：后者的 `PollType::Wait` 在 Vulkan 后端
+/// 走 `vkWaitSemaphores`（带有限超时，见 wgpu-hal 的 `Device::wait`）。Mali-G57 上
+/// 这条带超时的等待在首帧提交后数毫秒内返回 `VK_ERROR_DEVICE_LOST`（2026-11-24
+/// 三份真机日志：每次丢失前最后一条 GPU 调用都是非渲染线程的 `device poll`，
+/// 每次重建后同一条等待再次触发丢失，形成「重建→丢失→重建」的循环）。
+/// `PollType::Poll` 只读一次围栏值并回收已完成的提交，不进入驱动的等待。
+pub(crate) fn poll_device_now(device: &wgpu::Device, lost: &Arc<AtomicBool>) -> PollOutcome {
+    match lost_device_outcome(lost.load(Ordering::Acquire)) {
+        Some(outcome) => outcome,
+        None => poll_outcome(|| {
+            super::gpu::note_gpu_op(super::gpu::GpuOp::Poll);
+            device.poll(wgpu::PollType::Poll)
+        }),
+    }
+}
+
 /// 轮询设备一次（最多等 `timeout`），把 wgpu 的结局归一成「继续 / 失败」。
 ///
 /// `lost` 是**被轮询设备的**判死位（与设备同生共死的 `Arc`，见
@@ -45,9 +68,17 @@ const DEVICE_LOST_REASON: &str = "device is lost";
 /// 一道 panic（2026-11-17 真机日志：遮罩回读撞上 `Device::poll` 的 panic）。
 /// 判死位按设备而非进程，旧设备的残留回读不会因为新设备还活着就继续捶死设备，
 /// 也不会因为自己被判死而把新设备一起拉下水。
+///
+/// `submission_index` 是**自己要等的那一次提交**（`Queue::submit` 的返回值）：
+/// 必须指名等它，不等「最新一次提交」。上游语义是「不指定序号时等轮询当下的最新
+/// 一次提交」（wgpu-types 的 `PollType::Wait`），而渲染线程持续出帧时那个目标不断
+/// 前移——回读等的就不再是自己那次拷贝，而是渲染线程后来提交的呈现帧，等不到就是
+/// 等满超时（实测遮罩回读因此拖满 250ms）。指名等自己那次提交，等待目标固定，
+/// 且不会把后续呈现帧的完成时刻算进来。
 pub(crate) fn poll_device_wait(
     device: &wgpu::Device,
     lost: &Arc<AtomicBool>,
+    submission_index: &wgpu::SubmissionIndex,
     timeout: Duration,
 ) -> PollOutcome {
     match lost_device_outcome(lost.load(Ordering::Acquire)) {
@@ -55,10 +86,31 @@ pub(crate) fn poll_device_wait(
         None => poll_outcome(|| {
             super::gpu::note_gpu_op(super::gpu::GpuOp::Poll);
             device.poll(wgpu::PollType::Wait {
-                submission_index: None,
+                submission_index: Some(submission_index.clone()),
                 timeout: Some(timeout),
             })
         }),
+    }
+}
+
+/// 把一次可能 panic 的 GPU 调用归一：**预期内的设备丢失** panic 记一条 error 并给
+/// `None`，其余 panic 原样抛出。
+///
+/// 只归一设备丢失这一类：wgpu 在致命 HAL 错误上先调丢失回调、再 panic，而判死位
+/// 到 panic 之间还有一瞬，非渲染线程的提交可能正好落在这个窗口里。这类 panic 是
+/// 已归因的必然后果，不该掀掉整个进程；真正的逻辑缺陷仍必须冒出来，不得掩盖。
+pub(crate) fn catch_device_loss_panic<T>(context: &str, call: impl FnOnce() -> T) -> Option<T> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(call)) {
+        Ok(value) => Some(value),
+        Err(payload) => {
+            let text = one_line(&crate::panic_text(payload.as_ref()));
+            if super::gpu::is_device_loss_text(&text) || super::gpu::device_lost() {
+                log::error!("{context}: {text}");
+                None
+            } else {
+                std::panic::resume_unwind(payload)
+            }
+        }
     }
 }
 

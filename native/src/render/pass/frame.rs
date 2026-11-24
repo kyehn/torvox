@@ -484,6 +484,8 @@ impl Renderer {
         let submit_done = std::time::Instant::now();
         crate::render::context::note_gpu_op(crate::render::context::GpuOp::Present);
         self.queue.present(texture);
+        // 本设备世代真正出过一帧：遮罩回读据此放行（见 `has_presented_frame`）。
+        self.has_presented_frame = true;
         let present_done = std::time::Instant::now();
 
         // 慢帧只记一条，区分 acquire/编码/提交/呈现哪段阻塞；30ms 与 Kotlin 侧

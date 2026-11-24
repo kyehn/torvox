@@ -172,12 +172,12 @@ impl Renderer {
             tex_size,
         );
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        let submission_index = self.queue.submit(std::iter::once(encoder.finish()));
 
         // 设备轮询的失败形态不止 `Err`：wgpu 内部会在设备真出错时直接 panic。
         // 走统一封装，失败带原因上来，别让测试死于一道看不懂的 panic。
         if let PollOutcome::Failed(reason) =
-            poll_device_wait(&self.device, &self.lost, GPU_POLL_TIMEOUT)
+            poll_device_wait(&self.device, &self.lost, &submission_index, GPU_POLL_TIMEOUT)
         {
             return Err(GpuError::Readback(format!("device poll failed: {reason}")));
         }
@@ -192,7 +192,7 @@ impl Renderer {
         let poll_start = std::time::Instant::now();
         let mapped: Result<(), GpuError> = loop {
             if let PollOutcome::Failed(reason) =
-                poll_device_wait(&self.device, &self.lost, MAP_POLL_STEP)
+                poll_device_wait(&self.device, &self.lost, &submission_index, MAP_POLL_STEP)
             {
                 break Err(GpuError::Readback(format!("device poll failed: {reason}")));
             }

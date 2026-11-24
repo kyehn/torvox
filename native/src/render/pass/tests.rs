@@ -751,7 +751,7 @@ fn returned_texture_is_cleared_to_the_background() {
             depth_or_array_layers: 1,
         },
     );
-    queue.submit(std::iter::once(encoder.finish()));
+    let submission_index = queue.submit(std::iter::once(encoder.finish()));
 
     let slice = buffer.slice(..);
     let (map_sender, map_receiver) = std::sync::mpsc::channel();
@@ -764,6 +764,7 @@ fn returned_texture_is_cleared_to_the_background() {
             crate::render::context::poll_device_wait(
                 &device,
                 &lost,
+                &submission_index,
                 std::time::Duration::from_secs(2)
             ),
             crate::render::context::PollOutcome::Proceed

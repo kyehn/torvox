@@ -51,6 +51,8 @@ fn cover_readback_returns_the_accumulator_pixels() {
     }
     // 累加器里已有一帧**已渲染**的内容：回读的前提（与 warmup 呈现保留帧同一判据）。
     context.frame_content_valid = true;
+    // 本设备世代已真正出过一帧：回读的另一个前提（见 `has_presented_frame`）。
+    context.has_presented_frame = true;
 
     let cover = context
         .cover_readback_source()
@@ -109,5 +111,103 @@ fn cover_readback_of_undefined_accumulator_yields_nothing() {
     assert!(
         context.cover_readback_source().is_none(),
         "内容未定义的累加器不得被回读"
+    );
+}
+
+/// 设备判死后不得再给出回读源：死设备上的任何 wgpu 调用都只会换来 wgpu 内部的
+/// 一道 panic（`Parent device is lost`），那道 panic 穿出 JNI 边界就是整进程退出
+/// （2026-11-12 真机日志）。
+///
+/// 判别力：少了这道判死检查时，回读会先建缓冲再提交，整条路径都在死设备上跑，
+/// 最终以 panic 收场。
+#[test]
+fn cover_readback_of_a_lost_device_yields_nothing() {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
+        panic!("requires GPU adapter but none available");
+    };
+    let mut context = setup_test_gpu_context(device, queue);
+    context.swapchain_copy_supported = true;
+    context
+        .ensure_frame_texture(4, 4, wgpu::TextureFormat::Rgba8Unorm)
+        .expect("累加器视图");
+    // 累加器里已有一帧已渲染的内容：内容判据不是本用例的拦路虎。
+    context.frame_content_valid = true;
+    context.has_presented_frame = true;
+    // 换成独立的判死位：不碰进程级全局，免得影响同批次的其他用例。
+    context.lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    assert!(
+        context.cover_readback_source().is_none(),
+        "判死的设备不得再给出回读源"
+    );
+}
+
+/// 新设备世代还没出过一帧时不得回读：累加器里的内容是旧设备留下的（重建保留它
+/// 供 warmup 呈现），而回读要在新设备上等第一次拷贝完成——Mali-G57 上正是这条
+/// 等待触发设备丢失（2026-11-24 真机日志：每次重建后 1-4ms 内 `readCoverFrame`
+/// 的轮询报设备丢失）。
+///
+/// 判别力：少了这道门时，新设备上第一次周期回读就会走完整条回读路径，正是实测
+/// 触发丢失的调用。
+#[test]
+fn cover_readback_before_the_first_presented_frame_yields_nothing() {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
+        panic!("requires GPU adapter but none available");
+    };
+    let mut context = setup_test_gpu_context(device, queue);
+    context.swapchain_copy_supported = true;
+    context
+        .ensure_frame_texture(4, 4, wgpu::TextureFormat::Rgba8Unorm)
+        .expect("累加器视图");
+    // 累加器里有旧设备留下的已渲染内容，但本设备世代尚未出过帧。
+    context.frame_content_valid = true;
+    assert!(!context.has_presented_frame);
+    assert!(
+        context.cover_readback_source().is_none(),
+        "本设备世代还没出过帧时不得回读"
+    );
+}
+
+/// 非阻塞轮询在活设备上必须给「继续」：遮罩回读靠它推进映射回调。
+#[test]
+fn non_blocking_poll_proceeds_on_a_live_device() {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
+        panic!("requires GPU adapter but none available");
+    };
+    let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let _ = queue;
+    assert!(
+        matches!(
+            crate::render::context::poll_device_now(&device, &lost),
+            crate::render::context::PollOutcome::Proceed
+        ),
+        "活设备上的非阻塞轮询必须继续"
+    );
+}
+
+/// 指名等自己那次提交必须等得到：wgpu 在「等待的序号大于最后成功提交序号」时报
+/// `WrongSubmissionIndex`（判成失败），故 `Queue::submit` 返回的序号必须可等。
+/// 遮罩回读等的就是自己那次拷贝的序号（不是「最新一次提交」——那个目标会随渲染
+/// 线程继续出帧而前移，回读可能一直等不到自己的结果）。
+#[test]
+fn polling_for_our_own_submission_completes() {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
+        panic!("requires GPU adapter but none available");
+    };
+    let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Poll Own Submission Encoder"),
+    });
+    let submission_index = queue.submit(std::iter::once(encoder.finish()));
+    assert!(
+        matches!(
+            crate::render::context::poll_device_wait(
+                &device,
+                &lost,
+                &submission_index,
+                std::time::Duration::from_secs(2),
+            ),
+            crate::render::context::PollOutcome::Proceed
+        ),
+        "指名等自己那次提交必须继续"
     );
 }
