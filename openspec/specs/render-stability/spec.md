@@ -745,6 +745,23 @@ MUST NOT 逐条重复；旧世代的结局记 debug，如实保留原因，不�
       塌缩；「无法滚动」与「诡异自动翻动」的新日志证据为 0，MUST NOT 据此宣称
       五类症状已全部由代码验证，只能记为「本批日志未复现」
 
+#### Scenario: 五类症状的可复现判据
+
+- **WHEN** 需要复核 `docs/STATUS.md` 的五类症状（该文件禁止修改）
+- **THEN** 每类 MUST 对应到可单独运行的测试与日志判据：
+      - 无法滚动：`ScrollDistanceTest`（越界回弹、惯性逐帧落点）与
+        `ScrollBehaviorQuantifiedTest`（模拟器实测位移与内容一致）
+      - 卡顿：`FrameTimingStatsTest`、`DisplayPeriodEstimateTest` 与
+        `RenderPauseTest`；日志判据是稳态循环不出现成片 `SLOW_LOOP`
+      - 终端页面多次死亡：`ReadCoverFrameSafelyTest`、`SurfaceRecoverySettledTest`、
+        `SessionLivenessTest` 与 `SurfaceLossRecoveryInstrumentedTest`；日志判据是
+        无 `device lost`／`surface invalidated` 连发
+      - 抽搐：`ModifierBarGestureAreaTest` 的抖动半径与
+        `TerminalSurfaceLogicTest` 的捏合落定，均断言小位移不触发状态跳变
+      - 诡异自动翻动／闪屏：`ScrollRemainderTest` 的「新输出贴底时亚行余量与整行偏移
+        同拍清零」与 `ImeSurfaceStabilityInstrumentedTest` 的像素稳定性
+- **AND** 复核 MUST 运行上述测试并附结果；只凭日志中未复现 MUST NOT 判定症状已消除
+
 #### Scenario: 回读阻塞等待的引入与回归来源
 
 - **WHEN** 复核 2026-11-17 当日的遮罩回读变更：先因设备丢失**移除**回读，13 小时后

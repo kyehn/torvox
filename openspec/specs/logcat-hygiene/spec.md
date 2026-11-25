@@ -1889,3 +1889,19 @@ MUST NOT 加过滤器、降级日志或提高阈值。
       INFO」），MUST NOT 用警告级作缺省；调试级仍由 R8 剥离，不会带回调试噪声
 - **AND** 判据 `LogLevelTest` 的「缺省等级与构建类型一致」按 `BuildConfig.DEBUG`
       分别断言 `DEBUG` 与 `INFO`，MUST NOT 只测一侧
+
+#### Scenario: CI 构建与仪器化运行的告警逐类归因
+
+- **WHEN** 检查 GitHub Actions 运行 `45533749679` 的完整日志
+- **THEN** 结果 MUST 记为成功：262 个 `connectedDebugAndroidTest`、137 个 benchmark
+      与 1 个 nix 用例全部通过（0 failed、0 skipped），debug／nix／release 三个 APK
+      均产出并完成发布；MUST NOT 把构建成功写成「无告警」
+- **AND** Gradle 的 `Deprecated Gradle features` 提示 MUST 归因为工具链与插件的弃用
+      通告，SwiftShader 的 `WARNING: UNSUPPORTED: curExtension->sType` 与
+      `cannnot unmap ptr ... protected range` MUST 归因为模拟器图形栈内部日志
+- **AND** 模拟器启动期的 `Unable to connect to adb daemon on port: 5037`、
+      `adb: device offline`、`Failed to process .ini file`、Quickboot 与 libX11
+      装载提示 MUST 归因为设备启动竞态与宿主库探测，日志中随后成功启动并完成全部用例
+- **AND** `Failure [not installed for 0]` MUST 归因为 `scripts/test-emulator.nu` 中
+      `pm uninstall --user 0 com.termux` 对未安装包的预期失败；该脚本是受保护文件，
+      MUST NOT 为消除这一行而修改它，也 MUST NOT 在日志侧过滤该行
