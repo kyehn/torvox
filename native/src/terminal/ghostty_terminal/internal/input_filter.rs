@@ -131,11 +131,9 @@ pub(crate) fn filter_input<'a>(
                 carry = &data[index..];
                 index = data.len();
             }
-            Some(b'[') => match parse_csi(data, index) {
-                Some((end, kind)) => {
+            Some(b'[') => {
+                if let Some((end, kind)) = parse_csi(data, index) {
                     match kind {
-                        CsiKind::Pass => {}
-                        CsiKind::Decsace => {}
                         CsiKind::EraseDisplay => clears.push(Clear {
                             offset: payload.len(),
                             kind: ClearKind::Display,
@@ -144,48 +142,44 @@ pub(crate) fn filter_input<'a>(
                             offset: payload.len(),
                             kind: ClearKind::Scrollback,
                         }),
+                        CsiKind::Pass | CsiKind::Decsace => {}
                     }
                     if kind != CsiKind::Decsace {
                         payload.extend_from_slice(&data[index..end]);
                     }
                     index = end;
-                }
-                None => {
+                } else {
                     payload.extend_from_slice(&data[index..]);
                     index = data.len();
                 }
-            },
-            Some(b']') => match find_string_end(data, index + 2, true) {
-                Some(end) => {
+            }
+            Some(b']') => {
+                if let Some(end) = find_string_end(data, index + 2, true) {
                     payload.extend_from_slice(&data[index..end]);
                     index = end;
-                }
-                None => {
+                } else {
                     payload.extend_from_slice(&data[index..]);
                     index = data.len();
                 }
-            },
+            }
             Some(b'_') if data.get(index + 2).copied() == Some(b'G') => {
-                match find_kitty_apc(data, index) {
-                    Some((content, end)) => {
-                        match kitty_probe(&data[content.0..content.1], capabilities) {
-                            KittyProbe::Pass => payload.extend_from_slice(&data[index..end]),
-                            KittyProbe::Answer(response) => {
-                                if let Some(response) = response {
-                                    responses.push(response);
-                                }
+                if let Some((content, end)) = find_kitty_apc(data, index) {
+                    match kitty_probe(&data[content.0..content.1], capabilities) {
+                        KittyProbe::Pass => payload.extend_from_slice(&data[index..end]),
+                        KittyProbe::Answer(response) => {
+                            if let Some(response) = response {
+                                responses.push(response);
                             }
                         }
-                        index = end;
                     }
-                    None => {
-                        if data.len() - index <= KITTY_CARRY_LIMIT {
-                            carry = &data[index..];
-                        } else {
-                            payload.extend_from_slice(&data[index..]);
-                        }
-                        index = data.len();
+                    index = end;
+                } else {
+                    if data.len() - index <= KITTY_CARRY_LIMIT {
+                        carry = &data[index..];
+                    } else {
+                        payload.extend_from_slice(&data[index..]);
                     }
+                    index = data.len();
                 }
             }
             Some(b'_' | b'P' | b'^' | b'X') => match find_string_end(data, index + 2, false) {

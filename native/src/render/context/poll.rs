@@ -137,9 +137,8 @@ fn poll_outcome(poll: impl FnOnce() -> Result<wgpu::PollStatus, wgpu::PollError>
 /// 不必构造 GPU 设备。
 fn classify(polled: PollAttempt) -> PollOutcome {
     match polled {
-        Ok(Ok(_)) => PollOutcome::Proceed,
         // 等满一步还没排空是分步轮询的常态，不是错误：下一步还会再等。
-        Ok(Err(wgpu::PollError::Timeout)) => PollOutcome::Proceed,
+        Ok(Ok(_) | Err(wgpu::PollError::Timeout)) => PollOutcome::Proceed,
         Ok(Err(error)) => PollOutcome::Failed(error.to_string()),
         // wgpu 内部 panic：载荷是 `&'static str` 或 `String`（见 `crate::panic_text`）。
         Err(payload) => PollOutcome::Failed(one_line(&crate::panic_text(payload.as_ref()))),

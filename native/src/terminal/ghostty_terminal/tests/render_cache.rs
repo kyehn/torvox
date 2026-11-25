@@ -90,8 +90,7 @@ fn kitty_graphics_query_echoes_the_requested_image_id() {
     let responses = terminal.drain_pty_write_responses();
     let response = responses
         .last()
-        .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-        .unwrap_or_default();
+        .map_or_default(|bytes| String::from_utf8_lossy(bytes).into_owned());
     assert!(
         response.contains("i=278941603"),
         "kitty 查询应答必须回显请求的图像 id，实际收到：{response:?}"
@@ -249,12 +248,10 @@ fn kitty_graphics_short_file_and_missing_file_answer_identically() {
 
     let short_answer = short_response
         .last()
-        .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-        .unwrap_or_default();
+        .map_or_default(|bytes| String::from_utf8_lossy(bytes).into_owned());
     let missing_answer = missing_response
         .last()
-        .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-        .unwrap_or_default();
+        .map_or_default(|bytes| String::from_utf8_lossy(bytes).into_owned());
     assert!(
         short_answer.contains("EINVAL"),
         "短于声明字节数的文件必须回错误应答，实际收到：{short_answer:?}"

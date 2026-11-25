@@ -18,6 +18,10 @@ fn pty_write_does_not_hold_the_session_lock() {
     use crate::terminal::mock_pty::{MockPty, WriteGate};
     use std::time::Duration;
 
+    // 写入线程已进入 `Pty::write` 并挂起在等待分支。等待有期限：挂死的用例比判红的
+    // 更难排查，写入若根本没进临界区，本用例应判红而不是永远挂着。
+    const ENTER_BUDGET: Duration = Duration::from_secs(5);
+
     // 写入挂起直到本测试放行：模拟真实 `write_all` 在主端缓冲满时的等待分支。
     // 用共享的 [`MockPty`] + [`WriteGate`]：同文件其余用例走的是同一条闸，自造一份
     // PTY 替身会让「写入如何被挂起」出现两种口径（一份靠 sleep 轮询，一份靠闸）。
@@ -31,9 +35,6 @@ fn pty_write_does_not_hold_the_session_lock() {
     let writer = session.lock().expect("session lock").pty_master();
 
     let writer_thread = std::thread::spawn(move || writer.write(b"x"));
-    // 写入线程已进入 `Pty::write` 并挂起在等待分支。等待有期限：挂死的用例比判红的
-    // 更难排查，写入若根本没进临界区，本用例应判红而不是永远挂着。
-    const ENTER_BUDGET: Duration = Duration::from_secs(5);
     let entered_in_time = gate.wait_until_entered_with_timeout(ENTER_BUDGET);
 
     // 关键断言：写入挂起期间会话锁仍可取得。锁被占用即代表写入持锁——
@@ -42,9 +43,10 @@ fn pty_write_does_not_hold_the_session_lock() {
     // 先放行再断言：任何分支下写入线程都会被放出来，不会被挂在闸里。
     gate.release();
     let write_result = writer_thread.join().expect("writer thread panicked");
-    if !entered_in_time {
-        panic!("写入线程未在期限内进入 PTY 写入，本测试无判别力");
-    }
+    assert!(
+        entered_in_time,
+        "写入线程未在期限内进入 PTY 写入，本测试无判别力"
+    );
     {
         let locked = lock_result.expect("PTY 写入不得持有会话锁：渲染与事件收割每帧都取这把锁");
         assert_eq!(locked.terminal().rows(), 24, "取得的必须是本会话");

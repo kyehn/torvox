@@ -293,8 +293,7 @@ fn cell_codepoint(terminal: &Terminal<'_, '_>, row: u32, col: u32) -> u32 {
         .ok()
         .and_then(|point| point.cell().ok())
         .and_then(|cell| cell.codepoint().ok())
-        .map(u32::from)
-        .unwrap_or(0)
+        .map_or(0, u32::from)
 }
 
 /// 内容变脏：网格与全量文本缓存同源失效，调用方再按需置批量脏。

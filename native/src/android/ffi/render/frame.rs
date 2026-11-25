@@ -562,8 +562,7 @@ pub(super) fn render_new_frame(
             // 不再排队，按帧取会话锁的写入路径也不再排队。
             let fetched_kitty_frames = if need_kitty_fetch {
                 session_query_channel(session_id)
-                    .map(|query_tx| GhosttyTerminal::take_kitty_placements_on(&query_tx))
-                    .unwrap_or_default()
+                    .map_or_default(|query_tx| GhosttyTerminal::take_kitty_placements_on(&query_tx))
             } else {
                 Vec::new()
             };

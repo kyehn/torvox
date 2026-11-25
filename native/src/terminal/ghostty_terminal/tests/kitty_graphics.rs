@@ -378,19 +378,19 @@ fn solid_png(width: u32, height: u32) -> Vec<u8> {
     header.extend_from_slice(&[8, 6, 0, 0, 0]);
     let mut png = Vec::new();
     png.extend_from_slice(&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    push_png_chunk(&mut png, b"IHDR", &header);
-    push_png_chunk(&mut png, b"IDAT", &zlib_stored(&scanlines));
-    push_png_chunk(&mut png, b"IEND", &[]);
+    push_png_chunk(&mut png, *b"IHDR", &header);
+    push_png_chunk(&mut png, *b"IDAT", &zlib_stored(&scanlines));
+    push_png_chunk(&mut png, *b"IEND", &[]);
     png
 }
 
 /// PNG 数据块：长度 + 类型 + 数据 + CRC32。
-fn push_png_chunk(png: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+fn push_png_chunk(png: &mut Vec<u8>, kind: [u8; 4], data: &[u8]) {
     png.extend_from_slice(&(data.len() as u32).to_be_bytes());
-    png.extend_from_slice(kind);
+    png.extend_from_slice(&kind);
     png.extend_from_slice(data);
     let mut checksum_input = Vec::with_capacity(4 + data.len());
-    checksum_input.extend_from_slice(kind);
+    checksum_input.extend_from_slice(&kind);
     checksum_input.extend_from_slice(data);
     png.extend_from_slice(&crc32(&checksum_input).to_be_bytes());
 }

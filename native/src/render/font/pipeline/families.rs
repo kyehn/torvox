@@ -517,9 +517,9 @@ mod tests {
             id: fontdb::ID::default(),
             source: fontdb::Source::Binary(std::sync::Arc::new(Vec::<u8>::new())),
             index: 0,
-            families: family
-                .map(|name| vec![(name.to_string(), fontdb::Language::English_UnitedStates)])
-                .unwrap_or_default(),
+            families: family.map_or_default(|name| {
+                vec![(name.to_string(), fontdb::Language::English_UnitedStates)]
+            }),
             post_script_name: String::new(),
             style,
             weight: fontdb::Weight(weight),

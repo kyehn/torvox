@@ -235,20 +235,17 @@ impl Renderer {
             None
         };
 
-        let pipeline = match self.cell_pipeline.as_ref() {
-            Some(pipeline) => pipeline,
-            None => {
-                // 管线缺失：本帧画不了，但已取到的交换链纹理必须归还——直接丢弃
-                // 会让那张图像永不归还（wgpu-hal 的 Vulkan 后端丢弃未呈现纹理时
-                // 是空实现），几帧之后交换链便再也拿不到可用图像。
-                super::release_acquired_texture(
-                    &self.device,
-                    &self.queue,
-                    frame_ctx.texture,
-                    self.background,
-                );
-                return Err(GpuError::Surface("No render pipeline".to_string()));
-            }
+        let Some(pipeline) = self.cell_pipeline.as_ref() else {
+            // 管线缺失：本帧画不了，但已取到的交换链纹理必须归还——直接丢弃
+            // 会让那张图像永不归还（wgpu-hal 的 Vulkan 后端丢弃未呈现纹理时
+            // 是空实现），几帧之后交换链便再也拿不到可用图像。
+            super::release_acquired_texture(
+                &self.device,
+                &self.queue,
+                frame_ctx.texture,
+                self.background,
+            );
+            return Err(GpuError::Surface("No render pipeline".to_string()));
         };
 
         log::trace!(
