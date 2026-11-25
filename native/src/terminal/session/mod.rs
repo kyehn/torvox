@@ -50,8 +50,14 @@ pub enum ReportedExit {
     Unknown,
 }
 /// 回滚行数固定值（与 Termux 默认 transcript-rows=2000 一致）。
-/// PROHIBITED 禁止「终端回滚行数」设置，因此既无产品入口也无 FFI 入参通道。
+///
+/// 回滚行数只经 `termux.properties` 的 `terminal-transcript-rows` 进入
+/// （`CONFIG.md` 允许的键），设置界面不提供条目，故本值只在配置缺省或非法时生效。
 pub(crate) const DEFAULT_SCROLLBACK_LINES: u32 = 2000;
+/// 回滚行数有效区间下界（上游 `terminal-transcript-rows` 的口径）。
+pub(crate) const MIN_SCROLLBACK_LINES: u32 = 100;
+/// 回滚行数有效区间上界（上游 `terminal-transcript-rows` 的口径）。
+pub(crate) const MAX_SCROLLBACK_LINES: u32 = 50_000;
 
 /// PTY 输出通道缓冲块数：读取线程与 VT 线程之间的背压边界，满时读取线程阻塞
 /// 而非堆积无界内存。
@@ -116,6 +122,20 @@ pub(super) fn validated_grid(rows: u32, cols: u32) -> Result<(u16, u16), Session
         return Err(SessionError::InvalidDimensions);
     }
     Ok((rows, cols))
+}
+
+/// 回滚行数的**唯一**合法性判据：上游区间 100..=50000，越界回退默认。
+///
+/// 越界值不回退时，回滚区只剩行数一条约束——上游的字节预算已解除（行数是唯一
+/// 约束，见 `ghostty_terminal/internal/run.rs`），行数一旦越界，回滚区可一路长到
+/// 把进程内存吃光。越界回退默认而非钳到边界，与上游 `getDefaultIfNotInRange`
+/// 同口径（`CONFIG.md`：配置非法时回退默认值）。
+pub(super) fn validated_scrollback_lines(lines: u32) -> u32 {
+    if (MIN_SCROLLBACK_LINES..=MAX_SCROLLBACK_LINES).contains(&lines) {
+        lines
+    } else {
+        DEFAULT_SCROLLBACK_LINES
+    }
 }
 /// 终端会话：串接 PTY 读取、VT 解析与进程等待。
 ///

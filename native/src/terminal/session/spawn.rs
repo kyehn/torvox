@@ -20,6 +20,7 @@ use crate::terminal::shell_env::ShellEnv;
 use super::pty_master::PtyMaster;
 use super::{
     ExitCodeSlot, OUTPUT_CHANNEL_BOUND, OutputWake, Session, SessionError, validated_grid,
+    validated_scrollback_lines,
 };
 
 const READ_BUF_SIZE: usize = 8192;
@@ -252,6 +253,9 @@ impl Session {
         // 用一次静默截断替调用方决定网格尺寸。取回的 `u16` 直接交给终端引擎，
         // 本函数的缓存仍按 `u32` 记账。
         let (grid_rows, grid_cols) = validated_grid(rows, cols)?;
+        // 回滚行数同样在此收窄：字节预算已解除，行数是回滚区唯一的约束，
+        // 越界值放行等于把回滚区放开到吃光进程内存。
+        let scrollback_lines = validated_scrollback_lines(scrollback_lines);
         log::info!("Session::spawn_with_pty: creating Arc/Channel");
         let exited = Arc::new(AtomicBool::new(false));
         let exit_reported = Arc::new(AtomicBool::new(false));

@@ -12,6 +12,7 @@ mod clipboard;
 mod focus;
 mod process;
 mod resize;
+mod scrollback;
 mod write_backpressure;
 
 fn drain_output(session: &mut Session, deadline: std::time::Instant) {

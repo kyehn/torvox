@@ -363,3 +363,27 @@ MUST 不作答（不写即拒绝）。
 
 - **WHEN** 单帧内的削减回写次数远超每帧上限
 - **THEN** 实际回写次数不超过上限，且至少发生过一次（削减分支并未整体失效）
+
+### Requirement: 回滚行数在会话层按上游区间收窄
+
+会话创建时传入的回滚行数 MUST 按上游 `terminal-transcript-rows` 的区间
+（100..=50000）收窄：区间外的值 MUST 回退默认行数（2000），MUST NOT 钳到边界，
+MUST NOT 原样放行。
+
+上游的字节预算已解除（行数是回滚区唯一的约束），故行数一旦越界放行，回滚区可一路
+长到把进程内存吃光。越界回退默认与上游 `getDefaultIfNotInRange` 同口径，也与
+`CONFIG.md`「配置非法时回退默认值」一致。
+
+收窄点是会话层（`native/src/terminal/session/mod.rs` 的
+`validated_scrollback_lines`），故 JNI 边界与任何其他调用方共用同一条判据；JNI 边界
+只负责把 `jint` 负值折成默认行数（`jint` → `u32` 的有符号转换不经 `as` 截断）。
+
+#### Scenario: 越界回滚行数回退默认
+
+- **WHEN** 会话以区间外的回滚行数创建（如 50001 行）
+- **THEN** 该会话的回滚行数 MUST 为默认行数，MUST NOT 按传入值生效
+
+#### Scenario: 区间内的回滚行数原样生效
+
+- **WHEN** 会话以区间内的回滚行数创建（如 50000 行）
+- **THEN** 该会话的回滚行数 MUST 按传入值生效，MUST NOT 被收窄成默认行数

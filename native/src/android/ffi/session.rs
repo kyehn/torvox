@@ -134,18 +134,15 @@ pub(super) fn init_session_inner(
     };
 
     // 回滚行数来自 `termux.properties` 的 `terminal-transcript-rows`（Kotlin 侧已按
-    // 上游区间 100..50000 钳制）；负值按默认行数兜底。会话以默认主题起，真实主题
-    // 随后经 `setTheme` 按标识下发。
+    // 上游区间 100..50000 钳制）；负值按默认行数兜底，区间外由会话层统一回退默认。
+    // 会话以默认主题起，真实主题随后经 `setTheme` 按标识下发。
     let render_wake = Arc::new(RenderWake::default());
     let output_wake = {
         let wake = Arc::clone(&render_wake);
         Some(Arc::new(move || wake.notify()) as crate::terminal::session::OutputWake)
     };
-    let scrollback_lines = if scrollback_lines < 0 {
-        crate::terminal::session::DEFAULT_SCROLLBACK_LINES
-    } else {
-        scrollback_lines as u32
-    };
+    let scrollback_lines = u32::try_from(scrollback_lines)
+        .unwrap_or(crate::terminal::session::DEFAULT_SCROLLBACK_LINES);
     match Session::spawn(
         &shell_path,
         rows,
