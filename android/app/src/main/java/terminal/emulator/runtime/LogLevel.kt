@@ -21,13 +21,12 @@ enum class LogLevel(val androidPriority: Int) {
 
     companion object {
         /**
-         * Release 构建的缺省等级：警告及以上。
+         * 缺省等级与构建类型一致：debug 放行调试级，release 按构建规范放行信息级。
          *
-         * Release 面向普通用户，调试级日志只增加噪声与功耗；警告与错误才是
-         * 排障时真正需要的信息。Debug 构建放行到调试级。
+         * 调试级调用点已在 release 被 R8 剥离，故信息级不会带回调试噪声。
          */
         val DEFAULT: LogLevel =
-            if (terminal.emulator.BuildConfig.DEBUG) DEBUG else WARN
+            if (terminal.emulator.BuildConfig.DEBUG) DEBUG else INFO
 
         /**
          * Release 构建可选的等级：调试级与详细级不在其中。

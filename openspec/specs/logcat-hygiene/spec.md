@@ -1881,3 +1881,11 @@ MUST NOT 加过滤器、降级日志或提高阈值。
 - **AND** `refactor(log): 用 Log4K 替换 Timber` 之后的两个优化（移除 Log4K 的
       `ContextProvider`、恢复 R8 优化）MUST 以合并清单 provider 数与 release APK
       的真机冷启动日志复核；日志采集早于这两个优化，MUST NOT 用这批日志为它们背书
+
+#### Scenario: Release 缺省等级与构建规范一致
+
+- **WHEN** 新安装的 release 构建首次启动并取日志等级缺省值
+- **THEN** Kotlin 与原生两侧 MUST 落在信息级（构建规范「release 构建的日志等级
+      INFO」），MUST NOT 用警告级作缺省；调试级仍由 R8 剥离，不会带回调试噪声
+- **AND** 判据 `LogLevelTest` 的「缺省等级与构建类型一致」按 `BuildConfig.DEBUG`
+      分别断言 `DEBUG` 与 `INFO`，MUST NOT 只测一侧

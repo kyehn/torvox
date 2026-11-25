@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import terminal.emulator.BuildConfig
 
 /**
  * 日志等级的放行判据与序号往返。
@@ -58,6 +59,11 @@ class LogLevelTest {
     fun `越界序号回退到缺省等级`() {
         assertEquals(LogLevel.DEFAULT, LogLevel.fromOrdinal(-1))
         assertEquals(LogLevel.DEFAULT, LogLevel.fromOrdinal(LogLevel.entries.size))
+    }
+
+    @Test
+    fun `缺省等级与构建类型一致`() {
+        assertEquals(if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.INFO, LogLevel.DEFAULT)
     }
 
     @Test
