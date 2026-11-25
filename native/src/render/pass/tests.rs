@@ -19,8 +19,8 @@ fn acquire_worker_is_singleton() {
 
 fn idle_lane() -> AcquireLane {
     AcquireLane {
-        in_flight: std::sync::Mutex::new(0),
-        idle: std::sync::Condvar::new(),
+        in_flight: parking_lot::Mutex::new(0),
+        idle: parking_lot::Condvar::new(),
     }
 }
 
@@ -76,11 +76,7 @@ fn unqueued_request_is_destroyed_before_the_lane_count_drops() {
     }
     impl Drop for DropProbe {
         fn drop(&mut self) {
-            let in_flight = self
-                .lane
-                .in_flight
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let in_flight = self.lane.in_flight.lock();
             assert_eq!(
                 *in_flight, 1,
                 "请求销毁时在途计数必须仍为 1：克隆尚未消失，计数不得先归零"

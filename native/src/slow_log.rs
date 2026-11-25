@@ -19,9 +19,10 @@ use governor::{
     nanos::Nanos,
     state::{InMemoryState, NotKeyed},
 };
+use parking_lot::{Mutex, MutexGuard};
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 /// 诊断输出的最小间隔（毫秒）。与 `logcat-hygiene` 规范的 500ms 下限同档。
@@ -89,10 +90,7 @@ impl SlowLogThrottle {
     #[cfg(test)]
     pub(crate) fn reset(&self) {
         self.clock().nanos.store(0, Ordering::Release);
-        *self
-            .gate
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        *self.gate.lock() = None;
     }
 
     fn clock(&self) -> &LogClock {
@@ -100,10 +98,7 @@ impl SlowLogThrottle {
     }
 
     fn gate(&self) -> MutexGuard<'_, Option<Gate>> {
-        let mut gate = self
-            .gate
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut gate = self.gate.lock();
         if gate.is_none() {
             let quota = Quota::with_period(Duration::from_millis(self.interval_ms))
                 .expect("interval must be nonzero")

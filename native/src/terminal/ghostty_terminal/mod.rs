@@ -1,8 +1,9 @@
 //! Ghostty 终端引擎：VT 解析、命令分发与公开 API。
 //! 以命令方式在 PTY 读取线程与渲染线程间通信。
 
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::sync::{Arc, Mutex, Once};
+use std::sync::{Arc, Once};
 use std::thread;
 use std::time::Duration;
 

@@ -358,7 +358,7 @@ static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
 /// 时惰性创建，由 JNI 渲染线程持有（Kotlin 渲染循环只从单一线程调用 `render`）。
 /// `Renderer` 是 `Send + Sync`（`render::context` 的编译期测试保证），故互斥锁安全，
 /// 且争用可忽略（每帧一次 `render`）。
-static RENDER_STATE: std::sync::Mutex<Option<RenderState>> = std::sync::Mutex::new(None);
+static RENDER_STATE: Mutex<Option<RenderState>> = Mutex::new(None);
 
 /// 当前 surface 挂载在（全局）渲染状态上的会话 id，0 = 无。`detachWindow` 仅在调用方
 /// 是属主会话时才丢弃 surface——`switchSession` 先挂载新会话的 surface 再释放旧的，
@@ -722,10 +722,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_prefetchRender
 
 /// 确保渲染状态存在，首次使用时创建渲染器与字体管线。GPU 初始化失败时 panic
 /// （致命——按项目策略不做优雅降级：无法渲染的终端是坏的，不应跚行运转）。
-fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
-    let mut guard = RENDER_STATE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+fn render_state_mut() -> parking_lot::MutexGuard<'static, Option<RenderState>> {
+    let mut guard = RENDER_STATE.lock();
     if guard.is_none() {
         let renderer = crate::render::context::Renderer::new_with_no_surface();
         let font_pipeline = crate::render::font::FontPipeline::new(

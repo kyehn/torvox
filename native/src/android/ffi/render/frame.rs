@@ -90,7 +90,7 @@ pub(super) struct NewFrame {
 /// 取锁时刻一并记下——它是慢帧诊断的分界点（锁内耗时与锁外耗时分开计），
 /// 三条帧路径都经此取锁，各写一遍时漏记一处即让慢帧归因失真。
 struct RenderStateLock {
-    state: std::sync::MutexGuard<'static, Option<RenderState>>,
+    state: parking_lot::MutexGuard<'static, Option<RenderState>>,
     lock_done: std::time::Instant,
 }
 

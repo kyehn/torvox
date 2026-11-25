@@ -398,9 +398,7 @@ impl super::GhosttyTerminal {
         if let Err(error) = terminal.on_pty_write({
             let response_buffer = Arc::clone(&config.response_buffer);
             move |_terminal, data| {
-                if let Ok(mut guard) = response_buffer.lock() {
-                    guard.push(data.to_vec());
-                }
+                response_buffer.lock().push(data.to_vec());
             }
         }) {
             log::error!("ghostty_terminal: on_pty_write callback registration failed: {error}");

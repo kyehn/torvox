@@ -1,7 +1,8 @@
 //! 构造与生命周期：启动 VT 线程、排空写入、判定线程存活。
 
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
-use std::sync::{Arc, Mutex};
 use std::thread;
 
 use flume::bounded;

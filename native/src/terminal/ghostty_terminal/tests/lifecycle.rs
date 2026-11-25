@@ -1204,10 +1204,7 @@ fn vt_busy_marker_tracks_work_in_flight() {
     let busy_marker = &terminal_under_test.vt_busy_since_nanos;
 
     // 持住应答缓冲：VT 线程回写这条代答应答时会等这把锁。
-    let response_guard = terminal_under_test
-        .pty_write_responses
-        .lock()
-        .expect("应答缓冲互斥量");
+    let response_guard = terminal_under_test.pty_write_responses.lock();
     // `t=f` 的载荷是 base64 编码的路径；此处指向一个不存在的文件，故本层代答
     // 「打不开」并回一条带 `i=1` 的错误应答。
     let probe = b"\x1b_Ga=q,t=f,i=1;L25vbmV4aXN0ZW50L3RvcnZveC1raXR0eS1wcm9iZQ==\x1b\\";

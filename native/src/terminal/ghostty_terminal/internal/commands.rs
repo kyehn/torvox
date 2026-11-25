@@ -114,12 +114,7 @@ impl super::GhosttyTerminal {
         );
         state.vt_carry = carry.into_owned();
         for response in responses {
-            match config.response_buffer.lock() {
-                Ok(mut guard) => guard.push(response),
-                Err(error) => {
-                    log::warn!("ghostty_terminal: kitty probe response buffer poisoned: {error}")
-                }
-            }
+            config.response_buffer.lock().push(response);
         }
         // 清屏前先撤下图像放置：撤下必须发生在清屏之前，否则清屏会把旧行连同
         // 放置一起滚进回滚区，那时的放置已不在屏幕上，清屏撤不下它们。
@@ -219,12 +214,7 @@ impl super::GhosttyTerminal {
                         return;
                     }
                 };
-                match config.response_buffer.lock() {
-                    Ok(mut guard) => guard.push(report),
-                    Err(error) => log::warn!(
-                        "ghostty_terminal: colour scheme report buffer poisoned: {error}"
-                    ),
-                }
+                config.response_buffer.lock().push(report);
             }
             Ok(false) => {}
             Err(error) => {

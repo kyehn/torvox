@@ -1,6 +1,7 @@
 //! 取纹理：在途记账、工作线程与单帧结局。
 use crate::render::Renderer;
 use crate::slow_log::SlowLogThrottle;
+use parking_lot::{Condvar, Mutex};
 use std::sync::OnceLock;
 use std::sync::mpsc::{Receiver, SyncSender};
 
@@ -124,13 +125,13 @@ enum HandoffState {
 /// 两种顺序都恰好有一方归还纹理：既不漏（无人归还 → 图像永不归还），也不重复
 /// （同一张纹理被归还两次）。
 pub(super) struct ResultHandoff {
-    state: std::sync::Mutex<HandoffState>,
+    state: Mutex<HandoffState>,
 }
 
 impl ResultHandoff {
     pub(super) fn new() -> Self {
         Self {
-            state: std::sync::Mutex::new(HandoffState::Pending),
+            state: Mutex::new(HandoffState::Pending),
         }
     }
 
@@ -138,10 +139,7 @@ impl ResultHandoff {
     ///
     /// `Err(result)` = 渲染线程已放弃本帧，结果（含交换链纹理）须由调用方自行归还。
     pub(super) fn deliver<T>(&self, response: &SyncSender<T>, result: T) -> Result<(), T> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock();
         if *state == HandoffState::Abandoned {
             return Err(result);
         }
@@ -164,10 +162,7 @@ impl ResultHandoff {
     ///
     /// `Some(result)` = 工作线程已回送但本帧已超时，结果须由调用方归还。
     pub(super) fn abandon<T>(&self, response: &Receiver<T>) -> Option<T> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock();
         match *state {
             HandoffState::Pending => {
                 *state = HandoffState::Abandoned;
@@ -195,16 +190,13 @@ impl ResultHandoff {
 /// 计数在请求入队前 +1、工作线程**放下克隆之后** -1（顺序不可交换，见工作线程处
 /// 注释）；[`Self::drain`] 等到归零，供 surface 销毁/重建前调用。
 pub(super) struct AcquireLane {
-    pub(super) in_flight: std::sync::Mutex<usize>,
-    pub(super) idle: std::sync::Condvar,
+    pub(super) in_flight: Mutex<usize>,
+    pub(super) idle: Condvar,
 }
 
 impl AcquireLane {
     pub(super) fn begin(&self) {
-        let mut in_flight = self
-            .in_flight
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut in_flight = self.in_flight.lock();
         *in_flight += 1;
     }
 
@@ -214,10 +206,7 @@ impl AcquireLane {
     /// 宁可停在 0（排干方立刻放行）也不要在工作线程上 panic——那条线程上 panic
     /// 等于把整条取纹理通道打死。
     pub(super) fn finish(&self) {
-        let mut in_flight = self
-            .in_flight
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut in_flight = self.in_flight.lock();
         *in_flight = in_flight.saturating_sub(1);
         if *in_flight == 0 {
             self.idle.notify_all();
@@ -229,20 +218,13 @@ impl AcquireLane {
     /// 而不是继续建 surface。
     pub(super) fn drain(&self, timeout: std::time::Duration) -> bool {
         let deadline = std::time::Instant::now() + timeout;
-        let mut in_flight = self
-            .in_flight
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut in_flight = self.in_flight.lock();
         while *in_flight > 0 {
             let now = std::time::Instant::now();
             if now >= deadline {
                 return false;
             }
-            let (guard, wait) = self
-                .idle
-                .wait_timeout(in_flight, deadline - now)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            in_flight = guard;
+            let wait = self.idle.wait_for(&mut in_flight, deadline - now);
             if wait.timed_out() && *in_flight > 0 {
                 return false;
             }
@@ -255,8 +237,8 @@ fn acquire_lane() -> &'static std::sync::Arc<AcquireLane> {
     static LANE: OnceLock<std::sync::Arc<AcquireLane>> = OnceLock::new();
     LANE.get_or_init(|| {
         std::sync::Arc::new(AcquireLane {
-            in_flight: std::sync::Mutex::new(0),
-            idle: std::sync::Condvar::new(),
+            in_flight: Mutex::new(0),
+            idle: Condvar::new(),
         })
     })
 }

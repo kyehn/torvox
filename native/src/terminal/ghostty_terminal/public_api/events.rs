@@ -5,10 +5,7 @@ use super::super::GhosttyTerminal;
 impl GhosttyTerminal {
     /// 取走待回写 PTY 的应答字节块（VT 线程已产生、宿主尚未写回的部分）。
     pub fn drain_pty_write_responses(&self) -> Vec<Vec<u8>> {
-        let mut guard = self
-            .pty_write_responses
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self.pty_write_responses.lock();
         std::mem::take(&mut *guard)
     }
 

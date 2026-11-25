@@ -184,10 +184,8 @@ mod tests {
     #[test]
     fn last_written_preference_is_read_back() {
         // 进程级状态：与其他用例串行，避免与并行用例互相覆盖。
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _guard = LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        static LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+        let _guard = LOCK.lock();
         let original = power_preference();
         for preference in [
             PowerPreference::LowPower,

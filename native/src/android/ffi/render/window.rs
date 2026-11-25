@@ -65,9 +65,7 @@ unsafe fn attach_window_inner(
                 // 而那一刻丢失位仍置着（要等渲染器装好才清），会撞上那条断言。
                 // 状态不存在时无需搬运：丢失位清掉之后新建的渲染器用的正是槽位里
                 // 的新设备。
-                let mut state = RENDER_STATE
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let mut state = RENDER_STATE.lock();
                 if let Some(render_state) = state.as_mut() {
                     render_state.renderer.rebuild_after_device_loss(&gpu);
                 }
@@ -214,12 +212,10 @@ pub(super) fn detach_window_inner(_env: &mut Env, _class: JClass, _session_id: j
     // （`attach_window_inner` 也取该锁）：若拆成“先检查后丢弃”，并发的挂载
     // （已存入新属主）可能插入其间而其新建的 surface 被丢弃。
     //
-    // 中毒后照常取内层值（与 `render_state_mut` 同口径）：渲染期 panic 已被
-    // `jni_export_guard` 转成 Java 异常，锁随之中毒；此处置为放弃就永久漏掉
-    // `release_surface` 与 `ATTACHED_SESSION_ID` 清零，surface 自愈路径随之失效。
-    let mut state = RENDER_STATE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // `RENDER_STATE` 用 parking_lot 锁：无中毒机制，锁不会因渲染期 panic 而
+    // 变成「取不到值」——`release_surface` 与 `ATTACHED_SESSION_ID` 清零必定执行，
+    // surface 自愈路径不会因一次 panic 而永久失效。
+    let mut state = RENDER_STATE.lock();
     if ATTACHED_SESSION_ID
         .compare_exchange(
             session_id,
