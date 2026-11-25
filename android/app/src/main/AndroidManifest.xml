@@ -98,6 +98,12 @@
             </intent-filter>
         </provider>
 
+        <!-- Log4K 的 ContextProvider 只给 FileLogger 提供 Context；本仓只用
+             ConsoleLogger，安装它白白增加一次冷启动的 ContentProvider 装配。 -->
+        <provider
+            android:name="saschpe.log4k.internal.ContextProvider"
+            tools:node="remove" />
+
     </application>
 
 </manifest>
