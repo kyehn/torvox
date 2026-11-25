@@ -710,7 +710,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         // 被跳过的复位就此丢弃（「跳过 = 放弃」）：标志已是读后即清，
         // 下次输出到达时会再次复位（termux：持续输出总是胜出）。
         if (
-            entry.scrollOffset != 0 &&
+            (entry.scrollOffset != 0 || entry.scrollRemainderPx != 0f) &&
             shouldResetScroll(
                 scrollActive = entry.scrollActive || entry.scrollGestureActive,
                 hasSelectionOrDrag =
