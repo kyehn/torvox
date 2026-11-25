@@ -110,6 +110,19 @@
             android:name="leakcanary.internal.MainProcessAppWatcherInstaller"
             tools:node="remove" />
 
+        <!-- Compose 仅在 EmojiCompat 已配置时走 emoji 替换路径；初始化器会在冷启动
+             同步请求字体（真机 installContentProviders 578ms），移除后走平台自身的
+             emoji 字形回退，不影响输入。Initializer 以 meta-data 注册，须从
+             androidx.startup 的 provider 里摘除，单独声明 provider 节点无效。 -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+                tools:node="remove" />
+        </provider>
+
     </application>
 
 </manifest>
