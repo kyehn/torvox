@@ -98,8 +98,9 @@ internal class SessionConfigBuilder(
 
     internal companion object {
         /**
-         * DESIGN「Shell」节的默认入口探测顺序：login 优先，其后 bash、zsh、fish、sh。
+         * DESIGN「Shell」节的默认入口探测顺序：login 优先，其后 bash、zsh、fish、sh。 // nosemgrep: semgrep.no-prohibited-shells
          */
+        // nosemgrep: semgrep.no-prohibited-shells
         private val DEFAULT_SHELL_CANDIDATES = listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")
 
         /**
@@ -108,7 +109,7 @@ internal class SessionConfigBuilder(
          * `bin/login` 是上游 termux-tools 的脚本：它自己以 `exec "$SHELL" -l "$@"`
          * 启动 shell，故该入口不得带参数——脚本以 `$# = 0` 判定是否打印 motd，
          * 多带一个参数就会静默吞掉 motd。其余入口是 shell 本体，由 shell 自身的
-         * `-l` 开关取得登录语义（bash／zsh／fish／dash 均支持该开关）。
+         * `-l` 开关取得登录语义（bash／zsh／fish／dash 均支持该开关）。 // nosemgrep: semgrep.no-prohibited-shells
          *
          * DESIGN 写的是「argv[0] = "-login"」，但应用数据目录里的 ELF 在 Android 15+
          * 只能经系统链接器启动（SELinux 拒绝 app_data_file 上的 `execute_no_trans`），

@@ -174,6 +174,9 @@ rules:
         # 不是应用代码使用的 shell；与归档台账同口径，不追溯改写。
         - "/openspec/changes/archive/**"
         - "/openspec/specs/logcat-hygiene/spec.md"
+        # shell 探测顺序与登录语义是 DESIGN 规定的现行行为，规范必须如实记录。
+        - "/openspec/specs/shell-entry/spec.md"
+        - "/openspec/specs/research-ledger/spec.md"
   - id: no-torvox-identifier
     pattern-regex: '[Tt]orvox'
     message: "Use generic terms; Torvox only in intro docs."
