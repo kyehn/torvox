@@ -317,9 +317,13 @@ impl Session {
     /// 写入**有界**：调用点持会话锁，而 `pty_write_order` 互斥量此刻可能正被用户输入
     /// 写入持住（用户输入走 5s 排空期限且每有部分写入就续额，持锁时长无上界）。
     /// 若取锁无期限、排空按进度续额，两者都会把每帧取同一把锁的渲染与看门狗一起按住，
-    /// 渲染停滞会让看门狗误判渲染线程已死并关掉会话。故取锁与排空都受
-    /// `pty::WRITE_BACK_TIMEOUT` 约束——该期限的文档本就写着
-    /// 「OSC 52 应答」与逐帧收割同属持会话锁的帧级路径。
+    /// 渲染停滞会让看门狗误判渲染线程已死并关掉会话。故取锁与排空都受 `budget`
+    /// 约束——该期限的文档本就写着「OSC 52 应答」与逐帧收割同属持会话锁的帧级路径。
+    ///
+    /// `budget` 是「等主端写入锁 + 排空」整段的**绝对墙钟**上限，由调用点给出：
+    /// 单次应答用满额（`pty::WRITE_BACK_TIMEOUT`），而同一帧内成批回写（洪泛削减）
+    /// MUST 共用一份帧级预算并逐条扣减——每条各拿满额时，最坏耗时是「条数 × 期限」，
+    /// 一帧就能把渲染线程按住数百毫秒。
     ///
     /// 未写完的部分退回续写队列（`pty_write_back_queue`），由逐帧收割补齐：应答是
     /// 请求-响应语义，截断在 base64 中间会让子应用永久等不到一个完整回答。
@@ -327,6 +331,7 @@ impl Session {
         &mut self,
         selection: &str,
         text: &str,
+        budget: std::time::Duration,
     ) -> Result<(), SessionError> {
         use base64::Engine;
         let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
@@ -339,10 +344,7 @@ impl Session {
         if self.is_exited() {
             return Err(SessionError::Closed);
         }
-        match self
-            .pty
-            .write_with_timeout_counted(&response, crate::terminal::pty::WRITE_BACK_TIMEOUT)
-        {
+        match self.pty.write_with_timeout_counted(&response, budget) {
             Some((_, Ok(()))) => Ok(()),
             Some((written, Err(error))) => {
                 // 只退回**未写出**的部分：整条退回会让下一帧把已发出的前缀再发一遍，

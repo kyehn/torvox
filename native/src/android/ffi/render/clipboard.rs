@@ -18,6 +18,15 @@ pub(super) fn handle_clipboard_reads(
     pending_events: &mut Vec<Event>,
 ) {
     let mut flood_shed_answers = 0usize;
+    // 洪泛削减的帧级墙钟预算：削减回写要同步写 PTY，而子进程不读 stdin 时每次写入
+    // 都会等满各自的排空期限（`WRITE_BACK_TIMEOUT`，50ms）。每条各拿满额时，最坏耗时
+    // 是「每帧条数上限 × 单次期限」= 16 × 50ms = 800ms——一帧就把渲染线程按住远超帧
+    // 预算，看门狗会误判渲染线程已死并关掉会话。
+    //
+    // 故本帧的削减回写共享一份预算：每条只拿**剩余**部分，预算用尽即止。被削减的请求
+    // 本就是「拒绝」（空串应答），不写即拒绝；答不完的部分退回续写队列，由逐帧收割
+    // 补齐——与逐帧收割同一条墙钟口径（见 `Session::drain_pty_write_back`）。
+    let flood_shed_deadline = std::time::Instant::now() + crate::terminal::pty::WRITE_BACK_TIMEOUT;
     // 每会话「未作答计数」的帧内缓存：`unanswered_clipboard_reads` 要锁
     // `REQUEST_REGISTRY` 并遍历全表，而一个 8KB 输出块可含数百条读请求、一帧十块即
     // 数千次全表扫描——洪泛削减本是为挡住病态远端，不能自己先成为瓶颈。
@@ -47,6 +56,11 @@ pub(super) fn handle_clipboard_reads(
             if flood_shed_answers >= MAX_FLOOD_SHED_ANSWERS_PER_FRAME {
                 continue;
             }
+            // 帧级预算用尽即止：不再回写，也不占条数额度。
+            let budget = flood_shed_deadline.saturating_duration_since(std::time::Instant::now());
+            if budget.is_zero() {
+                continue;
+            }
             flood_shed_answers += 1;
             flood_shed_warn_throttled(session_id, unanswered, &FLOOD_SHED_WARN_THROTTLE);
             // 读锁而非写锁：本分支只查表，而随后的 `answer_clipboard_read` 要经
@@ -61,7 +75,7 @@ pub(super) fn handle_clipboard_reads(
             // 但注册表**写**锁会把这段等待放大成全局停顿，仍不可取。
             if let Some(session) = session_handle(session_id) {
                 let mut session = session.lock();
-                if let Err(error) = session.answer_clipboard_read(&selection, "") {
+                if let Err(error) = session.answer_clipboard_read(&selection, "", budget) {
                     log_clipboard_write_back_failure(&error, &CLIPBOARD_WRITE_BACK_FAILURE_LOG);
                 }
             }
@@ -83,7 +97,11 @@ pub(super) fn handle_clipboard_reads(
                 cancel_request(session_id, request_id);
                 let Some(text) = answer else { return };
                 let mut session = session.lock();
-                if let Err(error) = session.answer_clipboard_read(&selection, &text) {
+                if let Err(error) = session.answer_clipboard_read(
+                    &selection,
+                    &text,
+                    crate::terminal::pty::WRITE_BACK_TIMEOUT,
+                ) {
                     log_clipboard_write_back_failure(&error, &CLIPBOARD_WRITE_BACK_FAILURE_LOG);
                 }
             });

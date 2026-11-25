@@ -247,3 +247,34 @@ fn flood_shed_answers_are_capped_per_frame() {
         "削减回写每帧 {answers} 次，超过上限 {MAX_FLOOD_SHED_ANSWERS_PER_FRAME}"
     );
 }
+
+/// 洪泛削减的回写必须共享一份帧级墙钟预算。
+///
+/// 削减分支要同步写 PTY；子进程不读 stdin 时每次写入都会等满各自的排空期限
+/// （50ms）。只按条数封顶时，一帧的削减回写最坏占用「条数上限 × 单次期限」
+/// = 16 × 50ms = 800ms，远超一帧预算——渲染线程就此停摆，看门狗会误判它已死并
+/// 关掉会话。条数封顶答的是「写多少次」，墙钟封顶答的是「这些写占住渲染线程
+/// 多久」，两者缺一不可。
+///
+/// 断言的是可观测结果：一帧内削减回写占用的墙钟时间有界。
+#[test]
+fn flood_shed_write_back_shares_one_frame_budget() {
+    let _registry_access = REGISTRY_ACCESS.lock();
+    let (session, handle) = crate::terminal::mock_pty::mock_arc_session();
+    // 子进程不读 stdin：每次写入都等满排空期限。
+    handle.block_writes();
+    let mut flood = Vec::new();
+    for _ in 0..2 * 8192 / READ_REQUEST.len() {
+        flood.extend_from_slice(READ_REQUEST);
+    }
+    for _ in 0..2 {
+        session.lock().inject_output_for_test(&flood);
+    }
+    let started = std::time::Instant::now();
+    pump_once_as_background(&session, 98_060_403);
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_millis(300),
+        "一帧的削减回写占用了 {elapsed:?}，超过单帧预算（按条计预算时为 16 × 50ms）"
+    );
+}

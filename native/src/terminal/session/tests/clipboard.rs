@@ -10,7 +10,7 @@ use std::time::Duration;
 fn answer_clipboard_read_writes_esc52_reply() {
     let (mut session, handle) = crate::terminal::mock_pty::mock_session();
     session
-        .answer_clipboard_read("c", "Hello, 世界")
+        .answer_clipboard_read("c", "Hello, 世界", crate::terminal::pty::WRITE_BACK_TIMEOUT)
         .expect("answer must succeed");
     let written = handle.written();
     assert_eq!(
@@ -24,7 +24,7 @@ fn answer_clipboard_read_writes_esc52_reply() {
 fn answer_clipboard_read_empty_text() {
     let (mut session, handle) = crate::terminal::mock_pty::mock_session();
     session
-        .answer_clipboard_read("c", "")
+        .answer_clipboard_read("c", "", crate::terminal::pty::WRITE_BACK_TIMEOUT)
         .expect("answer must succeed");
     assert_eq!(handle.written(), b"\x1b]52;c;\x07");
 }
@@ -34,7 +34,8 @@ fn answer_clipboard_read_empty_text() {
 fn answer_clipboard_read_after_exit_fails() {
     let (mut session, handle) = crate::terminal::mock_pty::mock_session();
     session.exited_flag().store(true, Ordering::Release);
-    let result = session.answer_clipboard_read("c", "text");
+    let result =
+        session.answer_clipboard_read("c", "text", crate::terminal::pty::WRITE_BACK_TIMEOUT);
     assert!(result.is_err(), "exited session must reject writes");
     assert!(handle.written().is_empty(), "nothing may reach the PTY");
 }
@@ -69,7 +70,11 @@ fn clipboard_answer_yields_when_a_user_write_holds_the_master_lock() {
         let session = Arc::clone(&session);
         move || {
             let mut session = session.lock();
-            let result = session.answer_clipboard_read("c", "hello");
+            let result = session.answer_clipboard_read(
+                "c",
+                "hello",
+                crate::terminal::pty::WRITE_BACK_TIMEOUT,
+            );
             let _ = sender.send((result, session.pty_write_back_queue.len()));
         }
     });

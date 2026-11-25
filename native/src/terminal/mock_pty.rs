@@ -137,6 +137,15 @@ impl MockPty {
 }
 
 impl MockPtyHandle {
+    /// 让此后的写入恒返回 EAGAIN（子进程不再读 stdin），用于复现「写入等满排空
+    /// 期限」这条路径。`MockPty` 已被装箱进会话，只能经本句柄设置——它与替身共用
+    /// 同一份内部状态。
+    pub fn block_writes(&self) {
+        let mut inner = self.inner.lock().expect("mock mutex poisoned");
+        inner.partial_write = None;
+        inner.block_writes = true;
+    }
+
     /// 恢复「写多少都接受」，用于模拟子进程重新开始消费（见
     /// [`MockPty::write_partial_then_block`]）。`MockPty` 已被装箱进会话，只能经
     /// 本句柄设置——它与替身共用同一份内部状态。
