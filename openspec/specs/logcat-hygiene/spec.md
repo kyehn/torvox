@@ -1916,3 +1916,36 @@ MUST NOT 加过滤器、降级日志或提高阈值。
       受保护文件，MUST NOT 为消除这些行而修改它，也 MUST NOT 在日志侧过滤它们
 - **AND** `Emulator client has not yet been configured` 与 `Netsim Wifi … gone due to
       Stream removed` MUST 归因为模拟器关停与 netsim 流结束，均发生在全部用例成功之后
+
+### Requirement: 15-28-25 真机日志的复核判据
+
+第三份日志（`15-28-25`，新安装包的同一台设备）共 441 条记录，W/E/F 合计 114 条
+（E 34、W 80、F 0）。逐条归因 MUST 保留原始等级与原文，MUST NOT 加过滤器、
+降级日志或放宽阈值。
+
+#### Scenario: 应用侧零错误与零慢日志
+
+- **WHEN** 逐条检查该日志的 `E` 与 `W`
+- **THEN** 应用代码 MUST NOT 出现 panic、`device lost`、`ERROR_SURFACE_LOST_KHR`、
+      `surface invalidated`、`readCoverFrame`、`SLOW_RENDER_INNER`、`SLOW_FRAME` 或
+      `SLOW_LOOP`；全部 0 命中，70 组 `loop timing window` 与 70 组
+      `frame timing window` 保持信息级
+- **AND** 唯一 `E/com.termux Not starting debugger since process cannot load the jdwp
+      agent` MUST 归因为进程无法装载 jdwp 的平台行为，MUST NOT 由应用修代码
+- **AND** 四次 `attach_surface: configured` 均完成并 presents 首帧；`≈114fps` 窗口
+      是有新输出时的即时帧加 vsync 帧，MUST NOT 当作渲染回归
+
+#### Scenario: 平台与用户命令告警的逐类计数
+
+- **WHEN** 核对 114 条 W/E 的标签与载荷
+- **THEN** `E/mali_gralloc` 32 条 MUST 归因为四次 surface 重配时各四组 R8 能力探测
+      （`Requested R8 format` 16 条与 `Unrecognized format 0x38` 16 条），应用无
+      API 可关；`W/wgpu_core::instance` 2 条 MUST 归因为一次适配器创建的如实上报
+- **AND** `W/fish` 35、`W/git` 26、`W/login` 3 与 `W/DefaultDispatch` 2 共 66 条
+      MUST 全部归因为用户命令经 SELinux 审计的结果：64 条 `granted`，2 条 `denied`
+      分别来自 `/proc/modules` 与 `/proc/bus/pci/devices` 的 `getattr`
+- **AND** `ziparchive` 4、`libc` 4、`FeatureOpt` 2、`Parcel` 2 与 `Typeface` 1
+      MUST 归因为厂商系统组件的内部日志，不是应用写入的条目
+- **AND** 本批日志 MUST NOT 用于背书后续 provider 或冷启动优化：它采于泄漏检测
+      自动安装移除之后、EmojiCompat 初始化器移除之前，冷启动 9s 与首次安装/
+      系统竞争同拍；优化效果 MUST 由同一设备的新日志复核，MUST NOT 由本批日志推断
