@@ -68,6 +68,10 @@ impl CoverReadbackSource {
     /// 由平底色兜住），不做任何补偿。
     /// 本方法**不持有任何全局锁**（见模块头）：GPU 等待期间别的会话照常渲染。
     pub(crate) fn read(&self) -> Option<CoverFrame> {
+        super::poll::catch_device_loss_panic("read_cover_frame", || self.read_inner()).flatten()
+    }
+
+    fn read_inner(&self) -> Option<CoverFrame> {
         // 快照在锁内取、回读在锁外做，两者之间设备可能恰好丢失：死设备上的 poll
         // 同样在 wgpu 内部 panic。放弃遮罩即可（恢复全程走 attach 重建）。
         if self.is_lost() {
@@ -115,32 +119,17 @@ impl CoverReadbackSource {
         if self.is_lost() {
             return None;
         }
-        // 判死位与 wgpu 内部的 `Parent device is lost` panic 之间总有一瞬：提交与
-        // 注册映射都会撞上同一道 panic（2026-11-24 真机日志的栈顶正是
-        // `readCoverFrame`）。两者同处一个归一范围，不留逐调用的窗口。
-        let (slice, map_rx) =
-            super::poll::catch_device_loss_panic("read_cover_frame: 提交回读拷贝", || {
-                self.queue.submit(std::iter::once(encoder.finish()));
-                let slice = buffer.slice(..);
-                let (map_tx, map_rx) = std::sync::mpsc::channel();
-                slice.map_async(wgpu::MapMode::Read, move |map_result| {
-                    let _ = map_tx.send(map_result);
-                });
-                (slice, map_rx)
-            })?;
+        self.queue.submit(std::iter::once(encoder.finish()));
+        let slice = buffer.slice(..);
+        let (map_tx, map_rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |map_result| {
+            let _ = map_tx.send(map_result);
+        });
         let deadline = std::time::Instant::now() + READBACK_TIMEOUT;
         loop {
-            // 设备轮询的失败形态不止 `Err`：wgpu 内部会在设备真出错时直接 panic，
-            // 那道 panic 穿出 JNI 边界就是整进程退出（2026-11-12 真机日志）。
-            // 故走统一封装：常态继续，真错误带原因退出，panic 也归成「失败」。
-            //
-            // 非阻塞：带超时的阻塞等待在 Mali-G57 上本身会触发设备丢失
-            // （见 `poll_device_now` 的文档）。这里只等自己的映射回调，不需要
-            // 驱动层的阻塞等待。
             match poll_device_now(&self.device, &self.lost) {
                 PollOutcome::Proceed => {}
                 PollOutcome::Failed(reason) => {
-                    // 设备丢失是**一次**事件：由标记点记一条并停止渲染，余波不再逐帧记 error。
                     if crate::render::context::is_device_loss_text(&reason) {
                         crate::render::context::mark_device_lost(&self.lost, &reason);
                     } else {
@@ -184,7 +173,6 @@ impl CoverReadbackSource {
         }
         drop(data);
         buffer.unmap();
-        // 周期回读：正常路径每次出帧后都会走到这里，info 会变成每帧一行噪声。
         log::trace!(
             "read_cover_frame: 已回读 {}x{} 的遮罩帧（{} 字节）",
             width,
