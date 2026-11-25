@@ -59,16 +59,18 @@ class TermuxBootstrapRealTerminalTest : ComposeTerminalLogcatTest() {
 
     private fun ptyLines(command: String): String {
         val bridge = composeTestRule.awaitBridge()
+        // 整类连跑时 bootstrap 的 postinst 输出仍在滚动，命令回显会被冲出屏幕；
+        // 用唯一哨兵等命令真正执行完，而不是等回显再固定睡 1.5s。
+        val marker = "__PTY_DONE_${System.nanoTime()}__"
         assertTrue(
             "PTY write rejected: $command",
-            bridge.writeToPty("$command\n".toByteArray(Charsets.UTF_8)),
+            bridge.writeToPty("$command; echo $marker\n".toByteArray(Charsets.UTF_8)),
         )
         val settled =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
-                bridge.getTerminalText()?.contains(command.trim()) == true
+                bridge.getTerminalText()?.lineSequence()?.any { it.trim() == marker } == true
             }
-        assertNotNull("terminal never echoed: $command", settled)
-        Thread.sleep(1_500)
+        assertNotNull("terminal never finished: $command", settled)
         return bridge.getTerminalText().orEmpty()
     }
 
