@@ -639,11 +639,6 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
             gestureDetector.onTouchEvent(event)
             return false
         }
-        if (event.action == MotionEvent.ACTION_DOWN) {
-            surface.parent?.requestDisallowInterceptTouchEvent(true)
-            // 新触摸会停止进行中的惯性动画（标准 Android 可滚动行为；termux 在 onTouchEvent 中亦同）。
-            stopFlingAnimation()
-        }
         // 抽屉的边缘滑动手势始于屏幕边缘区（~32dp）。Surface 绝不能消费这些触摸：
         // 当 surface.drawerOpen 为假时，Surface 本会收到没有 MOVE 的 DOWN + UP
         // （MOVE 都被抽屉手势取走），GestureDetector 会把它判为轻击而清除选区。
@@ -654,6 +649,11 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
             (DRAWER_EDGE_GESTURE_DP * surface.resources.displayMetrics.density).toInt()
         if (surface.drawerOpen || event.x < drawerEdgePixels) {
             return false
+        }
+        if (event.action == MotionEvent.ACTION_DOWN) {
+            surface.parent?.requestDisallowInterceptTouchEvent(true)
+            // 新触摸会停止进行中的惯性动画（标准 Android 可滚动行为；termux 在 onTouchEvent 中亦同）。
+            stopFlingAnimation()
         }
         // 走到这里才说明这次抬手属于终端 Surface（未被抽屉遮罩或边缘手势取走），
         // 此时才播报点击。提前播报会让「轻点遮罩关闭抽屉」「抽屉边缘滑动收尾」
