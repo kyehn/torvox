@@ -151,7 +151,7 @@ dependencies {
 
   implementation("androidx.datastore:datastore-preferences:1.3.0")
 
-  implementation("com.jakewharton.timber:timber:5.0.1")
+  implementation("de.peilicke.sascha:log4k:1.7.1")
   implementation("com.squareup.okhttp3:okhttp:5.5.1")
   testImplementation("com.squareup.okhttp3:mockwebserver3:5.5.1")
   testImplementation("com.squareup.okhttp3:okhttp-tls:5.5.1")

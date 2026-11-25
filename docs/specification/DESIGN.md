@@ -68,7 +68,7 @@
 
 ### Kotlin
 
-- 日志需要在 Android `logcat` 中可见以便调试，同时避免在渲染热路径上产生性能开销，避免大量内存占用和高频输出，日志不该影响功能，不阻塞运行。不将日志写入文件，不保存日志。使用 <https://github.com/JakeWharton/timber>。kotlinx.coroutines 可用于日志限流
+- 日志需要在 Android `logcat` 中可见以便调试，同时避免在渲染热路径上产生性能开销，避免大量内存占用和高频输出，日志不该影响功能，不阻塞运行。不将日志写入文件，不保存日志。使用 <https://github.com/saschpe/Log4K> 的 `ConsoleLogger`，经 `LogUtil` 统一门控。kotlinx.coroutines 可用于日志限流
 
 - `applicationId = "com.termux"`。
 

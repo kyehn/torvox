@@ -4,13 +4,11 @@ import android.app.Application
 import android.content.Context
 import android.os.PowerManager
 import android.os.StrictMode
-import android.util.Log
 import dagger.hilt.android.HiltAndroidApp
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.hostPowerPreference
 import terminal.emulator.bridge.nativeClassInitStarted
 import terminal.emulator.runtime.LogUtil
-import timber.log.Timber
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
@@ -18,8 +16,6 @@ import kotlin.concurrent.thread
 open class TerminalApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        // 输出通道统一经 Timber：保留「仅写 logcat、不做分块」的既有约定。
-        Timber.plant(TimberLogcatTree)
         if (isInstallProcess(Application.getProcessName())) return
         // 原生库装载要先读整个 .so：debug 构建实测 471ms 主线程 I/O（StrictMode
         // DiskReadViolation）。先起守护线程触碰 NativeBridge 触发类初始化，与
@@ -131,12 +127,5 @@ open class TerminalApp : Application() {
 
         internal fun isInstallProcess(processName: String?): Boolean =
             processName != null && processName.endsWith(INSTALL_PROCESS_SUFFIX)
-    }
-}
-
-/** 仅写入 logcat 的 Timber 树：不做日志分块，超出单条上限的部分由 logcat 截断。 */
-private object TimberLogcatTree : Timber.Tree() {
-    override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
-        Log.println(priority, tag ?: "Timber", message)
     }
 }

@@ -1,15 +1,16 @@
 package terminal.emulator.runtime
 
 import android.util.Log
-import timber.log.Timber
+import saschpe.log4k.ConsoleLogger
+import saschpe.log4k.Log as Log4K
 
 /**
  * 仅写入 logcat 的日志器，对标 termux-kotlin 的 Logger。
  * 不做日志分块（PROHIBITED 禁止）：超出 logcat 单条上限的部分由 logcat 截断。
  *
  * 等级由 [LogLevel] 全局门控：当前等级低于本条日志的优先级时直接跳过，
- * 不构造消息也不进日志 sink。实际输出经 Timber 的已种植树
- * （`terminal.emulator.TerminalApp` 中种植的 logcat 树）写入 logcat，便于统一输出通道与 Lint 检查。
+ * 不构造消息也不进日志 sink。实际输出经 Log4K 的 [ConsoleLogger] 直接调用
+ * `android.util.Log`，不写文件。
  */
 object LogUtil {
     /**
@@ -21,38 +22,26 @@ object LogUtil {
      */
     @Volatile private var level: LogLevel = LogLevel.DEFAULT
 
+    private val logger = ConsoleLogger()
+
     /** 设置当前等级（设置页改动时调用）。 */
     fun setLevel(newLevel: LogLevel) {
         level = newLevel
     }
 
     fun debug(tag: String, message: String, throwable: Throwable? = null) {
-        if (level.allows(Log.DEBUG)) {
-            log(Log.DEBUG, tag, message, throwable)
-        }
+        if (level.allows(Log.DEBUG)) logger.log(Log4K.Level.Debug, tag, message, throwable)
     }
 
     fun info(tag: String, message: String, throwable: Throwable? = null) {
-        if (level.allows(Log.INFO)) {
-            log(Log.INFO, tag, message, throwable)
-        }
+        if (level.allows(Log.INFO)) logger.log(Log4K.Level.Info, tag, message, throwable)
     }
 
     fun warn(tag: String, message: String, throwable: Throwable? = null) {
-        if (level.allows(Log.WARN)) {
-            log(Log.WARN, tag, message, throwable)
-        }
+        if (level.allows(Log.WARN)) logger.log(Log4K.Level.Warning, tag, message, throwable)
     }
 
     fun error(tag: String, message: String, throwable: Throwable? = null) {
-        if (level.allows(Log.ERROR)) {
-            log(Log.ERROR, tag, message, throwable)
-        }
-    }
-
-    private fun log(priority: Int, tag: String, message: String, throwable: Throwable?) {
-        val text =
-            if (throwable != null) "$message\n${Log.getStackTraceString(throwable)}" else message
-        Timber.tag(tag).log(priority, text)
+        if (level.allows(Log.ERROR)) logger.log(Log4K.Level.Error, tag, message, throwable)
     }
 }
