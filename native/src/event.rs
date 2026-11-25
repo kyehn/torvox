@@ -88,6 +88,7 @@ impl Default for EventQueue {
 
 impl EventQueue {
     /// 创建空事件队列。
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             inner: Mutex::new(VecDeque::new()),

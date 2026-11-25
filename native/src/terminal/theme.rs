@@ -225,6 +225,7 @@ impl Palette {
     ///
     /// 明暗上报取的是**合并后**的背景：深色主题被 `colors.properties` 覆盖成浅色
     /// 背景时，须向 PTY 上报日间模式。
+    #[must_use]
     pub fn is_dark(&self) -> bool {
         self.background.perceived_luminance() <= 0.5
     }
@@ -389,6 +390,7 @@ static THEMES: LazyLock<Vec<Theme>> = LazyLock::new(|| {
 ///
 /// 顺序即设置界面的展示顺序：DESIGN 要求跟随系统时日夜两组各自可选，把同组
 /// 主题相邻摆放免去调用方再排一次。
+#[must_use]
 pub fn all() -> &'static [Theme] {
     &THEMES
 }
@@ -396,11 +398,13 @@ pub fn all() -> &'static [Theme] {
 /// 默认（夜间）主题，对应 DESIGN 指定的默认终端主题。
 ///
 /// 会话初态、渲染首帧清除色与设置默认值都取这里，故不存在第二份默认主题声明。
+#[must_use]
 pub fn default_dark() -> &'static Theme {
     by_name(SOURCES[DEFAULT_DARK_INDEX].0).expect("默认主题须在清单中")
 }
 
 /// 默认（日间）主题标识。
+#[must_use]
 pub fn default_light_name() -> &'static str {
     SOURCES[DEFAULT_LIGHT_INDEX].0
 }
@@ -409,6 +413,7 @@ pub fn default_light_name() -> &'static str {
 ///
 /// 与 [`default_dark`] 对称：跟随系统日间的会话初态取这里，避免调用方
 /// 「先取名字再 `by_name`」时各自重复处理查不到的分支。
+#[must_use]
 pub fn default_light() -> &'static Theme {
     by_name(default_light_name()).expect("默认日间主题须在清单中")
 }

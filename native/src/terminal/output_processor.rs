@@ -60,6 +60,7 @@ impl Default for OutputProcessor {
 
 impl OutputProcessor {
     /// 创建处理器：扫描状态归位，新输出标志为假。
+    #[must_use]
     pub fn new() -> Self {
         Self {
             scan: ReadScan::default(),
@@ -68,11 +69,13 @@ impl OutputProcessor {
     }
 
     /// 会话注册表持有的共享标志：渲染线程每帧读它，不需要会话锁。
+    #[must_use]
     pub fn new_output_flag(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.new_output)
     }
 
     /// 取走并清除「新输出」标志。
+    #[must_use]
     pub fn take_new_output(&self) -> bool {
         self.new_output.swap(false, Ordering::AcqRel)
     }

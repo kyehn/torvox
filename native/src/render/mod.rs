@@ -86,6 +86,7 @@ impl GpuError {
     /// 用途：日志分级。可恢复的一类按 debug 记（逐帧可能重复，不能淹掉
     /// W/E 闸门），真异常仍按 error 记。宿主侧另有「瞬时渲染错误」的限频汇总，
     /// 两者分工：本处给细节，宿主给频率。
+    #[must_use]
     pub fn is_recoverable(&self) -> bool {
         matches!(self, GpuError::SurfaceUnavailable(_))
     }
@@ -152,6 +153,7 @@ impl CellInstance {
     ];
 
     /// 顶点缓冲布局：逐实例步进，步长为 `CellInstance` 的大小。
+    #[must_use]
     pub fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<CellInstance>() as wgpu::BufferAddress,
@@ -181,6 +183,7 @@ pub struct KittyGraphicsInstance {
 
 impl KittyGraphicsInstance {
     /// 按给定几何构造放置实例。
+    #[must_use]
     pub fn new(
         quad_origin: [f32; 2],
         quad_size: [f32; 2],
@@ -208,6 +211,7 @@ impl KittyGraphicsInstance {
     ];
 
     /// 顶点缓冲布局：逐实例步进，步长为 `KittyGraphicsInstance` 的大小。
+    #[must_use]
     pub fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<KittyGraphicsInstance>() as wgpu::BufferAddress,

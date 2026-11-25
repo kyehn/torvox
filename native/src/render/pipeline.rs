@@ -52,6 +52,7 @@ impl GpuUniforms {
     ///
     /// 尾部填充只能由本构造器写入：它必须与着色器侧的 std140 布局同步，
     /// 散落在各调用点的结构体字面量迟早会写出对不上的尺寸。
+    #[must_use]
     pub fn new(projection: [[f32; 4]; 4], atlas_size: [f32; 2]) -> Self {
         Self {
             projection,

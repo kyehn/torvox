@@ -253,6 +253,7 @@ pub struct FramePatch {
 
 /// 把行脏标记合并成最少的连续 `[start, end)` 行段。
 /// 纯函数——表驱动单测（`compute_dirty_bands_tests`）。
+#[must_use]
 pub fn compute_dirty_bands(dirty: &[bool]) -> Vec<(usize, usize)> {
     let mut bands: Vec<(usize, usize)> = Vec::new();
     let mut start: Option<usize> = None;
@@ -288,6 +289,7 @@ pub fn compute_dirty_bands(dirty: &[bool]) -> Vec<(usize, usize)> {
 /// → `scroll_viewport`），故视口滚入回滚区时返回的仍是屏幕上真实可见的那一行。
 /// 颜色填充（SGR 48）而无字形的单元不计内容——背景色已按主题默认值解析，
 /// 无法与默认背景区分。
+#[must_use]
 pub fn last_content_row(
     cells: &[crate::terminal::ghostty_terminal::CellData],
     rows: u32,
@@ -332,6 +334,7 @@ pub struct CachedInstances {
 
 impl CachedInstances {
     /// 创建空的实例缓存：按给定行列数预留行边界。
+    #[must_use]
     pub fn new(rows: u32, cols: u32) -> Self {
         Self {
             row_ends: vec![0; rows as usize],
@@ -344,6 +347,7 @@ impl CachedInstances {
     }
 
     /// 上次构建的完整实例列表（行主序，见 `row_ends`）。
+    #[must_use]
     pub fn instances(&self) -> &[CellInstance] {
         &self.instances
     }
@@ -352,6 +356,7 @@ impl CachedInstances {
     /// 使行布局失效并强制全量重建）且持有上次构建的行
     /// 数据。空的、从未构建过的缓存不可用于
     /// 增量提供。
+    #[must_use]
     pub fn is_compatible(&self, rows: u32, cols: u32) -> bool {
         self.built && self.rows == rows && self.cols == cols && self.row_ends.len() == rows as usize
     }
@@ -360,6 +365,7 @@ impl CachedInstances {
     /// 脏带切片还额外要求代际相等：
     /// 重建/驱逐会搬迁 UV，陈旧代际下的稀疏带会让
     /// 干净行采样到已搬迁的区域（空白/错字）。
+    #[must_use]
     pub fn built_atlas_generation(&self) -> u64 {
         self.atlas_generation
     }

@@ -78,6 +78,7 @@ impl Default for GlyphCache {
 
 impl GlyphCache {
     /// 创建空缓存：各 LRU 按各自容量预分配。
+    #[must_use]
     pub fn new() -> Self {
         let cache_cap = NonZeroUsize::new(GLYPH_CACHE_CAPACITY).expect("GLYPH_CACHE_CAPACITY > 0");
         let shape_cache_cap =

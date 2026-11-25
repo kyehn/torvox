@@ -270,6 +270,7 @@ fn face_has_style_only_accepts_a_face_that_already_carries_the_style() {
 
 impl FontPipeline {
     /// 新建字体管线：按给定图集尺寸与逻辑字号初始化。
+    #[must_use]
     pub fn new(atlas_width: i32, atlas_height: i32, font_size: f32) -> Self {
         // 渲染侧只常驻 3 个族（fonts.xml 等宽主字体 + 一个符号族 + 一个区域族），
         // 用户投放字体选中时按需装入（见 font_db::load_font_database）。

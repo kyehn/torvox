@@ -318,6 +318,7 @@ impl GridSnapshot {
     /// 构造「全部单元空白且全部标脏」的占位快照。
     ///
     /// 用于终端尚未产出首帧时：网格尺寸先行可用，渲染线程不会拿到空快照。
+    #[must_use]
     pub fn fallback(rows: u32, cols: u32) -> Self {
         let count = (rows * cols) as usize;
         Self {

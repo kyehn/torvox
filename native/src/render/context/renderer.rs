@@ -288,6 +288,7 @@ impl Renderer {
     }
 
     /// 创建共享全局 wgpu instance/adapter/device 的 `Renderer`，适用于无窗口上下文。
+    #[must_use]
     pub fn new_with_no_surface() -> Self {
         let gpu = global_gpu();
         Self::new_with_device(gpu.device.clone(), gpu.lost.clone(), gpu.queue.clone())

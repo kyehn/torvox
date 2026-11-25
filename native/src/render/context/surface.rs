@@ -5,6 +5,7 @@ use crate::render::GpuError;
 
 // ── 表面配置、格式与投影 ────────────────────────────────────────────
 /// 为给定视口尺寸创建正交投影矩阵。
+#[must_use]
 pub fn orthographic_projection(width: f32, height: f32) -> [[f32; 4]; 4] {
     [
         [2.0 / width, 0.0, 0.0, 0.0],
@@ -16,6 +17,7 @@ pub fn orthographic_projection(width: f32, height: f32) -> [[f32; 4]; 4] {
 
 /// 按视口 Y 像素偏移平移正交投影（正值 = 内容下移）。屏幕 Y 向下增长而 NDC Y
 /// 向上增长，故偏移从平移行中减去；高度或偏移为 0 时矩阵不变。
+#[must_use]
 pub fn apply_scroll_px_offset(
     mut proj: [[f32; 4]; 4],
     scroll_px: f32,

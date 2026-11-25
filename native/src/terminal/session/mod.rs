@@ -94,6 +94,7 @@ pub enum ResizeOutcome {
 impl SessionError {
     /// 底层写入以 EAGAIN/EWOULDBLOCK 失败时为真，即非阻塞主端的 PTY 缓冲区已满
     /// （子进程未读取）。此时调用方按 xterm 语义丢弃该输入而非当作错误上报。
+    #[must_use]
     pub fn is_would_block(&self) -> bool {
         matches!(self, SessionError::Io(io_error) if io_error.kind() == std::io::ErrorKind::WouldBlock)
     }

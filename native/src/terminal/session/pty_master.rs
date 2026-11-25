@@ -50,6 +50,7 @@ impl PtyMaster {
     }
 
     /// 子进程 pid：不取互斥量，故可在写入进行中安全调用。
+    #[must_use]
     pub fn child_pid(&self) -> nix::unistd::Pid {
         self.child_pid
     }
@@ -92,6 +93,7 @@ impl PtyMaster {
     /// 份额里扣掉。两段各用满整份期限时最坏耗时是 `2 × drain_timeout`，
     /// 与调用方「整段持会话锁以墙钟为界」的约定不符——逐帧收割的应答因此会把
     /// 渲染与看门狗按住双倍时间。
+    #[must_use]
     pub fn write_with_timeout_counted(
         &self,
         data: &[u8],

@@ -175,6 +175,7 @@ impl GlyphInfo {
     /// 主字形路径（`cell_builder`）与叠加层（`shaped_overlay_instance`）都要这组
     /// 值：各自算一遍时，分叉会让叠加字形贴到图集的错误位置——屏幕上的表现只是
     /// 「组合记号飘在别处」，几乎无从定位。
+    #[must_use]
     pub fn atlas_uv(&self, atlas_width: f32, atlas_height: f32) -> ([f32; 2], [f32; 2], f32) {
         (
             [

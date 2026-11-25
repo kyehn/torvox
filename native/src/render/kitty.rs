@@ -283,6 +283,7 @@ type AtlasInstances<'a> = (Cow<'a, [u8]>, u32, u32, Vec<KittyGraphicsInstance>);
 
 /// 一站式：打包图集 + 构建实例（FFI 渲染线程入口）。
 /// 无可见放置时返回 None（调用方清空实例与图集）。
+#[must_use]
 pub fn pack_and_build(
     frames: &[KittyPlacementFrame],
     grid_cell_width: f32,
