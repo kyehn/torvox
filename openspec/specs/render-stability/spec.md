@@ -761,6 +761,8 @@ MUST NOT 逐条重复；旧世代的结局记 debug，如实保留原因，不�
       - 诡异自动翻动／闪屏：`ScrollRemainderTest` 的「新输出贴底时亚行余量与整行偏移
         同拍清零」与 `ImeSurfaceStabilityInstrumentedTest` 的像素稳定性
 - **AND** 复核 MUST 运行上述测试并附结果；只凭日志中未复现 MUST NOT 判定症状已消除
+- **AND** 最终树的本地全量 `:app:connectedDebugAndroidTest` MUST 为 262/262 通过
+      （0 failed、0 skipped）；CI 侧 262 个仪器化与 137 个 benchmark 用例同样 MUST 通过
 
 #### Scenario: 回读阻塞等待的引入与回归来源
 
