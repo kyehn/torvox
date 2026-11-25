@@ -112,7 +112,9 @@ private fun ShellEntryInput(onSaved: (String, String) -> Unit, textColor: Color,
         Spacer(modifier = Modifier.height(8.dp))
         Button(
             onClick = {
-                if (name.isNotBlank() && command.isNotBlank()) {
+                // 只校验名称：名称是入口的标识（唯一且非空），命令行按规范原样保存，
+                // 空命令行表示「走默认入口探测链」，不得因命令行为空而拒绝保存。
+                if (name.isNotBlank()) {
                     onSaved(name, command)
                     name = ""
                     command = ""
