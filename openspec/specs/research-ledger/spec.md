@@ -937,3 +937,21 @@ MUST NOT 要求读者恢复已删除的研究报告才能复核。
 - **THEN** MUST 先按上表定位类别，再核对该提交的改动文件与对应症状判据；
       MUST NOT 把文档提交或基准提交当作产品回归来源
 - **AND** 新日志未复现某症状时 MUST 记为「未复现」，MUST NOT 写成「已彻底修复」
+
+#### Scenario: 触及症状的提交逐条结论
+
+- **WHEN** 复核近六日中触及日志、渲染、滚动与会话路径的提交
+- **THEN** 因果结论 MUST 逐条写明：
+  - `fix(render): 遮罩回读等待本设备提交并按设备丢失归一` 与其后的归一扩展：移除了
+    回读阻塞等待这一应用侧触发条件；新日志丢失与 panic 均为 0
+  - `fix(scroll): 新输出贴底同拍清掉亚行余量`：修复贴底后先冲过底边再弹回的余量；
+    `ScrollRemainderTest` 钉住同拍清零
+  - `feat(log): Android 日志接入 Timber 并用 governor 节流慢日志`（后续替换为 Log4K）：
+    只新增诊断入口，不是慢帧来源；新日志的 3 组 `SLOW_*` 全在启动与首次输出
+  - `refactor(shell): 按规范移除 ENV、mkshrc 与 PROMPT_COMMAND 注入`：按规范去掉注入，
+    新日志的 shell 启动与提示符正常
+  - `refactor(android): 按职责拆分渲染循环` 与其后的单次迭代拆分：治理 ART 编译 arena；
+    新日志的 `Compiler allocated` 属于 Compose 的屏幕 lambda，不是渲染循环
+  - `chore(native): 推进 libghostty-vt 钉住 rev 并适配破坏性 API`：上游破坏性变更适配，
+    新日志无 panic 与设备丢失
+- **AND** 其余类别 MUST 记为文档、测试或构建改动，MUST NOT 当作五类症状的来源

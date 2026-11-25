@@ -1854,12 +1854,14 @@ MUST NOT 加过滤器、降级日志或提高阈值。
 - **THEN** LeakCanary 自动安装造成的 7 条 MUST 由移除
       `MainProcessAppWatcherInstaller` 与 `PlumberInstaller` 消除，泄漏检测改由
       `LeakCanaryIntegrationTest` 在主线程手动安装，MUST NOT 只做归因
-- **AND** 余下的 `WindowManagerGlobal.getInstance`／`mViews` MUST 归因为
-      DebugOverlay 使用的 `curtains`（其 `Curtains.rootViews` 是覆盖层跟随窗口的必要面），
-      `SystemProperties.addChangeCallback` MUST 归因为 Compose 运行时的系统属性监听；
-      两者均带 `allowed`，MUST NOT 通过 disable API 检查把它们藏起来
-- **AND** 复核判据为同一模拟器冷启动的应用进程告警计数：改造前 10 条反射告警，
-      改造后 MUST 只剩 DebugOverlay 与 Compose 的 3 条
+- **AND** `WindowManagerGlobal.getInstance`／`mViews` 两条来自 DebugOverlay 使用的
+      `curtains`；DebugOverlay 不是规范要求的产物，已连同其 debug 依赖与应用子类移除，
+      告警随之消失，MUST NOT 改为过滤日志
+- **AND** 余下的 `SystemProperties.addChangeCallback` MUST 归因为 Compose 运行时的
+      系统属性监听；该告警带 `allowed`，在不替换 UI 框架前无法消除，
+      MUST NOT 通过 disable API 检查把它藏起来
+- **AND** 复核判据为同一模拟器冷启动的应用进程反射告警计数：改造前 10 条，
+      取消泄漏检测自动安装后 3 条，移除 DebugOverlay 后 MUST 只剩 1 条
 
 #### Scenario: 冷启动主线程停顿
 
