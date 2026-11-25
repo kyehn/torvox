@@ -1806,3 +1806,64 @@ W/E 条目 MUST 按来源逐类归因；MUST NOT 以过滤 tag、降级日志或
 - **THEN** MUST 以「丢失前最后一条 GPU 调用 + 距 `attach_surface: configured` 的
       毫秒数」为证据：8 次全部是非渲染线程的 `device poll`、全部在挂载后 1–14ms，
       据此归因到回读的阻塞等待（见 `render-stability`）
+
+### Requirement: 2026-11-25 两份真机日志的逐类归因
+
+两份日志（`09-45-38`、`09-47-15`，后者覆盖前者并延续至 09:47）共 1393 条记录，
+W/E/F 合计 426 条。归因 MUST 逐条给出，MUST NOT 以「平台噪声」概括了事，
+MUST NOT 加过滤器、降级日志或提高阈值。
+
+#### Scenario: 应用侧错误与稳定性
+
+- **WHEN** 逐条检查两份日志的 `E` 与 `W`
+- **THEN** 应用代码 MUST NOT 出现 panic、`device lost`、`ERROR_SURFACE_LOST_KHR`、
+      `Parent device is lost`、`surface invalidated` 或 `readCoverFrame`；
+      与 11-24 日志的丢失循环对比，本批日志 MUST 记为「应用侧触发条件已不再出现」
+- **AND** `E/com.termux Not starting debugger since process cannot load the jdwp agent`
+      MUST 归因为进程无法装载 jdwp 的平台行为，MUST NOT 由应用修代码
+- **AND** 唯一的应用侧诊断是 `SLOW_RENDER_INNER`／`SLOW_FRAME`／`SLOW_LOOP`，
+      各自只有 3 组，且都落在首帧管线建立或首次新输出的瞬时相位
+      （`query` 9–13ms、`draw` 20–28ms），MUST 保留 30ms 阈值与 500ms 限频，
+      MUST NOT 调高阈值把它们藏起来
+
+#### Scenario: GPU 与上游告警
+
+- **WHEN** 逐条检查 `mali_gralloc` 与 `wgpu_core::instance`
+- **THEN** `Requested R8 format is not supported with this allocator` 与
+      `ERROR: Unrecognized and/or unsupported format 0x38 and usage 0xb00`（各 44 条）
+      MUST 归因为平台分配器对 R8 格式的能力探测，应用无 API 可关
+- **AND** `Missing downlevel flags: DownlevelFlags(SURFACE_VIEW_FORMATS)` 与
+      `DownlevelCapabilities`（各 6 条）MUST 归因为 wgpu 对 Vulkan 设备能力的如实上报，
+      MUST NOT 当作应用缺陷
+
+#### Scenario: 用户命令与系统集成告警
+
+- **WHEN** 逐条检查 `fish`／`git`／`login`／`bash`／`clear`／`yazi`／`comma`／`kitten`／
+      `DefaultDispatch`／`chroot-ng` 的 `avc: granted/denied` 条目
+- **THEN** MUST 归因为真机上用户输入命令经 SELinux 审计的结果（`granted` 占绝大多数，
+      `denied` 来自 `/proc` 与 tmpfs 的常规访问），MUST NOT 由应用吞掉
+- **AND** `ziparchive Unable to open …/*.dm`、`FeatureOpt ensureGetRight`、
+      `libc Access denied finding property`、`Parcel Expecting binder but got null!`、
+      `Typeface updateDefaultTypeface`、`CtsUtil`、`CheckTime`、
+      `Z##ZSSOSConfig parseXml` 与 `Choreographer Skipped … ZTE_SUPERKILLER`
+      MUST 归因为厂商系统组件的内部日志，不是应用写入的条目
+
+#### Scenario: 调试工具的隐藏 API 反射告警
+
+- **WHEN** 冷启动出现 9 条 `Accessing hidden method/field … (unsupported, reflection, allowed)`
+- **THEN** MUST 归因为 debug 构建的 LeakCanary 依赖链（`curtains`、
+      `leakcanary-object-watcher-android-core`、`monitor`）与 Compose 的
+      `androidx.compose.ui`，MUST NOT 归因为应用主动反射
+- **AND** `SystemProperties.addChangeCallback` 一条 MUST 归因为 Compose 运行时的
+      系统属性监听；这类告警带 `allowed`，MUST NOT 通过 disable API 检查把它们藏起来
+
+#### Scenario: 冷启动主线程停顿
+
+- **WHEN** 09:44:59 的循环窗口出现 `avg=45.5ms p95=500.8ms max=501.5ms`，
+      且同期 `CheckTime` 记 `application classloader create took 810ms` 与
+      `installContentProviders took 578ms`
+- **THEN** MUST 归因为冷启动期间主线程被 ContentProvider 装配与类装载占用
+      （`Choreographer Skipped 36/37 frames` 是同一停顿的平台侧记账），
+      MUST NOT 把它归为渲染回归或据此放宽慢帧阈值
+- **AND** 优化方向的证据 MUST 是合并清单里的 provider 数量与同一设备的新日志，
+      MUST NOT 只凭猜测增减 provider

@@ -732,6 +732,19 @@ MUST NOT 逐条重复；旧世代的结局记 debug，如实保留原因，不�
 - **AND** 验证 MUST 取同一 Mali-G57 设备的新日志核对丢失次数、`SLOW_*` 条数与
       重建次数三者；三者与预期不符时 MUST 重新归因，MUST NOT 沿用本结论
 
+#### Scenario: 2026-11-25 同设备新日志的复核结果
+
+- **WHEN** 用 2026-11-25 的 `09-45-38` 与 `09-47-15` 核对上条的三个判据
+- **THEN** `device lost`／`Parent device is lost`／`readCoverFrame` panic／
+      `surface invalidated` 均为 0 条，重建只出现 `attach_surface: ANativeWindow
+      changed`（5 次）与 `RECONFIGURE_SWAPCHAIN`（4 次）这类正常换窗路径
+- **AND** `SLOW_*` 共 3 组，分别落在首帧管线建立与首次新输出，未在稳态循环里成片出现；
+      「卡顿」的判据因此 MUST 改写为「启动与首次内容的瞬时帧」，MUST NOT 继续
+      记作持续掉帧
+- **AND** 滚动判据：`scrollback` 从 0 增长到 245 行后仍正常记账，未出现 idle latch
+      塌缩；「无法滚动」与「诡异自动翻动」的新日志证据为 0，MUST NOT 据此宣称
+      五类症状已全部由代码验证，只能记为「本批日志未复现」
+
 #### Scenario: 回读阻塞等待的引入与回归来源
 
 - **WHEN** 复核 2026-11-17 当日的遮罩回读变更：先因设备丢失**移除**回读，13 小时后
