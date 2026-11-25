@@ -2,7 +2,7 @@
 
 ## Purpose
 
-声明终端子进程环境变量白名单：`build_env` 只设置白名单内的变量，不写 rc 文件、不注入提示符或标题钩子；`PATH` 保留宿主原值并附加 prefix 的 bin 目录，Termux 工具优先、系统命令亦可按名解析。
+声明终端子进程环境变量白名单：`build_env` 只设置白名单内的变量，不写 rc 文件、不注入提示符或标题钩子；`PATH` 以 prefix 的 bin 目录开头并保留宿主原值，Termux 工具优先、系统命令亦可按名解析。
 
 ## Requirements
 
@@ -42,7 +42,7 @@ shell 未上报 OSC 0/2 时标题留空，抽屉按「未设置标题时仅显�
 - `COLORTERM`：`truecolor`
 - `TERM`：`xterm-256color`
 - `TERMUX_VERSION`：`0.119.0-beta.3`
-- `PATH`：见「PATH 保留宿主原值并附加 prefix 的 bin」
+- `PATH`：见「PATH 以 prefix 的 bin 开头并保留宿主原值」
 
 MUST NOT 设置 `LD_LIBRARY_PATH`、`PWD`、`LD_PRELOAD`、`ENV`、`PROMPT_COMMAND`。
 
@@ -80,9 +80,9 @@ API 26+ 上是错的）：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、
 - **WHEN** 宿主环境没有任何 Android 系统变量
 - **THEN** 子进程环境不出现这些变量名，应用不补默认值
 
-### Requirement: PATH 保留宿主原值并附加 prefix 的 bin
+### Requirement: PATH 以 prefix 的 bin 开头并保留宿主原值
 
-`build_env` MUST 设置 `PATH`：宿主进程的 `PATH` 原值在前，`{prefix}/bin` 在后；`{prefix}/bin` 仅在目录存在时附加（`DESIGN.md` Shell 节：原 `PATH` 附加 `/data/data/com.termux/files/usr/bin`，仅目录存在时附加设置）。`prefix` 为 `None`（无引导或 failsafe）时 MUST 只保留宿主 `PATH`，不附加 Termux 的 bin 目录。宿主没有 `PATH` 时 MUST 只给 `{prefix}/bin`，不得拼出空路径项。
+`build_env` MUST 设置 `PATH`：`{prefix}/bin` 在前，宿主进程的 `PATH` 原值在后（`DESIGN.md` Shell 节：原 `PATH` 附加 `/data/data/com.termux/files/usr/bin`，仅目录存在时附加设置）；`{prefix}/bin` 仅在目录存在时附加。`prefix` 为 `None`（无引导或 failsafe）时 MUST 只保留宿主 `PATH`，不附加 Termux 的 bin 目录。宿主没有 `PATH` 时 MUST 只给 `{prefix}/bin`，不得拼出空路径项。
 
 #### Scenario: 有 prefix 的会话解析 Termux 与系统命令
 
