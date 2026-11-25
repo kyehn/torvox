@@ -199,6 +199,8 @@ rules:
         # STATUS.md 属禁改区：维护者手写的未解决清单逐条记事实，
         # 必然出现软件名称；与 no-git-short-hash / no-full-sha 同口径。
         - "/docs/STATUS.md"
+        # 归档审计台账照录当时的仓库地址与统计，属历史证据而非代码中的品牌标识。
+        - "/openspec/changes/archive/**"
   - id: no-nix-store-paths
     pattern-regex: 'nix/store'
     message: "Hardcoded nix store paths are forbidden in code."
