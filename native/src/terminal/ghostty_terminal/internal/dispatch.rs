@@ -198,8 +198,7 @@ impl super::GhosttyTerminal {
                 );
             }
             Query::SearchViewportHighlights { tx } => {
-                let highlights =
-                    Self::search_viewport_highlights_impl(query_context, terminal);
+                let highlights = Self::search_viewport_highlights_impl(query_context, terminal);
                 try_send(
                     &tx,
                     highlights,

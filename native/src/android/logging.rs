@@ -86,6 +86,24 @@ impl Log for AndroidLogger {
 
 static LOGGER: AndroidLogger = AndroidLogger;
 
+/// 把 libghostty 的日志回调转发到 `log` 门面，scope 作为 target。
+struct GhosttyLogger;
+
+impl libghostty_vt::sys::Logger for GhosttyLogger {
+    fn log(&self, level: libghostty_vt::sys::Level, scope: &str, message: &str) {
+        let level = match level {
+            libghostty_vt::sys::Level::Error => Level::Error,
+            libghostty_vt::sys::Level::Warning => Level::Warn,
+            libghostty_vt::sys::Level::Info => Level::Info,
+            libghostty_vt::sys::Level::Debug => Level::Debug,
+            _ => Level::Debug,
+        };
+        log::log!(target: scope, level, "{message}");
+    }
+}
+
+static GHOSTTY_LOGGER: GhosttyLogger = GhosttyLogger;
+
 /// 必须且只需调用一次（经 [`std::sync::Once`] 幂等）。
 pub(crate) fn init() {
     static INIT: std::sync::Once = std::sync::Once::new();
@@ -95,10 +113,10 @@ pub(crate) fn init() {
         // 未安装时上游把内部日志全部静默丢弃：VT 解析错误、分配失败、状态机异常
         // 一律无从查证，而 Ghostty 是本项目终端状态的单一来源。装上后这些消息经
         // `log` 门面进同一个 logcat sink，scope 作为 target，与本 crate 日志同源。
-        // SAFETY: 上游的日志回调是进程级全局量且不加同步，要求在任何线程进入
-        // libghostty 之前设置完毕；本函数只由 `JNI_OnLoad` 调用，VM 加载本库时
-        // 执行，早于任何 JNI 方法，此时没有线程进入过 libghostty。
-        unsafe { libghostty_vt::set_logger(Some(Box::new(log::logger()))) }
+        // 上游只接受静态 logger 引用，并要求在任何线程进入 libghostty 之前安装；
+        // 本函数只由 `JNI_OnLoad` 调用，VM 加载本库时执行，早于任何 JNI 方法。
+        libghostty_vt::sys::LOGGER
+            .install(&GHOSTTY_LOGGER)
             .expect("libghostty-vt logger already set");
         install_panic_hook();
     });
