@@ -109,9 +109,6 @@
         <provider
             android:name="leakcanary.internal.MainProcessAppWatcherInstaller"
             tools:node="remove" />
-        <provider
-            android:name="leakcanary.internal.PlumberInstaller"
-            tools:node="remove" />
 
     </application>
 
