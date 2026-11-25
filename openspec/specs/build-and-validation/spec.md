@@ -205,7 +205,7 @@ MUST 在构建脚本中写明触发原因。
 
 #### Scenario: 当前唯一的弃用警告及其调用方
 
-- **WHEN** 以 Gradle 9.9.2 + AGP 9.6.0-alpha04 执行 `:app:compileDebugKotlin --warning-mode all`
+- **WHEN** 以 Gradle 9.9.2 + AGP 9.6.0-alpha06 执行 `:app:compileDebugKotlin --warning-mode all`
 - **THEN** 弃用警告 MUST 只有一条，即 Gradle 对 `Configuration.setVisible(boolean)` 的弃用
       （Gradle 11 移除）
 - **AND** 调用方 MUST 登记为构建期插件：`com.ncorti.ktfmt.gradle` 0.28.0

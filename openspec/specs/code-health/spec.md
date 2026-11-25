@@ -331,17 +331,17 @@ master rev，MUST NOT 长期停在某个旧 rev 上——DESIGN 已要求「跟�
 **2026-11-15 依赖版本复查**：
 
 - 绑定层：`libghostty-vt` 所钉提交与上游 master 提交数差为 0（当日 master），上游最新提交日期
-  2026-11-14。本次前进的提交中，两项把快照解码器的 kitty 图像计数与待传字节总量迁到
+  2026-11-24。本次前进的提交中，两项把快照解码器的 kitty 图像计数与待传字节总量迁到
   `IncrementalDecoder` 上、一项把可选 `allocator_api` feature 改用标准库分配器 trait、一项
   抬高构建用 rustc。本仓未消费 `snapshot` 解码接口，也未启用 `allocator_api`；实际消费的
   API 面（`key`、`mode`、`color`、`style`、`selection`、`search`、`screen`、`render`、`point`、
   `paste`、`mouse`、`kitty::graphics`、`grid_ref`、`terminal`、`effect`、`report`、`set_logger`）
   无签名或语义变化，全量 Rust 测试与其之上的 Android 仪器测试保持全绿。
-- crates.io：`nix` 由 0.31 升到 0.32（最新稳定，2026-11-14 发布），其余直接依赖已是当日最新
-  稳定版本；`fontdb` 仍受 `cosmic-text` 的 `^0.23` 要求约束（见依赖活跃度表）。
-- Gradle/Android：Gradle wrapper 9.9.1、KSP 2.3.14、Robolectric 4.18 为当日最新稳定版本。
+- crates.io：`nix` 为 0.32（最新稳定），其余直接依赖已是当日最新稳定版本，锁文件已刷新到各
+  依赖的最新修订；`fontdb` 仍受 `cosmic-text` 的 `^0.23` 要求约束（见依赖活跃度表）。
+- Gradle/Android：Gradle wrapper 9.9.2、KSP 2.3.14、Robolectric 4.18 为当日最新稳定版本。
   `androidx.test`、Espresso 与 Benchmark 存在更新的 alpha，但当前所用为稳定版，按「最新稳定
-  版本」口径保持不动；AGP 9.6.0-alpha03、lifecycle 2.12.0-alpha05、activity 1.14.0-alpha03、
+  版本」口径保持不动；AGP 9.6.0-alpha06、lifecycle 2.12.0-alpha06、activity 1.14.0-alpha03、
   detekt 2.0.0-alpha.6、LeakCanary 3.0-alpha-9 属「已用不稳定版本且无更高稳定版本」，保持该线
   最新不稳定版本。
 
