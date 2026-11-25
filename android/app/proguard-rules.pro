@@ -1,4 +1,3 @@
--dontoptimize
 -dontobfuscate
 -keep class terminal.emulator.** { *; }
 -keepclassmembers class * {
