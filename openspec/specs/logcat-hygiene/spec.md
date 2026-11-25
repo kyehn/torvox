@@ -745,7 +745,8 @@ MUST NOT 以 debug 逐次输出。同一行给出多个取值不同的字段时�
         kitty 放置（20:24:16），分段为 `query=10.744ms`（锁外 VT 放置查询）+
         `draw=23.741ms`（首次图集上传与软件光栅），`SLOW_LOOP` 的 `total=47.887ms`
         含 `gate=10.971ms`（vsync 驻留，MUST 从慢循环判定中扣除），实际工作量
-        36.916ms 超过 30ms 阈值。属一次性冷路径，处置 MUST NOT 提高阈值或降级日志
+        36.916ms 超过 30ms 阈值。属一次性冷路径；处置 MUST NOT 提高阈值或过滤日志，
+        30–60ms 瞬时慢帧 MAY 记为 info，持续超预算或 ≥60ms MUST 记为 warn
       - `Parcel` 1 条（`Expecting binder but got null!`）：平台 binder 事务的空返回，
         调用方在平台一侧（与 08-52-39 同一条上游事实）
 - **AND** 同 UID 子进程的 136 条 MUST 全部归为内核审计与历史崩溃：135 条是
@@ -1667,8 +1668,8 @@ MUST 留在 warn，MUST NOT 由应用侧自行吞掉。
 ### Requirement: 仪器化运行期噪声必须逐类归因，不得当作产品缺陷或据此改阈值
 
 仪器化用例在模拟器上跑完整套件时，日志里出现的告警有一批来自测试环境与外部二进制，
-与真机产品路径无关。处置 MUST 是**写明归因**，MUST NOT 提高慢帧阈值、降级日志级别
-或加过滤器把它们藏起来。
+与真机产品路径无关。处置 MUST 是**写明归因**：MUST NOT 提高慢帧阈值、MUST NOT
+过滤日志；30–60ms 的一次性瞬时慢帧 MAY 记为 info，持续超预算或 ≥60ms MUST 记为 warn。
 
 #### Scenario: 软件渲染下的高频慢帧
 
@@ -1857,9 +1858,11 @@ MUST NOT 加过滤器、降级日志或提高阈值。
 - **AND** `WindowManagerGlobal.getInstance`／`mViews` 两条来自 DebugOverlay 使用的
       `curtains`；DebugOverlay 不是规范要求的产物，已连同其 debug 依赖与应用子类移除，
       告警随之消失，MUST NOT 改为过滤日志
-- **AND** 余下的 `SystemProperties.addChangeCallback` MUST 归因为 Compose 运行时的
-      系统属性监听；该告警带 `allowed`，在不替换 UI 框架前无法消除，
-      MUST NOT 通过 disable API 检查把它藏起来
+- **AND** 余下的 `SystemProperties.addChangeCallback` MUST 归因为
+      `androidx.compose.ui:ui` 的 `AndroidComposeView.Companion`：它反射系统属性回调，
+      以便属性变化时刷新 Compose 视图；该告警带 `allowed`
+- **AND** 消除这一条的可执行路径只有替换 Compose UI 或等待上游移除反射，二者均属产品
+      决策，MUST NOT 通过 disable API 检查、过滤器或降级日志把它藏起来
 - **AND** 复核判据为同一模拟器冷启动的应用进程反射告警计数：改造前 10 条，
       取消泄漏检测自动安装后 3 条，移除 DebugOverlay 后 MUST 只剩 1 条
 
