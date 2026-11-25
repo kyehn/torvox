@@ -499,7 +499,7 @@ impl Renderer {
             && let Some(slow_frames) = SLOW_RENDER_PHASE_THROTTLE.record()
         {
             let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
-            log::warn!(
+            let message = format!(
                 "SLOW_RENDER_PHASE acquire={:.3}ms encode={:.3}ms submit={:.3}ms present={:.3}ms total={:.3}ms partial={partial} instances={} upload_bytes={uploaded_bytes} slow_frames={slow_frames}",
                 ms(begin_done.duration_since(frame_start)),
                 ms(encode_done.duration_since(begin_done)),
@@ -508,6 +508,11 @@ impl Renderer {
                 ms(total),
                 instances.len(),
             );
+            if total >= std::time::Duration::from_millis(60) {
+                log::warn!("{message}");
+            } else {
+                log::info!("{message}");
+            }
         }
 
         // 呈现诊断按 500ms 窗口汇总：逐帧输出会把 logcat 刷成帧洪水（实测 84s 内

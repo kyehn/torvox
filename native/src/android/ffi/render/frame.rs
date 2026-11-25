@@ -411,7 +411,7 @@ pub(super) fn render_inner(session_id: u64) -> jint {
         && let Some(slow_frames) = SLOW_RENDER_INNER_THROTTLE.record()
     {
         let milliseconds = |duration: std::time::Duration| duration.as_secs_f64() * 1000.0;
-        log::warn!(
+        let message = format!(
             "SLOW_RENDER_INNER phase1={:.3}ms receive={:.3}ms lock={:.3}ms keys={:.3}ms query={:.3}ms lock2={:.3}ms prepare={:.3}ms draw={:.3}ms render={:.3}ms total={:.3}ms count={count} slow_frames={slow_frames}",
             milliseconds(phase1_done.duration_since(render_start)),
             milliseconds(phase2_done.duration_since(phase1_done)),
@@ -424,6 +424,11 @@ pub(super) fn render_inner(session_id: u64) -> jint {
             milliseconds(timing.render_done.duration_since(timing.lock_done)),
             milliseconds(total),
         );
+        if total >= std::time::Duration::from_millis(60) {
+            log::warn!("{message}");
+        } else {
+            log::info!("{message}");
+        }
     }
     count
 }
