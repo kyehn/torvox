@@ -5,17 +5,9 @@ import androidx.compose.material3.Text
 import com.ms.square.debugoverlay.DebugOverlay
 import com.ms.square.debugoverlay.DebugTab
 import com.ms.square.debugoverlay.OverlayMode
-import leakcanary.LeakCanary
 
 class TerminalAppDebug : TerminalApp() {
     override fun onCreate() {
-        LeakCanary.config =
-            LeakCanary.config.copy(
-                retainedVisibleThreshold = 3,
-                maxStoredHeapDumps = 5,
-                computeRetainedHeapSize = true,
-                dumpHeapWhenDebugging = false,
-            )
         // DebugOverlay — Hidden by default: FullMetrics polls /proc/stat,
         // Debug.getPss() and a Choreographer doFrame callback on the MAIN
         // thread every second, which competes with the render pipeline and

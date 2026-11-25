@@ -104,6 +104,15 @@
             android:name="saschpe.log4k.internal.ContextProvider"
             tools:node="remove" />
 
+        <!-- 泄漏检测只在 androidTest 里手动安装：自动安装的 provider 会在每个
+             debug 冷启动反射 ActivityThread/WindowManagerGlobal，产生 hidden API 告警。 -->
+        <provider
+            android:name="leakcanary.internal.MainProcessAppWatcherInstaller"
+            tools:node="remove" />
+        <provider
+            android:name="leakcanary.internal.PlumberInstaller"
+            tools:node="remove" />
+
     </application>
 
 </manifest>
