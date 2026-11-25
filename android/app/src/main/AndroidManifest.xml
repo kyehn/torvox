@@ -108,9 +108,13 @@
              同步请求字体（真机 installContentProviders 578ms），移除后走平台自身的
              emoji 字形回退，不影响输入。Initializer 以 meta-data 注册，须从
              androidx.startup 的 provider 里摘除，单独声明 provider 节点无效。 -->
+        <!-- tools:ignore：类来自 startup-runtime AAR，lint 对 merge 节点解析不到，
+             但合并后的 manifest 中该类存在（已由 processDebug/ReleaseManifest 核验）。 -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:ignore="MissingClass"
             tools:node="merge">
             <meta-data
                 android:name="androidx.emoji2.text.EmojiCompatInitializer"

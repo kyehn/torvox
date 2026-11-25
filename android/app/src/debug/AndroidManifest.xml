@@ -15,11 +15,15 @@
         <!-- 泄漏检测只在 androidTest 里手动安装：这两个 debug provider 会在每个
              冷启动反射 ActivityThread/WindowManagerGlobal，产生 hidden API 告警。
              放在 debug overlay，release 不声明不存在的节点，避免构建警告。 -->
+        <!-- tools:ignore：两个类来自 leakcanary AAR，lint 对 remove 节点解析不到，
+             但合并前它们确实在 debug manifest 中（已由 processDebugManifest 核验）。 -->
         <provider
             android:name="leakcanary.internal.MainProcessAppWatcherInstaller"
+            tools:ignore="MissingClass"
             tools:node="remove" />
         <provider
             android:name="leakcanary.internal.PlumberInstaller"
+            tools:ignore="MissingClass"
             tools:node="remove" />
     </application>
 </manifest>
