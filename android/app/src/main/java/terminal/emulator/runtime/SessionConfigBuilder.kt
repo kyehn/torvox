@@ -70,8 +70,8 @@ internal class SessionConfigBuilder(
                 scrollbackLines = termuxProperties.configuration.value.properties.terminalTranscriptRows,
             )
         }
-        // 默认入口依次探测 bash 与 login（DESIGN.md Shell 节「文件存在即启动，不检查权限」）。
-        val prefixShell = findPrefixShell(prefixDir)
+        // 默认入口依次探测（DESIGN.md Shell 节「文件存在即启动，不检查权限」）。
+        val prefixShell = defaultShellEntry(prefixDir)
         LogUtil.debug(
             "Runtime",
             "prefixShell=$prefixShell prefixDir=$prefixDir",
@@ -93,17 +93,20 @@ internal class SessionConfigBuilder(
     private fun resolveEffectiveShell(prefixDir: String, prefixShell: String?, shell: Shell): Shell {
         if (shell is Shell.Custom) return shell
         val prefixShellChecked = prefixShell ?: return shell
-        return Shell.Custom("$prefixDir/$prefixShellChecked")
+        val loginArgument = if (prefixShellChecked in LOGIN_SHELL_CANDIDATES) " -l" else ""
+        return Shell.Custom("$prefixDir/$prefixShellChecked$loginArgument")
+    }
+
+    private companion object {
+        /** 默认入口探测顺序与 DESIGN「Shell」节一致，命中者按登录 shell 启动。 */
+        val LOGIN_SHELL_CANDIDATES = listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")
+
+        /** 文件存在即用，不检查权限（DESIGN「Shell」节）。 */
+        fun defaultShellEntry(prefixDir: String): String? =
+            LOGIN_SHELL_CANDIDATES.firstOrNull { candidate -> File("$prefixDir/$candidate").isFile }
     }
 
     private data class ConfigReads(val shellPath: String, val fontSizeTenths: Int)
-
-    /**
-     * 默认入口探测：依次尝试 bash 与 login，文件存在即用（DESIGN.md Shell 节），不检查权限。
-     */
-    private fun findPrefixShell(prefixDir: String): String? = listOf("bin/bash", "bin/login").firstOrNull { candidate ->
-        File("$prefixDir/$candidate").isFile
-    }
 
     /** 空即默认入口（DESIGN.md 设置节「未设置时为空」），其余原样透传，不特殊处理。 */
     private fun resolveShell(shellPath: String): Shell = if (shellPath.isEmpty()) {
