@@ -182,8 +182,7 @@ impl super::GhosttyTerminal {
                 );
             }
             Query::SearchSetNeedle { needle, tx } => {
-                let total =
-                    Self::search_set_needle_impl(&mut query_context.search, terminal, &needle);
+                let total = Self::search_set_needle_impl(query_context, terminal, &needle);
                 try_send(
                     &tx,
                     total,
@@ -191,8 +190,7 @@ impl super::GhosttyTerminal {
                 );
             }
             Query::SearchSelect { forward, tx } => {
-                let selection =
-                    Self::search_select_impl(&mut query_context.search, terminal, forward);
+                let selection = Self::search_select_impl(query_context, terminal, forward);
                 try_send(
                     &tx,
                     selection,
@@ -200,11 +198,8 @@ impl super::GhosttyTerminal {
                 );
             }
             Query::SearchViewportHighlights { tx } => {
-                let highlights = Self::search_viewport_highlights_impl(
-                    &mut query_context.search,
-                    &mut query_context.match_buffer,
-                    terminal,
-                );
+                let highlights =
+                    Self::search_viewport_highlights_impl(query_context, terminal);
                 try_send(
                     &tx,
                     highlights,
@@ -221,7 +216,7 @@ impl super::GhosttyTerminal {
             }
             Query::TakeKittyGraphicsImage { id, tx } => {
                 let kitty_graphics_data = (|| -> Option<KittyGraphicsImageData> {
-                    let graphics = terminal.kitty_graphics().ok().flatten()?;
+                    let graphics = terminal.kitty_graphics().ok()?;
                     let image = graphics.image(id)?;
                     let (width, height, rgba) = Self::kitty_image_to_rgba(&image)?;
                     Some(KittyGraphicsImageData {

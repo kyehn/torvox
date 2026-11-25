@@ -316,9 +316,11 @@ impl super::GhosttyTerminal {
             // 阻塞 VT 线程更糟。丢则记日志并回 `Busy`，不静默。
             if clipboard_tx.try_send((selection, text)).is_err() {
                 warn_clipboard_dropped(&drop_log);
-                write.reply(Err(libghostty_vt::effect::ClipboardWriteError::Busy), false);
+                write
+                    .reply(Err(libghostty_vt::effect::ClipboardWriteError::Busy))
+                    .finish();
             } else {
-                write.reply(Ok(()), false);
+                write.reply(Ok(())).finish();
             }
         });
         if let Err(error) = result {
@@ -374,7 +376,7 @@ impl super::GhosttyTerminal {
             log::error!("ghostty_terminal: set_scrollback_max_lines failed: {error}");
         }
         // 初始化 Kitty Graphics Protocol（KGP）支持
-        if let Err(error) = terminal.set_kitty_image_storage_limit(KGP_STORAGE_LIMIT) {
+        if let Err(error) = terminal.set_kitty_image_storage_limit(Some(KGP_STORAGE_LIMIT)) {
             log::error!("ghostty_terminal: set_kitty_image_storage_limit failed: {error}");
         }
         // 默认仅启用 direct 介质；kitten icat / yazi 等客户端会使用 file / shared memory /

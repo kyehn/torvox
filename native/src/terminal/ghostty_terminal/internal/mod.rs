@@ -16,7 +16,7 @@ use libghostty_vt::point::{Coordinate as PointCoordinate, Point, Space as PointS
 use libghostty_vt::render::{CellIterator, ImageIterator, RenderState, RowIterator, Snapshot};
 use libghostty_vt::screen::CellWide;
 use libghostty_vt::search::{MatchBuffer, Scroll, Search};
-use libghostty_vt::selection::{Order, SelectWordOptions, Selection};
+use libghostty_vt::selection::{Order, Selection};
 
 use super::commands::{Command, Query, RunConfig, ViewportTarget};
 use super::frame_mailbox::FrameMailbox;
@@ -209,16 +209,22 @@ enum CommandOutcome {
 ///
 /// 与终端借用无关（`Search` 只以 `PhantomData` 关联终端的分配器生命周期），
 /// 故可整体传递，避免每个处理函数都带一长串参数。
-struct QueryContext<'term> {
+pub(crate) struct QueryContext<'term> {
     /// 逐事件复用的上游编码器（见 [`Encoders`]）：每个终端只分配一次，编码器
     /// 选项在每个事件前经 `set_options_from_terminal` 从终端重新同步。
     encoders: Encoders<'term>,
     /// 上游 `search::Search` 的宿主：与终端同生命周期的局部变量，故搜索对象
     /// 不必与终端自引用（`Search` 的生命周期挂在 `Terminal` 的分配器生命周期上，
     /// 不占用借用）。首次搜索时惰性创建，此后复用同一份索引状态。
-    search: Option<Search<'term, 'term>>,
+    search: Option<Search<'term>>,
     /// 命中读出用的存储，跨查询复用（上游按需扩容）。
     match_buffer: MatchBuffer,
+    /// 选中命中占据的行区间（空 = 无选中命中）。
+    ///
+    /// 上游只把选中命中交给 `select_*` 的返回值，事后无处可读：导航时把它折算成
+    /// 行区间记在此处，视口高亮查询据此给当前命中画强调色。换 needle 时上游丢弃
+    /// 全部结果，此处同步清空。
+    selected_search: Vec<SearchMatch>,
     /// Kitty 放置查询缓存：跨帧复用图像解码结果（同一图像被切成多个放置块时只解一次）。
     kitty_cache: KittyPlacementCache,
 }
@@ -230,6 +236,7 @@ impl QueryContext<'_> {
             encoders: Encoders::new()?,
             search: None,
             match_buffer: MatchBuffer::new(),
+            selected_search: Vec::new(),
             kitty_cache: KittyPlacementCache::default(),
         })
     }
@@ -286,6 +293,7 @@ fn cell_codepoint(terminal: &Terminal<'_, '_>, row: u32, col: u32) -> u32 {
         .ok()
         .and_then(|point| point.cell().ok())
         .and_then(|cell| cell.codepoint().ok())
+        .map(u32::from)
         .unwrap_or(0)
 }
 

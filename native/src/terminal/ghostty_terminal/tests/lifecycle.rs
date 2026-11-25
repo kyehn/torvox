@@ -952,6 +952,39 @@ fn search_select_walks_from_newest_toward_older_and_wraps() {
     assert_eq!(wrapped.index, 0, "select_next wraps past the oldest hit");
 }
 
+/// 导航后视口高亮必须带出「当前选中命中」的行区间：渲染侧据此给当前命中画强调色
+/// （其余命中用选区色），两色同系时「当前在哪」才可分辨。
+///
+/// 上游只在 `select_*` 的返回值里给出选中命中，事后无处可读：导航时把它折算成行
+/// 区间记在查询上下文里；换 needle 时上游丢弃全部结果，缓存随之清空。
+#[test]
+fn search_viewport_highlights_carry_selected_match_after_navigation() {
+    let mut terminal_under_test = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    terminal_under_test.vt_write(b"alpha needle beta\n");
+    terminal_under_test.flush();
+    assert_eq!(terminal_under_test.search_set_needle("needle"), 1);
+    let selected = terminal_under_test
+        .search_select(true)
+        .expect("导航选中命中");
+    let highlights = terminal_under_test.search_viewport_highlights();
+    assert_eq!(
+        highlights.selected,
+        vec![selected.matched.clone()],
+        "导航后视口高亮必须带出选中命中的行区间"
+    );
+    assert!(
+        highlights.matches.contains(&selected.matched),
+        "选中命中的行必须同时出现在视口命中集里"
+    );
+    // 换 needle 即重启搜索：上一次选中态作废，缓存随之清空。
+    assert_eq!(terminal_under_test.search_set_needle("alpha"), 1);
+    let highlights = terminal_under_test.search_viewport_highlights();
+    assert!(
+        highlights.selected.is_empty(),
+        "换 needle 后不得残留上一次的选中命中"
+    );
+}
+
 /// 对标上游 searchStepRescansAfterOutput：needle 不变时，输出写入后的下一次
 /// 导航必须看到新命中。上游 `select_*` 自带追赶（feed），本仓不另建重扫路径。
 #[test]

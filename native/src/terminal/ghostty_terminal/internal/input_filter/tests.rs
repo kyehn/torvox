@@ -701,7 +701,7 @@ fn single_character_control_value_is_read_as_its_ascii_code() {
 fn upstream_responses(sequence: &[u8]) -> Vec<Vec<u8>> {
     let mut terminal = libghostty_vt::Terminal::new(20, 5).expect("上游终端");
     terminal
-        .set_kitty_image_storage_limit(1024 * 1024)
+        .set_kitty_image_storage_limit(Some(1024 * 1024))
         .expect("kitty 存储上限");
     terminal
         .set_kitty_image_from_file_allowed(true)

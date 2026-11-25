@@ -1,8 +1,8 @@
 use super::{
-    CellWide, GridRef, HYPERLINK_INLINE_BUFFER_SIZE, MAX_HYPERLINK_URI_BYTES, MatchBuffer, Order,
-    Point, PointCoordinate, PointSpace, SELECTION_RECTANGLE, Scroll, Search, SearchMatch,
-    SearchSelection, SearchViewportHighlights, SelectWordOptions, Selection, Terminal,
-    cell_codepoint, grid_cols, scrollback_len,
+    CellWide, GridRef, HYPERLINK_INLINE_BUFFER_SIZE, MAX_HYPERLINK_URI_BYTES, Order, Point,
+    PointCoordinate, PointSpace, QueryContext, SELECTION_RECTANGLE, Scroll, Search, SearchMatch,
+    SearchSelection, SearchViewportHighlights, Selection, Terminal, cell_codepoint, grid_cols,
+    scrollback_len,
 };
 
 // ── 选区与搜索 ───────────────────────────────────────────────
@@ -31,8 +31,12 @@ impl super::GhosttyTerminal {
         else {
             return String::new();
         };
-        let selection =
-            libghostty_vt::selection::Selection::new(start_gref, end_gref, SELECTION_RECTANGLE);
+        let selection = libghostty_vt::selection::Selection::new(
+            terminal,
+            start_gref,
+            end_gref,
+            SELECTION_RECTANGLE,
+        );
         let mut formatter = match libghostty_vt::fmt::Formatter::new(terminal) {
             Ok(initialized_formatter) => initialized_formatter,
             Err(error) => {
@@ -40,9 +44,10 @@ impl super::GhosttyTerminal {
                 return String::new();
             }
         };
-        // SAFETY: 选区两端点取自同一终端活动屏的网格快照（`absolute_point` + `grid_ref`），
-        // 且建格式化器与装选区之间没有任何终端写操作，快照仍然有效。
-        if let Err(error) = unsafe { formatter.set_selection(Some(&selection)) } {
+        // 选区两端点取自同一终端活动屏的网格快照（`absolute_point` + `grid_ref`），
+        // 且建格式化器与装选区之间没有任何终端写操作，快照仍然有效；上游按终端
+        // 绑定校验选区，不同源时直接报错而非静默采用。
+        if let Err(error) = formatter.set_selection(Some(selection)) {
             log::error!("ghostty_terminal: formatter set_selection failed: {error}");
             return String::new();
         }
@@ -111,7 +116,7 @@ impl super::GhosttyTerminal {
     /// （`.screen` 原点与 `absolute_point` 同一），无法表达该格时返回 None。
     pub(crate) fn absolute_coordinate(
         terminal: &Terminal<'_, '_>,
-        grid_ref: &GridRef<'_>,
+        grid_ref: GridRef<'_>,
     ) -> Option<(u32, u32)> {
         let coordinate = terminal
             .point_from_grid_ref(grid_ref, PointSpace::Screen)
@@ -126,10 +131,10 @@ impl super::GhosttyTerminal {
         terminal: &Terminal<'_, '_>,
         selection: Selection<'_>,
     ) -> Option<((u32, u32), (u32, u32))> {
-        let ordered = selection.to_ordered(terminal, Order::Forward).ok()?;
-        let start = Self::absolute_coordinate(terminal, &ordered.start())?;
-        let end = Self::absolute_coordinate(terminal, &ordered.end())?;
-        if terminal.set_selection(Some(&ordered)).is_err() {
+        let ordered = selection.to_ordered(Order::Forward).ok()?;
+        let start = Self::absolute_coordinate(terminal, ordered.start())?;
+        let end = Self::absolute_coordinate(terminal, ordered.end())?;
+        if terminal.set_selection(Some(ordered)).is_err() {
             log::warn!("ghostty_terminal: install derived selection failed");
             return None;
         }
@@ -144,9 +149,7 @@ impl super::GhosttyTerminal {
         col: u32,
     ) -> Option<((u32, u32), (u32, u32))> {
         let grid_ref = Self::grid_ref_at(terminal, row, col)?;
-        let selection = terminal
-            .select_word(SelectWordOptions::new(grid_ref))
-            .ok()??;
+        let selection = terminal.select_word(grid_ref).finish().ok()??;
         Self::installed_bounds(terminal, selection)
     }
 
@@ -171,9 +174,13 @@ impl super::GhosttyTerminal {
         ) else {
             return;
         };
-        let selection =
-            libghostty_vt::selection::Selection::new(start_ref, end_ref, SELECTION_RECTANGLE);
-        if terminal.set_selection(Some(&selection)).is_err() {
+        let selection = libghostty_vt::selection::Selection::new(
+            terminal,
+            start_ref,
+            end_ref,
+            SELECTION_RECTANGLE,
+        );
+        if terminal.set_selection(Some(selection)).is_err() {
             log::warn!("ghostty_terminal: install selection failed");
         }
     }
@@ -266,7 +273,7 @@ impl super::GhosttyTerminal {
     /// 时起点回退到该宽字符的首列。端点格读不出时返回 None。
     pub(crate) fn selection_endpoint_columns(
         terminal: &Terminal<'_, '_>,
-        grid_ref: &GridRef<'_>,
+        grid_ref: GridRef<'_>,
     ) -> Option<(u32, u32, u32)> {
         let (row, col) = Self::absolute_coordinate(terminal, grid_ref)?;
         let cell = grid_ref.cell().ok()?;
@@ -292,12 +299,12 @@ impl super::GhosttyTerminal {
         matches: &mut Vec<SearchMatch>,
     ) {
         let Some((start_row, start_col, start_limit)) =
-            Self::selection_endpoint_columns(terminal, &selection.start())
+            Self::selection_endpoint_columns(terminal, selection.start())
         else {
             return;
         };
         let Some((end_row, end_col, end_limit)) =
-            Self::selection_endpoint_columns(terminal, &selection.end())
+            Self::selection_endpoint_columns(terminal, selection.end())
         else {
             return;
         };
@@ -333,7 +340,7 @@ impl super::GhosttyTerminal {
     /// 查询不必重建。needle 超上限不截断而是判为无命中——截断会让用户搜到另一个
     /// 串的结果。
     pub(crate) fn search_set_needle_impl<'term>(
-        search: &mut Option<Search<'_, 'term>>,
+        query_context: &mut QueryContext<'term>,
         terminal: &mut Terminal<'term, '_>,
         needle: &str,
     ) -> usize {
@@ -346,13 +353,16 @@ impl super::GhosttyTerminal {
         } else {
             needle
         };
+        // 换 needle 即重启搜索：上游丢弃全部结果，选中命中随之消失，缓存的
+        // 选中行一并清掉（否则高亮仍按旧命中的位置画强调色）。
+        query_context.selected_search.clear();
         // 关闭搜索（空 needle）且从未建过搜索对象时无事可做：不为一次清空
         // 分配并运行一个 idle 搜索。
-        if search.is_none() && needle.is_empty() {
+        if query_context.search.is_none() && needle.is_empty() {
             return 0;
         }
-        if search.is_none() {
-            match Search::new(terminal) {
+        if query_context.search.is_none() {
+            match Search::new(&*terminal) {
                 Ok(mut created) => {
                     // 视口滚动只能有一个来源：本仓的 `setScrollOffset` 以会话记录的
                     // `last_scroll_offset` 为增量基线，Kotlin 再按同一偏移算高亮行与
@@ -362,7 +372,7 @@ impl super::GhosttyTerminal {
                     if let Err(error) = created.set_scroll(Scroll::None) {
                         log::error!("ghostty_terminal: search scroll policy failed: {error}");
                     }
-                    *search = Some(created);
+                    query_context.search = Some(created);
                 }
                 Err(error) => {
                     log::error!("ghostty_terminal: search::Search::new failed: {error}");
@@ -370,7 +380,7 @@ impl super::GhosttyTerminal {
                 }
             }
         }
-        let Some(active) = search.as_mut() else {
+        let Some(active) = query_context.search.as_mut() else {
             return 0;
         };
         if let Err(error) = active.set_needle(terminal, needle.as_bytes()) {
@@ -395,24 +405,47 @@ impl super::GhosttyTerminal {
     /// 上游按 `Scroll::None` 选中、不移动视口；居中由宿主在拿到行号后完成，
     /// 滚动来源只有宿主的 `setScrollOffset`（见 `text-search` 规范）。
     pub(crate) fn search_select_impl<'term>(
-        search: &mut Option<Search<'_, 'term>>,
+        query_context: &mut QueryContext<'term>,
         terminal: &mut Terminal<'term, '_>,
         forward: bool,
     ) -> Option<SearchSelection> {
-        let active = search.as_mut()?;
-        let selected = if forward {
-            active.select_next(terminal)
-        } else {
-            active.select_prev(terminal)
+        let active = query_context.search.as_mut()?;
+        // 上游只在选中那一刻给出选中命中（`select_*` 的返回值），事后无处可读：
+        // 序号与命中区间都在这里取出来，`Match` 随作用域结束即释放。
+        let (index, selected_match) = {
+            let selected = if forward {
+                active.select_next(&*terminal)
+            } else {
+                active.select_prev(&*terminal)
+            };
+            let selected = match selected {
+                Ok(Some(selected)) => selected,
+                Ok(None) => {
+                    // 无命中即无选中态：上游清掉选中，缓存同步清空。
+                    query_context.selected_search.clear();
+                    return None;
+                }
+                Err(error) => {
+                    log::error!("ghostty_terminal: search select failed: {error}");
+                    return None;
+                }
+            };
+            let index = match selected.index() {
+                Ok(index) => index,
+                Err(error) => {
+                    log::error!("ghostty_terminal: search selected index failed: {error}");
+                    return None;
+                }
+            };
+            let selected_match = match selected.selection() {
+                Ok(selected_match) => selected_match,
+                Err(error) => {
+                    log::error!("ghostty_terminal: search selected match failed: {error}");
+                    return None;
+                }
+            };
+            (index, selected_match)
         };
-        match selected {
-            Ok(true) => {}
-            Ok(false) => return None,
-            Err(error) => {
-                log::error!("ghostty_terminal: search select failed: {error}");
-                return None;
-            }
-        }
         let total = match active.total_matches() {
             Ok(total) => total,
             Err(error) => {
@@ -420,89 +453,64 @@ impl super::GhosttyTerminal {
                 return None;
             }
         };
-        let index = active.selected_index().ok().flatten()?;
-        let snapshot = match active.snapshot(terminal) {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                log::error!("ghostty_terminal: search snapshot failed: {error}");
-                return None;
-            }
-        };
-        let selected_match = match snapshot.selected_match() {
-            Ok(Some(selected_match)) => selected_match,
-            Ok(None) => return None,
-            Err(error) => {
-                log::error!("ghostty_terminal: search selected_match failed: {error}");
-                return None;
-            }
-        };
-        let mut matches = Vec::new();
-        Self::search_matches_from_selection(snapshot.terminal(), &selected_match, &mut matches);
+        let mut rows = Vec::new();
+        Self::search_matches_from_selection(terminal, &selected_match, &mut rows);
+        let matched = rows.first()?.clone();
+        query_context.selected_search = rows;
         Some(SearchSelection {
             index,
             total,
-            matched: matches.first()?.clone(),
+            matched,
         })
     }
 
-    /// 视口高亮输入：一次 `snapshot` 同时取视口命中与选中命中（同一快照内一致，
-    /// 避免两次读取之间输出到达导致选中态与命中集不同源），回滚长度供渲染侧折算
-    /// 绝对行到网格行。
+    /// 视口高亮输入：视口命中取自上游搜索器（读前先喂一次，使命中集跟随终端
+    /// 输出），选中命中取自上次导航时记下的行区间，回滚长度供渲染侧折算绝对行
+    /// 到网格行。
+    ///
+    /// 选中命中只能来自导航那一刻：上游只把选中命中交给 `select_*` 的返回值，
+    /// 事后无处可读，故导航时把它的行区间记在 [`QueryContext::selected_search`]。
+    /// 换 needle 时上游丢弃全部结果，缓存同步清空。
     pub(crate) fn search_viewport_highlights_impl<'term>(
-        search: &mut Option<Search<'_, 'term>>,
-        match_buffer: &mut MatchBuffer,
+        query_context: &mut QueryContext<'term>,
         terminal: &mut Terminal<'term, '_>,
     ) -> SearchViewportHighlights {
         let scrollback_lines = scrollback_len(terminal);
-        let Some(active) = search.as_mut() else {
+        let Some(active) = query_context.search.as_mut() else {
             return SearchViewportHighlights {
                 matches: Vec::new(),
                 selected: Vec::new(),
                 scrollback_lines,
             };
         };
-        let snapshot = match active.snapshot(terminal) {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                log::error!("ghostty_terminal: search snapshot failed: {error}");
-                return SearchViewportHighlights {
-                    matches: Vec::new(),
-                    selected: Vec::new(),
-                    scrollback_lines,
-                };
-            }
-        };
-        let selected = match snapshot.selected_match() {
-            Ok(Some(selected_match)) => {
-                let mut selected_rows = Vec::new();
-                Self::search_matches_from_selection(
-                    snapshot.terminal(),
-                    &selected_match,
-                    &mut selected_rows,
-                );
-                selected_rows
-            }
-            Ok(None) => Vec::new(),
-            Err(error) => {
-                log::error!("ghostty_terminal: search selected_match failed: {error}");
-                Vec::new()
-            }
-        };
-        let Ok(viewport_matches) = snapshot.viewport_matches(match_buffer) else {
-            log::error!("ghostty_terminal: search viewport_matches failed");
+        // 喂一次搜索：命中集随终端输出变化，不喂则视口命中停留在上次喂入时的状态。
+        if let Err(error) = active.feed(&*terminal) {
+            log::error!("ghostty_terminal: search feed failed: {error}");
             return SearchViewportHighlights {
                 matches: Vec::new(),
-                selected,
+                selected: query_context.selected_search.clone(),
                 scrollback_lines,
             };
-        };
+        }
         let mut matches = Vec::new();
-        for selection in viewport_matches {
-            Self::search_matches_from_selection(snapshot.terminal(), &selection, &mut matches);
+        {
+            let Ok(viewport_matches) =
+                active.viewport_matches(&*terminal, &mut query_context.match_buffer)
+            else {
+                log::error!("ghostty_terminal: search viewport_matches failed");
+                return SearchViewportHighlights {
+                    matches: Vec::new(),
+                    selected: query_context.selected_search.clone(),
+                    scrollback_lines,
+                };
+            };
+            for selection in viewport_matches {
+                Self::search_matches_from_selection(terminal, &selection, &mut matches);
+            }
         }
         SearchViewportHighlights {
             matches,
-            selected,
+            selected: query_context.selected_search.clone(),
             scrollback_lines,
         }
     }

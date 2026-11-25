@@ -317,7 +317,8 @@ impl super::GhosttyTerminal {
         // 本次请求的序号随下一帧回传：渲染侧据此识别「早于在途滚动命令」的
         // 陈旧帧（那种帧仍是旧视口，呈现它会用旧视口配新余量）。
         extractors.note_scroll_request(request_id);
-        // C ABI 返回 void，且越界（已在顶部/底部）会静默钳制。
+        // 越界（已在顶部/底部）由上游静默钳制；失败只可能是上游内部错误，
+        // 记日志不静默：滚动没生效时用户看到的只是画面没动。
         // 用滚动条偏移的前后差取实际移动行数，避免在边界上按
         // 请求量平移缓存、把内容推出画面。读取失败时不做平移，
         // 下一帧整帧重建（正确性优先）。
@@ -326,7 +327,9 @@ impl super::GhosttyTerminal {
             ViewportTarget::Bottom => libghostty_vt::terminal::ScrollViewport::Bottom,
             ViewportTarget::Delta(delta) => libghostty_vt::terminal::ScrollViewport::Delta(delta),
         };
-        terminal.scroll_viewport(upstream);
+        if let Err(error) = terminal.scroll_viewport(upstream) {
+            log::warn!("ghostty_terminal: scroll_viewport failed: {error}");
+        }
         let after = terminal.scrollbar().map(|bar| bar.offset).ok();
         let actual_delta = match (before, after) {
             (Some(before), Some(after)) => Some(after as isize - before as isize),

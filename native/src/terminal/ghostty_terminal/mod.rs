@@ -37,21 +37,18 @@ const TERMINAL_THREAD_JOIN_TIMEOUT: Duration = Duration::from_millis(50);
 fn install_png_decoder() {
     static INSTALL: Once = Once::new();
     INSTALL.call_once(|| {
-        // SAFETY: 构造函数在动态库加载时执行，此前没有任何线程进入 libghostty。
-        if let Err(error) = unsafe {
-            libghostty_vt::kitty::graphics::set_png_decoder(Some(Box::new(
-                libghostty_vt::kitty::graphics::RustPngDecoder::new(),
-            )))
-        } {
-            log::error!("ghostty_terminal: set_png_decoder failed: {error}");
+        if let Err(error) = libghostty_vt::sys::PNG_DECODER
+            .install_with(|| Box::leak(Box::new(libghostty_vt::sys::RustPngDecoder::new())))
+        {
+            log::error!("ghostty_terminal: PNG_DECODER install failed: {error}");
         }
     });
 }
 
 /// 库加载即安装 PNG 解码器，理由见 [`install_png_decoder`]。
 ///
-/// Miri 无法执行 FFI（`set_png_decoder`），且纯 Rust 单测不触及 PNG 解码，
-/// 故模型检查构建跳过这次进程级安装。
+/// Miri 无法执行 FFI（`PNG_DECODER` 安装走 libghostty 门闩），且纯 Rust 单测不触及
+/// PNG 解码，故模型检查构建跳过这次进程级安装。
 #[cfg(all(any(target_os = "android", target_os = "linux"), not(miri)))]
 #[used]
 #[unsafe(link_section = ".init_array")]

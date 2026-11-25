@@ -257,7 +257,7 @@ impl super::GhosttyTerminal {
                         continue;
                     };
 
-                let codepoint = raw.codepoint().unwrap_or(0);
+                let codepoint = raw.codepoint().unwrap_or('\0');
 
                 // 跳过 Ghostty 为宽字符发出的 spacer 单元（SpacerTail、SpacerHead）。
                 // 它们没有内容，若照常推进会让 `current_col` 错位，
@@ -293,7 +293,7 @@ impl super::GhosttyTerminal {
                     };
 
                 row_data.push(CellData {
-                    codepoint,
+                    codepoint: u32::from(codepoint),
                     width,
                     grapheme_extra,
                     foreground,
@@ -354,7 +354,6 @@ impl super::GhosttyTerminal {
                 kitty_generation: terminal
                     .kitty_graphics()
                     .ok()
-                    .flatten()
                     .and_then(|graphics| graphics.generation().ok())
                     .unwrap_or(0),
                 kitty_placement_generation: snapshot.image_placements_generation().unwrap_or(0),
@@ -479,7 +478,7 @@ impl super::GhosttyTerminal {
                     }
                 };
 
-                let codepoint = raw.codepoint().unwrap_or(0);
+                let codepoint = raw.codepoint().unwrap_or('\0');
 
                 // 快照路径保留占位：与 CellData 跳过 Spacer 不同，快照按网格索引逐格存放，宽字符占位格须保留 width=1 条目以对齐行列。仅测试行使。
                 let width = match raw.wide() {
@@ -499,7 +498,7 @@ impl super::GhosttyTerminal {
                         .take(MAX_GRAPHEME_CLUSTERS)
                         .map(|&codepoint| codepoint as u32)
                         .collect(),
-                    Err(_) => vec![codepoint],
+                    Err(_) => vec![u32::from(codepoint)],
                 };
 
                 let foreground = Self::cell_color(cell.fg_color(), default_foreground);
@@ -508,7 +507,7 @@ impl super::GhosttyTerminal {
                     Self::resolve_style_color(terminal, style.underline_color, foreground);
 
                 cells.push(CellSnapshot {
-                    codepoint,
+                    codepoint: u32::from(codepoint),
                     graphemes,
                     foreground,
                     background,
@@ -616,7 +615,7 @@ impl super::GhosttyTerminal {
             let mut data = CellSnapshot::default();
             if let Ok(point) = terminal.grid_ref(point) {
                 if let Ok(cell) = point.cell() {
-                    data.codepoint = cell.codepoint().unwrap_or(0);
+                    data.codepoint = u32::from(cell.codepoint().unwrap_or('\0'));
                 }
                 if let Ok(style) = point.style() {
                     Self::apply_style_to_snapshot(
@@ -704,10 +703,10 @@ impl super::GhosttyTerminal {
     pub(crate) fn cursor_style_from_snapshot(
         snapshot: &libghostty_vt::render::Snapshot<'_, '_>,
     ) -> CursorStyle {
-        use libghostty_vt::render::CursorVisualStyle;
+        use libghostty_vt::terminal::CursorStyle as UpstreamCursorStyle;
         match snapshot.cursor_visual_style() {
-            Ok(CursorVisualStyle::Bar) => CursorStyle::Bar,
-            Ok(CursorVisualStyle::Underline) => CursorStyle::Underline,
+            Ok(UpstreamCursorStyle::Bar) => CursorStyle::Bar,
+            Ok(UpstreamCursorStyle::Underline) => CursorStyle::Underline,
             _ => CursorStyle::Block,
         }
     }
