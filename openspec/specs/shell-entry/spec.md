@@ -65,16 +65,21 @@ MUST NOT 提供启动目录设置框；`workingDirectory` MUST 默认为家目�
 
 ### Requirement: 默认入口按存在性依次探测
 
-设置为空时 MUST 依次寻找 `/data/data/com.termux/files/usr/bin/bash`、`/data/data/com.termux/files/usr/bin/login`、`/system/bin/sh`，文件存在即启动，不检查文件权限，失败不回退。
+设置为空时 MUST 依次寻找 `/data/data/com.termux/files/usr/bin/{login, bash, zsh, fish, sh}`，文件存在即启动，不检查文件权限，失败不回退；均不存在时启动 `/system/bin/sh`。命中前缀入口时 MUST 以登录 shell 语义启动：`bin/login` MUST NOT 带参数（上游 termux-tools 脚本自身以 `exec "$SHELL" -l "$@"` 启动 shell，多带参数会吞掉 motd），其余入口 MUST 追加 `-l`。
 
-#### Scenario: bash 存在即启动
+#### Scenario: login 优先于其余候选
 
-- **WHEN** Shell 设置为空且 prefix 下 `bin/bash` 文件存在
-- **THEN** 启动 `bin/bash`
+- **WHEN** Shell 设置为空且 prefix 下 `bin/login` 与 `bin/bash` 均存在
+- **THEN** 启动 `bin/login`，且不带参数
+
+#### Scenario: login 不存在时按顺序探测
+
+- **WHEN** Shell 设置为空且 prefix 下 `bin/login` 不存在而 `bin/bash` 存在
+- **THEN** 启动 `bin/bash -l`
 
 #### Scenario: 均不存在时用系统 sh
 
-- **WHEN** Shell 设置为空且 prefix 下 bash 与 login 均不存在
+- **WHEN** Shell 设置为空且 prefix 下 login、bash、zsh、fish、sh 均不存在
 - **THEN** 启动 `/system/bin/sh`
 
 #### Scenario: 自定义入口原样透传
