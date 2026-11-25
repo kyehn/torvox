@@ -8,6 +8,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.ui.theme.AppThemeMode
 import terminal.emulator.ui.theme.TerminalThemeMode
 import terminal.emulator.ui.theme.ThemeRepository
@@ -112,8 +113,10 @@ class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
                 stable
             }
         assertNotNull("终端输出在清屏前未稳定", settled)
-        checkNotNull(composeTestRule.getBridge())
-            .feedTerminal("\u001B[2J\u001B[H".toByteArray(Charsets.UTF_8))
+        // 用原生 reset 一次清空 VT 与回滚：注入 ESC[2J 只擦当前屏幕，回滚里的前序
+        // 文本仍会被 getTerminalText 读到，全量运行时上一用例的残留会让它恒不为空。
+        val sessionId = composeTestRule.activity.terminalViewModel.runtime.activeSessionId
+        NativeBridge.resetTerminal(sessionId)
         val cleared =
             UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
                 composeTestRule.pumpedTerminalText().isNullOrBlank()
