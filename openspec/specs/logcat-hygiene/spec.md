@@ -1906,6 +1906,8 @@ MUST NOT 加过滤器、降级日志或提高阈值。
 - **AND** 模拟器启动期的 `Unable to connect to adb daemon on port: 5037`、
       `adb: device offline`、`Failed to process .ini file`、Quickboot 与 libX11
       装载提示 MUST 归因为设备启动竞态与宿主库探测，日志中随后成功启动并完成全部用例
-- **AND** `Failure [not installed for 0]` MUST 归因为 `scripts/test-emulator.nu` 中
-      `pm uninstall --user 0 com.termux` 对未安装包的预期失败；该脚本是受保护文件，
-      MUST NOT 为消除这一行而修改它，也 MUST NOT 在日志侧过滤该行
+- **AND** `Failure [not installed for 0]` 与 `Failure [DELETE_FAILED_INTERNAL_ERROR]`
+      MUST 归因为 `scripts/test-emulator.nu` 中卸载未安装包的两处预期失败；该脚本是
+      受保护文件，MUST NOT 为消除这些行而修改它，也 MUST NOT 在日志侧过滤它们
+- **AND** `Emulator client has not yet been configured` 与 `Netsim Wifi … gone due to
+      Stream removed` MUST 归因为模拟器关停与 netsim 流结束，均发生在全部用例成功之后
