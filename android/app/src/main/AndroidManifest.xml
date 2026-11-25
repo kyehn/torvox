@@ -104,12 +104,6 @@
             android:name="saschpe.log4k.internal.ContextProvider"
             tools:node="remove" />
 
-        <!-- 泄漏检测只在 androidTest 里手动安装：自动安装的 provider 会在每个
-             debug 冷启动反射 ActivityThread/WindowManagerGlobal，产生 hidden API 告警。 -->
-        <provider
-            android:name="leakcanary.internal.MainProcessAppWatcherInstaller"
-            tools:node="remove" />
-
         <!-- Compose 仅在 EmojiCompat 已配置时走 emoji 替换路径；初始化器会在冷启动
              同步请求字体（真机 installContentProviders 578ms），移除后走平台自身的
              emoji 字形回退，不影响输入。Initializer 以 meta-data 注册，须从
