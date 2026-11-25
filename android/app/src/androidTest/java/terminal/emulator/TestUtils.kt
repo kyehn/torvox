@@ -25,7 +25,8 @@ import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.installer.TerminalPrefix
 import terminal.emulator.util.runCatchingCancellable
 
-private const val DRAWER_BUTTON_DESCRIPTION = "打开会话抽屉"
+// contentDescription 随界面语言变化；testTag 经 testTagsAsResourceId 暴露为稳定的 resource id。
+private const val DRAWER_BUTTON_TEST_TAG = "Key_DRAWER"
 private const val DRAWER_BUTTON_TIMEOUT_MS = 5_000L
 private const val BRIDGE_READY_TIMEOUT_MS = 30_000L
 private const val BRIDGE_POLL_INTERVAL_MS = 200L
@@ -335,7 +336,7 @@ fun AndroidComposeTestRule<*, *>.openDrawer() {
     if (device.hasObject(By.text("Allow")) || device.hasObject(By.text("ALLOW"))) {
         (device.findObject(By.text("Allow")) ?: device.findObject(By.text("ALLOW")))?.click()
     }
-    if (!device.wait(Until.hasObject(By.desc(DRAWER_BUTTON_DESCRIPTION)), DRAWER_BUTTON_TIMEOUT_MS)) {
+    if (!device.wait(Until.hasObject(By.res(DRAWER_BUTTON_TEST_TAG)), DRAWER_BUTTON_TIMEOUT_MS)) {
         fail("会话抽屉按钮未出现，无法继续")
     }
     // 抽屉键本身在键栏上（屏幕底部），软键盘弹起时正好压住它；而 UiDevice 的
@@ -344,12 +345,12 @@ fun AndroidComposeTestRule<*, *>.openDrawer() {
     // 故点击前统一收起键盘。
     Espresso.closeSoftKeyboard()
     waitForIdle()
-    device.findObject(By.desc(DRAWER_BUTTON_DESCRIPTION))?.click()
+    device.findObject(By.res(DRAWER_BUTTON_TEST_TAG))?.click()
         ?: fail("会话抽屉按钮无法点击")
     waitForIdle()
     // 第一次点击可能正落在 IME 收起动画上（坐标在动画期间仍属键盘）：未展开就重点一次。
     if (!drawerVisible(device, DRAWER_VISIBLE_TIMEOUT_MS / 2)) {
-        device.findObject(By.desc(DRAWER_BUTTON_DESCRIPTION))?.click()
+        device.findObject(By.res(DRAWER_BUTTON_TEST_TAG))?.click()
         waitForIdle()
         if (!drawerVisible(device, DRAWER_VISIBLE_TIMEOUT_MS)) {
             fail("会话抽屉点击后 ${DRAWER_VISIBLE_TIMEOUT_MS}ms 内未展开（已重试一次）")
@@ -479,20 +480,12 @@ fun AndroidComposeTestRule<*, *>.openSettings() {
         }
             .getOrDefault(false)
     if (directClickOpened) return
-    // Try UiAutomator on the button's testTag resource id (testTagsAsResourceId = true) and
-    // desc/text.
+    // 只按本应用 testTag 暴露的 resource id 查找。通用的 desc/text "Settings" 会命中
+    // 输入法自身的设置入口，点开后 Gboard 的 SettingsActivity 盖住应用，后续抽屉永远找不到。
     val uiResClickOpened =
         runCatchingCancellable {
-            val found =
-                device.wait(Until.hasObject(By.res("SettingsButton")), 3000) ||
-                    device.wait(Until.hasObject(By.desc("Settings")), 3000) ||
-                    device.wait(Until.hasObject(By.text("Settings")), 3000)
-            if (found) {
-                val settingsButton =
-                    device.findObject(By.res("SettingsButton"))
-                        ?: device.findObject(By.desc("Settings"))
-                        ?: device.findObject(By.text("Settings"))
-                settingsButton?.click()
+            if (device.wait(Until.hasObject(By.res("SettingsButton")), 3000)) {
+                device.findObject(By.res("SettingsButton"))?.click()
                 waitForIdle()
                 waitForSettingsScreenProbe(8000)
             } else {
@@ -515,31 +508,17 @@ fun AndroidComposeTestRule<*, *>.openSettings() {
             }
                 .getOrDefault(false)
         if (composeAfterDrawer) return
-        val selectors =
-            listOf(
-                By.res("SettingsButton"),
-                By.desc("Settings"),
-                By.text("Settings"),
-                By.res("SearchButton"),
-            )
-        var selectorClicked = false
-        for (selector in selectors) {
-            // Skip SearchButton — we only use it to confirm drawer is open, not to click Settings
-            if (selector == By.res("SearchButton")) {
-                if (!device.hasObject(selector)) continue else break
-            }
-            selectorClicked =
-                runCatchingCancellable {
-                    if (device.wait(Until.hasObject(selector), 5000)) {
-                        device.findObject(selector)?.click()
-                        true
-                    } else {
-                        false
-                    }
+        val selector = By.res("SettingsButton")
+        val selectorClicked =
+            runCatchingCancellable {
+                if (device.wait(Until.hasObject(selector), 5000)) {
+                    device.findObject(selector)?.click()
+                    true
+                } else {
+                    false
                 }
-                    .getOrDefault(false)
-            if (selectorClicked) break
-        }
+            }
+                .getOrDefault(false)
         if (selectorClicked) {
             waitForIdle()
             if (waitForSettingsScreenProbe(8000)) return
