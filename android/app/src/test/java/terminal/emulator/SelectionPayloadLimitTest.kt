@@ -27,6 +27,9 @@ import terminal.emulator.runtime.TerminalRuntime
  *
  * 截断点落在代理对中间时多取一字符保住完整码点：孤立的代理项进剪贴板或
  * Intent 后会被目标应用显示成替换字符，等于在边界处凭空造出一个乱码。
+ *
+ * 超过上限时仅取后段（`DESIGN.md`「文本选择」节）：选区尾端是最新输出，
+ * 复制/分享必须保留的是这一段，而不是最旧的段首。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -65,10 +68,24 @@ class SelectionPayloadLimitTest {
     }
 
     @Test
+    fun `share keeps the tail of an oversized selection`() {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val manager = managerWithText("a".repeat(CLIPBOARD_TEXT_MAX_LENGTH) + "TAIL")
+
+        manager.shareSelection()
+
+        val chooser = shadowOf(application).nextStartedActivity
+        val target = chooser.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+        val shared = target?.getStringExtra(Intent.EXTRA_TEXT)
+        assertEquals(CLIPBOARD_TEXT_MAX_LENGTH, shared?.length)
+        assertTrue("超长选区只取后段", shared?.endsWith("TAIL") == true)
+    }
+
+    @Test
     fun `share keeps the surrogate pair intact at the truncation boundary`() {
         val application = ApplicationProvider.getApplicationContext<Application>()
-        // 上限恰好切在表情中间：高代理项落在末位，低代理项落在界外。
-        val manager = managerWithText("a".repeat(CLIPBOARD_TEXT_MAX_LENGTH - 1) + "😀" + "b")
+        // 上限恰好切在表情中间：低代理项落在段首，其高代理项落在界外。
+        val manager = managerWithText("😀" + "a".repeat(CLIPBOARD_TEXT_MAX_LENGTH - 1))
 
         manager.shareSelection()
 
@@ -76,20 +93,34 @@ class SelectionPayloadLimitTest {
         val target = chooser.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
         val shared = target?.getStringExtra(Intent.EXTRA_TEXT)
         assertEquals(CLIPBOARD_TEXT_MAX_LENGTH + 1, shared?.length)
-        assertTrue("截断不得留下半个代理项", shared?.endsWith("😀") == true)
+        assertTrue("截断不得留下半个代理项", shared?.startsWith("😀") == true)
+    }
+
+    @Test
+    @SuppressLint("DeprecatedCall") // primaryClip/getPrimaryClip: no @Deprecated in API 37; slack-lint rule data lag
+    fun `copy keeps the tail of an oversized selection`() {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val manager = managerWithText("a".repeat(CLIPBOARD_TEXT_MAX_LENGTH) + "TAIL")
+
+        manager.copySelectionToClipboard()
+
+        val clipboard = application.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val copied = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+        assertEquals(CLIPBOARD_TEXT_MAX_LENGTH, copied?.length)
+        assertTrue("超长选区只取后段", copied?.endsWith("TAIL") == true)
     }
 
     @Test
     @SuppressLint("DeprecatedCall") // primaryClip/getPrimaryClip: no @Deprecated in API 37; slack-lint rule data lag
     fun `copy keeps the surrogate pair intact at the truncation boundary`() {
         val application = ApplicationProvider.getApplicationContext<Application>()
-        val manager = managerWithText("a".repeat(CLIPBOARD_TEXT_MAX_LENGTH - 1) + "😀" + "b")
+        val manager = managerWithText("😀" + "a".repeat(CLIPBOARD_TEXT_MAX_LENGTH - 1))
 
         manager.copySelectionToClipboard()
 
         val clipboard = application.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val copied = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
         assertEquals(CLIPBOARD_TEXT_MAX_LENGTH + 1, copied?.length)
-        assertTrue("截断不得留下半个代理项", copied?.endsWith("😀") == true)
+        assertTrue("截断不得留下半个代理项", copied?.startsWith("😀") == true)
     }
 }

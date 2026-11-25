@@ -7,9 +7,9 @@ import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.isElf
 import terminal.emulator.runtime.isSystemShellScript
-import terminal.emulator.runtime.truncateTextAtCharBoundary
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.readAtMost
+import terminal.emulator.util.truncateTextKeepingHead
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
@@ -186,7 +186,7 @@ class BootstrapInstaller(
             LogUtil.error(
                 "BootstrapInstaller",
                 "Install failed: ${exception.javaClass.simpleName}: ${exception.message?.let {
-                    truncateTextAtCharBoundary(it, 300)
+                    truncateTextKeepingHead(it, 300)
                 }}",
             )
             // 丢弃部分解压的 staging 目录：它可能有数百 MB，

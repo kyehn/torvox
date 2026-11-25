@@ -13,8 +13,8 @@ import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.runtime.pasteByteChunks
 import terminal.emulator.runtime.truncatePasteText
-import terminal.emulator.runtime.truncateTextAtCharBoundary
 import terminal.emulator.util.TerminalDispatchers
+import terminal.emulator.util.truncateTextKeepingTail
 
 /** 剪贴板与分享文本上限：超出部分截断，避免一次性搬运超大文本（分享还受 Binder 事务上限约束）。 */
 internal const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
@@ -243,7 +243,8 @@ internal class SelectionManager(
         }
         // 截断点落在代理对中间时多取一字符保住完整码点：孤立的代理项进剪贴板
         // 后会被目标应用显示成替换字符，等于在边界处凭空造出一个乱码。
-        val clipped = truncateTextAtCharBoundary(rawText, CLIPBOARD_TEXT_MAX_LENGTH)
+        // 超过上限时只取后段（DESIGN.md「文本选择」节）：选区尾端是最新输出。
+        val clipped = truncateTextKeepingTail(rawText, CLIPBOARD_TEXT_MAX_LENGTH)
         clipboardAccess.setClipboardText(clipped, label = "terminal selection")
         // 动作完成后关闭浮动菜单；保留高亮。
         terminalState.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
@@ -292,11 +293,10 @@ internal class SelectionManager(
             LogUtil.warn("SelectionManager", "分享跳过: 选区文本为空 ${selectionBoundsForLog()}")
             return
         }
-        // 与复制同一上限：整段选区可达数百万字符（大回滚区全选），而 Intent 的
-        // extra 要经 Binder 传进目标应用，超过事务上限时 startActivity 直接抛
+        // 与复制同一上限与同一截断口径（仅取后段）：整段选区可达数百万字符（大回滚区全选），
+        // 而 Intent 的 extra 要经 Binder 传进目标应用，超过事务上限时 startActivity 直接抛
         // TransactionTooLargeException——分享按钮变成崩溃入口。
-        // 与复制同一截断口径：代理对边界同样保住完整码点。
-        val sharedText = truncateTextAtCharBoundary(rawText, CLIPBOARD_TEXT_MAX_LENGTH)
+        val sharedText = truncateTextKeepingTail(rawText, CLIPBOARD_TEXT_MAX_LENGTH)
         val shareIntent =
             Intent.createChooser(
                 Intent(Intent.ACTION_SEND).apply {

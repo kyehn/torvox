@@ -165,7 +165,7 @@ DESIGN 不支持双击/三击/多击选择：多次快速轻击 MUST NOT 触发�
 #### Scenario: 分享载荷按复制上限截断
 
 - **WHEN** 全选大回滚区（整段选区可达数百万字符）后点击分享
-- **THEN** 分享的 `EXTRA_TEXT` 按与复制相同的上限截断，不因超过 Binder 事务上限而崩溃
+- **THEN** 分享的 `EXTRA_TEXT` 按与复制相同的上限与截断口径（仅取后段）截断，不因超过 Binder 事务上限而崩溃
 
 #### Scenario: 截断点不切断代理对
 
@@ -339,11 +339,18 @@ MUST 确认窗口仍附着在视图树上，`isShowing` 不足以判定存活—
 ### Requirement: 复制语义
 
 复制 MUST 按折行感知拼接：软换行处 MUST NOT 注入换行符，行尾空白 MUST 按上游格式化裁剪。
+内容超过 `CLIPBOARD_TEXT_MAX_LENGTH` 时 MUST 仅取后段（末段）：选区尾端是最新输出，
+截掉段首才是用户要保留的部分。分享载荷 MUST 按同一上限与同一截断口径处理。
 
 #### Scenario: 软换行不注入换行
 
 - **WHEN** 选区跨越自动折行的行
 - **THEN** 复制文本在折行处直接拼接且无多余换行
+
+#### Scenario: 超长选区仅取后段
+
+- **WHEN** 选区文本长度超过 `CLIPBOARD_TEXT_MAX_LENGTH`
+- **THEN** 剪贴板内容为原文的后段（末 `CLIPBOARD_TEXT_MAX_LENGTH` 个字符），段首被截掉
 
 ### Requirement: 拖动边界只有一份实时真源
 
