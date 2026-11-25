@@ -1867,3 +1867,17 @@ MUST NOT 加过滤器、降级日志或提高阈值。
       MUST NOT 把它归为渲染回归或据此放宽慢帧阈值
 - **AND** 优化方向的证据 MUST 是合并清单里的 provider 数量与同一设备的新日志，
       MUST NOT 只凭猜测增减 provider
+
+#### Scenario: 近期提交与日志形态的对应
+
+- **WHEN** 核对六日内改动日志、渲染、滚动与 Shell 的提交，并在新日志里找对应形态
+- **THEN** `feat(log): Android 日志接入 Timber 并用 governor 节流慢日志`（后续替换为
+      Log4K）对应的 `SLOW_RENDER_INNER`／`SLOW_FRAME`／`SLOW_LOOP` MUST 带窗口计数与
+      500ms 限频；新日志每组只有一条，MUST NOT 被当成回归
+- **AND** `fix(render): 遮罩回读等待本设备提交并按设备丢失归一` 对应的丢失循环在新日志
+      为 0，`fix(scroll): 新输出贴底同拍清掉亚行余量` 对应的 245 行回滚仍正常记账；
+      `chore(native): 推进 libghostty-vt 并适配破坏性 API` 后无 panic，三者 MUST 记为
+      「新日志未复现旧症状」，MUST NOT 升级成「已彻底修复」
+- **AND** `refactor(log): 用 Log4K 替换 Timber` 之后的两个优化（移除 Log4K 的
+      `ContextProvider`、恢复 R8 优化）MUST 以合并清单 provider 数与 release APK
+      的真机冷启动日志复核；日志采集早于这两个优化，MUST NOT 用这批日志为它们背书
