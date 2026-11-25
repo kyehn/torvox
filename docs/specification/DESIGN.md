@@ -71,7 +71,7 @@
 
 - 日志需要在 Android `logcat` 中可见以便调试，同时避免在渲染热路径上产生性能开销，避免大量内存占用和高频输出，日志不该影响功能，不阻塞运行。不将日志写入文件，不保存日志。使用 <https://github.com/saschpe/Log4K>。kotlinx.coroutines 可用于日志限流
 
-- <https://github.com/Manabu-GT/DebugOverlay-Android> 可被使用
+- <https://github.com/Manabu-GT/DebugOverlay-Android>、<https://github.com/square/leakcanary> 可被使用
 
 - `applicationId = "com.termux"`。
 
