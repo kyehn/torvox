@@ -668,13 +668,10 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         val frameMs = renderNanos / NANOS_PER_MILLI
         if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
             instrumentation.slowFrameThrottle.record()?.let { slowFrames ->
-                val message =
-                    "SLOW_FRAME session=${entry.sessionId} render=$frameMs count=$count slow_frames=$slowFrames newOutput=$newOutput scrollOffset=$scrollOffset scrollRemainderPx=${entry.scrollRemainderPx}"
-                if (frameMs >= 60.0) {
-                    LogUtil.warn("Runtime", message)
-                } else {
-                    LogUtil.info("Runtime", message)
-                }
+                LogUtil.warn(
+                    "Runtime",
+                    "SLOW_FRAME session=${entry.sessionId} render=$frameMs count=$count slow_frames=$slowFrames newOutput=$newOutput scrollOffset=$scrollOffset scrollRemainderPx=${entry.scrollRemainderPx}",
+                )
             }
         }
     }
@@ -1075,7 +1072,8 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         pollNanos: Long,
         tailNanos: Long,
     ) {
-        val message =
+        LogUtil.warn(
+            "Runtime",
             "SLOW_LOOP " +
                 "session=${entry.sessionId} " +
                 "total=${totalNanos / NANOS_PER_MILLI}ms " +
@@ -1085,12 +1083,8 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                 "backoff=${backoffNanos / NANOS_PER_MILLI}ms " +
                 "poll=${pollNanos / NANOS_PER_MILLI}ms " +
                 "tail=${tailNanos / NANOS_PER_MILLI}ms " +
-                "slow_loops=$slowLoops"
-        if (totalNanos >= 60_000_000L) {
-            LogUtil.warn("Runtime", message)
-        } else {
-            LogUtil.info("Runtime", message)
-        }
+                "slow_loops=$slowLoops",
+        )
     }
 
     /**
