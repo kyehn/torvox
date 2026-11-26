@@ -1,5 +1,6 @@
 package terminal.emulator.settings
 
+import java.io.File
 import java.io.StringReader
 import java.util.Properties
 
@@ -814,4 +815,32 @@ internal object ExtraKeysParser {
         cursor.warnings += "extra-keys: malformed popup object dropped (${error.message})"
         return null
     }
+}
+
+/**
+ * `default-working-directory` 的解析（termux 语义）。
+ *
+ * 空值 → 家目录；`~` 或 `~/x` → 家目录下；相对路径 → 相对家目录；绝对路径 → 原样。
+ *
+ * 解析结果必须落在真实存在且可读的目录上，否则回退家目录（termux 的
+ * `getDefaultWorkingDirectoryInternalPropertyValueFromValue` 同样回退）：目录不存在或
+ * 不可读时 PTY 会直接失败，会话根本起不来——配置里的一个笔误不该让应用「打不开终端」。
+ *
+ * 尾部的 `/` 一律去掉（`/` 自身除外）：shell 启动后经 OSC 7 回报的是规范化路径，若配置里
+ * 写成 `~/src/`，会话抽屉会先显示 `src/`、第一条提示符后翻成 `src`——同一个会话在两帧之间
+ * 换了名字，看起来像切换了目录。
+ */
+internal fun resolveWorkingDirectory(configured: String, homeDir: String): String {
+    val trimmed = configured.trim()
+    if (trimmed.isEmpty()) return homeDir
+    val expanded =
+        when {
+            trimmed == "~" -> homeDir
+            trimmed.startsWith("~/") -> homeDir + trimmed.removePrefix("~")
+            else -> trimmed
+        }
+    val absolute = if (expanded.startsWith("/")) expanded else "$homeDir/$expanded"
+    val normalized = absolute.trimEnd('/').ifEmpty { "/" }
+    val directory = File(normalized)
+    return if (directory.isDirectory && directory.canRead()) normalized else homeDir
 }

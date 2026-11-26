@@ -8,6 +8,7 @@ import terminal.emulator.bridge.Shell
 import terminal.emulator.bridge.TerminalConfig
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.settings.TermuxPropertiesRepository
+import terminal.emulator.settings.resolveWorkingDirectory
 import java.io.File
 
 /**

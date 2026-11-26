@@ -5,8 +5,6 @@ import android.system.Os
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.LogUtil
-import terminal.emulator.runtime.isElf
-import terminal.emulator.runtime.isSystemShellScript
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.readAtMost
 import terminal.emulator.util.truncateTextKeepingHead

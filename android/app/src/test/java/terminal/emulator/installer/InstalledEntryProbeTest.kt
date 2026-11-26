@@ -1,4 +1,4 @@
-package terminal.emulator.runtime
+package terminal.emulator.installer
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

@@ -1,4 +1,4 @@
-package terminal.emulator.runtime
+package terminal.emulator.bridge
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.currentTime

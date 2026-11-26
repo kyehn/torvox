@@ -1,13 +1,10 @@
 package terminal.emulator.runtime
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.settings.ColorsProperties
 import terminal.emulator.settings.TerminalCursorStyle
-import java.io.File
 import kotlin.math.round
 
 // 运行期的纯计算：网格与视口尺寸、渲染节拍与失败退避、会话与选区判定。
@@ -59,45 +56,6 @@ internal fun shouldResetScroll(
  * 网格退化的情形由网格计算自身兜住：行列至少一行一列（见 `computeGridDimensions`）。
  */
 internal fun isStartSizeUsable(width: Int, height: Int): Boolean = width > 0 && height > 0
-
-/**
- * [file] 是否以 ELF 魔数（0x7f 'E' 'L' 'F'）开头。用于在 prefix shell 解析中排除 shebang 脚本：
- * linker-wrapper 的 spawn 路径只能加载真正的 ELF 二进制。
- */
-internal fun isElf(file: File): Boolean = try {
-    file.inputStream().use { input ->
-        val magic = ByteArray(4)
-        val read = input.read(magic)
-        read == 4 &&
-            magic[0] == 0x7f.toByte() &&
-            magic[1] == 'E'.code.toByte() &&
-            magic[2] == 'L'.code.toByte() &&
-            magic[3] == 'F'.code.toByte()
-    }
-} catch (exception: Exception) {
-    LogUtil.warn("Runtime", "isElf: cannot read ${file.absolutePath}", exception)
-    false
-}
-
-/**
- * 系统解释器启动脚本判定：首行 shebang 指向系统路径（`/system/bin/`）的脚本可由应用进程直接执行，无需经 linker
- * 桥接；指向应用私有目录的脚本不计入（其解释器本身尚不可用）。与安装器/启动路径共享，供通用 bootstrap 启动器脚本使用，不针对特定发行版。
- */
-internal fun isSystemShellScript(file: File): Boolean = try {
-    file.inputStream().use { input ->
-        val header = ByteArray(64)
-        val read = input.read(header)
-        if (read <= 0) {
-            false
-        } else {
-            val firstLine = header.decodeToString(0, read).lineSequence().firstOrNull().orEmpty()
-            firstLine.startsWith("#!/system/bin/")
-        }
-    }
-} catch (exception: Exception) {
-    LogUtil.warn("Runtime", "isSystemShellScript: cannot read ${file.absolutePath}", exception)
-    false
-}
 
 // 死渲染线程重启的退避起点、上限与重启后的健康确认宽限期（见 RenderSupervisor）。
 internal const val INITIAL_RESTART_DELAY_MS = 100L
@@ -248,34 +206,6 @@ const val DEFAULT_GRID_COLS = 80
  */
 internal fun coerceSpToPxScale(density: Float, fontScale: Float, range: ClosedFloatingPointRange<Float>): Float =
     (density * fontScale).coerceIn(range.start, range.endInclusive)
-
-/**
- * `default-working-directory` 的解析（termux 语义）。
- *
- * 空值 → 家目录；`~` 或 `~/x` → 家目录下；相对路径 → 相对家目录；绝对路径 → 原样。
- *
- * 解析结果必须落在真实存在且可读的目录上，否则回退家目录（termux 的
- * `getDefaultWorkingDirectoryInternalPropertyValueFromValue` 同样回退）：目录不存在或
- * 不可读时 PTY 会直接失败，会话根本起不来——配置里的一个笔误不该让应用「打不开终端」。
- *
- * 尾部的 `/` 一律去掉（`/` 自身除外）：shell 启动后经 OSC 7 回报的是规范化路径，若配置里
- * 写成 `~/src/`，会话抽屉会先显示 `src/`、第一条提示符后翻成 `src`——同一个会话在两帧之间
- * 换了名字，看起来像切换了目录。
- */
-internal fun resolveWorkingDirectory(configured: String, homeDir: String): String {
-    val trimmed = configured.trim()
-    if (trimmed.isEmpty()) return homeDir
-    val expanded =
-        when {
-            trimmed == "~" -> homeDir
-            trimmed.startsWith("~/") -> homeDir + trimmed.removePrefix("~")
-            else -> trimmed
-        }
-    val absolute = if (expanded.startsWith("/")) expanded else "$homeDir/$expanded"
-    val normalized = absolute.trimEnd('/').ifEmpty { "/" }
-    val directory = File(normalized)
-    return if (directory.isDirectory && directory.canRead()) normalized else homeDir
-}
 
 /**
  * recomputeGridFromFontMetrics 背后的纯网格尺寸计算：cols = floor(surfaceWidth / cellWidth)，
@@ -565,27 +495,3 @@ internal fun renderErrorBackoffMillis(consecutiveErrors: Int): Long =
     } else {
         RENDER_ERROR_SLEEP_MS
     }
-
-/** 等待原生库加载完成的最长时间（毫秒）。 */
-private const val NATIVE_LIBRARY_LOAD_TIMEOUT_MS = 3_000L
-
-/** 等待原生库加载期间的轮询间隔（毫秒）。 */
-private const val NATIVE_LIBRARY_LOAD_POLL_INTERVAL_MS = 50L
-
-/**
- * 等待原生库加载完成，最多等 [NATIVE_LIBRARY_LOAD_TIMEOUT_MS] 毫秒。
- *
- * 原生库由 NativeInit 线程后台装载，首帧 surface 就绪时可能尚未完成；等待而非直接
- * 放弃，避免浪费一轮布局重建的启动延迟。等待以时间预算表达，不用「轮询次数」——
- * 轮询次数隐含「每次恰好间隔固定时长」的前提，负载高时实际等待会远超标称值。
- *
- * @param isLoaded 原生库是否已装载的判据
- * @return 超时前装载完成返回 true，超时返回 false
- */
-internal suspend fun awaitNativeLibraryLoad(isLoaded: () -> Boolean = { NativeBridge.isNativeLoaded() }): Boolean =
-    withTimeoutOrNull(NATIVE_LIBRARY_LOAD_TIMEOUT_MS) {
-        while (!isLoaded()) {
-            delay(NATIVE_LIBRARY_LOAD_POLL_INTERVAL_MS)
-        }
-        true
-    } ?: false

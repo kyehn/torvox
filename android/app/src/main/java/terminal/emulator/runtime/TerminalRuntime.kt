@@ -32,6 +32,7 @@ import terminal.emulator.TransientMessageChannel
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.TerminalConfig
+import terminal.emulator.bridge.awaitNativeLibraryLoad
 import terminal.emulator.installer.BootstrapDownloader
 import terminal.emulator.installer.BootstrapInstaller
 import terminal.emulator.installer.BootstrapOrchestrator

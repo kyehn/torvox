@@ -1,5 +1,7 @@
 package terminal.emulator.bridge
 
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.runtime.LogUtil
 import java.io.File
 import java.io.IOException
@@ -609,3 +611,27 @@ object NativeBridge {
      */
     @JvmStatic external fun setLogLevel(priority: Int)
 }
+
+/** 等待原生库加载完成的最长时间（毫秒）。 */
+private const val NATIVE_LIBRARY_LOAD_TIMEOUT_MS = 3_000L
+
+/** 等待原生库加载期间的轮询间隔（毫秒）。 */
+private const val NATIVE_LIBRARY_LOAD_POLL_INTERVAL_MS = 50L
+
+/**
+ * 等待原生库加载完成，最多等 [NATIVE_LIBRARY_LOAD_TIMEOUT_MS] 毫秒。
+ *
+ * 原生库由 NativeInit 线程后台装载，首帧 surface 就绪时可能尚未完成；等待而非直接
+ * 放弃，避免浪费一轮布局重建的启动延迟。等待以时间预算表达，不用「轮询次数」——
+ * 轮询次数隐含「每次恰好间隔固定时长」的前提，负载高时实际等待会远超标称值。
+ *
+ * @param isLoaded 原生库是否已装载的判据
+ * @return 超时前装载完成返回 true，超时返回 false
+ */
+internal suspend fun awaitNativeLibraryLoad(isLoaded: () -> Boolean = { NativeBridge.isNativeLoaded() }): Boolean =
+    withTimeoutOrNull(NATIVE_LIBRARY_LOAD_TIMEOUT_MS) {
+        while (!isLoaded()) {
+            delay(NATIVE_LIBRARY_LOAD_POLL_INTERVAL_MS)
+        }
+        true
+    } ?: false
