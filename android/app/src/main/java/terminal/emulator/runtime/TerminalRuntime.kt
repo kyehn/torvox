@@ -1155,8 +1155,8 @@ constructor(
                 // 帧内多次响铃已折叠成一个布尔，执行器再按 `bell-character` 限频。
                 bellPlayer.ring(termuxProperties.configuration.value.properties.bellCharacter)
             }
-            if (poll.clipboard != null) {
-                clipboardAccess.setClipboardText(poll.clipboard)
+            if (poll.hasClipboard) {
+                clipboardAccess.setClipboardText(poll.clipboard.orEmpty())
             }
             dispatchClipboardRequests(poll.clipboardReads)
         }

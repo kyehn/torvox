@@ -333,7 +333,12 @@ class Bridge(private val config: TerminalConfig) {
 
     // ── 事件 ──
     data class PollResult(
+        /**
+         * 本帧最后一次剪贴板写入的文本；`null` 仅表示「本帧没有写入事件」。
+         * 空串是合法写入（OSC 52 清空剪贴板），必须与「无事件」区分。
+         */
         val clipboard: String? = null,
+        val hasClipboard: Boolean = false,
         val exit: Boolean = false,
         /** 退出码；`null` 为「原生未能取得」（`waitpid` 失败），不是退出码 0。 */
         val exitCode: Int? = null,
@@ -347,7 +352,10 @@ class Bridge(private val config: TerminalConfig) {
     ) {
         /** 把后续轮询到的事件并入本结果，标量字段以后者为准。 */
         fun merge(later: PollResult): PollResult = PollResult(
-            clipboard = later.clipboard ?: clipboard,
+            // 剪贴板写入按键值事件处理：后来的事件即使文本为空也必须覆盖前值，
+            // 否则「先写入、后清空」在同一帧里会被合成为仍保留旧内容。
+            clipboard = if (later.hasClipboard) later.clipboard else clipboard,
+            hasClipboard = hasClipboard || later.hasClipboard,
             exit = exit || later.exit,
             // exitCode 与 sessionId 属于同一次（首次）退出。
             exitCode = if (later.exit && !exit) later.exitCode else exitCode,
@@ -407,7 +415,11 @@ class Bridge(private val config: TerminalConfig) {
             )
     ) {
         is PollEvent.Clipboard -> {
-            PollResult(clipboard = event.text.ifEmpty { null }, sessionId = event.sessionId)
+            PollResult(
+                clipboard = event.text,
+                hasClipboard = true,
+                sessionId = event.sessionId,
+            )
         }
 
         is PollEvent.Exit -> {

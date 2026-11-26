@@ -10,7 +10,8 @@ import org.junit.Test
  * Bridge.PollResult.merge — the frame-event coalescing contract: the
  * FIRST exit in a frame wins (sessionId/exitCode travel together),
  * request lists accumulate (each carries a distinct request_id), and
- * a later clipboard scalar overwrites the earlier one.
+ * a later clipboard write overwrites the earlier one — including an empty text,
+ * which is a legitimate OSC 52 clear, not an absent event.
  */
 class PollResultMergeTest {
     private fun exitResult(sessionId: Long, exitCode: Int) = Bridge.PollResult(
@@ -24,7 +25,7 @@ class PollResultMergeTest {
     @Test
     fun `first exit wins over a later non-exit event`() {
         val first = exitResult(sessionId = 7, exitCode = 0)
-        val later = Bridge.PollResult(clipboard = "text") // non-exit event
+        val later = Bridge.PollResult(clipboard = "text", hasClipboard = true) // non-exit event
         val merged = first.merge(later)
         assertTrue(merged.exit)
         assertEquals(7, merged.sessionId)
@@ -63,16 +64,30 @@ class PollResultMergeTest {
 
     @Test
     fun `later clipboard overwrites earlier value`() {
-        val first = Bridge.PollResult(clipboard = "a")
-        val merged = first.merge(Bridge.PollResult(clipboard = "b"))
+        val first = Bridge.PollResult(clipboard = "a", hasClipboard = true)
+        val merged = first.merge(Bridge.PollResult(clipboard = "b", hasClipboard = true))
         assertEquals("b", merged.clipboard)
+        assertTrue(merged.hasClipboard)
     }
 
     @Test
-    fun `null scalar does not clobber an existing value`() {
-        val first = Bridge.PollResult(clipboard = "a")
+    fun `later empty clipboard overwrites earlier value`() {
+        val first = Bridge.PollResult(clipboard = "a", hasClipboard = true)
+        val merged = first.merge(Bridge.PollResult(clipboard = "", hasClipboard = true))
+        assertEquals(
+            "OSC 52 clear in the same poll batch must win over the earlier write",
+            "",
+            merged.clipboard,
+        )
+        assertTrue(merged.hasClipboard)
+    }
+
+    @Test
+    fun `no clipboard event does not clobber an existing value`() {
+        val first = Bridge.PollResult(clipboard = "a", hasClipboard = true)
         val merged = first.merge(Bridge.PollResult())
         assertEquals("a", merged.clipboard)
+        assertTrue(merged.hasClipboard)
     }
 
     // ── accumulating lists ────────────────────────────────────────────

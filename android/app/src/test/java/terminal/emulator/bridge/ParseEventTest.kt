@@ -10,7 +10,7 @@ import org.junit.Test
  * (same precedent as `NativeBridgeStaticExportsTest`): JSON event → frame result.
  *
  * Locks the exact shapes the poll loop depends on — especially the empty-clipboard
- * mapping (: `""` → null, i.e. "no clipboard event this frame") and the
+ * mapping (`""` is a real write that clears the clipboard, not "no event") and the
  * nullable exit code (unknown must stay null, never 0).
  */
 class ParseEventTest {
@@ -35,9 +35,10 @@ class ParseEventTest {
     }
 
     @Test
-    fun `empty clipboard maps to no event`() {
+    fun `empty clipboard is a real clear event`() {
         val result = parse("""{"event":"clipboard","session_id":7,"text":""}""")
-        assertNull(result.clipboard)
+        assertTrue("an empty write must still be delivered", result.hasClipboard)
+        assertEquals("", result.clipboard)
     }
 
     @Test
