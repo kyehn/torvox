@@ -157,12 +157,15 @@ internal class CoverCapture(
      * 有一帧尚未回读（或被首帧/强制信号唤醒）时回读一次。
      */
     private fun captureIfNeeded() {
+        // 只认进入回读时的那一代：回读期间新到的帧必须留下自己的信号再回读一次，
+        // 否则会用旧帧的画面把新帧的序号也标记成已回读，最后一帧永远不更新。
+        val targetGeneration = generation.get()
         val forced = captureForced
         if (!forced) {
             // 周期回读：暂停期间不碰 GPU（设备可能在后台丢失，回读必然失败），
             // 且只在有新帧时才回读（没有新画面，回读到的还是同一帧）。
             if (backgroundPause.isPaused) return
-            if (generation.get() == capturedGeneration) return
+            if (targetGeneration == capturedGeneration) return
         }
         // 先清标志再取会话：会话已不在时这次强制回读作废，不留在标志里反复重试。
         captureForced = false
@@ -181,7 +184,7 @@ internal class CoverCapture(
         // 回读期间可能已切换会话：别把旧会话的画面盖到新会话的开孔上。
         if (activeSession()?.first != sessionId) return
         storedFrame = frame
-        capturedGeneration = generation.get()
+        capturedGeneration = targetGeneration
         LogUtil.debug(
             RUNTIME_LOG_TAG,
             "captureCoverFrame: 已缓存 ${frame.width}x${frame.height} 的开孔遮罩",

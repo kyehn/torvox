@@ -96,6 +96,32 @@ class CoverCaptureTest {
     }
 
     @Test
+    fun `a frame presented during a read is captured on its own signal`() = runTest {
+        var reads = 0
+        lateinit var capture: CoverCapture
+        capture =
+            CoverCapture(
+                scope = backgroundScope,
+                backgroundPause = BackgroundRenderPause(RenderPauseLedger { _ -> }),
+                holeJournal = HoleStateJournal(),
+                bufferPresent = { true },
+                activeSession = { 1L to bridge },
+                readFrame = {
+                    reads++
+                    if (reads == 1) capture.onFramePresented(immediateCapture = false)
+                    frame()
+                },
+            )
+        capture.start()
+        capture.onFramePresented(immediateCapture = true)
+        advanceTimeBy(1)
+        assertEquals(1, reads)
+
+        advanceTimeBy(COVER_CAPTURE_INTERVAL_MS)
+        assertEquals("回读期间到达的新帧必须再回读一次", 2, reads)
+    }
+
+    @Test
     fun `invalid frame size is rejected without publishing`() = runTest {
         val capture =
             CoverCapture(
