@@ -98,3 +98,21 @@ internal class HoleStateJournal(private val capacity: Int = DEFAULT_CAPACITY) {
         const val DEFAULT_CAPACITY = 32
     }
 }
+
+/**
+ * 开孔状态日志的差分：本次往返新增的条目。
+ *
+ * 日志是环形缓冲，满了就挤掉最早的条目，故不能按条数差分——前后都满时差分恒为空，
+ * 整段往返会被算成「什么都没发生」（实测全量仪器化套件里闪烁用例即如此判红）。
+ * 序号单调递增且不受绕回影响，按序号取才是稳的。
+ *
+ * @param journalBefore 往返前的快照
+ * @param journalAfter 往返后的快照
+ */
+internal fun holeStateCycle(
+    journalBefore: List<HoleStateEntry>,
+    journalAfter: List<HoleStateEntry>,
+): List<HoleStateEntry> {
+    val sequenceBefore = journalBefore.lastOrNull()?.sequence ?: 0L
+    return journalAfter.filter { it.sequence > sequenceBefore }
+}

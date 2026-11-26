@@ -1,5 +1,6 @@
 package terminal.emulator.runtime
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
@@ -193,4 +194,28 @@ internal class CoverCapture(
         // 出去。周期回读被节流，缓存可能落后于最后一帧；不换上去，遮罩里留的是旧画面。
         if (publishRequested) publish(frame)
     }
+}
+
+/**
+ * 遮罩回读的安全取回：失败不致命，沿用上一份缓存。
+ *
+ * 回读发生在 IO 线程的周期回读循环里（[CoverCapture.start]）：那里的异常会终止
+ * 回读协程，此后遮罩再也不会更新。故异常在此就地兜住并如实上报——遮罩拿不到
+ * 只是沿用旧缓存（用户看到的是闪一下），而回读循环死掉是更坏的结果。
+ *
+ * 回读**不在**渲染线程的退出路径上：那条路径上设备可能已丢失，回读必然失败
+ * （2026-11-17 真机日志），异常还会掀掉整个进程。
+ *
+ * `CancellationException` MUST 继续向上抛：那是协程取消信号，不是回读失败。
+ *
+ * @param read 取回遮罩帧；返回 null 表示没有可遮罩的内容。
+ * @param onFailure 失败时的上报（异常照实交出，不静默吞掉）。
+ */
+internal inline fun <T> readCoverFrameSafely(read: () -> T?, onFailure: (Exception) -> Unit): T? = try {
+    read()
+} catch (exception: CancellationException) {
+    throw exception
+} catch (exception: Exception) {
+    onFailure(exception)
+    null
 }
