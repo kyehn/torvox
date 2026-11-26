@@ -368,7 +368,7 @@ impl Session {
     ///
     /// `selections` 按原序给出；队首须保持原序，故逐条 `push_front` 时倒序灌入。
     ///
-    /// 退回的请求同样受 [`MAX_PENDING_CLIPBOARD_READS`] 约束：洪泛削减时每帧退回
+    /// 退回的请求同样受 `MAX_PENDING_CLIPBOARD_READS` 约束：洪泛削减时每帧退回
     /// 的条数与同帧新到达的条数相加，不受限则队列逐帧净增（每帧数百条），直到把
     /// 进程内存吃光——上限正是为挡住这类病态远端。超限丢最旧，与到达路径同一口径。
     pub fn requeue_clipboard_reads(&self, selections: Vec<String>) {
