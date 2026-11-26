@@ -1,4 +1,4 @@
-package terminal.emulator.runtime
+package terminal.emulator.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

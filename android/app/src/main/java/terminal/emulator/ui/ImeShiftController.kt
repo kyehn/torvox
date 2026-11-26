@@ -8,8 +8,66 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.runtime.LogUtil
-import terminal.emulator.runtime.computeContentBottomPx
-import terminal.emulator.runtime.computeImeSurfaceShift
+import kotlin.math.round
+
+/**
+ * 内容下沿像素：视口最后一个有内容的行的下沿（视口全空为 0）。
+ *
+ * 原生行顶为 `row * cellHeight`（浮点，见 `cell_builder.rs` 的 `quad_origin`），
+ * 故此处必须先浮点乘后取整。先 `toInt` 再乘会每行丢掉小数并随行数累积
+ * （N 行累积误差 = N × 小数部分），位移偏小、末行被键栏吞掉且随内容增多扩大。
+ * 取最近整数：浮点乘自带表示误差（如 50×45.6 得 2279.9999），`round` 恰好回到
+ * 本意像素边界；`ceil` 会把 2279.9999 进成 2280 后在某些对齐下多移 1px，
+ * 整屏文字错开 1px 即产生数千边缘差异像素，违背稀疏会话「无变化」。
+ */
+internal fun computeContentBottomPx(contentRow: Int, cellHeightPx: Float): Int {
+    if (contentRow < 0 || cellHeightPx <= 0f) return 0
+    return round((contentRow + 1) * cellHeightPx).toInt()
+}
+
+/**
+ * 输入法弹出时终端 Surface 的上移像素：只移「键盘遮住且上方放不下」的内容高度。
+ *
+ * 网格自顶端锚定渲染，键盘遮住的是网格**末尾**行，故无条件按整块键盘高度平移会把
+ * 稀疏会话（提示符在首行）整体推出屏幕上边界，终端区表现为全空（实测提示符由
+ * y=134 落到 y=−686）。本函数返回的量等价于 Termux `adjustResize` 会砍掉的那些行高：
+ * 放得下的内容每个像素都留在原处，放不下的才上移，且上移后末行恰好贴在键栏顶边。
+ *
+ * 备用屏（helix/vim 等全屏 TUI）恒占满视口，任何位移都会把应用顶部推出屏幕，
+ * 且位移后的视觉行与触摸换算行错位；此时位移恒为 0（顶部保持可见，触摸对齐恢复）。
+ * 主屏公式与行为不变。
+ *
+ * @param contentBottomPx 内容下沿像素（视口最后一个有内容的行的下沿，视口全空为 0）
+ * @param surfaceHeightPx Surface 布局高度（容器高度，键栏覆盖其底部）
+ * @param modifierBarHeightPx 键栏高度（网格已按同一口径预留）
+ * @param imeBottomPx 键盘遮挡高度（已扣除被 `navigationBarsPadding` 消费的系统导航条）
+ * @param isAltScreenActive 备用屏是否激活（全屏 TUI 应用）
+ *
+ * 上界取 `imeBottomPx`：位移超过键盘高度会在键盘上方留下一段终端背景空隙。
+ * 网格已保证内容下沿不超过网格高度，故该上界在正常路径上恒不生效，
+ * 只在字号变化瞬间（行数尚未随新行高重算）收敛位移。
+ *
+ * 位移把网格**顶部**若干行推出屏幕上边界（见 [TerminalSurface] 的显出量处理）：被推出
+ * 的行不在上滑行程里，只能由边界外的过度滑动按像素回收位移看回来。
+ *
+ * 显出量按「内容末行」与「光标所在行」中较低的一行计算：光标常落在最后一个有字行的
+ * **下一行**（提示符整行占满、或命令行结尾换行后），只按内容末行算出的位移会把光标
+ * 留在键盘后面——现象就是「prompt 占满整行时输入法光标不可见、没有剩余空间」。
+ */
+internal fun computeImeSurfaceShift(
+    contentBottomPx: Int,
+    surfaceHeightPx: Int,
+    modifierBarHeightPx: Int,
+    imeBottomPx: Int,
+    cursorBottomPx: Int,
+    isAltScreenActive: Boolean = false,
+): Int {
+    if (isAltScreenActive) return 0
+    val visibleContentPx = surfaceHeightPx - modifierBarHeightPx - imeBottomPx
+    // 光标行**低于**内容末行时取光标行；取不到光标（负值/0）时退化为只看内容末行。
+    val revealBottomPx = maxOf(contentBottomPx, cursorBottomPx)
+    return (revealBottomPx - visibleContentPx).coerceIn(0, imeBottomPx)
+}
 
 /**
  * 拥有输入法接入：平台 insets 派发、视口随键盘平移与备用屏网格重排。
