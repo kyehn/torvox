@@ -364,6 +364,29 @@ MUST 不作答（不写即拒绝）。
 - **WHEN** 单帧内的削减回写次数远超每帧上限
 - **THEN** 实际回写次数不超过上限，且至少发生过一次（削减分支并未整体失效）
 
+### Requirement: OSC 52 读取应答的负载须有上界
+
+OSC 52 读取应答（宿主剪贴板 → PTY）的负载 MUST 不超过字节上限
+（`MAX_CLIPBOARD_PAYLOAD_BYTES`，1MiB）；超限 MUST 截断到上限，截断点 MUST 落在 UTF-8
+字符边界，并 MUST 记一条限频告警。
+
+宿主剪贴板文本的长度不受本仓控制，而应答要整份 base64 编码后写进 PTY：无界负载会放大
+内存占用与写入量，写不完的部分还要整条留在续写队列里。写入方向早已封顶，读取方向
+不得是唯一一条无界的剪贴板载荷通道。
+
+实现：`Session::answer_clipboard_read` 经 `crate::terminal::truncate_clipboard_payload`
+截断（与写入方向同一上限与字符边界切点）。
+
+#### Scenario: 宿主剪贴板文本超过上限
+
+- **WHEN** 远端请求读取剪贴板且宿主剪贴板文本超过 1MiB
+- **THEN** 应答负载 MUST 被截到上限且截断点落在字符边界，远端 MUST 收到合法的 OSC 52 帧
+
+#### Scenario: 超限应答的截断出声
+
+- **WHEN** 读取应答的负载被截断
+- **THEN** MUST 记一条带窗口内累计次数的告警，MUST NOT 静默截断
+
 ### Requirement: 回滚行数在会话层按上游区间收窄
 
 会话创建时传入的回滚行数 MUST 按上游 `terminal-transcript-rows` 的区间

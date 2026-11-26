@@ -84,9 +84,9 @@ fn encode_paste_data(data: &[u8], bracketed: bool) -> Vec<u8> {
 const HYPERLINK_INLINE_BUFFER_SIZE: usize = 4096;
 /// 超链接 URI 上限（64KiB）：`OutOfSpace{required}` 重试的封顶，避免无界分配。
 const MAX_HYPERLINK_URI_BYTES: usize = 64 * 1024;
-/// OSC 52 剪贴板负载上限（1MiB）：远超任何真实剪贴板内容，又不至于让一份异常负载
-/// 拖垮进程内存（负载经 `String` 事件 → 事件队列 → Kotlin 剪贴板逐层复制）。
-const MAX_CLIPBOARD_PAYLOAD_BYTES: usize = 1024 * 1024;
+/// OSC 52 剪贴板负载上限：读写两个方向共用一份口径，定义在终端层
+/// （`crate::terminal`），免得两处各写一个数字后悄悄分叉。
+pub(crate) use crate::terminal::MAX_CLIPBOARD_PAYLOAD_BYTES;
 /// 选区形状：块选通道已移除（无入口、无 JNI 参数），选区固定为线性，故 rectangle 恒假。
 /// 具名而非就地写 `false`：两处安装/格式化入口共用该口径，就地字面量会让
 /// 「将来若引入块选」这件事看不出还需要改几个点。

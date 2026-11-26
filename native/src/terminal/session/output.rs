@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64};
 
 use super::{Session, SessionError};
 
+use crate::terminal::MAX_CLIPBOARD_PAYLOAD_BYTES;
+
 /// 待上报 OSC 52 剪贴板写入的上限。渲染暂停期间（设置页/输入法弹出）`poll_clipboard`
 /// 停调，而程序可继续发 OSC 52；超出即丢最旧，使内存不随「上游发得多快」增长。
 pub(super) const MAX_CLIPBOARD_TEXT_QUEUE: usize = 8;
@@ -41,6 +43,31 @@ pub(super) fn drop_excess_pty_responses(
     }
     queue.drain(..overflow);
     drop_log.record_events(u32::try_from(overflow).unwrap_or(u32::MAX))
+}
+
+/// OSC 52 读取应答被截断的告警闸门（窗口内累计次数）。
+///
+/// 应答可被程序洪泛（远端反复发读请求），逐条记 warn 会把 logcat 刷成洪水；
+/// 窗口汇总既限频又不丢计数。
+static CLIPBOARD_ANSWER_TRUNCATION_LOG: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::new();
+
+/// 记一次 OSC 52 读取应答的负载截断；闸门放行时输出窗口内累计的截断次数。
+///
+/// 返回 `None` 表示本次被限频压住：次数仍攒在闸门里，下次放行时一并交出——
+/// 限频吞掉的是条数，不是次数。
+///
+/// 截断是「有损但可见」的降级：远端拿到的是被截短的剪贴板内容（比整份丢弃好——
+/// 丢弃等于让子应用永远等不到回答），而用户侧能从日志看出剪贴板没被完整送达。
+pub(super) fn warn_clipboard_answer_truncated(
+    truncation_log: &crate::slow_log::CountedLogThrottle,
+) -> Option<u32> {
+    let count = truncation_log.record()?;
+    log::warn!(
+        "osc52: read answer payload truncated to {MAX_CLIPBOARD_PAYLOAD_BYTES} bytes; \
+         truncated {count} answers in window"
+    );
+    Some(count)
 }
 
 impl Session {
@@ -334,7 +361,15 @@ impl Session {
         budget: std::time::Duration,
     ) -> Result<(), SessionError> {
         use base64::Engine;
-        let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+        // 应答负载须有上界：宿主剪贴板文本的长度不受本仓控制（用户可能复制了超大
+        // 文本），而应答要整份 base64 编码后写进 PTY——无界负载会同时放大内存占用
+        // 与写入量（编码后还要再涨三分之一），写不完的部分还要整条留在续写队列里。
+        // 与 OSC 52 写入方向同一上限、同一字符边界切点（`crate::terminal`）。
+        let (payload, truncated) = crate::terminal::truncate_clipboard_payload(text.as_bytes());
+        if truncated {
+            warn_clipboard_answer_truncated(&CLIPBOARD_ANSWER_TRUNCATION_LOG);
+        }
+        let encoded = base64::engine::general_purpose::STANDARD.encode(payload);
         let mut response = Vec::with_capacity(selection.len() + encoded.len() + 8);
         response.extend_from_slice(b"\x1b]52;");
         response.extend_from_slice(selection.as_bytes());

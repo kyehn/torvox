@@ -219,3 +219,80 @@ fn clipboard_write_queue_is_bounded_and_drops_oldest() {
         "丢的必须是较旧的那批，队首才是等待最久的一条",
     );
 }
+
+/// 从 PTY 上取回的 OSC 52 读取应答里解出 base64 负载。
+fn decoded_answer_payload(written: &[u8]) -> Vec<u8> {
+    use base64::Engine;
+
+    let payload = written
+        .strip_prefix(b"\x1b]52;c;".as_slice())
+        .and_then(|rest| rest.strip_suffix(b"\x07".as_slice()))
+        .expect("应答必须是完整的 OSC 52 帧");
+    base64::engine::general_purpose::STANDARD
+        .decode(payload)
+        .expect("负载必须是合法 base64")
+}
+
+/// OSC 52 读取应答的负载须有上界：宿主剪贴板文本的长度不受本仓控制（用户可能复制了
+/// 超大文本），应答要整份 base64 编码后写进 PTY，无界负载会同时放大内存占用与写入量
+/// （编码后还要再涨三分之一），写不完的部分还要整条留在续写队列里。
+///
+/// 与 OSC 52 写入方向同一上限：写入方向早就封了顶，读取方向却是唯一一条无界的
+/// 剪贴板载荷通道——远端一条 `ESC ] 52 ; c ; ?` 就能让宿主把整份剪贴板搬进 PTY。
+#[test]
+fn clipboard_read_answer_is_truncated_to_the_payload_cap() {
+    let cap = crate::terminal::MAX_CLIPBOARD_PAYLOAD_BYTES;
+    let (mut session, handle) = crate::terminal::mock_pty::mock_session();
+    let text = "a".repeat(cap + 4096);
+    session
+        .answer_clipboard_read("c", &text, crate::terminal::pty::WRITE_BACK_TIMEOUT)
+        .expect("answer must succeed");
+
+    let decoded = decoded_answer_payload(&handle.written());
+    assert_eq!(decoded.len(), cap, "应答负载须被截到上限，不得整份搬进 PTY");
+}
+
+/// 截断必须落在字符边界：切在多字节序列中间时，远端拿到的是替换符而不是原文。
+#[test]
+fn clipboard_read_answer_truncates_on_a_char_boundary() {
+    let cap = crate::terminal::MAX_CLIPBOARD_PAYLOAD_BYTES;
+    // 4 字节字符的起始位置刻意让上限落在它的第 3 个字节上（续字节）。
+    let mut text = "a".repeat(cap - 2);
+    text.push('😀');
+
+    let (mut session, handle) = crate::terminal::mock_pty::mock_session();
+    session
+        .answer_clipboard_read("c", &text, crate::terminal::pty::WRITE_BACK_TIMEOUT)
+        .expect("answer must succeed");
+
+    let decoded = decoded_answer_payload(&handle.written());
+    let decoded = String::from_utf8(decoded).expect("截断后的负载必须是合法 UTF-8");
+    assert_eq!(
+        decoded.len(),
+        cap - 2,
+        "必须退到字符起始处，不得切在续字节上"
+    );
+    assert!(!decoded.contains('\u{FFFD}'), "截断结果不得含替换符");
+}
+
+/// 超限应答的截断必须出声，且窗口内计数不丢：远端拿到的是被截短的剪贴板，
+/// 用户侧只能从日志看出「剪贴板没被完整送达」。
+#[test]
+fn truncated_clipboard_answers_are_aggregated_per_window() {
+    let truncation_log = crate::slow_log::CountedLogThrottle::new();
+    assert_eq!(
+        super::super::output::warn_clipboard_answer_truncated(&truncation_log),
+        Some(1),
+        "首条必须可见，且带上窗口内累计的截断次数"
+    );
+    assert_eq!(
+        super::super::output::warn_clipboard_answer_truncated(&truncation_log),
+        None,
+        "窗口内的后续条目须被限频压住"
+    );
+    assert_eq!(
+        truncation_log.pending_count(),
+        1,
+        "窗口内的计数须攒着下次一并交出，不得丢弃"
+    );
+}
