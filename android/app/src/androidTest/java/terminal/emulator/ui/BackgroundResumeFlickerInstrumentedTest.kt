@@ -466,7 +466,7 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNull("前置：前台不得留着上一轮的遮罩", runtime.coverFrame.value)
         assertNotNull(
             "出帧后必须已缓存一帧遮罩（回读循环未运行）",
-            UxTestUtils.pollUntilTrue(10_000, 100) { runtime.hasStoredCoverFrame() },
+            UxTestUtils.pollUntilTrue(10_000, 100) { runtime.coverCapture.hasStored() },
         )
 
         val bridge = composeTestRule.requireBridge()

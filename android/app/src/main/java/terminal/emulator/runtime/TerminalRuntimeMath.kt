@@ -741,7 +741,7 @@ private const val NATIVE_LIBRARY_LOAD_POLL_INTERVAL_MS = 50L
 /**
  * 遮罩回读的安全取回：失败不致命，沿用上一份缓存。
  *
- * 回读发生在 IO 线程的周期回读循环里（`TerminalRuntime.coverCaptureLoop`）：那里的
+ * 回读发生在 IO 线程的周期回读循环里（`CoverCapture.start`）：那里的
  * 异常会终止回读协程，此后遮罩再也不会更新。故异常在此就地兜住并如实上报——
  * 遮罩拿不到只是沿用旧缓存（用户看到的是闪一下），而回读循环死掉是更坏的结果。
  *

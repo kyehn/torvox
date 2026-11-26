@@ -1157,7 +1157,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // 遮罩会一直留在开孔上。
                     coverHandoffFrames = 1
                     post {
-                        if (runtime.coverFrame.value === cover) runtime.clearCoverFrame()
+                        if (runtime.coverFrame.value === cover) runtime.coverCapture.clear()
                     }
                 }
             }
