@@ -9,7 +9,9 @@ import saschpe.log4k.Log as Log4K
  * 不做日志分块（PROHIBITED 禁止）：超出 logcat 单条上限的部分由 logcat 截断。
  *
  * 等级由 [LogLevel] 全局门控：当前等级低于本条日志的优先级时直接跳过，
- * 不构造消息也不进日志 sink。实际输出经 Log4K 的 [ConsoleLogger] 直接调用
+ * 不进日志 sink。消息字符串仍由调用方在调用前构造，故每帧/每事件路径 MUST 先用
+ * [isDebugEnabled] 短路，否则「关掉了日志」仍会逐帧构造成本。
+ * 实际输出经 Log4K 的 [ConsoleLogger] 直接调用
  * `android.util.Log`，不写文件。
  */
 object LogUtil {
@@ -28,6 +30,10 @@ object LogUtil {
     fun setLevel(newLevel: LogLevel) {
         level = newLevel
     }
+
+    /** 当前等级是否放行调试级：供热路径在构造消息字符串之前短路。 */
+    val isDebugEnabled: Boolean
+        get() = level.allows(Log.DEBUG)
 
     fun debug(tag: String, message: String, throwable: Throwable? = null) {
         if (level.allows(Log.DEBUG)) logger.log(Log4K.Level.Debug, tag, message, throwable)

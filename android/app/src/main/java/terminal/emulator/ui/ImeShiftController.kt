@@ -208,7 +208,8 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
     private fun applyImeInset(reserved: Int) {
         if (reserved == imeInsetPx) return
         imeInsetPx = reserved
-        LogUtil.debug(TerminalSurface.TAG, "setImeInsetPx: $reserved")
+        // 输入法动画每帧都会发出 insets：先判等级，避免逐帧构造调试字符串。
+        if (LogUtil.isDebugEnabled) LogUtil.debug(TerminalSurface.TAG, "setImeInsetPx: $reserved")
         applyImeShift()
         // 键栏（Compose 覆盖层）也按此高度上移。它只能走组合，故经运行期流发布：
         // 直接回调会在 insets 遍历内写组合状态，那次写入不保证被观察到。
