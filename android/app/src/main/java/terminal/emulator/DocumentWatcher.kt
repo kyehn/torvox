@@ -68,6 +68,9 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
 
     private val lock = Any()
 
+    /** 每次 shutdown 自增，用于识别在 watch() 中途插进来的停止操作。 */
+    private var generation = 0
+
     /** 合并窗口内累积的待播报：目录 docId（条目列表变化）与条目 docId（元数据变化）。 */
     private val pendingChildren = mutableSetOf<String>()
     private val pendingDocuments = mutableSetOf<String>()
@@ -125,22 +128,28 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
                     }
                 }
             }
-        // 创建与登记收进同一把锁：binder 线程并发对同一目录登记时，
-        // 锁外窗口会让两个观察者并存（各收一份事件，后者覆盖前者后 stop 永不
-        // 发生，白耗一个 inotify 槽位）。比对结果在同一锁内确认，避免并发二写。
+        // 创建、启用与登记收进同一把锁：锁外窗口会让两个观察者并存（各收一份
+        // 事件，后者覆盖前者后 stop 永不发生，白耗一个 inotify 槽位），也会让
+        // shutdown 在 startWatching 之前清空登记表，留下一个无人管理的活观察者。
+        // startWatching 是一次 inotify_add_watch 系统调用，此处低频，值得换取原子性。
+        // 平台事实（AOSP 13+，minSdk 33）：它返回 void，失败（含 ENOENT）只把
+        // wfds[i] 置 -1，既不抛异常也不打日志；事后复核兜住「检查后被删」。
         synchronized(lock) {
+            val generationAtEntry = generation
             if (watched[path] != null) return
-            watched[path] = observer
+            observer.startWatching()
+            // 复核必须晚于 startWatching 与 isDirectory：shutdown 可能在任一调用里
+            // 重入并清空登记表，此时再登记就是无人管理的活观察者。
+            val stillCurrent =
+                directory.isDirectory &&
+                    generation == generationAtEntry &&
+                    watched[path] == null
+            if (stillCurrent) {
+                watched[path] = observer
+            } else {
+                observer.stopWatching()
+            }
         }
-        // 启用保持锁外：inotify_add_watch 是系统调用，不该阻塞共享给
-        // onDirectoryEvent/flush 的这把锁。
-        // 平台事实（AOSP 13+，minSdk 33）：`FileObserver.startWatching()`
-        // 返回 void 且 native 端 `inotify_add_watch` 失败（含 ENOENT）
-        // 只把 `wfds[i]` 置 -1，既不抛异常也不打日志。前置检查挡住「已消失」，
-        // 事后复核再挡住「检查后、add_watch 前被删」：两者都不留占位，
-        // 下次查询才能重新登记，而不是永久静默失守。
-        observer.startWatching()
-        if (!directory.isDirectory) forget(path)
     }
 
     /**
@@ -177,6 +186,7 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
         val observers: List<FileObserver>
         val broadcaster: HandlerThread?
         synchronized(lock) {
+            generation++
             observers = watched.values.toList()
             watched.clear()
             pendingChildren.clear()
