@@ -466,7 +466,17 @@ pub(super) unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_
             };
             for font_index in 0..count {
                 let Some(item) = array.get_element(env, font_index).ok() else {
-                    log::warn!("setExtraFontPaths: 读不到第 {font_index} 个元素，放弃");
+                    // 读元素失败若没有待决异常，就必须自己抛：否则 Kotlin 看到成功，
+                    // 缓存被记成已应用，字体目录从此不再下发（与解码失败的处理一致）。
+                    // 已有异常在飞时 JNI 只允许有限调用，不能再 ThrowNew。
+                    if !env.exception_check() {
+                        let message = jni::strings::JNIString::from(format!(
+                            "setExtraFontPaths: cannot read element {font_index}"
+                        ));
+                        let _ = env.throw_new(jni_str!("java/lang/RuntimeException"), &message);
+                    } else {
+                        log::warn!("setExtraFontPaths: 读不到第 {font_index} 个元素，放弃");
+                    }
                     return Ok(());
                 };
                 let Some(text) = read_jni_string(env, &item, "setExtraFontPaths", "paths[]") else {
