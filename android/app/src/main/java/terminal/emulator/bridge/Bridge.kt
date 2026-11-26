@@ -477,9 +477,16 @@ class Bridge(private val config: TerminalConfig) {
     fun setExtraFontPaths(paths: List<String>) {
         LogUtil.debug(TAG, "setExtraFontPaths($paths)")
         // 原生只把路径列表登记给字体枚举（不重建管线、不重分配图集）；列表未变时
-        // 跳过重复的 JNI 调用与日志。
-        if (lastExtraFontPaths.getAndSet(paths) == paths) return
-        onSession("setExtraFontPaths", Unit) { NativeBridge.setExtraFontPaths(it, paths.toTypedArray()) }
+        // 跳过重复的 JNI 调用与日志。缓存只能在调用成功后推进：会话尚未建立时
+        // onSession 会跳过调用，提前写缓存会让这次路径再也送不到原生。
+        val previous = lastExtraFontPaths.get()
+        if (previous == paths) return
+        var delivered = false
+        onSession("setExtraFontPaths", Unit) {
+            NativeBridge.setExtraFontPaths(it, paths.toTypedArray())
+            delivered = true
+        }
+        if (delivered) lastExtraFontPaths.compareAndSet(previous, paths)
     }
 
     private fun probeDefaultFontFile(): String? =
