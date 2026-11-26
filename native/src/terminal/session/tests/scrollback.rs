@@ -27,10 +27,12 @@ fn session_with_scrollback_lines(lines: u32) -> Session {
     for _ in 0..4 {
         session.process_output();
     }
+    // 30s 与同类排空用例（`batch_latency`）同口径：整套测试并行跑时，5s 会把
+    // CPU 调度延迟误判成 VT 线程卡死。
     assert!(
         session
             .terminal()
-            .flush_with_timeout(std::time::Duration::from_secs(5)),
+            .flush_with_timeout(std::time::Duration::from_secs(30)),
         "VT 线程须在期限内排空"
     );
     session
