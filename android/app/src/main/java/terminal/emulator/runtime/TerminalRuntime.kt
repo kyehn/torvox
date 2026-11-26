@@ -252,6 +252,15 @@ constructor(
 
     internal val scope = CoroutineScope(SupervisorJob() + TerminalDispatchers.inputOutput)
 
+    private val desktopNotificationPump =
+        DesktopNotificationPump(
+            scope = scope,
+            pollEvent = { NativeBridge.pollNotificationEvent() },
+            sessionLabel = ::desktopNotificationSessionLabel,
+            deliver = desktopNotificationPlayer::dispatch,
+            foreground = { appForeground },
+        )
+
     internal val runtimeState = MutableStateFlow(RuntimeState())
     val state: StateFlow<RuntimeState> = runtimeState.asStateFlow()
 
@@ -1668,54 +1677,6 @@ constructor(
     }
 
     /**
-     * 桌面通知轮询协程是否已启动（幂等保护）。
-     *
-     * `start()` 可能被多次调用（每次 Surface 重建都会走到），而通知轮询必须只有一个：
-     * 两个协程同时消费同一条原生队列，通知会被随机分给其中一个投递器。
-     */
-    @Volatile private var notificationPollingStarted = false
-
-    /**
-     * 启动桌面通知轮询（幂等）。
-     *
-     * 通知走独立的原生队列（与事件队列分开），故需单独轮询；且与渲染生命周期无关——
-     * 应用在后台时通知仍须及时出现（那时只有会话推进泵在跑，它把通知推进队列）。
-     */
-    private fun startNotificationPolling() {
-        if (notificationPollingStarted) return
-        notificationPollingStarted = true
-        scope.launch {
-            while (isActive) {
-                try {
-                    drainNotifications()
-                } catch (exception: Exception) {
-                    // 单次轮询失败不终止轮询：原生侧把 VT 处理的 panic 转成 Java 异常
-                    // 抛出（见 `pollEvent` 的同类保护），异常逸出协程会走默认的未捕获
-                    // 异常处理——直接带崩进程。渲染循环对同类失败也是记日志后继续。
-                    LogUtil.error(RUNTIME_LOG_TAG, "desktop notification polling failed", exception)
-                }
-                delay(NOTIFICATION_POLL_INTERVAL_MS)
-            }
-        }
-    }
-
-    /**
-     * 排空待上报的桌面通知并逐条投递。
-     *
-     * 排空有界（见 `drainDesktopNotifications`）：一轮最多取用
-     * `MAX_NOTIFICATIONS_PER_DRAIN` 条，其余留在原生队列里，下一轮继续。
-     */
-    private fun drainNotifications() {
-        drainDesktopNotifications(
-            pollEvent = { NativeBridge.pollNotificationEvent() },
-            sessionLabel = ::desktopNotificationSessionLabel,
-            deliver = { notification ->
-                desktopNotificationPlayer.dispatch(notification, appForeground)
-            },
-        )
-    }
-
-    /**
      * 桌面通知的会话序号标签（如「会话 3」）；会话已关闭时为空串。
      *
      * 序号取会话表的升序下标（与抽屉里的顺序一致）：序号随会话增删变化，故每次投递时
@@ -1773,9 +1734,6 @@ constructor(
 
         /** 渲染暂停期间会话推进泵的节拍（毫秒），对标上游读侧 16ms 合并投递。 */
         private const val SESSION_PUMP_INTERVAL_MS = 16L
-
-        /** 桌面通知轮询间隔（毫秒）：通知低频，100ms 足以让通知及时出现而不空转。 */
-        private const val NOTIFICATION_POLL_INTERVAL_MS = 100L
     }
 
     /**
@@ -2013,7 +1971,7 @@ constructor(
             return
         }
         // 桌面通知轮询：原生库就绪后即可开始（通知队列与渲染线程无关）。
-        startNotificationPolling()
+        desktopNotificationPump.start()
         val displayW = context.resources.displayMetrics.widthPixels
         val displayH = context.resources.displayMetrics.heightPixels
         val density = context.resources.displayMetrics.density
