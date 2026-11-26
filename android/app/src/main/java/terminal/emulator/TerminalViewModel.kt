@@ -557,7 +557,6 @@ constructor(
                 // 运行期按升序发布（契约见 `RuntimeState.sessionIds`）：合并时保留已取回的
                 // 标题/目录，排序只在 mergeSessions 一处发生——「谁负责排序」只有一个答案。
                 val sortedIds = runtimeState.sessionIds
-                val sessions = mergeSessions(_state.value.sessions, sortedIds)
                 val active = runtimeState.activeSessionId
                 // SCROLL 按钮锁是 Compose 状态，每个 SessionEntry 各存一份镜像。
                 // 活动会话一换就把它对齐：新建会话的条目以 scrollActive=false 起步，
@@ -575,12 +574,14 @@ constructor(
                         runtimeState.title.ifEmpty { context.getString(R.string.session_number, displayIndex) }
                     // 用 _state.update（CAS）而非读-改-写：
                     // IO 调度器上的 createSession/switchSession 也会更新 _state，
-                    // 此处非原子的写入会覆盖它们刚提交的会话列表。
+                    // 此处非原子的写入会覆盖它们刚提交的会话列表。合并也必须在
+                    // CAS 内用 current.sessions：在外面读旧列表会把并发回填的标题/目录
+                    // 连同新会话条目一起覆盖。
                     _state.update { current ->
                         current.copy(
                             isRunning = runtimeState.isRunning,
                             title = title,
-                            sessions = sessions,
+                            sessions = mergeSessions(current.sessions, sortedIds),
                             activeSessionId = active,
                         )
                     }
@@ -597,7 +598,10 @@ constructor(
                     }
                 } else {
                     _state.update { current ->
-                        current.copy(sessions = sessions, activeSessionId = active)
+                        current.copy(
+                            sessions = mergeSessions(current.sessions, sortedIds),
+                            activeSessionId = active,
+                        )
                     }
                 }
                 refreshSessionMetas()
