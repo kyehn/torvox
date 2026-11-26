@@ -583,6 +583,10 @@ impl PtyPair {
                     // `MSG` 是静态字节切片（不分配）。
                     let _ =
                         unsafe { libc::write(2, MSG.as_ptr().cast::<libc::c_void>(), MSG.len()) };
+                    // 提示说回退到 `/`，就必须真的回退：否则 shell 继承父进程 cwd，
+                    // 与告知用户的工作目录不符。
+                    // SAFETY: 静态 NUL 结尾路径，fork 后调用 `chdir` 异步信号安全。
+                    let _ = unsafe { libc::chdir(c"/".as_ptr()) };
                 }
                 // 复位为 `SIG_DFL`，防止父进程自定义信号处理器泄漏。
                 for signal in [

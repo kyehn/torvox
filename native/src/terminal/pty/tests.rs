@@ -704,6 +704,39 @@ fn chdir_changes_working_directory() {
     );
 }
 
+/// 工作目录不存在时按提示真的回退到 `/`：此前只写提示、不改 cwd，shell 继承
+/// 父进程的 cwd（宿主测试里就是仓库目录），与告知用户的路径不符。
+#[test]
+fn missing_working_directory_falls_back_to_root() {
+    use crate::terminal::pty::Pty;
+
+    let temp = tempfile::tempdir().expect("create test dir failed");
+    let missing = temp.path().join("no-such-working-directory");
+    let env = ShellEnv {
+        working_directory: missing.to_string_lossy().to_string(),
+        ..ShellEnv::default()
+    };
+
+    let pty = PtyPair::spawn("/bin/sh", 24, 80, &env, None).expect("spawn failed");
+    pty.set_nonblocking().expect("set_nonblocking failed");
+    Pty::write_all(
+        &pty,
+        b"echo cwd-fallback:$(pwd)\n",
+        WRITE_DRAIN_TIMEOUT,
+        true,
+    )
+    .1
+    .expect("write failed");
+
+    const NEEDLE: &[u8] = b"cwd-fallback:/\r\n";
+    let output = read_until(&pty, NEEDLE);
+    assert!(
+        output.windows(NEEDLE.len()).any(|window| window == NEEDLE),
+        "missing cwd must fall back to '/', got: {}",
+        String::from_utf8_lossy(&output)
+    );
+}
+
 /// 子进程实际拿到的 PATH：Termux 的 bin 目录在前，宿主 PATH 保留在其后。
 ///
 /// 判别力：`base_env` 层的断言只覆盖合成逻辑；此处经真实 fork/execve 查看
