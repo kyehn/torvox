@@ -493,6 +493,9 @@ fun TerminalScreen(
             // 会话切换与输出引起的贴底复位）同步。手势滚动只在搜索可见时写
             // （见 onScrollChanged），故打开搜索时先补一次当前偏移。
             val viewportScrollOffset = remember { mutableIntStateOf(0) }
+            // `AndroidView.factory` 只在视图创建时运行一次：直接捕获 showTextSearch 会让
+            // 搜索打开后的手势滚动仍按创建时的 false 走，高亮镜像停在旧偏移。
+            val showTextSearchState = rememberUpdatedState(showTextSearch)
 
             LaunchedEffect(showTextSearch) {
                 if (showTextSearch) {
@@ -695,7 +698,7 @@ fun TerminalScreen(
                                             // 事件重组一次（主线程被重组占住时 vsync 回调
                                             // 迟到，滚动顿挫）；未开搜索时不写，打开时由
                                             // 下方 showTextSearch 的副作用补一次。
-                                            if (showTextSearch) {
+                                            if (showTextSearchState.value) {
                                                 viewportScrollOffset.intValue = offset
                                             }
                                             viewModel.runtime.setScrollOffset(offset)
