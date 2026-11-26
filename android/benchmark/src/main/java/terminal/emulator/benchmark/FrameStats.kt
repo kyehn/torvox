@@ -54,6 +54,9 @@ private val PERCENTILE_PATTERNS =
 internal fun parseFrameStats(output: String): FrameStats? {
     val frames =
         FRAME_COUNT_PATTERN.find(output)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+    // `dumpsys gfxinfo reset` 清零帧计数，但百分位行可能仍保留上一窗口的值。
+    // 零帧窗口里这些数字不属于本窗口，必须归零，否则空载会被记成 p50=4950ms。
+    if (frames == 0) return FrameStats.ZERO
     val janky = JANKY_PATTERN.find(output)?.groupValues
     val percentiles =
         PERCENTILE_PATTERNS.mapValues { (_, pattern) ->
