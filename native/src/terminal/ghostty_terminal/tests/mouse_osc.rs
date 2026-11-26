@@ -673,12 +673,10 @@ fn bench_typing_latency() {
         black_box(count);
     }
     let elapsed = start.elapsed();
-    let ms_per_keystroke =
-        elapsed.as_millis() as f64 / (round_count as f64 * keystrokes.len() as f64);
+    let elapsed_millis = elapsed.as_secs_f64() * 1000.0;
+    let ms_per_keystroke = elapsed_millis / (round_count as f64 * keystrokes.len() as f64);
     println!(
-        "Typing latency: {:.3}ms per keystroke ({:.1}ms for {} keystrokes)",
-        ms_per_keystroke,
-        elapsed.as_millis(),
+        "Typing latency: {ms_per_keystroke:.3}ms per keystroke ({elapsed_millis:.1}ms for {} keystrokes)",
         round_count * keystrokes.len(),
     );
     let threshold = 6.0;

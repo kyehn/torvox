@@ -3,9 +3,9 @@
 //! `build-and-validation` 规范要求性能基准也必须给出结果断言——没有断言的基准
 //! 在回归时只会安静地变慢，CI 依旧全绿。criterion 的统计区间不适合直接当门禁
 //! （机器差异大、偶发调度抖动会让合法提交变红），故这里在正式采样前跑一段
-//! **粗粒度**吞吐量测：上限按 CI 实测值（`[floor]` 打印）约 1.5 倍校准，
-//! 与 `docs/specification/TESTING.md` 的「基准需要和实际测试结果高度相近」一致，
-//! 既能发现明显劣化，又不至于被调度抖动判红。
+//! **粗粒度**吞吐量测：上限按各基准的 CI 实测值（`[floor]` 打印）与允许的退化
+//! 量级分别校准，与 `docs/specification/TESTING.md` 的「基准需要和实际测试结果
+//! 高度相近」一致，既能发现明显劣化，又不至于被调度抖动判红。
 //!
 //! 与 `native/src/render/tests/cell_pipeline.rs` 的 `bench_*` 用例互补：那边是
 //! CI 门禁的硬阈值，这边是 `cargo bench` 自身的兜底。
@@ -61,12 +61,12 @@ impl Floor {
             best_millis = best_millis.min(average_millis);
         }
         println!(
-            "[floor] {}: {:.3}ms average over {iterations} runs (best of {MEASUREMENT_ROUNDS}, limit {:.3}ms)",
-            self.what, best_millis, self.max_millis,
+            "[floor] {}: {best_millis:.6}ms average over {iterations} runs (best of {MEASUREMENT_ROUNDS}, limit {:.3}ms)",
+            self.what, self.max_millis,
         );
         assert!(
             best_millis <= self.max_millis,
-            "{}：单次平均 {best_millis:.3}ms，超出上限 {:.3}ms（{iterations} 次采样 × {MEASUREMENT_ROUNDS} 轮）",
+            "{}：单次平均 {best_millis:.6}ms，超出上限 {:.3}ms（{iterations} 次采样 × {MEASUREMENT_ROUNDS} 轮）",
             self.what,
             self.max_millis,
         );

@@ -100,8 +100,9 @@ fn build_instances(c: &mut Criterion) {
     // 按 CI 约 3 倍估 0.8ms，取 25 倍余量 = 20ms：
     //  - 回归到「每格重扫全库」是 740ms 量级，必然判红；
     //  - 25 倍余量足以吸收 CI 调度抖动与字体集差异。
+    // 生产路径跨帧复用实例缓冲；基准也复用，否则把每帧一次的分配算进构建成本。
+    let mut instances = Vec::new();
     support::Floor::new("build_instances_from_cell_data", 20.0).assert_within(16, || {
-        let mut instances = Vec::new();
         black_box(native::render::build_instances_from_cell_data(
             &cell_data,
             config,
@@ -113,7 +114,6 @@ fn build_instances(c: &mut Criterion) {
 
     c.bench_function("build_instances_from_cell_data", |b| {
         b.iter(|| {
-            let mut instances = Vec::new();
             black_box(native::render::build_instances_from_cell_data(
                 &cell_data,
                 config,

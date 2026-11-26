@@ -318,6 +318,8 @@ fn bench_end_to_end_cpu_pipeline_latency() {
     let content = b"user@host:~$ cargo build --release --features=test-util\n   Compiling native v0.1.0\n    Finished `release` profile [optimized] target(s) in 0.42s\n";
     let iteration_count = 20; // 20 screens
 
+    // 生产路径跨帧复用实例缓冲；基准也复用，避免把每帧分配算进管线成本。
+    let mut instances = Vec::new();
     let start = Instant::now();
     for _ in 0..iteration_count {
         terminal_under_test.vt_write(content);
@@ -332,7 +334,6 @@ fn bench_end_to_end_cpu_pipeline_latency() {
             style: cursor_info.style,
             ..test_cell_cursor(cursor_info.visible)
         };
-        let mut instances = Vec::new();
         super::super::build_instances_from_cell_data(
             &cells,
             test_config(24, 80, 1024.0 / 80.0, 1024.0 / 24.0, cursor, &[]),
@@ -343,10 +344,10 @@ fn bench_end_to_end_cpu_pipeline_latency() {
         black_box(count);
     }
     let elapsed = start.elapsed();
-    let ms_per_frame = elapsed.as_millis() as f64 / f64::from(iteration_count);
+    let ms_per_frame = elapsed.as_secs_f64() * 1000.0 / f64::from(iteration_count);
     let fps = f64::from(iteration_count) / elapsed.as_secs_f64();
     println!(
-        "End-to-end CPU pipeline: {ms_per_frame:.1}ms per frame ({fps:.0} fps) — terminal write + CellData + build_instances",
+        "End-to-end CPU pipeline: {ms_per_frame:.3}ms per frame ({fps:.0} fps) — terminal write + CellData + build_instances",
     );
     // Must complete within two frame budgets: the single-run cost is
     // ~8ms/frame, but the full test suite runs tests in parallel and CPU
