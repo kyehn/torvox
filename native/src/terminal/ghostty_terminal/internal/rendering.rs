@@ -118,6 +118,11 @@ impl super::GhosttyTerminal {
         let mut data = Vec::with_capacity(size);
         let mut current_row = 0u32;
         let mut extraction_complete = true;
+        // 逐单元复用的两处缓冲：组合记号码位与行内单元。
+        // 两者都按帧复用，避免每单元/每行一次堆分配（全屏重绘即约 1920 次）。
+        let mut grapheme_buffer = ['\0'; MAX_GRAPHEME_CLUSTERS];
+        let mut row_data: Vec<crate::terminal::ghostty_terminal::CellData> =
+            Vec::with_capacity(cols as usize);
         // 本次抽取的行级分流结果，仅测试读取；生产构建不声明，零开销。
         #[cfg(test)]
         let (mut reused_rows, mut extracted_rows) = (0u64, 0u64);
@@ -177,7 +182,7 @@ impl super::GhosttyTerminal {
                 None
             };
 
-            let mut row_data = Vec::with_capacity(cols as usize);
+            row_data.clear();
             let mut cell_iter_impl = match cell_iter.update(row) {
                 Ok(ci) => ci,
                 Err(error) => {
@@ -269,15 +274,24 @@ impl super::GhosttyTerminal {
                 };
 
                 let mut grapheme_extra = [0u32; MAX_GRAPHEME_EXTRA];
-                if let Ok(graphemes) = cell.graphemes() {
-                    for (grapheme_index, &codepoint) in graphemes
-                        .iter()
-                        .enumerate()
-                        .skip(1)
-                        .take(MAX_GRAPHEME_EXTRA)
-                    {
-                        grapheme_extra[grapheme_index - 1] = codepoint as u32;
+                // 复用调用方缓冲：上游 `graphemes()` 每次调用都新建 `Vec<char>`，
+                // 全屏重绘即每帧约 1920 次堆分配（实测稳态帧 708 次小分配）。
+                // `graphemes_buf` 写入调用方缓冲；空间不足时按上游约定保留前
+                // `cap` 个码位，与旧的「取前 MAX_GRAPHEME_EXTRA 个附加码位」
+                // 截断语义一致。
+                grapheme_buffer.fill('\0');
+                match cell.graphemes_buf(&mut grapheme_buffer) {
+                    Ok(()) | Err(libghostty_vt::error::Error::OutOfSpace { .. }) => {
+                        for (grapheme_index, &codepoint) in grapheme_buffer
+                            .iter()
+                            .enumerate()
+                            .skip(1)
+                            .take(MAX_GRAPHEME_EXTRA)
+                        {
+                            grapheme_extra[grapheme_index - 1] = codepoint as u32;
+                        }
                     }
+                    Err(_) => {}
                 }
 
                 // 终端持有选区的行内反白（经典反白：前景背景互换，与覆盖层旧语义一致；

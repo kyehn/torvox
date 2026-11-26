@@ -248,6 +248,27 @@ fn combining_mark_reaches_grapheme_channel() {
     );
 }
 
+/// 重用调用方缓冲后，超长簇仍须保留前 `MAX_GRAPHEME_EXTRA` 个附加码位，
+/// 不能因为缓冲区比上游向量短而整簇丢掉。
+#[test]
+fn overlong_grapheme_cluster_keeps_the_prefix() {
+    let mut clustered = terminal();
+    let mut input = b"e".to_vec();
+    for _ in 0..12 {
+        input.extend_from_slice("\u{301}".as_bytes());
+    }
+    input.push(b'x');
+    clustered.vt_write(&input);
+    clustered.flush();
+
+    let (cells, _) = clustered.receive_cell_data().expect("cell data");
+    let base = cells
+        .iter()
+        .find(|cell| cell.codepoint == 'e' as u32)
+        .expect("base e present");
+    assert_eq!(base.grapheme_extra, [0x301; MAX_GRAPHEME_EXTRA]);
+}
+
 #[test]
 fn vt_write_sanitize_keeps_high_bytes_drops_nul() {
     // NUL 必须剔除（mpv --vo=kitty 每帧追加一个游离 NUL）；0xF8–0xFF 必须原样保留
