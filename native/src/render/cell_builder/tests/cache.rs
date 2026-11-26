@@ -381,6 +381,51 @@ fn incremental_frame_with_midframe_eviction_has_current_uvs() {
     );
 }
 
+/// 24×80 预热用例的共用夹具：14px 字体决定的单元格尺寸、隐藏光标、空白网格。
+///
+/// 网格内容由 [character] 逐格决定；前景白、背景黑、无样式位。
+fn warm_fixture(
+    character: impl Fn(u32, u32) -> char,
+) -> (
+    crate::render::font::FontPipeline,
+    CellInstanceConfig<'static>,
+    Vec<CellData>,
+) {
+    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
+    let config = CellInstanceConfig {
+        rows: TEST_GRID_ROWS,
+        cols: TEST_GRID_COLS,
+        grid_cell_width: cell_width,
+        grid_cell_height: cell_height,
+        cursor: CellCursor {
+            row: 0,
+            col: 0,
+            visible: false,
+            style: crate::terminal::ghostty_terminal::CursorStyle::Block,
+            color: [1.0; 4],
+        },
+        atlas_width: 1024.0,
+        atlas_height: 1024.0,
+        search_highlights: &[],
+        default_background: [0.0; 4],
+    };
+    let mut cells = Vec::with_capacity((TEST_GRID_ROWS * TEST_GRID_COLS) as usize);
+    for row in 0..TEST_GRID_ROWS {
+        for col in 0..TEST_GRID_COLS {
+            cells.push(cell_data(
+                row,
+                col,
+                character(row, col),
+                [1.0; 4],
+                [0.0, 0.0, 0.0, 1.0],
+                0,
+            ));
+        }
+    }
+    (font_pipeline, config, cells)
+}
+
 /// 增量帧的预热只覆盖脏行。
 ///
 /// 干净行的字形早已在图集里——缓存代际一致即证明它们没被驱逐、UV 也没搬迁——
@@ -389,34 +434,8 @@ fn incremental_frame_with_midframe_eviction_has_current_uvs() {
 /// 「结果对」，证不了「没白扫整屏」——预热范围退化成整屏时输出照样全对。
 #[test]
 fn incremental_frame_warms_only_dirty_rows() {
-    const ROWS: u32 = 24;
-    const COLS: u32 = 80;
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    let (cell_width, cell_height) = font_pipeline.cell_metrics();
-    let cursor = CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: crate::terminal::ghostty_terminal::CursorStyle::Block,
-        color: [1.0; 4],
-    };
-    let config = CellInstanceConfig {
-        rows: ROWS,
-        cols: COLS,
-        grid_cell_width: cell_width,
-        grid_cell_height: cell_height,
-        cursor,
-        atlas_width: 1024.0,
-        atlas_height: 1024.0,
-        search_highlights: &[],
-        default_background: [0.0; 4],
-    };
-    let cells: Vec<CellData> = (0..ROWS)
-        .flat_map(|row| {
-            (0..COLS).map(move |col| cell_data(row, col, 'x', [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0))
-        })
-        .collect();
-    let mut cache = CachedInstances::new(ROWS, COLS);
+    let (mut font_pipeline, config, cells) = warm_fixture(|_, _| 'x');
+    let mut cache = CachedInstances::new(TEST_GRID_ROWS, TEST_GRID_COLS);
     let mut instances = Vec::new();
     // 播种：首帧没有基线，整屏重建一次。
     assert!(
@@ -424,7 +443,7 @@ fn incremental_frame_warms_only_dirty_rows() {
             &cells,
             config,
             &mut font_pipeline,
-            &vec![true; ROWS as usize],
+            &vec![true; TEST_GRID_ROWS as usize],
             &mut cache,
             &mut instances,
         )
@@ -433,7 +452,7 @@ fn incremental_frame_warms_only_dirty_rows() {
     );
 
     // 第二帧：只有第 2 行变脏。
-    let mut dirty = vec![false; ROWS as usize];
+    let mut dirty = vec![false; TEST_GRID_ROWS as usize];
     dirty[2] = true;
     let before = warm_cells_visited();
     assert!(
@@ -450,9 +469,9 @@ fn incremental_frame_warms_only_dirty_rows() {
     );
     let visited = warm_cells_visited() - before;
     assert!(
-        visited <= u64::from(COLS),
+        visited <= u64::from(TEST_GRID_COLS),
         "增量帧的预热只应覆盖脏行（实测访问了 {visited} 个单元，全屏是 {} 个）",
-        u64::from(ROWS) * u64::from(COLS)
+        u64::from(TEST_GRID_ROWS) * u64::from(TEST_GRID_COLS)
     );
 }
 
@@ -463,38 +482,10 @@ fn incremental_frame_warms_only_dirty_rows() {
 /// 判据是**请求数**而非单元数：单元数只说明扫了多少格，请求数才说明做了多少事。
 #[test]
 fn warm_frame_deduplicates_repeated_glyphs() {
-    const ROWS: u32 = 24;
-    const COLS: u32 = 80;
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    let (cell_width, cell_height) = font_pipeline.cell_metrics();
-    let cursor = CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: crate::terminal::ghostty_terminal::CursorStyle::Block,
-        color: [1.0; 4],
-    };
-    let config = CellInstanceConfig {
-        rows: ROWS,
-        cols: COLS,
-        grid_cell_width: cell_width,
-        grid_cell_height: cell_height,
-        cursor,
-        atlas_width: 1024.0,
-        atlas_height: 1024.0,
-        search_highlights: &[],
-        default_background: [0.0; 4],
-    };
     // 三个不同的字形各自重复满屏。
-    let cells: Vec<CellData> = (0..ROWS)
-        .flat_map(|row| {
-            (0..COLS).map(move |col| {
-                let character = ['x', 'y', 'z'][((row + col) % 3) as usize];
-                cell_data(row, col, character, [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0)
-            })
-        })
-        .collect();
-    let mut cache = CachedInstances::new(ROWS, COLS);
+    let (mut font_pipeline, config, cells) =
+        warm_fixture(|row, col| ['x', 'y', 'z'][((row + col) % 3) as usize]);
+    let mut cache = CachedInstances::new(TEST_GRID_ROWS, TEST_GRID_COLS);
     let mut instances = Vec::new();
     let before = warm_glyph_requests();
     assert!(
@@ -502,7 +493,7 @@ fn warm_frame_deduplicates_repeated_glyphs() {
             &cells,
             config,
             &mut font_pipeline,
-            &vec![true; ROWS as usize],
+            &vec![true; TEST_GRID_ROWS as usize],
             &mut cache,
             &mut instances,
         )
@@ -514,7 +505,7 @@ fn warm_frame_deduplicates_repeated_glyphs() {
         requests,
         3,
         "预热遍只应按去重后的字形数发请求（实测 {requests} 次，全屏是 {} 个单元）",
-        u64::from(ROWS) * u64::from(COLS)
+        u64::from(TEST_GRID_ROWS) * u64::from(TEST_GRID_COLS)
     );
 }
 
