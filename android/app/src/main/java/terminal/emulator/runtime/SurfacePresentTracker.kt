@@ -5,24 +5,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** 显示帧时钟：生产用 [ChoreographerFrameClock]，测试用可手动步进的替身。 */
-internal interface FrameClock {
-    fun post(callback: Choreographer.FrameCallback)
-
-    fun remove(callback: Choreographer.FrameCallback)
-}
-
-/** 生产帧时钟：主线程的 Choreographer 显示帧回调。 */
-internal object ChoreographerFrameClock : FrameClock {
-    override fun post(callback: Choreographer.FrameCallback) {
-        Choreographer.getInstance().postFrameCallback(callback)
-    }
-
-    override fun remove(callback: Choreographer.FrameCallback) {
-        Choreographer.getInstance().removeFrameCallback(callback)
-    }
-}
-
 /**
  * 开孔当前是否已有缓冲区在位，以及首帧提交到真正可见之间的门闸。
  *

@@ -1,6 +1,5 @@
 package terminal.emulator.runtime
 
-import android.view.Choreographer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -13,29 +12,6 @@ import org.junit.Test
  * 上报若被采纳，新开孔还没有任何缓冲就被撤了遮罩，同样是闪烁。
  */
 class SurfacePresentTrackerTest {
-    /** 可手动步进的帧时钟：回调排队后由测试显式触发。 */
-    private class FakeFrameClock : FrameClock {
-        private val queued = mutableListOf<Choreographer.FrameCallback>()
-
-        override fun post(callback: Choreographer.FrameCallback) {
-            queued += callback
-        }
-
-        override fun remove(callback: Choreographer.FrameCallback) {
-            queued -= callback
-        }
-
-        /** 走一个显示帧：执行此刻排队的回调。 */
-        fun step() {
-            val due = queued.toList()
-            queued.clear()
-            due.forEach { it.doFrame(0L) }
-        }
-
-        /** 队列里是否还有待执行的帧回调。 */
-        fun hasQueued(): Boolean = queued.isNotEmpty()
-    }
-
     /** 状态机与其外部影响的记录。 */
     private class Harness {
         val frameClock = FakeFrameClock()
