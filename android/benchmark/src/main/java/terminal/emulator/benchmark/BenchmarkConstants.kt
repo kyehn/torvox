@@ -43,7 +43,7 @@ internal const val COLD_START_BUDGET_MILLIS = 5_000L
 internal const val COLD_START_HARD_LIMIT_MILLIS = 10_000L
 
 /**
- * 热启动各轮耗时中位数的上限，以及最差一轮的硬上限。
+ * 温启动各轮耗时中位数的上限，以及最差一轮的硬上限。
  *
  * 口径与 [COLD_START_BUDGET_MILLIS] 相同。实测（2026-11-21 本机 AVD）：宿主轻载十
  * 一轮 1022–1479ms（中位 1098ms），宿主超额占用时 1234–2199ms（中位 1570ms）。

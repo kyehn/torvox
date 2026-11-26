@@ -34,7 +34,7 @@ private data class StartupIteration(
 }
 
 /**
- * 应用级宏基准：冷启动 / 热启动耗时。
+ * 应用级宏基准：冷启动 / 温启动 / 热启动耗时。
  *
  * 命名为 AppStartupBenchmark 而非 Bridge*，因为测量对象是应用生命周期阶段，
  * 不是 JNI bridge 的单次调用开销；后者由 Rust bench 与 JNI 集成测试覆盖，
