@@ -827,18 +827,35 @@ fn warm_frame_deduplicates_repeated_glyphs() {
     );
 }
 
-/// 增量帧的预热触发驱逐时，必须降级为全量重建。
+/// 驱逐场景的网格尺寸：2 行 16 列。
+const EVICTION_ROWS: u32 = 2;
+const EVICTION_COLS: u32 = 16;
+
+/// 驱逐场景的图集边长（像素）。
+const EVICTION_ATLAS: f32 = 64.0;
+
+/// 「预热触发驱逐」的增量帧场景夹具。
 ///
-/// 预热把字形挤出图集时，缓存行引用的旧 UV 已失效；此时若仍按「干净行照抄
-/// 缓存」出帧，画面上就是同一个字符在两个区域画出不同轮廓。降级路径
-/// （预热驱逐 → 全量重建）必须让每个实例的 UV 都与当前查询一致。
-#[test]
-fn incremental_frame_falls_back_to_full_rebuild_when_warm_evicts() {
-    const ROWS: u32 = 2;
-    const COLS: u32 = 16;
-    const ATLAS: f32 = 64.0;
+/// 图集先被塞满（光栅化不再有空间时才会驱逐），帧 1 播种缓存，帧 2 只让
+/// 第 1 行变脏且换成图集里没有的字形：预热这些字形必然驱逐旧条目，
+/// 缓存行引用的旧 UV 随之失效，增量路径因而必须降级为全量重建。
+struct EvictionFixture {
+    font_pipeline: crate::render::font::FontPipeline,
+    cache: CachedInstances,
+    instances: Vec<CellInstance>,
+    frame: Vec<CellData>,
+    /// 帧 2 构建前预热遍访问过的单元数。
+    warm_before: u64,
+}
+
+/// 构造 [`EvictionFixture`]。
+///
+/// 场景前提（图集已满、帧 2 起步时缓存仍有效、帧 2 的预热确实驱逐）
+/// 在此就地断言：前提不成立时降级分支根本进不去，失败须在此处报出，
+/// 而不是让调用方的断言给出误导性的结论。
+fn eviction_fixture() -> EvictionFixture {
     let mut font_pipeline =
-        crate::render::font::FontPipeline::new(ATLAS as i32, ATLAS as i32, 14.0);
+        crate::render::font::FontPipeline::new(EVICTION_ATLAS as i32, EVICTION_ATLAS as i32, 14.0);
     // 先把图集塞满：光栅化不再有空间时才会驱逐，驱逐即图集已满的信号。
     let mut atlas_is_full = false;
     let generation = font_pipeline.atlas_generation();
@@ -858,13 +875,13 @@ fn incremental_frame_falls_back_to_full_rebuild_when_warm_evicts() {
         color: [1.0; 4],
     };
     let config = CellInstanceConfig {
-        rows: ROWS,
-        cols: COLS,
-        grid_cell_width: ATLAS / COLS as f32,
-        grid_cell_height: ATLAS / ROWS as f32,
+        rows: EVICTION_ROWS,
+        cols: EVICTION_COLS,
+        grid_cell_width: EVICTION_ATLAS / EVICTION_COLS as f32,
+        grid_cell_height: EVICTION_ATLAS / EVICTION_ROWS as f32,
         cursor,
-        atlas_width: ATLAS,
-        atlas_height: ATLAS,
+        atlas_width: EVICTION_ATLAS,
+        atlas_height: EVICTION_ATLAS,
         search_highlights: &[],
         default_background: [0.0; 4],
     };
@@ -889,14 +906,14 @@ fn incremental_frame_falls_back_to_full_rebuild_when_warm_evicts() {
         .into_iter()
         .chain(make_row(1, &['x'; 16]))
         .collect();
-    let mut cache = CachedInstances::new(ROWS, COLS);
+    let mut cache = CachedInstances::new(EVICTION_ROWS, EVICTION_COLS);
     let mut instances = Vec::new();
     assert!(
         build_instances_cached(
             &frame1,
             config,
             &mut font_pipeline,
-            &vec![true; ROWS as usize],
+            &vec![true; EVICTION_ROWS as usize],
             &mut cache,
             &mut instances,
         )
@@ -914,7 +931,7 @@ fn incremental_frame_falls_back_to_full_rebuild_when_warm_evicts() {
 
     // 帧 2：只有第 1 行变脏，且换成图集里没有的字形（大写希腊字母）。
     // 预热它们必然触发驱逐 → 增量路径必须降级为全量重建。
-    let frame2: Vec<CellData> = make_row(0, &['x'; 16])
+    let frame: Vec<CellData> = make_row(0, &['x'; 16])
         .into_iter()
         .chain(make_row(
             1,
@@ -923,13 +940,13 @@ fn incremental_frame_falls_back_to_full_rebuild_when_warm_evicts() {
             ],
         ))
         .collect();
-    let mut dirty = vec![false; ROWS as usize];
+    let mut dirty = vec![false; EVICTION_ROWS as usize];
     dirty[1] = true;
     let generation_before = font_pipeline.atlas_generation();
     let warm_before = warm_cells_visited();
     assert!(
         build_instances_cached(
-            &frame2,
+            &frame,
             config,
             &mut font_pipeline,
             &dirty,
@@ -944,39 +961,68 @@ fn incremental_frame_falls_back_to_full_rebuild_when_warm_evicts() {
         "场景前提：新字形的光栅化必须真的驱逐了图集条目（代际 {generation_before} -> {}）",
         font_pipeline.atlas_generation()
     );
-    // 降级判据：预热触发驱逐后必须把整帧都预热一遍（发射遍才可能是纯查表）。
-    // 只预热脏行的话，干净行的字形仍可能被驱逐，帧内 UV 就会陈旧。
-    let warmed = warm_cells_visited() - warm_before;
+    EvictionFixture {
+        font_pipeline,
+        cache,
+        instances,
+        frame,
+        warm_before,
+    }
+}
+
+/// 增量帧的预热触发驱逐时，必须降级为全量重建。
+///
+/// 预热把字形挤出图集时，缓存行引用的旧 UV 已失效；此时若仍按「干净行照抄
+/// 缓存」出帧，画面上就是同一个字符在两个区域画出不同轮廓。降级路径
+/// （预热驱逐 → 全量重建）必须把整帧都预热一遍（发射遍才可能是纯查表）。
+#[test]
+fn incremental_frame_falls_back_to_full_rebuild_when_warm_evicts() {
+    let fixture = eviction_fixture();
+    // 降级判据：预热触发驱逐后必须把整帧都预热一遍。只预热脏行的话，
+    // 干净行的字形仍可能被驱逐，帧内 UV 就会陈旧。
+    let warmed = warm_cells_visited() - fixture.warm_before;
     assert!(
-        warmed >= u64::from(ROWS * COLS),
+        warmed >= u64::from(EVICTION_ROWS * EVICTION_COLS),
         "预热触发驱逐后必须降级为整帧预热（实测只预热了 {warmed} 个单元，整帧是 {} 个）",
-        u64::from(ROWS * COLS)
+        u64::from(EVICTION_ROWS * EVICTION_COLS)
     );
     assert_eq!(
-        cache.built_atlas_generation(),
-        font_pipeline.atlas_generation(),
+        fixture.cache.built_atlas_generation(),
+        fixture.font_pipeline.atlas_generation(),
         "降级为全量重建后，缓存必须记下当前代际"
     );
-    // 逐实例断言 UV 与当前查询一致：陈旧 UV 即「同字不同区」。
-    let generation_before_verify = font_pipeline.atlas_generation();
-    for (cell, instance) in frame2.iter().zip(instances.iter()) {
+}
+
+/// 降级后的每个实例的 UV 都必须与当前查询一致：陈旧 UV 即「同字不同区」。
+#[test]
+fn incremental_frame_uv_matches_atlas_after_eviction() {
+    let mut fixture = eviction_fixture();
+    let generation_before_verify = fixture.font_pipeline.atlas_generation();
+    for (cell, instance) in fixture.frame.iter().zip(fixture.instances.iter()) {
         let character = char::from_u32(cell.codepoint).expect("测试单元码位合法");
-        let info = font_pipeline
+        let info = fixture
+            .font_pipeline
             .glyph_information(character)
             .expect("帧内字形必须解析得出");
         assert_eq!(
             instance.atlas_offset,
-            [info.atlas_x as f32 / ATLAS, info.atlas_y as f32 / ATLAS],
+            [
+                info.atlas_x as f32 / EVICTION_ATLAS,
+                info.atlas_y as f32 / EVICTION_ATLAS
+            ],
             "陈旧 UV：{character:?}"
         );
         assert_eq!(
             instance.atlas_size,
-            [info.width as f32 / ATLAS, info.height as f32 / ATLAS],
+            [
+                info.width as f32 / EVICTION_ATLAS,
+                info.height as f32 / EVICTION_ATLAS
+            ],
             "陈旧 UV 尺寸：{character:?}"
         );
     }
     assert_eq!(
-        font_pipeline.atlas_generation(),
+        fixture.font_pipeline.atlas_generation(),
         generation_before_verify,
         "校验用的查询必须是纯缓存命中"
     );

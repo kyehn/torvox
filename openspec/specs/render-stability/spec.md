@@ -1312,8 +1312,10 @@ MUST NOT 把搬前的 UV 连同搬后的代际一起存入缓存——下一帧�
 #### Scenario: 预热引发驱逐时降级为全量重建
 
 - **WHEN** 脏行预热把干净行的字形挤出图集（图集代际推进）
-- **THEN** MUST 降级为全量重建并整帧预热，该帧每个实例的 UV MUST 等于当前字形缓存
-      给出的位置（用例 `incremental_frame_falls_back_to_full_rebuild_when_warm_evicts`）
+- **THEN** MUST 降级为全量重建并整帧预热（用例
+      `incremental_frame_falls_back_to_full_rebuild_when_warm_evicts`），该帧每个实例的 UV
+      MUST 等于当前字形缓存给出的位置（用例
+      `incremental_frame_uv_matches_atlas_after_eviction`）
 
 #### Scenario: 同一字形在一帧里只请求一次
 

@@ -715,16 +715,28 @@ type WarmClusterKey = (
     bool,
 );
 
+/// 预热遍的计数初值（仅测试用）。
+///
+/// 刻意走非常量函数：clippy 在 aarch64-linux-android 目标上把 `thread_local!`
+/// 的 const 初始化误判为「可改成 const」（host 目标不报），而本仓禁止在生产
+/// 代码里写 `#[allow]`——非常量初始化即让该 lint 不再插手。
+#[cfg(test)]
+fn initial_warm_count() -> u64 {
+    0
+}
+
 #[cfg(test)]
 thread_local! {
     /// 预热遍访问过的单元数（仅测试用）。
     ///
     /// 线程局部而非全局：Rust 的测试用例并行跑在一个进程里，全局计数会被别的
     /// 用例的构建搅脏，断言就成了随机失败。
-    static WARM_CELLS_VISITED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static WARM_CELLS_VISITED: std::cell::Cell<u64> =
+        std::cell::Cell::new(initial_warm_count());
 
     /// 预热遍向字体管线发出的字形请求数（仅测试用）。
-    static WARM_GLYPH_REQUESTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static WARM_GLYPH_REQUESTS: std::cell::Cell<u64> =
+        std::cell::Cell::new(initial_warm_count());
 }
 
 /// 预热遍累计访问过的单元数（仅测试用）。
