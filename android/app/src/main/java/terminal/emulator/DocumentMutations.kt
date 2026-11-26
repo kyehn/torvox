@@ -30,6 +30,13 @@ internal class DocumentMutations(
 
         /** 待继承权限的条目上限：替换是一次「改名让位 → 建同名新文件 → 删让位文件」的连续动作，几条足够。 */
         const val REPLACED_PERMISSION_LIMIT = 8
+
+        /**
+         * 只有根目录 inode 本身才拒绝操作。指向根的符号链接只是家目录里的普通条目，
+         * 按 `canonicalFile` 判断会把它误认成根，导致链接无法改名、移动或复制。
+         */
+        fun isHomeRootItself(file: File, rootCanonical: File): Boolean =
+            !Files.isSymbolicLink(file.toPath()) && file.canonicalFile == rootCanonical
     }
 
     /**
@@ -91,7 +98,7 @@ internal class DocumentMutations(
             }
         val parent =
             source.parentFile ?: throw FileNotFoundException("Invalid document id: $documentId")
-        if (source.canonicalFile == rootCanonical) {
+        if (isHomeRootItself(source, rootCanonical)) {
             throw FileNotFoundException("Refusing to rename the root document")
         }
         if (safeName == source.name) {
@@ -151,19 +158,19 @@ internal class DocumentMutations(
             throw FileNotFoundException("Refusing to copy the root document")
         }
         val source = TerminalDocumentsProvider.decodeDocId(sourceDocumentId, root)
-        if (source.canonicalFile == rootCanonical) {
-            throw FileNotFoundException("Refusing to copy the root document")
-        }
         if (!Files.exists(source.toPath(), LinkOption.NOFOLLOW_LINKS)) {
             throw FileNotFoundException("Source document does not exist: '$sourceDocumentId'")
         }
-        val targetParent = TerminalDocumentsProvider.decodeDocId(targetParentDocumentId, root)
-        requireDirectory(targetParent)
         // 读源用跟随语义（复制链接目标内容）还是链接自身？与浏览一致：
         // 行地址是链接自身时复制链接 inode，避免把站外目标整棵树吸入家目录。
         val rawSource = File(root, sourceDocumentId)
         val effectiveSource =
             if (TerminalDocumentsProvider.isHomeLink(rawSource, root)) rawSource else source
+        if (isHomeRootItself(effectiveSource, rootCanonical)) {
+            throw FileNotFoundException("Refusing to copy the root document")
+        }
+        val targetParent = TerminalDocumentsProvider.decodeDocId(targetParentDocumentId, root)
+        requireDirectory(targetParent)
         // 与 moveDocument 同一守卫：复制目录进自己的子孙时 copyTreeInto 会把刚
         // 复制的子树再当作源继续遍历，产出 a/b/a/b/… 直至 ENAMETOOLONG 或磁盘写满。
         // 守卫只认真目录：copyTreeInto 遇到符号链接只复制 inode 自身、不展开目标树，
@@ -204,7 +211,7 @@ internal class DocumentMutations(
             } else {
                 TerminalDocumentsProvider.decodeDocId(sourceDocumentId, root)
             }
-        if (source.canonicalFile == root.canonicalFile) {
+        if (isHomeRootItself(source, root.canonicalFile)) {
             throw FileNotFoundException("Refusing to move the root document")
         }
         // AOSP 契约：sourceParentDocumentId 是客户端声称的源父目录。忽略它，

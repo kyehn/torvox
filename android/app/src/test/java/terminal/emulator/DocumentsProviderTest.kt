@@ -1012,6 +1012,57 @@ class DocumentsProviderTest {
         assertEquals("real.txt", target.name)
     }
 
+    @Test
+    fun renameDocument_symlink_to_root_renames_link_only() {
+        // 指向家目录自身的链接仍是一个普通 inode：改名只动链接，家目录本身不受影响。
+        val provider = ensureProvider()
+        createSymlink("home-alias", rootDir())
+        assertEquals(
+            "home-alias-renamed",
+            provider.renameDocument("home-alias", "home-alias-renamed"),
+        )
+        val renamed = java.io.File(rootDir(), "home-alias-renamed")
+        assertTrue(
+            "the link itself must remain a symlink",
+            java.nio.file.Files.isSymbolicLink(renamed.toPath()),
+        )
+        assertEquals(rootDir().canonicalFile, renamed.canonicalFile)
+    }
+
+    @Test
+    fun moveDocument_symlink_to_root_moves_link_only() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "move-target").mkdirs()
+        createSymlink("move-portal", rootDir())
+        assertEquals(
+            "move-target/move-portal",
+            provider.moveDocument("move-portal", "", "move-target"),
+        )
+        val moved = java.io.File(rootDir(), "move-target/move-portal")
+        assertTrue(
+            "the link itself must remain a symlink",
+            java.nio.file.Files.isSymbolicLink(moved.toPath()),
+        )
+        assertEquals(rootDir().canonicalFile, moved.canonicalFile)
+    }
+
+    @Test
+    fun copyDocument_symlink_to_root_copies_link_only() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "copy-target").mkdirs()
+        createSymlink("copy-portal", rootDir())
+        assertEquals(
+            "copy-target/copy-portal",
+            provider.copyDocument("copy-portal", "copy-target"),
+        )
+        val copied = java.io.File(rootDir(), "copy-target/copy-portal")
+        assertTrue(
+            "the link itself must remain a symlink",
+            java.nio.file.Files.isSymbolicLink(copied.toPath()),
+        )
+        assertEquals(rootDir().canonicalFile, copied.canonicalFile)
+    }
+
     /**
      * 同名改名沿用 create/copy/move 的冲突策略，而不是硬失败：框架合约允许提供者
      * 为避开重名改写名字。「先新建、后改名」的客户端（文件管理器建文件/建文件夹、

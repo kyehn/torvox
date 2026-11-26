@@ -77,14 +77,8 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             // SAF 客户端于是寻址该链接条目本身，
             // deleteDocument 只删除链接——绝不会删除目标的整棵目录树。
             // 包含性仍针对规范路径检查（指向 home 之外的链接在下文被跳过，同之前）。
-            val filePath =
-                if (Files
-                        .isSymbolicLink(file.toPath())
-                ) {
-                    file.path
-                } else {
-                    file.canonicalPath
-                }
+            val isLink = Files.isSymbolicLink(file.toPath())
+            val filePath = if (isLink) file.path else file.canonicalPath
             val fileCanonical = file.canonicalPath
             // 终端中指向 home 目录之外的符号链接很常见
             // （如 ln -s /sdcard/x ~/link）。跳过它们而非抛异常
@@ -92,7 +86,10 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             if (!isInsideRoot(fileCanonical, rootPath)) {
                 return null
             }
-            return if (fileCanonical == rootPath) {
+            // 根身份只认真实 inode：指向根的符号链接是家目录里的普通条目，
+            // 若也编码成 ROOT_ID，SAF 客户端就拿不到这个链接，改名/移动/复制的
+            // 返回值还会把客户端直接送回家目录。
+            return if (!isLink && fileCanonical == rootPath) {
                 ROOT_ID
             } else {
                 relativeDocId(filePath, rootPath)
