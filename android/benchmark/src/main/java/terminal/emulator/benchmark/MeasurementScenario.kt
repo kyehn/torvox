@@ -122,30 +122,48 @@ internal fun measureScenario(
             hostLoad = hostLoad,
             exits = exits,
             artifacts = emptyList(),
-            verdict = when {
-                failure is ScenarioLimitExceeded -> "超限终止"
-                failure != null -> "FAIL"
-                exits.any { it.cause == ProcessExitCause.UNKNOWN } -> "FAIL"
-                exits.isNotEmpty() && !expectProcessExit -> "FAIL"
-                else -> "PASS"
-            },
+            verdict = scenarioVerdict(failure, exits, expectProcessExit),
             note = listOfNotNull(note.takeIf { it.isNotEmpty() }, failure?.message).joinToString("；"),
         ).toJson(),
     )
+    // 落盘之后才抛：判定按原始失败类型分类，不受归因包装影响。
+    // 窗口内进程退出本身就是测量失败的证据（判定已记 FAIL），一并带上归因抛出。
+    val exitFailure = when {
+        exits.isNotEmpty() && !expectProcessExit ->
+            IllegalStateException(
+                "$label 测量窗口内进程退出 ${exits.size} 次，测量结果作废：" +
+                    exits.joinToString("；") { it.describe() },
+            )
+
+        exits.any { it.cause == ProcessExitCause.UNKNOWN } ->
+            IllegalStateException(
+                "$label 测量窗口内进程以未知原因退出：" +
+                    exits.joinToString("；") { it.describe() },
+            )
+
+        else -> null
+    }
+    val thrown = failure ?: exitFailure
     // 宿主负载证据随失败一起抛出：本轮慢是应用慢还是宿主被抢占，看 steal 占比。
-    // 附加放在落盘判定之后：判定仍按原始失败类型分类（超限终止/FAIL），
     // 负载是证据不是免责——失败照旧失败，只是消息里多出归因依据。
-    failure?.let { throw it.withHostLoadAttribution(hostLoad) }
-    if (exits.isNotEmpty() && !expectProcessExit) {
-        check(false) {
-            "$label 测量窗口内进程退出 ${exits.size} 次，测量结果作废：" +
-                exits.joinToString("；") { it.describe() }
-        }
-    }
-    if (exits.any { it.cause == ProcessExitCause.UNKNOWN }) {
-        check(false) {
-            "$label 测量窗口内进程以未知原因退出：" +
-                exits.joinToString("；") { it.describe() }
-        }
-    }
+    thrown?.let { throw it.withHostLoadAttribution(hostLoad) }
 }
+
+/**
+ * 场景判定：按失败类型与进程退出记录分类。
+ *
+ * 失败可能被归因包装（进程退出、宿主负载），故「超限终止」沿 cause 链识别原始
+ * [ScenarioLimitExceeded]；只认最外层类型会把超限误记成 FAIL。
+ */
+internal fun scenarioVerdict(failure: Throwable?, exits: List<ExitInfoRecord>, expectProcessExit: Boolean): String =
+    when {
+        failure?.hasCause<ScenarioLimitExceeded>() == true -> "超限终止"
+        failure != null -> "FAIL"
+        exits.any { it.cause == ProcessExitCause.UNKNOWN } -> "FAIL"
+        exits.isNotEmpty() && !expectProcessExit -> "FAIL"
+        else -> "PASS"
+    }
+
+/** cause 链上是否有 [T] 类型的失败。 */
+private inline fun <reified T : Throwable> Throwable.hasCause(): Boolean =
+    generateSequence(this) { it.cause }.any { it is T }
