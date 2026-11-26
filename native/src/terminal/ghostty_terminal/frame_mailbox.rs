@@ -34,3 +34,39 @@ impl FrameMailbox {
         self.frame.lock().take()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::terminal::ghostty_terminal::CursorStyle;
+    use bytemuck::Zeroable;
+
+    fn cursor() -> CursorInfo {
+        CursorInfo {
+            row: 0,
+            col: 0,
+            at_wide_tail: false,
+            visible: true,
+            style: CursorStyle::Block,
+            scrollback_length: 0,
+            viewport_row: 0,
+            scroll_request_id: 0,
+            rows: 24,
+            cols: 80,
+            kitty_generation: 0,
+            kitty_placement_generation: 0,
+        }
+    }
+
+    /// 后来的帧覆盖未被取走的旧帧：若像有界队列那样满时丢新帧，终端会停在旧视口。
+    #[test]
+    fn last_stored_frame_wins_and_is_taken_once() {
+        let mailbox = FrameMailbox::new();
+        mailbox.store((vec![CellData::zeroed()], cursor()));
+        mailbox.store((vec![CellData::zeroed(); 2], cursor()));
+
+        let (cells, _) = mailbox.take().expect("最新帧必须可取");
+        assert_eq!(cells.len(), 2);
+        assert!(mailbox.take().is_none(), "取走后不得残留旧帧");
+    }
+}
