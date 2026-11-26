@@ -1184,7 +1184,7 @@ constructor(
         private const val PROCESS_COMPLETED_PROMPT_PREFIX = "\r\n[Process completed (code "
         private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ") - press Enter]"
 
-        // 慢帧诊断的阈值见文件顶层的 SLOW_FRAME_LOG_THRESHOLD_MS。
+        // 慢帧诊断的阈值见 RenderSupervisor 的 SLOW_FRAME_LOG_THRESHOLD_MS。
 
         // 计时报告的换算基数用 Double：真机帧时长集中在 0–2ms，以 Long 整除换算会让
         // 健康窗口一律报出 `avg=0ms p95=0ms`，且由截断均值换算的 fps 会把同一台设备
