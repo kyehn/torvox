@@ -137,7 +137,7 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_focusEv
 }
 
 pub(super) fn focus_event_inner(
-    _env: &mut Env<'_>,
+    env: &mut Env<'_>,
     _class: JClass<'_>,
     session_id: jlong,
     focused: jboolean,
@@ -149,6 +149,9 @@ pub(super) fn focus_event_inner(
     let (payload, pty_master) = {
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
+            // Kotlin 的 `Bridge.onSession` 只从 IllegalStateException 识别会话竞态；
+            // 单返回 false 会被调用点丢弃，焦点丢失便无迹可寻。
+            throw_session_missing(env, "focusEvent");
             return JNI_FALSE;
         };
         let mut session = entry.session.lock();
