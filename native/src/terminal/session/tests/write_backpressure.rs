@@ -231,6 +231,40 @@ fn pending_clipboard_reads_are_bounded_and_reported_per_window() {
     assert_eq!(drop_log.pending_count(), 3, "窗口内的丢弃计数不得丢失");
 }
 
+/// 回归钉：退回队列的读请求同样受待处理上限约束。
+///
+/// 洪泛削减（帧级条数上限与墙钟预算）把答不完的请求退回会话队列，下一帧再答。
+/// 退回路径若不受上限约束，队列会逐帧净增——每帧退回数百条，再加上同帧新到达的
+/// 数百条，队列无界增长直到把进程内存吃光。上限正是为挡住这类病态远端，两条路径
+/// 须是同一口径。
+#[test]
+fn requeued_clipboard_reads_stay_within_the_pending_cap() {
+    let (session, _handle) = crate::terminal::mock_pty::mock_session();
+    for _ in 0..(MAX_PENDING_CLIPBOARD_READS + 10) {
+        session.requeue_clipboard_reads(vec!["c".to_string()]);
+    }
+    assert_eq!(
+        session.take_clipboard_reads().len(),
+        MAX_PENDING_CLIPBOARD_READS,
+        "退回的请求须被裁到上限，超出的按丢最旧处理"
+    );
+}
+
+/// 回归钉：退回队列的读请求保持原有顺序。
+///
+/// 队列是 FIFO：远端按发出顺序等应答，顺序颠倒会让先到的请求被后到的挤到最后，
+/// 拖到超时才被丢弃。
+#[test]
+fn requeued_clipboard_reads_keep_their_order() {
+    let (session, _handle) = crate::terminal::mock_pty::mock_session();
+    session.requeue_clipboard_reads(vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    assert_eq!(
+        session.take_clipboard_reads(),
+        vec!["a".to_string(), "b".to_string(), "c".to_string()],
+        "退回的请求须按原序排在队首"
+    );
+}
+
 /// 回归钉：持锁写入进行中，`PtyMaster::child_pid` 仍须立即可读。
 ///
 /// `PtyMaster::write` 持互斥量跑完整个 `write_all`，而它每有部分写入就重置期限，

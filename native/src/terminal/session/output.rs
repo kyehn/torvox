@@ -365,9 +365,20 @@ impl Session {
     }
 
     /// 把本帧没来得及回写的请求退回队首，下一帧先答它们。
-    /// 逐条从后往前调用可保持同一会话内原有顺序。
-    pub fn requeue_clipboard_read(&self, selection: String) {
-        self.clipboard_read.lock().push_front(selection);
+    ///
+    /// `selections` 按原序给出；队首须保持原序，故逐条 `push_front` 时倒序灌入。
+    ///
+    /// 退回的请求同样受 [`MAX_PENDING_CLIPBOARD_READS`] 约束：洪泛削减时每帧退回
+    /// 的条数与同帧新到达的条数相加，不受限则队列逐帧净增（每帧数百条），直到把
+    /// 进程内存吃光——上限正是为挡住这类病态远端。超限丢最旧，与到达路径同一口径。
+    pub fn requeue_clipboard_reads(&self, selections: Vec<String>) {
+        let mut guard = self.clipboard_read.lock();
+        for selection in selections.into_iter().rev() {
+            guard.push_front(selection);
+        }
+        if let Some(dropped) = drop_excess_clipboard_reads(&mut guard, &CLIPBOARD_READ_DROP_LOG) {
+            log::warn!("osc52: dropped {dropped} pending clipboard reads (queue full)");
+        }
     }
 
     /// 向 PTY 写入 `ESC ] 52 ; <selection> ; <base64> ESC \\` 应答待处理的 OSC 52

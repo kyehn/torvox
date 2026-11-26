@@ -118,10 +118,21 @@ pub(super) fn handle_clipboard_reads(
             cancel_request(session_id, request_id);
         }
     }
-    // 倒序回灌：逐条 push_front 后，同一会话的退回请求仍按原序排在队首。
-    for (session_id, selection) in deferred.into_iter().rev() {
+    // 退回队列：同一会话的退回请求一次灌回并只裁一次。逐条灌回时每次 push 后都要
+    // 裁，被裁掉的会是刚灌回的那条——与到达路径「丢最旧」的口径相反。
+    let mut deferred_by_session: Vec<(u64, Vec<String>)> = Vec::new();
+    for (session_id, selection) in deferred {
+        match deferred_by_session
+            .iter_mut()
+            .find(|(id, _)| *id == session_id)
+        {
+            Some((_, selections)) => selections.push(selection),
+            None => deferred_by_session.push((session_id, vec![selection])),
+        }
+    }
+    for (session_id, selections) in deferred_by_session {
         if let Some(session) = session_handle(session_id) {
-            session.lock().requeue_clipboard_read(selection);
+            session.lock().requeue_clipboard_reads(selections);
         }
     }
 }
