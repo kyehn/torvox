@@ -6,7 +6,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
-import android.view.Choreographer
 import android.view.Surface
 import androidx.annotation.MainThread
 import androidx.compose.runtime.IntState
@@ -237,9 +236,9 @@ constructor(
     fun setAppForeground(foreground: Boolean) {
         appForeground = foreground
         if (foreground) {
-            ensureVsyncChainRunning()
+            vsyncChain.ensureRunning()
         } else {
-            stopVsyncChain()
+            vsyncChain.stop()
         }
     }
 
@@ -466,178 +465,44 @@ constructor(
      */
     private val renderContractMutex = Mutex()
 
-    // ── vsync 帧回调链 ──
+    // ── 显示节拍链 ──
     // UI 工作投递到主 Looper（Choreographer.getInstance() 需要 Looper，
     // 而 TerminalRuntime 本身可能由 DI 在任意线程构建）。
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    /** 幂等保护：每进程至多一条自调度回调链（CAS 保护；注册失败时重置以允许重试）。 */
-    private val vsyncChainRunning = AtomicBoolean(false)
-
     /**
-     * 实测的显示周期：由相邻两帧回调的时间戳差得出。
+     * vsync 信号链：主线程上的自调度帧回调，每个显示帧唤醒一次渲染线程。
      *
-     * 刷新率会被系统按省电与热节流调整，写死 16.7ms 会把显示降频误读成渲染故障，
-     * 故周期由实测得出。渲染线程读它做诊断，故用 volatile 发布。
+     * 链的生命周期、显示周期实测与停链判定都归 [VsyncChain]：运行期只提供
+     * 「谁是活动会话」「还有没有会话」「还有没有未空闲的会话」三个事实。
      */
-    @Volatile private var displayPeriodEstimate = DisplayPeriodEstimate(periodNanos = 0L, sampledAtNanos = 0L)
-
-    /** 上一帧的 vsync 时间戳（只在主线程的帧回调里写）。 */
-    private var lastFrameTimeNanos: Long = 0L
-
-    /**
-     * vsync 间隔的定窗统计：显示节拍的窗口统计必须来自实际帧回调时间戳。
-     *
-     * 复用 [FrameTimingStats]（渲染线程那份统计的另一个实例）：它只做定长环形写入与
-     * 分位数计算，与写者无关。此处写者是主线程的帧回调，读者是渲染线程——但渲染
-     * 线程读的不是这个对象，而是发布出去的报告快照。
-     */
-    private val vsyncIntervalStats = FrameTimingStats()
-
-    /** 主线程发布的 vsync 间隔窗口报告（渲染线程读它做诊断）。 */
-    @Volatile private var vsyncIntervalReport: FrameTimingReport? = null
-
-    /**
-     * 唯一的自调度 Choreographer 帧回调：每个显示帧即一次 vsync 信号。
-     * 它只置起 [SessionEntry.vsyncRequested] 并经 [SessionEntry.pokeVsync] 唤醒渲染线程
-     * ——所有渲染均由渲染线程拥有（主线程绝不触碰 surface Mutex）。
-     *
-     * 链在无事可做时停掉：无会话、应用不可见、或全部会话连续空闲超过阈值且无待
-     * 消费动画。停链后渲染线程落在 500ms 空闲闭锁上（那本就是空闲期的既定节拍），
-     * 主线程不再按显示帧被唤醒。渲染态的延迟字段不靠本链逐帧消费：搜索高亮与选区
-     * 各自经信号通道下发，下一帧即生效。
-     */
-    private val vsyncFrameCallback =
-        object : Choreographer.FrameCallback {
-            override fun doFrame(frameTimeNanos: Long) {
-                val nowNanos = System.nanoTime()
-                updateDisplayPeriod(frameTimeNanos)
-                // 无锁读取：sessions 是 ConcurrentHashMap，activeSessionId 是 @Volatile。
+    internal val vsyncChain =
+        VsyncChain(
+            postToMain = { action -> mainHandler.post(action) },
+            frameClock = ChoreographerFrameClock,
+            wakeActiveSession = { frameTimeNanos ->
+                // 无锁读取：会话表是 ConcurrentHashMap，活动会话 id 是 @Volatile。
                 val entry = sessions[activeSessionId]
-                // 空闲会话保持驻留：唤醒不得刷新空闲时钟（pokeVsync），且时钟超过阈值即停止，
-                // 于是 500ms 空闲闭锁生效，空闲终端不再以显示帧率空耗 CPU/GPU。
-                if (
-                    entry != null &&
-                    (
-                        nowNanos - entry.lastSignalNanos <= RENDER_IDLE_THRESHOLD_NANOS ||
-                            entry.hasScrollMotion()
-                        )
-                ) {
+                if (entry != null && isSessionActive(entry, System.nanoTime())) {
                     // 用帧回调给出的 vsync 时刻（而非回调派发时刻）判新鲜度：主线程
                     // 被占用时派发时刻会滞后，那正是链已停摆的证据。
                     entry.lastVsyncNanos = frameTimeNanos
                     entry.vsyncRequested = true
                     entry.pokeVsync()
                 }
-                val hasSessions = sessions.isNotEmpty()
-                val hasActiveSession = anySessionActive(nowNanos)
-                if (
-                    shouldStopVsyncChain(
-                        hasSessions = hasSessions,
-                        appForeground = appForeground,
-                        hasActiveSession = hasActiveSession,
-                    )
-                ) {
-                    stopVsyncChain()
-                    // 判定与停链之间可能刚好来了宿主侧信号：复核一次，活跃就重新拉起。
-                    // 否则那一次信号会被吞掉，渲染只剩 17ms 闭锁这一路节拍，丢掉 vsync 对齐。
-                    // 复核只认「停链原因就是会话空闲」：应用不可见或已无会话时复核必然
-                    // 得到「仍活跃」，链于是每显示帧停一次又拉起一次，永不停住。
-                    if (
-                        shouldRestartVsyncChain(
-                            hasSessions = hasSessions,
-                            appForeground = appForeground,
-                            wasActive = hasActiveSession,
-                            isActiveNow = anySessionActive(System.nanoTime()),
-                        )
-                    ) {
-                        ensureVsyncChainRunning()
-                    }
-                    return
-                }
-                // 自调度：下一帧继续。
-                Choreographer.getInstance().postFrameCallback(this)
-            }
-        }
+            },
+            hasSessions = { sessions.isNotEmpty() },
+            anySessionActive = { nowNanos -> sessions.values.any { entry -> isSessionActive(entry, nowNanos) } },
+            appForeground = { appForeground },
+        )
 
     /**
-     * 由帧回调时间戳测得显示周期。
-     *
-     * 帧回调只在主线程执行，故这里无需同步；读方（渲染线程）读的是发布后的快照。
-     */
-    private fun updateDisplayPeriod(frameTimeNanos: Long) {
-        val previousFrameTimeNanos = lastFrameTimeNanos
-        lastFrameTimeNanos = frameTimeNanos
-        if (previousFrameTimeNanos == 0L) return
-        val intervalNanos = frameTimeNanos - previousFrameTimeNanos
-        displayPeriodEstimate =
-            updateDisplayPeriodEstimate(
-                estimate = displayPeriodEstimate,
-                intervalNanos = intervalNanos,
-                nowNanos = System.nanoTime(),
-            )
-        if (!isCredibleDisplayInterval(intervalNanos)) return
-        vsyncIntervalStats.record(intervalNanos)
-        vsyncIntervalStats.takeReport()?.let { report -> vsyncIntervalReport = report }
-    }
-
-    /**
-     * 显示节拍诊断：实测周期与窗口统计（平均/p95/最大）。
-     *
-     * 报实测值而不是写死 16.7ms：刷新率会被系统按省电与热节流调整，写死的数字
-     * 会把显示降频误读成渲染故障。
-     */
-    internal fun displayPeriodText(): String {
-        val periodNanos = displayPeriodEstimate.periodNanos
-        val periodText = if (periodNanos <= 0L) "未测得" else millisText(periodNanos)
-        val report = vsyncIntervalReport ?: return periodText
-        return "$periodText avg=${millisText(report.averageNanos)} " +
-            "p95=${millisText(report.p95Nanos)} max=${millisText(report.maxNanos)}"
-    }
-
-    /** 纳秒→毫秒文本（一位小数）：帧时长分布的诊断口径统一用它。 */
-    private fun millisText(nanos: Long): String {
-        val tenthsOfMilli = (nanos + 50_000L) / 100_000L
-        return "${tenthsOfMilli / 10}.${tenthsOfMilli % 10}ms"
-    }
-
-    /** 在主 Looper 上拉起 vsync 帧回调链。幂等：CAS 保护保证每进程至多一条链。 */
-    internal fun ensureVsyncChainRunning() {
-        if (!vsyncChainRunning.compareAndSet(false, true)) return
-        mainHandler.post {
-            try {
-                Choreographer.getInstance().postFrameCallback(vsyncFrameCallback)
-                LogUtil.debug("Runtime", "vsync frame callback chain started")
-            } catch (exception: Exception) {
-                // 允许后续会话启动时重试注册。
-                vsyncChainRunning.set(false)
-                LogUtil.error("Runtime", "vsync frame callback registration failed", exception)
-            }
-        }
-    }
-
-    /**
-     * 停掉 vsync 帧回调链。
-     *
-     * 先同步放开运行标志（注册方才能重新拉起），再在主线程上摘掉待执行的帧回调：
-     * Choreographer 的回调只能在创建它的线程上摘。摘除与重新拉起都经主线程排队，
-     * 先后顺序因此保持——重新拉起不会被随后的摘除误伤。
-     */
-    private fun stopVsyncChain() {
-        vsyncChainRunning.set(false)
-        mainHandler.post {
-            Choreographer.getInstance().removeFrameCallback(vsyncFrameCallback)
-        }
-    }
-
-    /**
-     * 是否还有会话处于活跃状态：宿主侧信号新鲜，或手指滚动仍在进行。
+     * 会话是否处于活跃状态：宿主侧信号新鲜，或手指滚动仍在进行。
      *
      * 空闲时钟由宿主侧信号与渲染线程收到的新输出刷新，故「时钟陈旧」即会话无事可做。
      */
-    private fun anySessionActive(nowNanos: Long): Boolean = sessions.values.any { entry ->
+    private fun isSessionActive(entry: SessionEntry, nowNanos: Long): Boolean =
         nowNanos - entry.lastSignalNanos <= RENDER_IDLE_THRESHOLD_NANOS || entry.hasScrollMotion()
-    }
 
     /**
      * 当前终端主题的强调色（ANSI 槽位 5）。
@@ -1113,7 +978,7 @@ constructor(
         // 交换链很快排满，acquire 反而等两个 vsync。这里只刷新空闲时钟，
         // 由 Choreographer 帧回调在下一个 vsync 统一唤醒并合并多次滚动。
         entry.lastSignalNanos = System.nanoTime()
-        ensureVsyncChainRunning()
+        vsyncChain.ensureRunning()
     }
 
     /**
@@ -1127,7 +992,7 @@ constructor(
         entry.setScrollRemainderPx(remainderPx)
         // 同 setScrollOffset：亚行运动不直接唤醒，交给 vsync 回调合并。
         entry.lastSignalNanos = System.nanoTime()
-        ensureVsyncChainRunning()
+        vsyncChain.ensureRunning()
     }
 
     /**
@@ -1759,7 +1624,7 @@ constructor(
                             bridge = bridge,
                             renderThreadRef = null,
                             running = true,
-                            onSessionActive = { ensureVsyncChainRunning() },
+                            onSessionActive = { vsyncChain.ensureRunning() },
                         )
                     sessions[finalSessionId] = entry
                     setActiveSessionId(finalSessionId)
@@ -2000,7 +1865,7 @@ constructor(
                             bridge = bridge,
                             renderThreadRef = null,
                             running = false,
-                            onSessionActive = { ensureVsyncChainRunning() },
+                            onSessionActive = { vsyncChain.ensureRunning() },
                         )
                     sessions[nextId] = entry
                     abandonedByStart = false

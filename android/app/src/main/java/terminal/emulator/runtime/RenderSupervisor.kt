@@ -340,7 +340,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         renderThread.start()
         // 以显示 vsync 驱动新渲染循环的唤醒门控
         // （每进程一条自调度的 Choreographer 链）。
-        runtime.ensureVsyncChainRunning()
+        runtime.vsyncChain.ensureRunning()
         entry.renderWatchDog =
             RenderWatchDog(
                 diagnose = { diagnoseEntryLiveness(entry) },
@@ -688,7 +688,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         entry.lastSignalNanos = System.nanoTime()
         // 输出让会话重新活跃：帧回调链可能已因空闲停下，
         // 拉起它才能继续按 vsync 对齐出帧。
-        runtime.ensureVsyncChainRunning()
+        runtime.vsyncChain.ensureRunning()
         if (entry.consumeFirstOutput()) {
             LogUtil.info(
                 "Runtime",
@@ -1109,7 +1109,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
                 "max=${loopReport.maxNanos / NANOS_PER_MILLI}ms " +
                 "pre_max=${(preReport?.maxNanos ?: 0L) / NANOS_PER_MILLI}ms " +
                 "pre_p95=${(preReport?.p95Nanos ?: 0L) / NANOS_PER_MILLI}ms " +
-                "≈${framesPerSecond}fps vsync=${runtime.displayPeriodText()}",
+                "≈${framesPerSecond}fps vsync=${runtime.vsyncChain.displayPeriodText()}",
         )
     }
 

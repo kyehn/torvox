@@ -55,62 +55,8 @@ const val RENDER_LATCH_VSYNC_SAFETY_TIMEOUT_NANOS: Long = 34_000_000L
  */
 const val RENDER_VSYNC_STALE_NANOS: Long = 100_000_000L
 
-/**
- * 显示周期采样窗口：一秒内没有更小的帧间隔即重新起算（刷新率可能已变）。
- */
-internal const val DISPLAY_PERIOD_WINDOW_NANOS: Long = 1_000_000_000L
-
-/** 可采信的显示周期区间：1ms（1000Hz）到 50ms（20Hz）。 */
-internal const val MIN_DISPLAY_PERIOD_NANOS: Long = 1_000_000L
-internal const val MAX_DISPLAY_PERIOD_NANOS: Long = 50_000_000L
-
-/**
- * 显示周期估计：周期长度与该估计的采样时刻。
- *
- * 周期长度 0 = 尚未测得（帧回调只到过一次，算不出间隔）。
- */
-internal data class DisplayPeriodEstimate(val periodNanos: Long, val sampledAtNanos: Long)
-
-/**
- * 帧间隔是否落在可采信的显示周期区间内。
- *
- * 区间外的一律不采信：主线程长时间被占用时相邻两帧可能相隔数百毫秒，
- * 那是丢帧而不是显示周期。
- */
-internal fun isCredibleDisplayInterval(intervalNanos: Long): Boolean =
-    intervalNanos in MIN_DISPLAY_PERIOD_NANOS..MAX_DISPLAY_PERIOD_NANOS
-
-/**
- * 用相邻两帧回调的间隔更新显示周期估计。纯函数，便于表驱动测试。
- *
- * 帧间隔是显示周期的整数倍（丢帧只会让间隔变大），故取窗口内观测到的最小值；
- * 窗口（[DISPLAY_PERIOD_WINDOW_NANOS]）内没有更小的样本即重新起算——刷新率
- * 切换后旧的小间隔会随之退出窗口。
- *
- * 尚未测得时（周期长度为 0）首个样本即周期：此时「更短」永远为假，不特判就
- * 永远测不出周期，刷新率也就无从观察。
- *
- * 落在合理区间之外的间隔一律不采信：主线程长时间被占用时相邻两帧可能相隔
- * 数百毫秒，那是丢帧而不是显示周期。
- */
-internal fun updateDisplayPeriodEstimate(
-    estimate: DisplayPeriodEstimate,
-    intervalNanos: Long,
-    nowNanos: Long,
-): DisplayPeriodEstimate {
-    if (!isCredibleDisplayInterval(intervalNanos)) return estimate
-    val unmeasured = estimate.periodNanos <= 0L
-    val windowExpired = nowNanos - estimate.sampledAtNanos > DISPLAY_PERIOD_WINDOW_NANOS
-    val shorter = intervalNanos < estimate.periodNanos
-    if (!unmeasured && !windowExpired && !shorter) return estimate
-    return DisplayPeriodEstimate(periodNanos = intervalNanos, sampledAtNanos = nowNanos)
-}
-
 /** 空闲闭锁：没有任何信号时每 500ms 醒来尝试一帧（约 2 FPS）。 */
 const val RENDER_LATCH_IDLE_TIMEOUT_NANOS: Long = 500_000_000L
-
-/** 空闲判定阈值：距上次信号超过 5s 且无滚动运动即转入空闲闭锁。 */
-const val RENDER_IDLE_THRESHOLD_NANOS: Long = 5_000_000_000L
 
 /**
  * 慢帧与慢循环的判定阈值（毫秒）：超过即记一行诊断。
@@ -165,37 +111,6 @@ internal fun shouldUseIdleLatch(idleNanos: Long, hasScrollMotion: Boolean, idleT
  * 网格退化的情形由网格计算自身兜住：行列至少一行一列（见 `computeGridDimensions`）。
  */
 internal fun isStartSizeUsable(width: Int, height: Int): Boolean = width > 0 && height > 0
-
-/**
- * vsync 帧回调链是否应当停掉。
- *
- * 无会话：没有可渲染的东西；应用不可见：渲染已暂停，链没有消费者；全部会话连续
- * 空闲超过阈值且无待消费动画：渲染线程落在 500ms 空闲闭锁上，链不再提供额外信息。
- *
- * 三者任一成立即停链——链常驻的代价是主线程按显示帧率被唤醒（120Hz 屏即每秒
- * 120 次），而空闲期它什么也不产出。
- */
-internal fun shouldStopVsyncChain(hasSessions: Boolean, appForeground: Boolean, hasActiveSession: Boolean): Boolean =
-    !hasSessions || !appForeground || !hasActiveSession
-
-/**
- * 停链后的复核：是否因为「判定与停链之间刚好来了新信号」而重新拉起链。
- *
- * 复核只在停链原因就是「会话空闲」时才作数：停链原因若是「应用不可见」或「已无
- * 会话」，复核必然得到「会话仍活跃」——后台时宿主信号在 5 秒阈值内仍算新鲜，于是
- * 每显示帧停一次又拉起一次，链永不停住，主线程被逐帧唤醒，链启动日志也逐帧刷屏。
- *
- * @param hasSessions 判定时刻是否还有会话。
- * @param appForeground 复核时刻应用是否可见（切后台须立即生效，故复核时重读）。
- * @param wasActive 判定时刻是否有活跃会话。
- * @param isActiveNow 复核时刻是否有活跃会话。
- */
-internal fun shouldRestartVsyncChain(
-    hasSessions: Boolean,
-    appForeground: Boolean,
-    wasActive: Boolean,
-    isActiveNow: Boolean,
-): Boolean = hasSessions && appForeground && !wasActive && isActiveNow
 
 /**
  * 活跃期闭锁超时：vsync 链健康时它只作安全网，不得成为第二路帧节拍。

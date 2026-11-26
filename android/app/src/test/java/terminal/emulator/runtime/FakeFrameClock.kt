@@ -15,10 +15,10 @@ internal class FakeFrameClock : FrameClock {
     }
 
     /** 走一个显示帧：执行此刻排队的回调。 */
-    fun step() {
+    fun step(frameTimeNanos: Long = 0L) {
         val due = queued.toList()
         queued.clear()
-        due.forEach { it.doFrame(0L) }
+        due.forEach { it.doFrame(frameTimeNanos) }
     }
 
     /** 队列里是否还有待执行的帧回调。 */
