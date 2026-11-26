@@ -155,4 +155,36 @@ class DocumentWatcherTest {
         advanceUntil(listOf(children))
         assertTrue("停止后重新监视必须继续广播", children.hits.isNotEmpty())
     }
+
+    /** 前置检查通过后、add_watch 返回前目录被删：平台不回报失败，只能靠事后复核发现。 */
+    private class VanishingDirectory(file: File) : File(file.path) {
+        private var checks = 0
+        var vanished = true
+
+        fun recreated() {
+            checks = 0
+            vanished = false
+        }
+
+        override fun isDirectory(): Boolean = ++checks == 1 || !vanished
+    }
+
+    private fun watchedCount(): Int {
+        val field = DocumentWatcher::class.java.getDeclaredField("watched")
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        return (field.get(watcher) as Map<*, *>).size
+    }
+
+    @Test
+    fun `a directory lost before add_watch is registered again on the next query`() {
+        val directory = VanishingDirectory(File(home, "recreated"))
+
+        watcher.watch(directory)
+        assertEquals("add_watch 静默失败后不得留下永不自愈的占位", 0, watchedCount())
+
+        directory.recreated()
+        watcher.watch(directory)
+        assertEquals("目录重建后的再次查询必须重新登记", 1, watchedCount())
+    }
 }

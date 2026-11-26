@@ -109,8 +109,7 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
         // 既不抛异常也不打日志——若先把占位塞进 watched 再让 startWatching
         // 静默失败，后续 watch() 命中即 return，该目录从此静默失守。
         // 把检查放前面后，剩余竞态只有「检查通过、add_watch 前被删」这一
-        // 内核级窄窗；它无法在 java 层探测（平台不回报），按最低兜底照实
-        // 留占位，下一轮客户端重列会重新触发 watch() —— spec 已声明。
+        // 内核级窄窗；startWatching 之后复核同一条件并撤回占位（见下方）。
         if (!directory.isDirectory) {
             return
         }
@@ -137,12 +136,11 @@ internal class DocumentWatcher(private val context: Context, private val rootDir
         // onDirectoryEvent/flush 的这把锁。
         // 平台事实（AOSP 13+，minSdk 33）：`FileObserver.startWatching()`
         // 返回 void 且 native 端 `inotify_add_watch` 失败（含 ENOENT）
-        // 只把 `wfds[i]` 置 -1，既不抛异常也不打日志。「目录此刻存在」
-        // 的前置检查在登记**之前**（见上方）已把「目录已消失」挡在门外，
-        // 而 check-then-watch 的内核级窄窗（检查后、add_watch 前被删）
-        // 平台不可消除，此处按显式失败如实留下占位——登记后目录被删
-        // 的那一轮客户端多半会重列，配合下次查询重新登记自愈。
+        // 只把 `wfds[i]` 置 -1，既不抛异常也不打日志。前置检查挡住「已消失」，
+        // 事后复核再挡住「检查后、add_watch 前被删」：两者都不留占位，
+        // 下次查询才能重新登记，而不是永久静默失守。
         observer.startWatching()
+        if (!directory.isDirectory) forget(path)
     }
 
     /**
