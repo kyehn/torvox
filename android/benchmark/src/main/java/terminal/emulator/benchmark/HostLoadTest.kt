@@ -2,6 +2,7 @@ package terminal.emulator.benchmark
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -89,5 +90,28 @@ class HostLoadTest {
         // 实测：宿主安静时活跃窗口 1.9%–5.2%，宿主被占用时 38%–46%。
         assertTrue(HostLoad(stealRatio = 0.387, busyRatio = 0.92, windowMillis = 1_910).contended)
         assertFalse(HostLoad(stealRatio = 0.052, busyRatio = 0.84, windowMillis = 971).contended)
+    }
+
+    @Test
+    fun attachesHostLoadEvidenceToFailure() {
+        val failure = IllegalStateException("滚动呈现帧数 22 低于下限 30")
+
+        val attributed = failure.withHostLoadAttribution(
+            HostLoad(stealRatio = 0.546, busyRatio = 0.898, windowMillis = 39_899),
+        )
+
+        val message = attributed.message.orEmpty()
+        assertTrue(message.contains("滚动呈现帧数 22 低于下限 30"))
+        assertTrue(message.contains("stealRatio=0.546"))
+        assertTrue(message.contains("busyRatio=0.898"))
+        assertTrue(message.contains("windowMillis=39899"))
+        assertSame("原始失败 MUST 保留为原因", failure, attributed.cause)
+    }
+
+    @Test
+    fun keepsFailureUnchangedWhenLoadIsMissing() {
+        val failure = IllegalStateException("负载未完成")
+
+        assertSame("没有负载样本时不得改写失败", failure, failure.withHostLoadAttribution(null))
     }
 }

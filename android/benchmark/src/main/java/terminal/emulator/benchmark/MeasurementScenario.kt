@@ -93,6 +93,9 @@ internal fun measureScenario(
     } catch (thrown: Throwable) {
         failure = thrown.withProcessExitAttribution(device, preparedAtMillis, packageName)
     }
+    // 宿主负载证据随失败一起抛出：本轮慢是应用慢还是宿主被抢占，看 steal 占比。
+    // 负载是证据不是免责——判定不因负载改，失败照旧失败，只是消息里多出归因依据。
+    hostLoad?.let { load -> failure = failure?.withHostLoadAttribution(load) }
     val exits = try {
         readExitInfoRecords(device, packageName).withinWindow(startedAtMillis, endedAtMillis)
     } catch (collectionFailure: Throwable) {

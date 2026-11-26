@@ -119,3 +119,18 @@ internal fun hostLoadBetween(before: CpuTimeSnapshot, after: CpuTimeSnapshot, wi
 
 /** 读一时刻的 CPU 时间分布。 */
 internal fun readCpuTime(device: UiDevice): CpuTimeSnapshot = parseCpuTime(device.executeShellCommand("cat /proc/stat"))
+
+/**
+ * 给失败补上宿主负载证据：本轮慢是应用慢还是宿主被抢占，看的就是 steal 占比。
+ *
+ * 负载数据在场景窗口闭合之后才取到，故归因发生在失败抛出之前：失败消息里带上
+ * steal/busy 占比与窗口长度，读者不必翻 logcat 的 `[bench-load]` 行即可归因——实测
+ * 宿主被并发构建抢占时（steal 0.55、busy 0.90、窗口 39.9s），滚动场景只呈现 22 帧，
+ * 低于下限 30；没有负载证据时这条失败只能靠复跑归因。
+ *
+ * 归因不改判定：宿主被抢占时该失败照样失败——负载是证据，不是免责。
+ */
+internal fun Throwable.withHostLoadAttribution(hostLoad: HostLoad?): Throwable {
+    if (hostLoad == null) return this
+    return IllegalStateException("$message；宿主负载：${hostLoad.describe()}", this)
+}

@@ -1282,3 +1282,87 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         }
     }
 }
+
+// ── 渲染循环的闭锁节拍与慢帧判定 ──
+// 放在本文件是因为它们只服务渲染循环：阈值与判定紧挨着用处，读者不必在别处找。
+
+/**
+ * 活跃期闭锁超时：约一个显示周期（60Hz 显示 ~16.7ms，120Hz 显示 ~8.3ms）。
+ *
+ * 仅在 vsync 链不健康时使用。waitOutput 是纯 park（PTY 到达无法提前唤醒），
+ * 这个兜底节拍保证主线程阻塞、vsync 信号丢失时输入回显仍在下一节拍上屏。
+ *
+ * 它是**安全网**而不是帧预算：按显示周期倍数描述，故在高刷屏上它自然覆盖
+ * 多个周期，不会反过来变成与显示帧同周期的第二路节拍。
+ */
+const val RENDER_LATCH_TIMEOUT_NANOS: Long = 17_000_000L
+
+/**
+ * vsync 链健康时的活跃闭锁超时：约两个显示周期（60Hz 显示 ~33.3ms）。
+ *
+ * 必须明显大于一个显示周期，否则闭锁与 vsync 两路节拍会在同一周期内各推一帧
+ * （见 [activeLatchTimeoutNanos]）。
+ */
+const val RENDER_LATCH_VSYNC_SAFETY_TIMEOUT_NANOS: Long = 34_000_000L
+
+/**
+ * vsync 新鲜度阈值：超过它即认为 Choreographer 链已停摆，活跃闭锁退回
+ * [RENDER_LATCH_TIMEOUT_NANOS]。取约六个 60Hz 周期（100ms），容忍主线程的一次卡顿，
+ * 又能在链真正断掉时于 100ms 内恢复兜底节拍。
+ */
+const val RENDER_VSYNC_STALE_NANOS: Long = 100_000_000L
+
+/** 空闲闭锁：没有任何信号时每 500ms 醒来尝试一帧（约 2 FPS）。 */
+const val RENDER_LATCH_IDLE_TIMEOUT_NANOS: Long = 500_000_000L
+
+/**
+ * 慢帧与慢循环的判定阈值（毫秒）：超过即记一行诊断。
+ *
+ * 放在文件顶层是为了让判定口径的用例能取到同一个值：另存一份会在阈值调整时
+ * 与实现漂移，用例仍绿而实际判定已变。
+ */
+const val SLOW_FRAME_LOG_THRESHOLD_MS = 30.0
+
+/**
+ * 渲染循环节奏门控：仅当空闲时钟已陈旧且无滚动运动时才选 500ms 空闲闭锁，
+ * 否则保持 17ms 活跃闭锁使输入回显及时渲染。
+ *
+ * 输入写入经 [SessionEntry.notifyRender] 刷新空闲时钟（含 [Bridge.onPtyWrite] 接入的
+ * 硬件按键与 IME 路径），故空闲 >5s 后的单次退格能把循环拉回活跃节奏，
+ * shell 回显在下一个 17ms 闭锁节拍渲染，而无需等满 500ms。纯函数无副作用。
+ *
+ * @param idleNanos 距上次信号的时间（新鲜 = 刚有 notifyRender/新输出）。
+ * @param hasScrollMotion 运动新鲜度门控：手势仍在移动时保持活跃。
+ * @param idleThresholdNanos 新鲜度阈值（调用处传 `RENDER_IDLE_THRESHOLD_NANOS`）。
+ */
+internal fun shouldUseIdleLatch(idleNanos: Long, hasScrollMotion: Boolean, idleThresholdNanos: Long): Boolean =
+    idleNanos > idleThresholdNanos && !hasScrollMotion
+
+/**
+ * 活跃期闭锁超时：vsync 链健康时它只作安全网，不得成为第二路帧节拍。
+ *
+ * 两路节拍（Choreographer 每显示帧 + 17ms 闭锁）周期只差 0.3ms，相位漂移会让
+ * 闭锁偶尔落在 vsync 前一瞬：同一显示周期推出两帧（实测成对呈现间隔 3–5ms），
+ * 交换链随即排满，下一次 acquire 阻塞约 70ms（4 个 vsync）——这正是「滑动缓慢、
+ * 卡顿、闪烁」的形态。健康时把超时放宽到 2 个 vsync，使每个显示帧最多一帧；
+ * vsync 链停摆（[SessionEntry.lastVsyncNanos] 不再推进）时退回 17ms 兜底，
+ * 保持输入回显与滚动不被主线程阻塞拖死。纯函数无副作用。
+ *
+ * @param vsyncFresh 最近的 vsync 是否落在 [RENDER_VSYNC_STALE_NANOS] 内。
+ */
+internal fun activeLatchTimeoutNanos(vsyncFresh: Boolean): Long =
+    if (vsyncFresh) RENDER_LATCH_VSYNC_SAFETY_TIMEOUT_NANOS else RENDER_LATCH_TIMEOUT_NANOS
+
+/**
+ * 慢循环判定用的实际工作时长：整循环时长扣掉两段主动等待。
+ *
+ * 空闲门控驻留与渲染失败退避都是设计上主动等的等待，不是慢：把它们算进去会让
+ * 「平台收走原生窗口 → 渲染失败 → 退避」这条正常退化路径在退避后被判成慢循环，
+ * 记出 warn 级告警（`logcat-hygiene` 要求正常退化路径不得记 warn）。纯函数无副作用。
+ *
+ * @param totalNanos 整循环时长。
+ * @param gateNanos 空闲门控驻留时长。
+ * @param backoffNanos 渲染失败退避时长。
+ */
+internal fun slowLoopWorkNanos(totalNanos: Long, gateNanos: Long, backoffNanos: Long): Long =
+    totalNanos - gateNanos - backoffNanos
