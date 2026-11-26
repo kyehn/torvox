@@ -703,10 +703,14 @@ impl Renderer {
         // `write_texture` 在数据不足 `bytes_per_row * height` 时 panic，而这份数据
         // 经 JNI 跨越 FFI：调用方算错一行字节数就会把渲染线程直接带走。
         // 长度不符是调用方的缺陷，故此处拒绝并留证据，而不是让 wgpu 抛。
-        let Some(expected_len) = (width as usize)
-            .checked_mul(4)
-            .and_then(|row| row.checked_mul(height as usize))
-        else {
+        // 一行字节数按 u32 算（wgpu 的 `bytes_per_row` 即 u32），先校验再用于长度
+        // 计算，避免与 usize 侧的 checked 校验口径不一致而在 release 里静默回绕。
+        let Some(bytes_per_row) = width.checked_mul(4) else {
+            log::warn!("set_kgp_atlas: {width}x{height} overflows u32 row stride; atlas rejected");
+            self.reject_kgp_atlas();
+            return false;
+        };
+        let Some(expected_len) = (bytes_per_row as usize).checked_mul(height as usize) else {
             log::warn!("set_kgp_atlas: {width}x{height} overflows usize; atlas rejected");
             self.reject_kgp_atlas();
             return false;
@@ -753,7 +757,7 @@ impl Renderer {
             rgba_data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * width),
+                bytes_per_row: Some(bytes_per_row),
                 rows_per_image: Some(height),
             },
             size,

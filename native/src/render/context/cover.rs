@@ -52,6 +52,17 @@ pub(crate) struct CoverReadbackSource {
     height: u32,
 }
 
+/// 回读的行距：`bytes_per_row = width * 4`，再按 `COPY_BYTES_PER_ROW_ALIGNMENT` 向上对齐。
+/// 任一乘法/加法溢出即放弃遮罩，绝不把回绕后的行距交给 GPU copy。
+fn row_layout(width: u32) -> Option<(u32, u32)> {
+    let bytes_per_row = width.checked_mul(4)?;
+    let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded = bytes_per_row
+        .checked_add(alignment - 1)
+        .map(|value| value & !(alignment - 1))?;
+    Some((bytes_per_row, padded))
+}
+
 impl CoverReadbackSource {
     /// 设备是否已判死：判死后不再触碰 GPU。
     ///
@@ -79,10 +90,10 @@ impl CoverReadbackSource {
         }
         let width = self.width;
         let height = self.height;
-        let bytes_per_row = width * 4;
-        // 回读缓冲的行必须按 `COPY_BYTES_PER_ROW_ALIGNMENT` 对齐，故每行末尾有填充。
-        let padded = bytes_per_row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
-            * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let Some((bytes_per_row, padded)) = row_layout(width) else {
+            log::warn!("read_cover_frame: width {width} overflows row stride; give up");
+            return None;
+        };
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Cover Readback Buffer"),
             size: u64::from(padded) * u64::from(height),
@@ -243,5 +254,28 @@ impl Renderer {
             width,
             height,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::row_layout;
+
+    /// 常见宽度：普通行距 4 字节/像素，填充到 256 字节边界。
+    #[test]
+    fn row_layout_pads_to_alignment() {
+        assert_eq!(row_layout(1), Some((4, 256)));
+        assert_eq!(row_layout(64), Some((256, 256)));
+        assert_eq!(row_layout(65), Some((260, 512)));
+    }
+
+    /// 回绕会让 GPU copy 读到错误行距：宁可放弃遮罩，也不能把错位像素画进开孔。
+    #[test]
+    fn row_layout_rejects_overflowing_dimensions() {
+        assert_eq!(row_layout(u32::MAX), None);
+        // `width * 4` 恰好不溢出，但对齐时加 255 会溢出。
+        assert_eq!(row_layout(u32::MAX / 4), None);
+        // `width * 4` 本身溢出。
+        assert_eq!(row_layout(u32::MAX / 4 + 1), None);
     }
 }
