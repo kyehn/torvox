@@ -250,7 +250,7 @@ private fun ThemeSelector(
             modifier = Modifier.testTag("ThemeList"),
             horizontalArrangement = Arrangement.spacedBy(if (isSmallScreen) 6.dp else 8.dp),
         ) {
-            items(themes) { theme ->
+            items(themes, key = { it.name }) { theme ->
                 ThemePreview(
                     theme = theme,
                     // `selectedTheme` 始终是主题名；此处只做字符串相等比较，

@@ -257,7 +257,7 @@ internal fun SettingsPickerDialog(
             LazyColumn(
                 modifier = Modifier.testTag(testTag),
             ) {
-                items(options) { (key, label) ->
+                items(options, key = { it.first }) { (key, label) ->
                     val isSelected = key == selectedKey
                     Row(
                         modifier =
