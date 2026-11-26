@@ -88,6 +88,25 @@ internal class SessionRegistry {
     /** 移除会话，返回被移除的条目。 */
     fun remove(sessionId: Long): SessionEntry? = entries.remove(sessionId)
 
+    /**
+     * 移除会话，并选出接替它的会话。
+     *
+     * 接替者取剩余会话中 id 最大者：会话序号按 id 升序分配，接替到列表末尾的
+     * 用户最容易找到。shell 退出、会话死亡、用户关闭三条路径此前各自实现了一遍
+     * 这个选举，判据已出现漂移，故收敛到此处。
+     *
+     * 本方法**不**改写活动会话 id：改选须由运行期经 `setActiveSessionId` 落地，
+     * 否则备用屏标记与内容下沿的运行期镜像不会被同步对齐。
+     *
+     * @return 接替会话 id（0 表示没有接替者）；`null` 表示被移除的会话不是活动会话，
+     *         活动会话保持不变。
+     */
+    fun removeAndChooseReplacement(sessionId: Long): Long? {
+        entries.remove(sessionId)
+        if (activeId != sessionId) return null
+        return entries.keys.maxOrNull() ?: 0L
+    }
+
     /** 移除挂在指定 bridge 上的全部会话，返回移除条数。 */
     fun removeByBridge(bridge: Bridge): Int {
         val before = entries.size

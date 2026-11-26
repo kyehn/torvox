@@ -90,4 +90,43 @@ class SessionRegistryTest {
 
         assertTrue("块必须在会话总闸内执行，否则并发改动会互相穿插", held)
     }
+
+    @Test
+    fun `移除活动会话后接替者取剩余会话中 id 最大者`() {
+        val registry = SessionRegistry()
+        registry.register(entry(2L))
+        registry.register(entry(9L))
+        registry.register(entry(5L))
+        registry.setActive(9L)
+
+        val replacementId = registry.removeAndChooseReplacement(9L)
+
+        assertEquals(5L, replacementId)
+        assertFalse(registry.contains(9L))
+    }
+
+    @Test
+    fun `移除最后一个会话时没有接替者`() {
+        val registry = SessionRegistry()
+        registry.register(entry(4L))
+        registry.setActive(4L)
+
+        val replacementId = registry.removeAndChooseReplacement(4L)
+
+        assertEquals(0L, replacementId)
+        assertTrue(registry.isEmpty())
+    }
+
+    @Test
+    fun `移除非活动会话不产生接替者`() {
+        val registry = SessionRegistry()
+        registry.register(entry(1L))
+        registry.register(entry(2L))
+        registry.setActive(1L)
+
+        val replacementId = registry.removeAndChooseReplacement(2L)
+
+        assertNull("被移除的不是活动会话，活动会话保持不变", replacementId)
+        assertEquals(1L, registry.activeSessionId)
+    }
 }

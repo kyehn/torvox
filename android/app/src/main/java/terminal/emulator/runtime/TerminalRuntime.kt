@@ -791,15 +791,15 @@ constructor(
         var activeSessionReplaced = false
         sessionRegistry.withLock {
             if (!sessionRegistry.contains(entry.sessionId)) return
-            sessionRegistry.remove(entry.sessionId)
-            if (entry.sessionId == sessionRegistry.activeSessionId) {
+            val replacementId = sessionRegistry.removeAndChooseReplacement(entry.sessionId)
+            if (replacementId != null) {
                 activeSessionReplaced = true
                 // 前台会话刚刚消失；接替会话没有渲染线程（只有活动会话渲染），
                 // 其输出/事件永远不会被轮询，终端将看似卡死。此刻立即激活它。
-                setActiveSessionId(sessionRegistry.ids().lastOrNull() ?: 0L)
-                if (sessionRegistry.activeSessionId != 0L) {
+                setActiveSessionId(replacementId)
+                if (replacementId != 0L) {
                     activateReplacementSession(
-                        sessionRegistry.activeSessionId,
+                        replacementId,
                         "handleSessionExit",
                         markRunning = false,
                         withRetry = true,
@@ -836,18 +836,17 @@ constructor(
         entry.closeBridgeUnlessRenderThreadAlive(reason)
         sessionRegistry.withLock {
             if (!sessionRegistry.contains(entry.sessionId)) return
-            sessionRegistry.remove(entry.sessionId)
+            val replacementId = sessionRegistry.removeAndChooseReplacement(entry.sessionId)
             // 保持前台服务计数同步，与 handleSessionExit 和 closeSession 对称：
             // 经此路径关闭最后一个会话时必须停掉前台服务并清除其陈旧通知。
             updateForegroundSessionCount(sessionRegistry.size)
-            if (entry.sessionId == sessionRegistry.activeSessionId) {
+            if (replacementId != null) {
                 // 同 handleSessionExit：接替会话需要渲染线程，
                 // 否则其输出/事件永远不会被轮询，终端将看似卡死。
-                val remaining = sessionRegistry.ids()
-                setActiveSessionId(remaining.lastOrNull() ?: 0L)
-                if (sessionRegistry.activeSessionId != 0L) {
+                setActiveSessionId(replacementId)
+                if (replacementId != 0L) {
                     activateReplacementSession(
-                        sessionRegistry.activeSessionId,
+                        replacementId,
                         "closeDeadSession",
                         markRunning = false,
                         withRetry = true,
@@ -2371,24 +2370,20 @@ constructor(
         // （它们仅在关闭活动会话的路径上运行）。
         sessionRegistry.withLock {
             if (!sessionRegistry.contains(sessionId)) return
-            sessionRegistry.remove(sessionId)
+            val replacementId = sessionRegistry.removeAndChooseReplacement(sessionId)
             updateForegroundSessionCount(sessionRegistry.size)
 
             // 若关闭的是活动会话，切换到另一个
-            if (sessionId == sessionRegistry.activeSessionId) {
-                val remaining = sessionRegistry.ids()
-                if (remaining.isNotEmpty()) {
-                    val newId = remaining.last()
-                    setActiveSessionId(newId)
+            if (replacementId != null) {
+                setActiveSessionId(replacementId)
+                if (replacementId != 0L) {
                     activateReplacementSession(
-                        newId,
+                        replacementId,
                         "closeSession",
                         markRunning = true,
                         withRetry = false,
                         syncGrid = true,
                     )
-                } else {
-                    setActiveSessionId(0L)
                 }
             }
             updateState()
