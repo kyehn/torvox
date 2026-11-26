@@ -309,7 +309,7 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
                 "切回前台后遮罩必须挂在开孔上（无缓冲区且遮罩帧在）",
                 UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
                     composeTestRule.waitForIdle()
-                    !runtime.surfaceBufferPresent.value && runtime.coverFrame.value != null
+                    !runtime.surfacePresentTracker.bufferPresent.value && runtime.coverFrame.value != null
                 },
             )
             val cover = checkNotNull(runtime.coverFrame.value) { "切回前台后遮罩帧必须还在" }
@@ -359,7 +359,7 @@ class TerminalHoleCoverInstrumentedTest : ComposeTerminalLogcatTest() {
                     composeTestRule.requireBridge().writeToPty("echo HOLE_COVER_END\n".toByteArray(Charsets.UTF_8))
                     composeTestRule.pumpedTerminalText()
                     composeTestRule.waitForIdle()
-                    runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
+                    runtime.surfacePresentTracker.bufferPresent.value && runtime.coverFrame.value == null
                 },
             )
         } finally {

@@ -336,7 +336,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNotNull(
             "正常出帧后必须报告「已有缓冲区」，否则覆盖层永远撤不掉",
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                runtime.surfaceBufferPresent.value
+                runtime.surfacePresentTracker.bufferPresent.value
             },
         )
 
@@ -359,7 +359,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
             assertNotNull(
                 "换视图后、首帧未到时必须报告「无缓冲区」，否则不会着色遮住开孔",
                 UxTestUtils.pollUntilTrue(timeoutMs = RECOVERY_TIMEOUT_MS, intervalMs = 50) {
-                    !runtime.surfaceBufferPresent.value
+                    !runtime.surfacePresentTracker.bufferPresent.value
                 },
             )
             // 视图自己订阅「缓冲/遮罩」两个事实（见 TerminalSurface.observeHoleCover），
@@ -407,7 +407,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
                 composeTestRule.requireBridge().writeToPty("echo COVER_RESUME\n".toByteArray(Charsets.UTF_8))
                 composeTestRule.pumpedTerminalText()
                 idleOrBusy()
-                runtime.surfaceBufferPresent.value
+                runtime.surfacePresentTracker.bufferPresent.value
             },
         )
         awaitInk("恢复后：")
@@ -417,7 +417,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
      * 切后台再回来：系统拆除 Surface 后必须重新交付、重新出帧，开孔覆盖状态先落回
      * 「无缓冲区」再随首帧撤掉；回来后画面必须有墨迹（不是永久黑屏）。
      *
-     * 覆盖状态由 `surfaceBufferPresent` 表达，而它最关键的一次写入（Surface 被拆除）
+     * 覆盖状态由 `surfacePresentTracker.bufferPresent` 表达，而它最关键的一次写入（Surface 被拆除）
      * 发生在 `onStop` 之后。组合层若用生命周期门控的收集方式，`ON_START` 重启收集
      * 与首帧绘制会抢跑——首帧按旧值（有缓冲区）画完，开孔区便透出上一个应用，
      * 即「切换应用返回一闪」。
@@ -429,7 +429,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNotNull(
             "正常出帧后必须报告「已有缓冲区」",
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                runtime.surfaceBufferPresent.value
+                runtime.surfacePresentTracker.bufferPresent.value
             },
         )
 
@@ -438,7 +438,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         // 否则用例会因机型的窗口策略而非被测行为失败。
         val dropped =
             UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 100) {
-                !runtime.surfaceBufferPresent.value
+                !runtime.surfacePresentTracker.bufferPresent.value
             }
         UxTestUtils.metric("surface_dropped_on_stop", if (dropped != null) 1 else 0)
 
@@ -447,7 +447,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
             "切回前台后 30s 内必须重新出帧（覆盖层撤掉），否则就是黑屏",
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
                 composeTestRule.requireBridge().writeToPty("echo RESUME_TICK\n".toByteArray(Charsets.UTF_8))
-                runtime.surfaceBufferPresent.value
+                runtime.surfacePresentTracker.bufferPresent.value
             },
         )
         awaitInk("切回后：")
@@ -471,7 +471,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNotNull(
             "正常出帧后必须报告「已有缓冲区」",
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                runtime.surfaceBufferPresent.value
+                runtime.surfacePresentTracker.bufferPresent.value
             },
         )
         // 画面里要有墨迹：纯空白的终端回读出来也是单色，测不出「装的是画面」。
@@ -506,7 +506,7 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNotNull(
             "切回前台后新帧到达必须撤掉遮罩",
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
+                runtime.surfacePresentTracker.bufferPresent.value && runtime.coverFrame.value == null
             },
         )
     }
@@ -590,19 +590,19 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
     fun bufferPresentIsPublishedOneDisplayFrameLate() {
         val runtime = composeTestRule.activity.terminalViewModel.runtime
         composeTestRule.activity.runOnUiThread {
-            runtime.publishSurfaceBufferPresent(false)
-            assertTrue("surface 被拆时必须立即报「无缓冲区」", !runtime.surfaceBufferPresent.value)
-            runtime.publishSurfaceBufferPresent(true)
+            runtime.surfacePresentTracker.publish(false)
+            assertTrue("surface 被拆时必须立即报「无缓冲区」", !runtime.surfacePresentTracker.bufferPresent.value)
+            runtime.surfacePresentTracker.publish(true)
             // 同一主线程任务内帧回调还没机会执行：遮罩必须仍然在。
             assertTrue(
                 "首帧提交后同一拍不得撤遮罩，否则开孔会露出一拍底色",
-                !runtime.surfaceBufferPresent.value,
+                !runtime.surfacePresentTracker.bufferPresent.value,
             )
         }
         assertNotNull(
             "下一个显示帧后必须发布「已有缓冲区」",
             UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 16) {
-                runtime.surfaceBufferPresent.value
+                runtime.surfacePresentTracker.bufferPresent.value
             },
         )
     }
@@ -618,27 +618,27 @@ class SurfaceLossRecoveryInstrumentedTest : ComposeTerminalLogcatTest() {
     fun staleBufferPresentFromDestroyedSurfaceIsDropped() {
         val runtime = composeTestRule.activity.terminalViewModel.runtime
         composeTestRule.waitForIdle()
-        val staleEpoch = runtime.surfacePresentEpoch()
+        val staleEpoch = runtime.surfacePresentTracker.epoch
         // 切后台：平台拆掉 surface，渲染线程随之停下。此后除本用例之外没有谁再发布
         // 「已有缓冲区」——陈旧上报若被接受，观测到的就是它。
         composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
         composeTestRule.activity.runOnUiThread {
-            runtime.publishSurfaceBufferPresent(true, staleEpoch)
+            runtime.surfacePresentTracker.publish(true, staleEpoch)
         }
         assertNull(
             "旧开孔的帧提交不得撤遮罩",
             UxTestUtils.pollUntilTrue(timeoutMs = 500, intervalMs = 16) {
-                runtime.surfaceBufferPresent.value
+                runtime.surfacePresentTracker.bufferPresent.value
             },
         )
         // 正对照：同一后台状态下用当前世代发布必须生效，否则上一条只是「帧回调没跑」。
         composeTestRule.activity.runOnUiThread {
-            runtime.publishSurfaceBufferPresent(true, runtime.surfacePresentEpoch())
+            runtime.surfacePresentTracker.publish(true, runtime.surfacePresentTracker.epoch)
         }
         assertNotNull(
             "当前开孔的帧提交必须撤遮罩",
             UxTestUtils.pollUntilTrue(timeoutMs = 2_000, intervalMs = 16) {
-                runtime.surfaceBufferPresent.value
+                runtime.surfacePresentTracker.bufferPresent.value
             },
         )
         composeTestRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)

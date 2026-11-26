@@ -177,7 +177,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         holeCoverJob =
             host.viewModelScope.launch {
                 launch { host.runtime.coverFrame.collect { invalidate() } }
-                launch { host.runtime.surfaceBufferPresent.collect { invalidate() } }
+                launch { host.runtime.surfacePresentTracker.bufferPresent.collect { invalidate() } }
             }
     }
 
@@ -1136,7 +1136,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // paintedCover 清空），旧窗口的缓冲连同遮罩一起丢了。此时若照旧早退，
             // 首个可见窗口帧就是空开孔（用户看到的一闪）。故以「本窗口是否画过
             // 这份遮罩」为准：没画过就补一帧，画过才撤。
-            val foreground = runtime.surfaceBufferPresent.value && !runtime.isBackgroundPaused
+            val foreground = runtime.surfacePresentTracker.bufferPresent.value && !runtime.isBackgroundPaused
             val visible = windowVisibility == VISIBLE
             val paintedThisDraw = visible && paintedCover !== cover
             if (paintedCover !== cover) coverHandoffFrames = 0
@@ -1164,7 +1164,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             return
         }
         // 原生 surface 已有缓冲、且应用在前台、又没有可用遮罩：交给原生图层供像素。
-        if (runtime.surfaceBufferPresent.value && !runtime.isBackgroundPaused) {
+        if (runtime.surfacePresentTracker.bufferPresent.value && !runtime.isBackgroundPaused) {
             // 位图也随之释放：此后的每一帧都从这里早退，缓存的那份会一直留到视图销毁。
             releaseCoverBitmap()
             return

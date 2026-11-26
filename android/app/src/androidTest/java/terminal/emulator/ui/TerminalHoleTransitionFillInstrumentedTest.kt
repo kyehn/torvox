@@ -206,7 +206,7 @@ class TerminalHoleTransitionFillInstrumentedTest : ComposeTerminalLogcatTest() {
                 stampMs = android.os.SystemClock.uptimeMillis(),
                 wallMs = android.os.SystemClock.elapsedRealtime(),
                 opaqueRatio = opaque.toDouble() / total,
-                bufferPresent = runtime.surfaceBufferPresent.value,
+                bufferPresent = runtime.surfacePresentTracker.bufferPresent.value,
                 coverPresent = runtime.coverFrame.value != null,
             ),
         )

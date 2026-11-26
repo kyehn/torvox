@@ -595,7 +595,7 @@ class ImePopupPixelInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNotNull(
             "回前台首帧上屏后遮罩必须撤下",
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 100) {
-                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
+                runtime.surfacePresentTracker.bufferPresent.value && runtime.coverFrame.value == null
             },
         )
         composeTestRule.waitForIdle()

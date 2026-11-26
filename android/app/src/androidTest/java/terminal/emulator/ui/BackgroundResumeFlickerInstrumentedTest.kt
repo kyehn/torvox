@@ -275,7 +275,7 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNotNull(
             "切后台后平台必须拆掉 surface（否则本用例前提不成立）",
             UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 20) {
-                !runtime.surfaceBufferPresent.value
+                !runtime.surfacePresentTracker.bufferPresent.value
             },
         )
         assertNotNull(
@@ -295,7 +295,7 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNotNull(
             "回前台首帧上屏后遮罩必须撤下",
             UxTestUtils.pollUntilTrue(RESUME_TIMEOUT_MS, 20) {
-                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
+                runtime.surfacePresentTracker.bufferPresent.value && runtime.coverFrame.value == null
             },
         )
         Thread.sleep(SETTLE_MILLIS)
@@ -482,7 +482,7 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
             assertNotNull(
                 "切后台后平台必须拆掉 surface",
                 UxTestUtils.pollUntilTrue(BACKGROUND_TIMEOUT_MS, 20) {
-                    !runtime.surfaceBufferPresent.value
+                    !runtime.surfacePresentTracker.bufferPresent.value
                 },
             )
             assertNotNull(
@@ -510,7 +510,7 @@ class BackgroundResumeFlickerInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNotNull(
             "设备丢失后回前台首帧必须重新出帧并撤下遮罩",
             UxTestUtils.pollUntilTrue(RESUME_TIMEOUT_MS, 20) {
-                runtime.surfaceBufferPresent.value && runtime.coverFrame.value == null
+                runtime.surfacePresentTracker.bufferPresent.value && runtime.coverFrame.value == null
             },
         )
     }
