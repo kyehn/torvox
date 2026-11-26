@@ -3,7 +3,6 @@ package terminal.emulator.runtime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import terminal.emulator.runtime.TerminalRuntime.HoleStateEntry
 
 /**
  * [holeStateCycle] 的表驱动单测：开孔状态日志是环形缓冲，差分必须按序号取。

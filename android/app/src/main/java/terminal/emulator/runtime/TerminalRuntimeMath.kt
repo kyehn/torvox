@@ -791,9 +791,9 @@ internal suspend fun awaitNativeLibraryLoad(isLoaded: () -> Boolean = { NativeBr
  * @param journalAfter 往返后的快照
  */
 internal fun holeStateCycle(
-    journalBefore: List<TerminalRuntime.HoleStateEntry>,
-    journalAfter: List<TerminalRuntime.HoleStateEntry>,
-): List<TerminalRuntime.HoleStateEntry> {
+    journalBefore: List<HoleStateEntry>,
+    journalAfter: List<HoleStateEntry>,
+): List<HoleStateEntry> {
     val sequenceBefore = journalBefore.lastOrNull()?.sequence ?: 0L
     return journalAfter.filter { it.sequence > sequenceBefore }
 }

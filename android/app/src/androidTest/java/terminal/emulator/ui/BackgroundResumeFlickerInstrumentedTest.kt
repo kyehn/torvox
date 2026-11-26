@@ -17,7 +17,7 @@ import terminal.emulator.findTerminalSurface
 import terminal.emulator.hideImeAndConfirm
 import terminal.emulator.isImeVisible
 import terminal.emulator.requireBridge
-import terminal.emulator.runtime.TerminalRuntime.HoleStateEntry
+import terminal.emulator.runtime.HoleStateEntry
 import terminal.emulator.runtime.holeStateCycle
 import terminal.emulator.showCursor
 import java.time.LocalDateTime

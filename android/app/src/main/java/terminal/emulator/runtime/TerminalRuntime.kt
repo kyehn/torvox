@@ -375,7 +375,7 @@ constructor(
                 surfacePresentToken++
                 surfacePresentPending = false
                 surfaceBufferPresentFlow.value = false
-                recordHoleState()
+                holeJournal.record(false, coverFrameFlow.value != null)
             }
             mainHandler.post {
                 surfacePresentFrameCallback?.let { Choreographer.getInstance().removeFrameCallback(it) }
@@ -419,8 +419,8 @@ constructor(
                                     //
                                     // 重置「已上屏」标记：即将出现的这一帧是本窗口的
                                     // 首次可见绘制，需要留下自己的证据。
-                                    synchronized(holeJournalLock) { holePaintedForCover = false }
-                                    recordHoleState()
+                                    holeJournal.resetPainted()
+                                    holeJournal.record(true, coverFrameFlow.value != null)
                                 }
                             }
                         }
@@ -453,98 +453,20 @@ constructor(
     private val coverFrameFlow = MutableStateFlow<Bridge.CoverFrame?>(null)
     val coverFrame: StateFlow<Bridge.CoverFrame?> = coverFrameFlow.asStateFlow()
 
-    /**
-     * 开孔状态转换日志：每次「缓冲区在位 / 遮罩在位」变化记一条，只留最近
-     * [HOLE_JOURNAL_CAPACITY] 条。
-     *
-     * 闪烁是一两帧的瞬态：截图来不及，轮询采样在后台会被进程冻结吞掉，回前台的
-     * 关键路径又会压过采样线程。产品自己的状态机是唯一不丢事件的来源，故在两个
-     * 标志的写入点各记一条；仪器化测试据此验证「可见时开孔永远有内容」。
-     *
-     * 光有「遮罩在位」还不够：遮罩得真的进了窗口缓冲区才有用。标志翻转只说明
-     * 运行期有了遮罩，视图未必被要求重绘——切后台那一刻没有别的失效源，漏一次
-     * 重绘，窗口留着上一帧的**空开孔**，回前台首帧就是用户看到的那一下闪。
-     * 故视图每画一次覆盖开孔的内容就回记一条（见 [recordHolePainted]）。
-     */
-    private val holeJournalLock = Any()
-    private val holeJournal = ArrayDeque<HoleStateEntry>()
-
-    /**
-     * 转换序号：单调递增，每追加一条记录 +1。
-     *
-     * 日志是环形缓冲，满了就挤掉最早的条目，故「某段时间内新增了哪些条目」不能
-     * 按条数差分——前后都满时差分恒为空，整段往返会被算成「什么都没发生」。
-     * 序号不受绕回影响，差分改按序号取。
-     */
-    private var holeStateSequence = 0L
-
-    /**
-     * 开孔状态的一条转换记录（供闪烁取证）。
-     *
-     * [painted] 是「视图已把开孔涂满（遮罩画面或底色）并交给窗口」的事实记录，
-     * 只与某一份遮罩一起出现一次：重复重绘不再记流水账。
-     *
-     * [sequence] 是该条记录的序号（见 [holeStateSequence]）：状态相同时也要靠它
-     * 区分先后，故相等判断只比状态三元组。
-     *
-     * [stampMs] 是记录时刻（进程内单调时钟，毫秒）：「遮罩发布 → 遮罩上屏」的
-     * 时延只能从这里量——外部采样在切后台期间会被平台拆掉窗口缓冲而整段丢失，
-     * 量到的时延是采样空档而非真实时延。
-     */
-    internal data class HoleStateEntry(
-        val bufferPresent: Boolean,
-        val coverPresent: Boolean,
-        val painted: Boolean = false,
-        val sequence: Long = 0L,
-        val stampMs: Long = 0L,
-    )
-
-    /** 当前这份遮罩是否已被视图画进窗口（见 [recordHolePainted]）。 */
-    private var holePaintedForCover = false
-
-    /** 追加一条记录并盖上序号与时刻（调用方须持 [holeJournalLock]）。 */
-    private fun appendHoleState(entry: HoleStateEntry) {
-        holeJournal.addLast(
-            entry.copy(sequence = ++holeStateSequence, stampMs = SystemClock.uptimeMillis()),
-        )
-        if (holeJournal.size > HOLE_JOURNAL_CAPACITY) holeJournal.removeFirst()
-    }
-
-    /** 记录一次开孔状态；与上一条相同则忽略。 */
-    private fun recordHoleState() {
-        synchronized(holeJournalLock) {
-            val entry = HoleStateEntry(surfaceBufferPresentFlow.value, coverFrameFlow.value != null)
-            val last = holeJournal.lastOrNull()
-            if (
-                last != null &&
-                last.bufferPresent == entry.bufferPresent &&
-                last.coverPresent == entry.coverPresent &&
-                last.painted == entry.painted
-            ) {
-                return
-            }
-            appendHoleState(entry)
-        }
-    }
+    /** 开孔状态转换日志（闪烁取证）；容量、序号与上屏语义见 [HoleStateJournal]。 */
+    private val holeJournal = HoleStateJournal()
 
     /**
      * 记下「视图已把开孔涂满并重绘了窗口」（视图在主线程绘制路径上调用）。
      *
-     * 这是遮罩**真的上屏**的唯一证据：运行期发布遮罩不会自己让窗口重绘，而闪烁
-     * 恰恰发生在「遮罩已发布、窗口没重绘」的那一刻。每份遮罩只记一次。
+     * 每份遮罩只记一次，判定与记录在 [HoleStateJournal.recordPainted] 内。
      */
     internal fun recordHolePainted() {
-        synchronized(holeJournalLock) {
-            if (holePaintedForCover) return
-            holePaintedForCover = true
-            appendHoleState(
-                HoleStateEntry(surfaceBufferPresentFlow.value, coverFrameFlow.value != null, painted = true),
-            )
-        }
+        holeJournal.recordPainted(surfaceBufferPresentFlow.value, coverFrameFlow.value != null)
     }
 
     /** 开孔状态转换快照（旧 → 新）。 */
-    internal fun holeStateJournal(): List<HoleStateEntry> = synchronized(holeJournalLock) { holeJournal.toList() }
+    internal fun holeStateJournal(): List<HoleStateEntry> = holeJournal.snapshot()
 
     /**
      * 发布开孔遮罩。
@@ -566,9 +488,9 @@ constructor(
             return
         }
         // 新遮罩：上一份「已上屏」的记录随之作废（见 recordHolePainted）。
-        synchronized(holeJournalLock) { holePaintedForCover = false }
+        holeJournal.resetPainted()
         coverFrameFlow.value = frame
-        recordHoleState()
+        holeJournal.record(surfaceBufferPresentFlow.value, true)
     }
 
     /**
@@ -580,9 +502,9 @@ constructor(
     internal fun clearCoverFrame() {
         coverPublishRequested = false
         if (coverFrameFlow.value == null) return
-        synchronized(holeJournalLock) { holePaintedForCover = false }
+        holeJournal.resetPainted()
         coverFrameFlow.value = null
-        recordHoleState()
+        holeJournal.record(surfaceBufferPresentFlow.value, false)
     }
 
     /**
@@ -1689,9 +1611,6 @@ constructor(
     }
 
     private companion object {
-        /** 开孔状态转换日志的容量：只留最近若干条，足够覆盖一次后台往返。 */
-        private const val HOLE_JOURNAL_CAPACITY = 32
-
         /**
          * 新帧提交后遮罩再等几个显示帧才撤。
          *
