@@ -683,6 +683,23 @@ constructor(
     }
 
     /**
+     * 会话序号：无终端标题时显示的「会话 N」中的 N。
+     *
+     * 按运行期发布的会话 id 列表换算（契约见 [RuntimeState.sessionIds]）。界面层的
+     * 会话列表由运行期状态流在主线程合并，而新建/切换在 IO 线程直接改状态：运行期刚
+     * 发布的会话表此刻可能还没被合并进界面层列表——按它换算会得到偏小的序号，目标
+     * 不在列表里时甚至是 0（不存在的「会话 0」）。
+     *
+     * @param sessionIds 运行期会话 id 列表（升序）
+     * @param sessionId 目标会话 id
+     * @param fallback 目标不在运行期列表时的兜底序号
+     */
+    private fun sessionNumber(sessionIds: List<Long>, sessionId: Long, fallback: Int): Int {
+        val position = sessionIds.indexOf(sessionId)
+        return if (position >= 0) position + 1 else fallback.coerceAtLeast(1)
+    }
+
+    /**
      * 回填抽屉列表的终端标题（序号由列表按位置从 1 递增渲染）。 JNI 查询在 IO 线程执行；
      * 写入时校验集合未变，避免覆盖更新的列表。
      */
@@ -941,16 +958,25 @@ constructor(
                 val newId =
                     runtime.createSession(currentSurfaceNow, surfaceWidthPixels, surfaceHeightPixels, shellCommand)
                 if (newId > 0) {
+                    // 运行期的会话表是唯一真源（契约见 [RuntimeState.sessionIds]）。
+                    // 界面层列表由运行期状态流在主线程合并，而本段在 IO 线程直接改状态：
+                    // 运行期刚发布的会话表此刻可能还没被合并进界面层列表——按界面层
+                    // 列表换算序号会偏小，按它合并还会把运行期已有而界面未合并的会话
+                    // 整个丢掉（抽屉里凭空少一个会话，编号也跟着错位）。
+                    // 运行期在返回前已发布新的会话表（见 TerminalRuntime.createSession），
+                    // 这里仍补上 newId：运行期若尚未发布，列表也不得缺这一项。
+                    val runtimeSessionIds = (runtime.state.value.sessionIds + newId).distinct().sorted()
                     _state.update { current ->
-                        // 运行期的 sessionIds 收集器可能已在此更新运行前
-                        // 就并入了 newId（两者都跑在 IO 调度器上）——mergeSessions
-                        // 去重使列表不含重复 id（否则 LazyColumn 键冲突：
+                        // mergeSessions 去重使列表不含重复 id（否则 LazyColumn 键冲突：
                         // "Key N was already used"）。
-                        val sessions = mergeSessions(current.sessions, current.sessions.map { it.sessionId } + newId)
-                        val displayIndex = sessions.indexOfFirst { it.sessionId == newId } + 1
+                        val sessions = mergeSessions(current.sessions, runtimeSessionIds)
                         current.copy(
                             isRunning = true,
-                            title = context.getString(R.string.session_number, displayIndex),
+                            title =
+                            context.getString(
+                                R.string.session_number,
+                                sessionNumber(runtimeSessionIds, newId, runtimeSessionIds.size),
+                            ),
                             selection = SelectionState(),
                             sessions = sessions,
                             activeSessionId = newId,
@@ -1014,10 +1040,9 @@ constructor(
                     runtimeState.title.ifEmpty {
                         // 序号按运行期会话表的既定顺序换算（契约见 [RuntimeState.sessionIds]）：
                         // 界面层的会话列表可能尚未合并该会话，用它算序号会得到「会话 0」。
-                        val position = runtimeState.sessionIds.indexOf(sessionId)
                         context.getString(
                             R.string.session_number,
-                            if (position >= 0) position + 1 else runtimeState.sessionIds.size + 1,
+                            sessionNumber(runtimeState.sessionIds, sessionId, runtimeState.sessionIds.size + 1),
                         )
                     },
                     activeSessionId = sessionId,
