@@ -46,7 +46,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
     internal fun checkSessions() {
         val deadSessions = mutableListOf<SessionEntry>()
         val healthySessions = mutableListOf<SessionEntry>()
-        synchronized(runtime.sessionLock) {
+        runtime.sessionRegistry.withLock {
             scanSessionsForDeath(deadSessions, healthySessions)
         }
         decayRestartCounts(healthySessions)
@@ -61,7 +61,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         deadSessions: MutableList<SessionEntry>,
         healthySessions: MutableList<SessionEntry>,
     ) {
-        for (entry in runtime.sessions.values) {
+        for (entry in runtime.sessionRegistry.values()) {
             if (!entry.running) continue
             if (isRenderThreadDead(entry.renderThreadExited, entry.renderThreadRef?.isAlive)) {
                 deadSessions.add(entry)
@@ -74,7 +74,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
     internal fun decayRestartCounts(healthySessions: List<SessionEntry>) {
         if (healthySessions.isEmpty()) return
         // 整批一次加锁：逐条加锁会在会话多时反复进出总闸，而这里只是清计数。
-        synchronized(runtime.sessionLock) {
+        runtime.sessionRegistry.withLock {
             for (entry in healthySessions) {
                 // 扫描与本次衰减之间条目可能已死（线程在两步之间退出）：
                 // 只有仍在运行且线程确实存活的条目才算「健康期」，否则会把
@@ -97,8 +97,8 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
 
         // 阶段 1（加锁）：仅做快速状态检查。阶段 2（不持锁）：
         // stopDeadRenderThreadResources 会 join 旧线程（最长 1s），
-        // 跨 join 持有 runtime.sessionLock 会阻塞所有会话操作。
-        synchronized(runtime.sessionLock) {
+        // 跨 join 持有会话总闸会阻塞所有会话操作。
+        runtime.sessionRegistry.withLock {
             if (!entry.running) return
             if (!entry.renderThreadExited) {
                 val thread = entry.renderThreadRef
@@ -108,31 +108,31 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         }
 
         // 阶段 2（不持锁）：下方 join 在渲染线程卡死于原生 GPU 代码时
-        // 最长阻塞 THREAD_JOIN_TIMEOUT_MS——这正是若持有 runtime.sessionLock
+        // 最长阻塞 THREAD_JOIN_TIMEOUT_MS——这正是若持有会话总闸
         // 就会拖住所有会话操作的情形，故刻意置于锁外。
         stopDeadRenderThreadResources(entry)
 
-        synchronized(runtime.sessionLock) {
+        runtime.sessionRegistry.withLock {
             // 上方 join 后 running 仍为 true（它是会话意图标志，只有 pause/stop 置假）。
             // 在此重查，使在阶段 1 与此刻之间运行的并发 pauseRendering()
             // 能取消重启，而非在已销毁的 Surface 上启动渲染线程。
             if (!entry.running) return
-            if (!runtime.sessions.containsKey(entry.sessionId)) return
+            if (!runtime.sessionRegistry.contains(entry.sessionId)) return
             if (entry.restartScheduled) return
             entry.restartScheduled = true
             entry.restartAttempts++
         }
         // runtime.closeDeadSession 在锁外运行：它会关闭 bridge（Session::drop 会 kill
         // 并 join 线程，~100ms+）并可能启动接替渲染线程（join 最长
-        // THREAD_JOIN_TIMEOUT_MS），两者绝不可在持有 runtime.sessionLock 时运行。
-        // 尝试计数单调递增且 runtime.closeDeadSession 会重查 runtime.sessions.containsKey，
+        // THREAD_JOIN_TIMEOUT_MS），两者绝不可在持有会话总闸时运行。
+        // 尝试计数单调递增且 runtime.closeDeadSession 会重查会话表，
         // 故并发竞争调用无害（第二次调用立即返回）。
         if (shouldCloseDeadRender(entry.restartAttempts, RENDER_MAX_RESTART_ATTEMPTS)) {
             runtime.closeDeadSession(entry, "exceeded max restart attempts")
             return
         }
         val restartDelayMillis =
-            synchronized(runtime.sessionLock) {
+            runtime.sessionRegistry.withLock {
                 val next = entry.nextRestartDelayMs
                 entry.nextRestartDelayMs =
                     nextRestartDelayMs(entry.nextRestartDelayMs, MAX_RESTART_DELAY_MS)
@@ -180,11 +180,11 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
     }
 
     internal suspend fun restartRenderThreadAfterDelay(entry: SessionEntry) {
-        synchronized(runtime.sessionLock) {
+        runtime.sessionRegistry.withLock {
             // 先消费调度标记：无论本次重启执行还是被取消（暂停/关闭），
             // 后续监视器派发都必须能调度一次全新的重启。
             entry.restartScheduled = false
-            if (!runtime.sessions.containsKey(entry.sessionId)) return
+            if (!runtime.sessionRegistry.contains(entry.sessionId)) return
             // 仅当会话仍意图运行时才重启。已暂停的会话（Surface 已销毁）
             // 不应获得渲染线程——恢复路径会在 Surface 回来时启动它。
             if (!entry.running) return
@@ -200,8 +200,8 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
     }
 
     internal suspend fun confirmRestartGrace(entry: SessionEntry) {
-        synchronized(runtime.sessionLock) {
-            if (!runtime.sessions.containsKey(entry.sessionId)) return
+        runtime.sessionRegistry.withLock {
+            if (!runtime.sessionRegistry.contains(entry.sessionId)) return
             if (!entry.running) return
             if (entry.renderThreadExited) return
             val thread = entry.renderThreadRef
@@ -215,8 +215,8 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
 
     internal fun startRenderThread(entry: SessionEntry) {
         // 拒绝为正在关闭的会话启动线程：closeSession 在启动不持锁的
-        // 停止/关闭序列之前会在 runtime.sessionLock 下置 entry.closing，
-        // 且本函数的每个调用方都持有 runtime.sessionLock
+        // 停止/关闭序列之前会在会话总闸下置 entry.closing，
+        // 且本函数的每个调用方都持有会话总闸
         // ——因此正在关闭的条目绝不可能获得新渲染线程（孤儿线程 TOCTOU，见 closing 字段说明）。
         // 同时重置运行意图标志：调用方（resumeRendering/switchSession/closeSession 阶段 3）
         // 在调用前已将其置真，若保留为真会使 closeSession 的锁内重查
@@ -345,7 +345,8 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
             RenderWatchDog(
                 diagnose = { diagnoseEntryLiveness(entry) },
                 isRunning = {
-                    entry.running && !entry.renderThreadExited && runtime.activeSessionId == entry.sessionId
+                    entry.running && !entry.renderThreadExited &&
+                        runtime.sessionRegistry.activeSessionId == entry.sessionId
                 },
                 onHangDetected = { watchdog, diagnosis -> handleSessionHang(entry, watchdog, diagnosis) },
             )
@@ -610,7 +611,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         val lastContentRow = renderResult.lastContentRow
         if (lastContentRow != entry.lastContentRow) {
             entry.lastContentRow = lastContentRow
-            if (entry.sessionId == runtime.activeSessionId) {
+            if (entry.sessionId == runtime.sessionRegistry.activeSessionId) {
                 runtime.lastContentRowFlowInternal.value = lastContentRow
             }
         }
@@ -620,7 +621,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         val altScreenActive = renderResult.altScreenActive
         if (altScreenActive != entry.altScreenActive) {
             entry.altScreenActive = altScreenActive
-            if (entry.sessionId == runtime.activeSessionId) {
+            if (entry.sessionId == runtime.sessionRegistry.activeSessionId) {
                 runtime.altScreenActiveFlowInternal.value = altScreenActive
             }
         }
@@ -1014,8 +1015,8 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
             // 后台（非活动）会话的 shell 已退出。其渲染线程已停止，不会再有其他方
             // 回收它——原生清扫只经本队列上报一次。在此关闭它
             // （runtime.handleSessionExit 对非活动会话是安全的：接替分支以
-            // entry.sessionId == runtime.activeSessionId 为闸门）。
-            val exitedEntry = synchronized(runtime.sessionLock) { runtime.sessions[poll.sessionId] }
+            // entry.sessionId == runtime.sessionRegistry.activeSessionId 为闸门）。
+            val exitedEntry = runtime.sessionRegistry.withLock { runtime.sessionRegistry.entry(poll.sessionId) }
             if (exitedEntry != null) {
                 LogUtil.info(
                     "Runtime",
@@ -1036,7 +1037,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         poll.exits.forEach { exitInfo ->
             if (exitInfo.sessionId != poll.sessionId) {
                 val extra =
-                    synchronized(runtime.sessionLock) { runtime.sessions[exitInfo.sessionId] }
+                    runtime.sessionRegistry.withLock { runtime.sessionRegistry.entry(exitInfo.sessionId) }
                 if (extra != null) {
                     LogUtil.info(
                         "Runtime",
@@ -1174,15 +1175,15 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
     /**
      * 摘除并停止该会话的存活看门狗。
      *
-     * 在 [TerminalRuntime.sessionLock] 内完成：处置回调（[handleSessionHang]）以「本实例仍是
+     * 在 [SessionRegistry] 的总闸内完成：处置回调（[handleSessionHang]）以「本实例仍是
      * 当前看门狗」为生效前提，摘除与该复核必须互斥，否则陈旧看门狗会在新
      * 看门狗就位后仍被判为当前，把已经恢复的会话关掉。
      *
-     * 锁序固定为 runtime.sessionLock → 看门狗闸门锁：看门狗线程永不持闸门锁取
-     * runtime.sessionLock（见 [RenderWatchDog]），故两把锁不会互等。
+     * 锁序固定为会话总闸 → 看门狗闸门锁：看门狗线程永不持闸门锁取
+     * 会话总闸（见 [RenderWatchDog]），故两把锁不会互等。
      */
     internal fun detachWatchDog(entry: SessionEntry) {
-        synchronized(runtime.sessionLock) {
+        runtime.sessionRegistry.withLock {
             val watchdog = entry.renderWatchDog
             entry.renderWatchDog = null
             watchdog?.stop()
@@ -1199,7 +1200,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
      * 身份复核：只有仍是本会话当前看门狗的判定才处置。渲染线程重启会换上一个
      * 新看门狗，陈旧看门狗的迟到判定不得作用于新线程——否则把健康的渲染线程
      * 标记为死亡，或关闭一个已经恢复的会话。复核与状态变更在同一次
-     * [TerminalRuntime.sessionLock] 获取内完成，故两者不会交错。
+     * [SessionRegistry] 总闸的同一次获取内完成，故两者不会交错。
      */
     internal fun handleSessionHang(
         entry: SessionEntry,
@@ -1209,7 +1210,7 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         val hungLayer = diagnosis.hungLayer ?: return
         when (recoveryActionFor(hungLayer)) {
             LivenessRecovery.RESTART_RENDER_THREAD -> {
-                synchronized(runtime.sessionLock) {
+                runtime.sessionRegistry.withLock {
                     if (entry.renderWatchDog !== watchdog) {
                         LogUtil.debug("Runtime", "session ${entry.sessionId} stale watchdog ignored")
                         return
@@ -1226,13 +1227,13 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
 
             LivenessRecovery.CLOSE_SESSION -> {
                 val now = System.nanoTime()
-                synchronized(runtime.sessionLock) {
+                runtime.sessionRegistry.withLock {
                     if (entry.renderWatchDog !== watchdog) {
                         LogUtil.debug("Runtime", "session ${entry.sessionId} stale watchdog ignored")
                         return
                     }
                     // 自动关闭按 60s 节流：反复关闭又新建会让用户看到会话号乱跳。
-                    // 在 runtime.sessionLock 内领取：两个看门狗回调并发时必须只有一个拿到
+                    // 在会话总闸内领取：两个看门狗回调并发时必须只有一个拿到
                     // 许可，否则同一会话会被重复关闭。
                     if (!shouldCloseSession(entry.lastAutoCloseNanos, now)) {
                         LogUtil.warn(

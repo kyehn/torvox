@@ -115,7 +115,7 @@ class ThemeFollowSystemInstrumentedTest : ComposeTerminalLogcatTest() {
         assertNotNull("终端输出在清屏前未稳定", settled)
         // 用原生 reset 一次清空 VT 与回滚：注入 ESC[2J 只擦当前屏幕，回滚里的前序
         // 文本仍会被 getTerminalText 读到，全量运行时上一用例的残留会让它恒不为空。
-        val sessionId = composeTestRule.activity.terminalViewModel.runtime.activeSessionId
+        val sessionId = composeTestRule.activity.terminalViewModel.runtime.sessionRegistry.activeSessionId
         NativeBridge.resetTerminal(sessionId)
         val cleared =
             UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {

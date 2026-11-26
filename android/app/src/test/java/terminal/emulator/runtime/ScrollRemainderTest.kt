@@ -52,7 +52,7 @@ class ScrollRemainderTest {
                 renderThreadRef = null,
                 running = true,
             )
-        runtime.sessions[0L] = entry
+        runtime.sessionRegistry.register(entry)
         return entry
     }
 

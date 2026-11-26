@@ -56,7 +56,6 @@ import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.util.urlOrigin
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -130,7 +129,7 @@ internal data class SessionStateSnapshot(val isRunning: Boolean, val activeSessi
 /**
  * 把会话状态快照发布到运行期状态流。
  *
- * 快照 MUST 在 [sessionLock] 的同一次持锁区间内取出（[snapshot] 在持锁时被调用）：
+ * 快照 MUST 在会话总闸的同一次持锁区间内取出（[snapshot] 在持锁时被调用）：
  * 活动会话与会话列表分两次锁外读会拼出「活动会话已关闭却仍在列表里」的组合，
  * 界面随后把序号算成 0、抽屉高亮指向不存在的条目，且该状态不会自愈——
  * 后续刷新只更新标题，不再改活动会话。
@@ -140,11 +139,11 @@ internal data class SessionStateSnapshot(val isRunning: Boolean, val activeSessi
  */
 internal fun publishSessionState(
     state: MutableStateFlow<RuntimeState>,
-    sessionLock: Any,
+    sessionGate: Any,
     snapshot: () -> SessionStateSnapshot,
 ) {
     state.update { current ->
-        val taken = synchronized(sessionLock) { snapshot() }
+        val taken = synchronized(sessionGate) { snapshot() }
         current.copy(
             isRunning = taken.isRunning,
             activeSessionId = taken.activeSessionId,
@@ -450,7 +449,13 @@ constructor(
      */
     fun claimStartupKeyboardRequest(): Boolean = startupKeyboardRequested.compareAndSet(false, true)
 
-    internal val sessions = ConcurrentHashMap<Long, SessionEntry>()
+    /**
+     * 会话表与活动会话 id 的唯一所有者。
+     *
+     * 运行期不再直接持有会话表或活动会话 id：二者的增删与切换都经它完成，
+     * 活动会话 id 与会话列表因而必然同源。
+     */
+    internal val sessionRegistry = SessionRegistry()
 
     /**
      * 渲染契约下发的串行闸。
@@ -482,8 +487,8 @@ constructor(
             postToMain = { action -> mainHandler.post(action) },
             frameClock = ChoreographerFrameClock,
             wakeActiveSession = { frameTimeNanos ->
-                // 无锁读取：会话表是 ConcurrentHashMap，活动会话 id 是 @Volatile。
-                val entry = sessions[activeSessionId]
+                // 无锁读取：会话表是并发映射，活动会话 id 是 @Volatile。
+                val entry = sessionRegistry.activeEntry()
                 if (entry != null && isSessionActive(entry, System.nanoTime())) {
                     // 用帧回调给出的 vsync 时刻（而非回调派发时刻）判新鲜度：主线程
                     // 被占用时派发时刻会滞后，那正是链已停摆的证据。
@@ -492,8 +497,10 @@ constructor(
                     entry.pokeVsync()
                 }
             },
-            hasSessions = { sessions.isNotEmpty() },
-            anySessionActive = { nowNanos -> sessions.values.any { entry -> isSessionActive(entry, nowNanos) } },
+            hasSessions = { !sessionRegistry.isEmpty() },
+            anySessionActive = { nowNanos ->
+                sessionRegistry.values().any { entry -> isSessionActive(entry, nowNanos) }
+            },
             appForeground = { appForeground },
         )
 
@@ -565,33 +572,25 @@ constructor(
     internal val renderGeneration = AtomicInteger(0)
 
     /**
-     * 活动会话 id。**唯一写入口**：赋值时同步对齐运行期镜像
+     * 活动会话 id 的**唯一写入口**：改选时同步对齐运行期镜像
      * （见 [publishActiveSessionState]）。
      *
-     * 为什么做成 setter 而不是各调用点自己记得调用：渲染循环只在**变化时**发布备用屏
+     * 为什么做成单一入口而不是各调用点自己记得调用：渲染循环只在**变化时**发布备用屏
      * 标记与内容下沿，而新 [SessionEntry] 的这两个字段都从 `false`/`哨兵` 起步——
      * 首帧上报的值与自身字段相同，循环不会发布，运行期便一直保留**上一个**会话的值。
      * 备用屏标记陈旧为真时，键盘弹出后终端不再随之上移、网格还按旧高度扣减，且没有
      * 任何自愈触发点。这个缺陷已经因为漏掉调用点出现过三次（新建/切换/接替各一次，
      * 外加两条「最后一个会话关闭」路径），故让「忘记」在结构上不可能。
      */
-    @Volatile
-    private var activeSessionIdValue: Long = 0L
-
-    /** 活动会话 id。所有读取经 [activeSessionId]。 */
-    val activeSessionId: Long
-        get() = activeSessionIdValue
-
     private fun setActiveSessionId(value: Long) {
-        if (value != activeSessionIdValue) {
+        if (value != sessionRegistry.activeSessionId) {
             coverCapture.onSessionSwitched()
         }
-        activeSessionIdValue = value
-        publishActiveSessionState(sessions[value])
+        sessionRegistry.setActive(value)
+        publishActiveSessionState(sessionRegistry.entry(value))
     }
 
     @Volatile private var starting = false
-    internal val sessionLock = Any()
 
     /**
      * 结束「启动中」标记的唯一写入口（置真的唯一入口是 [start] 的锁内）。
@@ -601,7 +600,7 @@ constructor(
      * 取决于读写交错，也让「早退路径漏写」在结构上无处可查。
      */
     private fun endStarting() {
-        synchronized(sessionLock) { starting = false }
+        sessionRegistry.withLock { starting = false }
     }
 
     /**
@@ -612,7 +611,7 @@ constructor(
      * [SessionConfigBuilder.buildConfig] 里：后者也被配置变化路径 [applySettings] 调用，而那条路径并不建
      * 会话——在那里消费会让一次主题或配置变化把应急请求静默吞掉，随后建出来的仍是
      * 普通 prefix-shell 会话，正是 failsafe 要防的结果。已有会话时重复点击为空操作
-     * （见 start() 的 `sessions.isNotEmpty()` 守卫）。
+     * （见 start() 的 `!sessionRegistry.isEmpty()` 守卫）。
      */
     @Volatile
     var failsafeRequested: Boolean = false
@@ -717,11 +716,11 @@ constructor(
      * 提示已显示时返回 true（调用方应提前返回且不关闭会话）。
      */
     private fun maybeShowProcessCompletedPrompt(entry: SessionEntry, exitCode: Int?): Boolean {
-        if (entry.sessionId != activeSessionId || entry.waitingForProcessCompleted) return false
+        if (entry.sessionId != sessionRegistry.activeSessionId || entry.waitingForProcessCompleted) return false
         // 正常退出（exit 0）直接关闭会话；非零退出与「码未知」都保留现场待回车确认关闭。
         if (exitCode == 0) return false
-        synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.sessionId)) return false
+        sessionRegistry.withLock {
+            if (!sessionRegistry.contains(entry.sessionId)) return false
             entry.waitingForProcessCompleted = true
             entry.processExitCode = exitCode
         }
@@ -752,8 +751,8 @@ constructor(
         // 阶段 1（加锁）：捕获可能挂起的线程；实际 join 在下方不持锁执行
         // （最长 THREAD_JOIN_TIMEOUT_MS），使挂起的 GPU 线程不阻塞所有会话操作。
         val hungThreadToJoin: Thread?
-        synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.sessionId)) return
+        sessionRegistry.withLock {
+            if (!sessionRegistry.contains(entry.sessionId)) return
             entry.running = false
             hungThreadToJoin = if (entry.renderThreadPossiblyAlive) entry.hungRenderThread else null
         }
@@ -776,8 +775,8 @@ constructor(
 
         // 锁内决定关闭资格，实际的 bridge.close() 放到锁外：Session::drop 会 kill 子进程
         // 并 join reader/wait 线程（可达 ~100ms+），持锁会阻塞所有会话操作（切换/创建/关闭）。
-        synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.sessionId)) return
+        sessionRegistry.withLock {
+            if (!sessionRegistry.contains(entry.sessionId)) return
             // 看门狗线程是每会话一个；在此停止（正常退出路径），
             // 否则每个退出会话都会泄漏一个轮询线程。
             renderSupervisor.detachWatchDog(entry)
@@ -790,17 +789,17 @@ constructor(
         // 渲染线程仍卡在原生代码里时由同一条守卫跳过关闭（在其下销毁即 UAF）。
         entry.closeBridgeUnlessRenderThreadAlive("shell exit")
         var activeSessionReplaced = false
-        synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.sessionId)) return
-            sessions.remove(entry.sessionId)
-            if (entry.sessionId == activeSessionId) {
+        sessionRegistry.withLock {
+            if (!sessionRegistry.contains(entry.sessionId)) return
+            sessionRegistry.remove(entry.sessionId)
+            if (entry.sessionId == sessionRegistry.activeSessionId) {
                 activeSessionReplaced = true
                 // 前台会话刚刚消失；接替会话没有渲染线程（只有活动会话渲染），
                 // 其输出/事件永远不会被轮询，终端将看似卡死。此刻立即激活它。
-                setActiveSessionId(sessions.keys.sorted().lastOrNull() ?: 0L)
-                if (activeSessionId != 0L) {
+                setActiveSessionId(sessionRegistry.ids().lastOrNull() ?: 0L)
+                if (sessionRegistry.activeSessionId != 0L) {
                     activateReplacementSession(
-                        activeSessionId,
+                        sessionRegistry.activeSessionId,
                         "handleSessionExit",
                         markRunning = false,
                         withRetry = true,
@@ -808,7 +807,7 @@ constructor(
                     )
                 }
             }
-            updateForegroundSessionCount(sessions.size)
+            updateForegroundSessionCount(sessionRegistry.size)
             updateState()
         }
         // 接替会话换了，标题不能停留在已退出会话上；查询本身在后台作用域里。
@@ -820,8 +819,8 @@ constructor(
         // 接替分支会为新活动会话调用 startRenderThread，缺少该标志时竞争的
         // closeDeadSession(entry) 可能在接替渲染线程启动期间关闭其 bridge，
         // 留下双重消费全局事件队列的孤儿线程。
-        synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.sessionId)) return
+        sessionRegistry.withLock {
+            if (!sessionRegistry.contains(entry.sessionId)) return
             entry.closing = true
             entry.running = false
         }
@@ -835,20 +834,20 @@ constructor(
         // 原生会话待进程消亡时回收（宁可泄漏也不在其下销毁）。
         renderSupervisor.stopRenderThread(entry)
         entry.closeBridgeUnlessRenderThreadAlive(reason)
-        synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.sessionId)) return
-            sessions.remove(entry.sessionId)
+        sessionRegistry.withLock {
+            if (!sessionRegistry.contains(entry.sessionId)) return
+            sessionRegistry.remove(entry.sessionId)
             // 保持前台服务计数同步，与 handleSessionExit 和 closeSession 对称：
             // 经此路径关闭最后一个会话时必须停掉前台服务并清除其陈旧通知。
-            updateForegroundSessionCount(sessions.size)
-            if (entry.sessionId == activeSessionId) {
+            updateForegroundSessionCount(sessionRegistry.size)
+            if (entry.sessionId == sessionRegistry.activeSessionId) {
                 // 同 handleSessionExit：接替会话需要渲染线程，
                 // 否则其输出/事件永远不会被轮询，终端将看似卡死。
-                val remaining = sessions.keys.sorted()
+                val remaining = sessionRegistry.ids()
                 setActiveSessionId(remaining.lastOrNull() ?: 0L)
-                if (activeSessionId != 0L) {
+                if (sessionRegistry.activeSessionId != 0L) {
                     activateReplacementSession(
-                        activeSessionId,
+                        sessionRegistry.activeSessionId,
                         "closeDeadSession",
                         markRunning = false,
                         withRetry = true,
@@ -856,7 +855,7 @@ constructor(
                     )
                 }
             }
-        } // synchronized(sessionLock)
+        } // sessionRegistry.withLock
         updateState()
     }
 
@@ -876,13 +875,13 @@ constructor(
      * 服务调用是同步 IPC；真发生时条目保持已插入状态，清理由调用方的作用域拆除负责）。
      * [start] 与 [createSession] 共用这一份实现，避免判据与日志各自漂移。
      *
-     * 调用点 MUST 持有 [sessionLock]：本方法读 [sessions] 并与关闭路径争用
+     * 调用点 MUST 持有会话总闸：本方法读会话表并与关闭路径争用
      * [foregroundServiceRunning] 标志，两者在同一把锁下才自洽。
      */
     private fun startForegroundServiceForSession(sessionId: Long) {
         try {
             startForegroundServiceIfNeeded()
-            updateForegroundSessionCount(sessions.size)
+            updateForegroundSessionCount(sessionRegistry.size)
         } catch (serviceException: Exception) {
             if (serviceException is CancellationException) {
                 throw serviceException
@@ -923,7 +922,7 @@ constructor(
      * 故此处必须清除标志，否则后续 startForegroundServiceIfNeeded 会跳过重启服务
      * ——无前台通知、无唤醒锁，后台会话可能被杀。
      *
-     * 异常安全：在关闭路径上于 sessionLock 内调用，服务异常绝不能逃出锁
+     * 异常安全：在关闭路径上于会话总闸内调用，服务异常绝不能逃出锁
      * （否则会跳过 updateState 并破坏会话簿记）。
      */
     private fun updateForegroundSessionCount(count: Int) {
@@ -964,13 +963,13 @@ constructor(
 
     /** 活动会话的滚动偏移：会话切换时由 Surface 读取以重同步其本地选区计算偏移。 */
     fun activeSessionScrollOffset(): Int {
-        synchronized(sessionLock) {
-            return sessions[activeSessionId]?.scrollOffset ?: 0
+        sessionRegistry.withLock {
+            return sessionRegistry.activeEntry()?.scrollOffset ?: 0
         }
     }
 
     fun setScrollOffset(offset: Int) {
-        val entry = sessions[activeSessionId] ?: return
+        val entry = sessionRegistry.activeEntry() ?: return
         entry.scrollOffset = offset
         // 记录手势时间，使渲染线程的 recentlyScrolled 保护能在用户滚动后的
         // RECENT_SCROLL_WINDOW_NANOS 内抑制新输出引起的滚动复位。
@@ -987,7 +986,7 @@ constructor(
      * （同 [setScrollOffset]：只存储 + 通知，由渲染线程在 surface 锁下完成 JNI 穿越）。
      */
     fun setScrollRemainderPx(remainderPx: Float) {
-        val entry = sessions[activeSessionId] ?: return
+        val entry = sessionRegistry.activeEntry() ?: return
         // 逐像素的亚行运动是拖拽期间频率最高的事件，必须保持循环的活跃节奏
         // （滚动运动时钟在条目内一并刷新）。
         entry.setScrollRemainderPx(remainderPx)
@@ -1004,14 +1003,14 @@ constructor(
      * 随后一段时间里被误判为「用户刚滚动过」而不再自动贴底。
      */
     fun clearScrollRemainder() {
-        val entry = sessions[activeSessionId] ?: return
+        val entry = sessionRegistry.activeEntry() ?: return
         entry.clearScrollRemainder()
         entry.lastSignalNanos = System.nanoTime()
     }
 
     /** 从 TerminalViewModel 同步 SCROLL 按钮锁，使渲染线程知道新输出时是否自动复位滚动。 */
     fun setScrollActive(active: Boolean) {
-        val entry = sessions[activeSessionId] ?: return
+        val entry = sessionRegistry.activeEntry() ?: return
         entry.scrollActive = active
         entry.notifyRender()
     }
@@ -1024,7 +1023,7 @@ constructor(
      * 渲染为锁定，下一行输出却已把视口拽到底，正是该开关要防的情况。
      */
     fun setScrollGestureActive(active: Boolean) {
-        val entry = sessions[activeSessionId] ?: return
+        val entry = sessionRegistry.activeEntry() ?: return
         if (entry.scrollGestureActive == active) return
         entry.scrollGestureActive = active
         entry.notifyRender()
@@ -1041,7 +1040,7 @@ constructor(
         selectionState.set(
             SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection = true, dragging = true),
         )
-        sessions[activeSessionId]?.notifyRender()
+        sessionRegistry.activeEntry()?.notifyRender()
     }
 
     /**
@@ -1055,11 +1054,11 @@ constructor(
         val current = selectionState.get()
         if (current.dragging == dragging) return
         selectionState.set(current.copy(dragging = dragging))
-        sessions[activeSessionId]?.notifyRender()
+        sessionRegistry.activeEntry()?.notifyRender()
     }
 
     fun forceRender() {
-        val entry = sessions[activeSessionId] ?: return
+        val entry = sessionRegistry.activeEntry() ?: return
         entry.forceRenderRequested = true
         entry.notifyRender()
     }
@@ -1307,7 +1306,7 @@ constructor(
         // 同值跳过：手势 preview 高频推送同一字号时不走 JNI，
         // 与 native 侧跳过配合，缩放期间不抖动。
         if (tenths == appliedFontSizeTenths) return
-        val entry = sessions[activeSessionId] ?: return
+        val entry = sessionRegistry.activeEntry() ?: return
         entry.bridge.setFontSizeInPlace(tenths)
         // 只同步触摸/渲染度量，不重算网格不 resize：触摸映射跟上新字形，
         // 网格行列保持到 finalize，避免手势期间中间态错位。
@@ -1422,8 +1421,8 @@ constructor(
         if (surface != null) {
             pendingSurface = PendingSurface(surface, width, height)
         }
-        synchronized(sessionLock) {
-            if (sessions.isNotEmpty() || starting) return
+        sessionRegistry.withLock {
+            if (!sessionRegistry.isEmpty() || starting) return
             starting = true
         }
         // LogUtil.d 已写入 logcat，不重复输出。
@@ -1608,8 +1607,8 @@ constructor(
             var finalSessionId = 0L
             var entry: SessionEntry? = null
             var abandonedReason: String? = null
-            synchronized(sessionLock) {
-                if (sessions.isNotEmpty()) {
+            sessionRegistry.withLock {
+                if (!sessionRegistry.isEmpty()) {
                     // 上方引导下载运行期间已有会话被创建（或 start() 重入）。
                     // 插入第二个活动条目会在唯一的全局事件队列上启动第二个渲染线程，
                     // 并覆盖现有会话的 UI 状态——改为销毁刚 spawn 的原生会话，
@@ -1627,7 +1626,7 @@ constructor(
                             running = true,
                             onSessionActive = { vsyncChain.ensureRunning() },
                         )
-                    sessions[finalSessionId] = entry
+                    sessionRegistry.register(entry)
                     setActiveSessionId(finalSessionId)
                     bridge.onPtyWrite = {
                         // 输入写入唤醒：每次 PTY 写入（经 processKeyEvent 的硬件按键、
@@ -1641,7 +1640,7 @@ constructor(
             }
             if (abandonedReason != null) {
                 // 在锁外关闭 bridge（Session::drop 会 join PTY 读取线程数百毫秒；
-                // 跨它持有 sessionLock 会冻结所有会话操作）。与
+                // 跨它持有会话总闸会冻结所有会话操作）。与
                 // createSessionInner 的 abandonedByStart/abandonedByStop 回滚一致。
                 try {
                     bridge.close()
@@ -1674,11 +1673,11 @@ constructor(
                 "first resize after spawn: grid=${runtimeState.value.rows}x${runtimeState.value.cols}",
             )
             startedEntry.forceRenderRequested = true
-            // 在同一个 sessionLock 临界区内启动渲染线程、发布 UI 状态并启动前台服务与监视器：
+            // 在同一个会话总闸临界区内启动渲染线程、发布 UI 状态并启动前台服务与监视器：
             // 最后一个写入者对并发关闭路径胜出。先检查后发布会留下一个窗口，
             // 使关闭已完成而 start() 仍发布幽灵 RuntimeState / 复活服务。
-            synchronized(sessionLock) {
-                val stillActive = sessions[finalSessionId] === startedEntry
+            sessionRegistry.withLock {
+                val stillActive = sessionRegistry.entry(finalSessionId) === startedEntry
                 if (!stillActive) {
                     // 插入之后有并发关闭落地：条目已在清理中（closeSession 已移除条目）。
                     // 此刻发布 RuntimeState 或启动前台服务会在拆除之下复活幽灵 UI 状态与通知。
@@ -1689,7 +1688,7 @@ constructor(
                     // 防御性：若这是并发关闭而非完全停止，则为存活会话保持监视器运行。
                     // 当前不可达（start() 只向空映射插入，且 starting=true 阻止并发创建，
                     // 因此不可能存在其他会话），但若该不变式日后变化，遵守它成本很低。
-                    if (sessions.isNotEmpty()) {
+                    if (!sessionRegistry.isEmpty()) {
                         renderSupervisor.startRenderMonitor()
                     }
                     return
@@ -1734,7 +1733,7 @@ constructor(
         } catch (exception: Exception) {
             // 取消与失败统一先回滚已 spawn 的 bridge，再按类型处理：
             // 取消恰是最易发生的路径（Activity 销毁），跳过回滚即永久泄漏
-            // 原生会话及其 PTY 子进程（既不在 sessions 里，也无 UI 入口）。
+            // 原生会话及其 PTY 子进程（既不在会话表里，也无 UI 入口）。
             try {
                 startedBridge?.close()
             } catch (closeException: Exception) {
@@ -1755,11 +1754,11 @@ constructor(
             // 在锁内移除它——bridge 已在上方关闭，且关闭是幂等的。
             // 同时恢复 UI 状态：失败前发布的 RuntimeState 否则会保持 isRunning=true
             // 却配上已死的 id。
-            synchronized(sessionLock) {
+            sessionRegistry.withLock {
                 startedBridge?.let { bridgeToRemove ->
-                    sessions.entries.removeIf { it.value.bridge === bridgeToRemove }
+                    sessionRegistry.removeByBridge(bridgeToRemove)
                 }
-                if (sessions.isEmpty()) {
+                if (sessionRegistry.isEmpty()) {
                     setActiveSessionId(0L)
                     runtimeState.update { RuntimeState() }
                     // 服务可能在失败前已在锁内启动；把计数归零，
@@ -1850,7 +1849,7 @@ constructor(
 
             val entry: SessionEntry
             val abandonedByStart: Boolean
-            synchronized(sessionLock) {
+            sessionRegistry.withLock {
                 if (starting) {
                     // start()（引导慢路径）可能在我们先前检查之后启动，
                     // 并在我们挂起于 spawn 调用期间插入了自己的会话。
@@ -1868,7 +1867,7 @@ constructor(
                             running = false,
                             onSessionActive = { vsyncChain.ensureRunning() },
                         )
-                    sessions[nextId] = entry
+                    sessionRegistry.register(entry)
                     abandonedByStart = false
                     hangGuardedEntry = entry
                     bridge.onPtyWrite = {
@@ -1891,7 +1890,7 @@ constructor(
 
             try {
                 // 在锁外：switchSessionInternal 会执行同步的首帧渲染，
-                // 在挂起的 GPU 上可能阻塞；跨它持有 sessionLock
+                // 在挂起的 GPU 上可能阻塞；跨它持有会话总闸
                 // 会冻结所有会话操作。needsSpawn=false：该会话已在上方 spawn
                 // ——在此再 spawn 会创建第二个原生会话，其 ID 与映射键分歧
                 // （输入/输出分裂 + 泄漏的 shell 进程）。
@@ -1902,8 +1901,8 @@ constructor(
                 LogUtil.error("Runtime", "Failed to switch to new session $nextId, rolling back", exception)
                 // 结构性的映射变更在锁内完成（不变式）；
                 // 下方的 bridge 关闭留在锁外（Session::drop 会 join 线程）。
-                synchronized(sessionLock) {
-                    sessions.remove(nextId)
+                sessionRegistry.withLock {
+                    sessionRegistry.remove(nextId)
                 }
                 // 关闭原生 bridge，避免 Rust 侧会话及其 PTY 子进程泄漏；
                 // 渲染线程仍活着时由同一条守卫跳过（在其下销毁即 use-after-free）。
@@ -1928,7 +1927,7 @@ constructor(
             // 在引导路径之外创建的会话（如关闭全部会话后的「+」按钮）
             // 必须让前台服务重新运行：关闭路径在计数为 0 时会停掉它，
             // 没有它就没有前台通知也没有 PARTIAL_WAKE_LOCK——后台会话会被杀。
-            // 服务启动与存活重查在同一个 sessionLock 段内完成，与 start() 对称：
+            // 服务启动与存活重查在同一个会话总闸段内完成，与 start() 对称：
             // 与并发关闭路径串行化，使关闭既不会落在服务启动与重查之间
             // （在拆除之下复活通知），也不会在段中途清空映射（幽灵 id）。
             // 单独保护：此处的 ForegroundServiceStartNotAllowedException
@@ -1936,8 +1935,8 @@ constructor(
             // 绝不能经下方通用 catch 泄漏已插入的会话
             // （那会跳过 bridge 关闭并对一个存活会话返回 -1）。
             val stillPresent: Boolean
-            synchronized(sessionLock) {
-                stillPresent = sessions.containsKey(nextId)
+            sessionRegistry.withLock {
+                stillPresent = sessionRegistry.contains(nextId)
                 if (stillPresent) {
                     startForegroundServiceForSession(nextId)
                 }
@@ -1967,10 +1966,10 @@ constructor(
             // 取消与失败统一先回滚未入库的 bridge，再按类型处理（与 start 同形）。
             // 已入库的会话由并发关闭路径负责；未入库的桥接没有渲染线程，
             // 只有条目已被并发移除且其渲染线程挂起时才跳过（UAF 守卫）。
-            val orphanEntry = hangGuardedEntry?.takeIf { sessions[nextId] == null }
+            val orphanEntry = hangGuardedEntry?.takeIf { sessionRegistry.entry(nextId) == null }
             if (orphanEntry != null) {
                 orphanEntry.closeBridgeUnlessRenderThreadAlive("createSession failed")
-            } else if (createdBridge != null && createdBridge !== sessions[nextId]?.bridge) {
+            } else if (createdBridge != null && createdBridge !== sessionRegistry.entry(nextId)?.bridge) {
                 try {
                     createdBridge.close()
                 } catch (closeException: Exception) {
@@ -2000,7 +1999,7 @@ constructor(
         if (!switchSessionInternal(sessionId, surface, width, height)) return false
         updateState()
         // 标题只在锁外刷新：取标题要走阻塞式 VT 往返（最长约 1 秒），
-        // sessionLock 是所有会话操作的总闸，锁内阻塞等于冻结整个会话子系统。
+        // 会话总闸是所有会话操作的总闸，锁内阻塞等于冻结整个会话子系统。
         scheduleActiveSessionTitleRefresh()
         return true
     }
@@ -2008,21 +2007,21 @@ constructor(
     private suspend fun switchSessionInternal(sessionId: Long, surface: Surface, width: Int, height: Int): Boolean {
         // 阶段 1（加锁）：校验、停止上一个渲染线程、（重）配置目标 bridge。
         // 阶段 2（不持锁）：同步的首帧渲染重试——bridge.render() 在挂起的 GPU 上
-        // 可能永久阻塞，跨它持有 sessionLock 会冻结所有会话操作
+        // 可能永久阻塞，跨它持有会话总闸会冻结所有会话操作
         // （关闭/切换/停止、渲染监视器）。
         // 阶段 3（加锁）：启动新渲染线程并发布新的活动会话。
         val target: SessionEntry
         val previousActiveId: Long
-        synchronized(sessionLock) {
+        sessionRegistry.withLock {
             target =
-                sessions[sessionId]
+                sessionRegistry.entry(sessionId)
                     ?: run {
                         LogUtil.error("Runtime", "switchSession: session $sessionId not found")
                         return false
                     }
             // 在任何停止动作之前捕获；用于切换/spawn 失败时恢复前一个会话。
-            previousActiveId = activeSessionId
-            if (sessionId == activeSessionId) return true
+            previousActiveId = sessionRegistry.activeSessionId
+            if (sessionId == sessionRegistry.activeSessionId) return true
             // 目标会话的亚行余量属于上次活动它时的手势：清零，否则它的渲染线程首帧
             // 会把旧余量转发给原生（首帧先跳半行，待余量归零后再跳回）。
             // 切换期间清零是本路径唯一的清零点——此刻活动会话仍是上一个，写入都落在
@@ -2040,12 +2039,12 @@ constructor(
                 return false
             }
 
-            val current = sessions[activeSessionId]
+            val current = sessionRegistry.activeEntry()
             if (current != null) {
-                // stopRenderThread 在持有 sessionLock 时 join 旧渲染线程
+                // stopRenderThread 在持有会话总闸时 join 旧渲染线程
                 // （最长 THREAD_JOIN_TIMEOUT_MS = 1s）。switchSession 运行在
                 // IO 调度器协程上（TerminalViewModel），因此不会 ANR UI 线程
-                // ——但它会拖住所有经 sessionLock 协调的操作
+                // ——但它会拖住所有经会话总闸协调的操作
                 // （关闭/切换/创建/stopForegroundServiceIfIdle，包括 MainActivity.onDestroy）。
                 // 这是已接受的取舍：join 只在旧线程卡死于原生代码时才阻塞
                 // （GPU 挂起——渲染本已降级），而无锁停止会让 closeSession
@@ -2082,7 +2081,7 @@ constructor(
         // （它会先重渲染一次，随后按 RENDER_LATCH_IDLE_TIMEOUT_NANOS 节奏闭锁，
         // 事件驱动的模型得以保留）。
         //
-        // 注意：刻意置于 sessionLock 之外——bridge.render() 在 GPU 故障时
+        // 注意：刻意置于会话总闸之外——bridge.render() 在 GPU 故障时
         // （Mali GPU 的 get_current_texture）可能无限挂起。
         try {
             // 原生的亚行余量挂在**全局**渲染器上（渲染器只有一份）：上一会话留下的
@@ -2130,9 +2129,9 @@ constructor(
         }
 
         // 阶段 3（加锁）：发布切换。
-        synchronized(sessionLock) {
+        sessionRegistry.withLock {
             // 重新校验：首帧渲染期间会话可能已关闭（用户关闭，或被监视器回收）。
-            if (sessions[sessionId] !== target) {
+            if (sessionRegistry.entry(sessionId) !== target) {
                 LogUtil.warn(
                     "Runtime",
                     "switchSession: session $sessionId was closed during first frame, aborting switch",
@@ -2145,13 +2144,13 @@ constructor(
             // （两个消费者会错投剪贴板事件）。
             val concurrentToStop =
                 concurrentRenderThreadToStop(
-                    activeSessionIdAfterRender = activeSessionId,
+                    activeSessionIdAfterRender = sessionRegistry.activeSessionId,
                     previousActiveId = previousActiveId,
                     targetId = sessionId,
-                    concurrentSessionId = sessions[activeSessionId]?.sessionId,
+                    concurrentSessionId = sessionRegistry.activeEntry()?.sessionId,
                 )
             if (concurrentToStop != null) {
-                val concurrent = sessions[concurrentToStop]
+                val concurrent = sessionRegistry.entry(concurrentToStop)
                 if (concurrent != null) {
                     try {
                         renderSupervisor.stopRenderThread(concurrent)
@@ -2195,7 +2194,7 @@ constructor(
                     // 前一个活动会话已停止且其 GPU surface 已释放，恢复它，
                     // 使终端不会被留在冻结状态（无渲染线程，且监视器会永远跳过
                     // !running 的条目）。
-                    val previous = sessions[previousActiveId]
+                    val previous = sessionRegistry.entry(previousActiveId)
                     if (previous != null && shouldRestorePreviousSession(previous.sessionId, sessionId)) {
                         LogUtil.warn(
                             "Runtime",
@@ -2271,7 +2270,7 @@ constructor(
      * 把服务生命周期集中在此，而不是由 MainActivity 直接调用静态方法
      * （那会绕过运行期的 foregroundServiceRunning 标志及其异常保护）。
      *
-     * 计数读取与停止决定都在 sessionLock 内完成：否则落在快照与停止之间的
+     * 计数读取与停止决定都在会话总闸内完成：否则落在快照与停止之间的
      * createSession 会让一个存活会话失去其前台服务。
      *
      * 注意：若 onDestroy 在 runtime.start() 引导中途运行（尚未插入会话），本方法停止服务，
@@ -2281,11 +2280,11 @@ constructor(
      * 失败才会泄漏，而其回滚（updateForegroundSessionCount(0)）已处理该情形。
      */
     fun stopForegroundServiceIfIdle() {
-        synchronized(sessionLock) {
-            if (sessions.isEmpty()) {
+        sessionRegistry.withLock {
+            if (sessionRegistry.isEmpty()) {
                 stopForegroundService()
             } else {
-                updateForegroundSessionCount(sessions.size)
+                updateForegroundSessionCount(sessionRegistry.size)
             }
         }
     }
@@ -2298,7 +2297,7 @@ constructor(
      * 前台服务计数与通知的撤销都是既有语义，不另开一套。
      */
     fun closeAllSessions() {
-        synchronized(sessionLock) { sessions.keys.sorted() }
+        sessionRegistry.withLock { sessionRegistry.ids() }
             .forEach { sessionId -> closeSession(sessionId) }
         // 最后一个会话关闭时计数已归零并停掉服务；此处再确认一次，覆盖
         // 关闭过程中又新建了会话的情况（那时服务应继续存活）。
@@ -2314,8 +2313,8 @@ constructor(
         // （孤儿线程、全局事件队列双重消费）。
         var wasRunning: Boolean = false
         val entry =
-            synchronized(sessionLock) {
-                val sessionEntry = sessions[sessionId] ?: return
+            sessionRegistry.withLock {
+                val sessionEntry = sessionRegistry.entry(sessionId) ?: return
                 wasRunning = sessionEntry.running
                 sessionEntry.running = false
                 sessionEntry.closing = true
@@ -2335,12 +2334,12 @@ constructor(
             // 线程可能仍在原生渲染代码中，故这不是可安全关闭的状态。
             renderThreadStopped = false
         }
-        // 关闭前在锁内重查（纯状态读取，不 join——此处 join 会持有 sessionLock
+        // 关闭前在锁内重查（纯状态读取，不 join——此处 join 会持有会话总闸
         // 最长 THREAD_JOIN_TIMEOUT_MS 并阻塞所有会话操作）。
         // 任何并发的 startRenderThread 都会被 entry.closing 拒绝（并重置 running=false），
         // 故此处存活的只可能是早于本次关闭的线程；
         // 改为把该会话标记为不可关闭（原生会话待进程消亡时回收）——安全且不阻塞。
-        synchronized(sessionLock) {
+        sessionRegistry.withLock {
             if (entry.renderThreadRef?.isAlive == true) {
                 renderThreadStopped = false
             }
@@ -2370,14 +2369,14 @@ constructor(
         // 阶段 3（加锁）：移除会话，若它是活动的则切换到接替会话。
         // 接替会话的挂起线程 join 与渲染重启留在锁内，与 handleSessionExit 对称
         // （它们仅在关闭活动会话的路径上运行）。
-        synchronized(sessionLock) {
-            if (!sessions.containsKey(sessionId)) return
-            sessions.remove(sessionId)
-            updateForegroundSessionCount(sessions.size)
+        sessionRegistry.withLock {
+            if (!sessionRegistry.contains(sessionId)) return
+            sessionRegistry.remove(sessionId)
+            updateForegroundSessionCount(sessionRegistry.size)
 
             // 若关闭的是活动会话，切换到另一个
-            if (sessionId == activeSessionId) {
-                val remaining = sessions.keys.sorted()
+            if (sessionId == sessionRegistry.activeSessionId) {
+                val remaining = sessionRegistry.ids()
                 if (remaining.isNotEmpty()) {
                     val newId = remaining.last()
                     setActiveSessionId(newId)
@@ -2413,7 +2412,7 @@ constructor(
                     fontSizeTenths = computeFontSizeTenths(),
                     fontFamily = resolveEffectiveFontFamily(),
                 )
-            sessions.values.forEach { entry ->
+            sessionRegistry.values().forEach { entry ->
                 try {
                     entry.bridge.applyRenderContract(contract)
                 } catch (exception: Exception) {
@@ -2428,7 +2427,7 @@ constructor(
         }
         // 光栅尺度变了，逻辑单元格度量随之改变：按新度量刷新并重算网格，否则
         // 渲染仍按旧单元格尺寸画字形。只对活动会话做，各会话的网格不变。
-        sessions[activeSessionId]?.let { active ->
+        sessionRegistry.activeEntry()?.let { active ->
             syncGridDimensions(active.bridge)
             recomputeGridFromFontMetrics()
         }
@@ -2494,7 +2493,7 @@ constructor(
         )
         // 只 resize 活动会话：后台会话保留各自的网格尺寸；
         // 用活动会话的尺寸 resize 所有会话会对它们触发多余的 SIGWINCH 与重排。
-        val bridge = sessions[activeSessionId]?.bridge ?: return
+        val bridge = sessionRegistry.activeEntry()?.bridge ?: return
         bridge.resize(newRows, newCols)
         // 随网格 resize 一同推入像素尺寸，使 PTY winsize 携带真实的
         // ws_xpixel/ws_ypixel（契约见 `NativeBridge.setPixelSize`：「每次网格 resize
@@ -2516,10 +2515,10 @@ constructor(
         val effectiveFontFamily = resolveEffectiveFontFamily(fontFamily)
         LogUtil.debug(
             "Runtime",
-            "applyFontSettings: fontFamily='$fontFamily' effective='$effectiveFontFamily' fontSizeTenths=$fontSizeTenths sessions=${sessions.size}",
+            "applyFontSettings: fontFamily='$fontFamily' effective='$effectiveFontFamily' fontSizeTenths=$fontSizeTenths sessions=${sessionRegistry.size}",
         )
         var applied: Boolean? = null
-        sessions.values.forEach { entry ->
+        sessionRegistry.values().forEach { entry ->
             try {
                 val familyResult = entry.bridge.setFontFamily(effectiveFontFamily)
                 LogUtil.debug("Runtime", "setFontFamily result: $familyResult")
@@ -2548,13 +2547,13 @@ constructor(
      * 输入的目标会话 id：调用方在用户事件发生时取一次，随字节传到这里。
      *
      * 输入字节可能在别的线程刷写（输入法批缓冲的帧回调与 PtyWriter 线程），
-     * 那时再解析 `sessions[activeSessionId]` 会把粘贴尾部写进用户刚切换到的新会话。
+     * 那时再解析 `sessionRegistry.activeEntry()` 会把粘贴尾部写进用户刚切换到的新会话。
      */
     val inputTargetSessionId: Long
-        get() = activeSessionId
+        get() = sessionRegistry.activeSessionId
 
     fun writeToPty(sessionId: Long, data: ByteArray): Boolean {
-        val entry = sessions[sessionId]
+        val entry = sessionRegistry.entry(sessionId)
         // 受理判据是「会话是否还活着」而不是 running（渲染意图标志）：Surface 销毁会经
         // pauseRendering 把 running 置假，而 PTY 子进程此刻仍然活着。按 running 拒绝等于
         // 在每次 surface 销毁→重建的空窗期静默吞掉击键，而恢复本身是异步的
@@ -2564,7 +2563,7 @@ constructor(
             // ——唯一被接受的输入是 Enter，它确认提示并让渲染循环执行关闭路径。
             if (entry.waitingForProcessCompleted) {
                 if (data.any { it == '\r'.code.toByte() || it == '\n'.code.toByte() }) {
-                    synchronized(sessionLock) {
+                    sessionRegistry.withLock {
                         entry.processCompletedConfirmed = true
                     }
                     entry.renderSignaled.set(true)
@@ -2594,11 +2593,11 @@ constructor(
 
     /** 字节直接送入 VT 解析器（注入转义序列的测试路径）。 */
     fun feedTerminal(data: ByteArray): Boolean {
-        val entry = sessions[activeSessionId] ?: return false
+        val entry = sessionRegistry.activeEntry() ?: return false
         return entry.bridge.feedTerminal(data)
     }
 
-    fun bridge(): Bridge? = sessions[activeSessionId]?.bridge
+    fun bridge(): Bridge? = sessionRegistry.activeEntry()?.bridge
 
     @Volatile private var lastWindowFocus: Boolean = false
 
@@ -2617,7 +2616,7 @@ constructor(
      *
      * 不得就地调用 [Bridge.focusEvent]：原生 focus_event 先经 VT 线程做 1004 模式查询
      * （有界等待，上限为 VT 空闲 tick 的四倍），再写 PTY（排空上限 5s，且每有部分写入
-     * 就重置期限——持锁时间无上界）。就地调用若发生在 [sessionLock] 内，一次慢写就把
+     * 就重置期限——持锁时间无上界）。就地调用若发生在会话总闸内，一次慢写就把
      * 全部会话操作（新建/切换/关闭/退出处理）冻住同样长；即便不在锁内，也会与窗口
      * 焦点事件并发进入原生，先后顺序随线程调度漂移。
      */
@@ -2639,7 +2638,7 @@ constructor(
         lastWindowFocus = focused
         // 焦点上报（DECSET 1004）按窗口生效：只有活动会话会收到。
         // 向每个会话广播会让单次窗口焦点变化执行 N 次同步 JNI RPC。
-        val entry = sessions[activeSessionId] ?: return
+        val entry = sessionRegistry.activeEntry() ?: return
         // 不在主线程做：原生 focus_event 先经 VT 线程做 1004 模式查询（有界等待，
         // 上限为 VT 空闲 tick 的四倍，见原生 `FOCUS_MODE_QUERY_TIMEOUT_MS`）
         // 再写 PTY，两者都在会话锁内。此前在 UI 线程同步调用，VT 线程一旦卡住
@@ -2678,13 +2677,13 @@ constructor(
         // 的顺序：否则异步暂停可能停掉同步恢复刚启动的渲染线程
         // （固定尺寸设备旋转）。
         //
-        // 注意：每会话的 join 发生在 sessionLock 内，故有多个会话时主线程经
-        // sessionLock 的操作（onDestroy → stopForegroundServiceIfIdle）会按总和停顿。
+        // 注意：每会话的 join 发生在会话总闸内，故有多个会话时主线程经
+        // 会话总闸的操作（onDestroy → stopForegroundServiceIfIdle）会按总和停顿。
         // 该代价仅在渲染线程确实挂起时出现（join 立即返回则无停顿）；
         // 与 switchSession 锁内 join 是同一取舍，故不在此另立策略。
         surfaceTransitionExecutor.execute {
-            synchronized(sessionLock) {
-                sessions.values.forEach { entry ->
+            sessionRegistry.withLock {
+                sessionRegistry.values().forEach { entry ->
                     if (entry.running) {
                         renderSupervisor.stopRenderThread(entry)
                         entry.running = false
@@ -2717,9 +2716,9 @@ constructor(
             pump.scheduleWithFixedDelay(
                 {
                     val hasSession =
-                        synchronized(sessionLock) {
-                            val active = activeSessionId
-                            active != 0L && sessions.containsKey(active)
+                        sessionRegistry.withLock {
+                            val active = sessionRegistry.activeSessionId
+                            active != 0L && sessionRegistry.contains(active)
                         }
                     if (!hasSession) {
                         // 无会话即无推进需求：停掉自身（调度器随之空转，resumeRendering 会回收）。
@@ -2756,8 +2755,8 @@ constructor(
             // 块 A 随后又把泵建起来，恢复后双泵推进、且该泵永不退出
             // （会自行停机的条件是没有会话，而此时恒有会话）。
             stopSessionPump()
-            synchronized(sessionLock) {
-                sessions.values.forEach { entry ->
+            sessionRegistry.withLock {
+                sessionRegistry.values().forEach { entry ->
                     entry.surfaceInvalidated = false
                     // 新窗口的稳定计数从头开始；恢复确认（pending）保留——
                     // 刚挂上的窗口还没证明自己不是下一具尸体。
@@ -2766,7 +2765,7 @@ constructor(
                 // 只有活动会话渲染（见 switchSessionInternal）；
                 // 为每个会话启动线程会创建单一全局原生事件队列的多个消费者，
                 // 退出事件可能因此被错误的会话线程处理（关闭掉无辜的会话）。
-                val activeEntry = sessions[activeSessionId]
+                val activeEntry = sessionRegistry.activeEntry()
                 if (activeEntry != null && !activeEntry.running) {
                     try {
                         activeEntry.running = true
@@ -2803,7 +2802,7 @@ constructor(
         // renderWithNewOutput 之前下发（见渲染循环的 lastSelection 比对）。
         // 此处再直推一次是重复的同步 JNI 往返（拖手柄时每次节流都发生，且在 UI
         // 线程上持会话锁）；更糟的是切换会话的间隙里两次会写进**不同的**会话。
-        sessions[activeSessionId]?.notifyRender()
+        sessionRegistry.activeEntry()?.notifyRender()
     }
 
     /**
@@ -2811,7 +2810,7 @@ constructor(
      * 使 PTY 网格尺寸与 UI 状态保持一致。
      */
     fun resize(rows: Int, cols: Int) {
-        val entry = sessions[activeSessionId] ?: return
+        val entry = sessionRegistry.activeEntry() ?: return
         // 在 bridge 调用之前钳位，使原生（PTY 网格尺寸）与 UI 状态永不分歧：
         // 0 在原生上是合法尺寸但会破坏别处的网格计算，
         // 而原生 resize 拒绝任何 >u16 的值（否则 Kotlin 状态会携带一个
@@ -2839,7 +2838,7 @@ constructor(
      * 且 ioctl 会成功，故无需下界守卫。
      */
     fun setPixelSize(widthPx: Int, heightPx: Int) {
-        val entry = sessions[activeSessionId] ?: return
+        val entry = sessionRegistry.activeEntry() ?: return
         entry.bridge.setPixelSize(widthPx.coerceIn(0, U16_MAX), heightPx.coerceIn(0, U16_MAX))
     }
 
@@ -2872,7 +2871,7 @@ constructor(
      * （"/home/com.ter" 而非完整路径）且换行失效。
      */
     fun recomputeGrid() {
-        val bridge = sessions[activeSessionId]?.bridge ?: return
+        val bridge = sessionRegistry.activeEntry()?.bridge ?: return
         syncGridDimensions(bridge)
         recomputeGridFromFontMetrics()
     }
@@ -2893,7 +2892,7 @@ constructor(
             surfacePresentTracker.publish(false)
         }
         pendingSurface = PendingSurface(surface, width, height)
-        val bridge = sessions[activeSessionId]?.bridge ?: return
+        val bridge = sessionRegistry.activeEntry()?.bridge ?: return
         bridge.attachSurface(surface, width, height)
         // 新窗口已挂上原生：此刻才可解除「Surface 销毁」那次暂停。
         surfaceAttachGate.onSurfaceAttached()
@@ -2973,8 +2972,8 @@ constructor(
      * 由 handleSessionExit、closeDeadSession 与 closeSession 共用，
      * 使这段持锁序列只存在于一处而非三份漂移的副本。
      *
-     * 必须在持有 sessionLock 时调用；调用方已移除正在关闭的条目并设置
-     * activeSessionId = [newId]。
+     * 必须在持有会话总闸时调用；调用方已移除正在关闭的条目并设置
+     * 活动会话 id = [newId]。
      *
      * @param caller 日志前缀（如 "handleSessionExit"）
      * @param markRunning 先把 replacement.running 置真（closeSession 需要；退出路径本就以运行中状态执行）
@@ -2989,7 +2988,7 @@ constructor(
         syncGrid: Boolean,
     ) {
         val replacement =
-            sessions[newId]
+            sessionRegistry.entry(newId)
                 ?: run {
                     LogUtil.warn("Runtime", "$caller: new active session $newId already removed")
                     setActiveSessionId(0L)
@@ -3014,7 +3013,7 @@ constructor(
             hung.isAlive
         ) {
             hung.interrupt()
-            // 本调用在 sessionLock 内：期间会话子系统整体冻结，上限是这次 join
+            // 本调用在会话总闸内：期间会话子系统整体冻结，上限是这次 join
             // 的 THREAD_JOIN_TIMEOUT_MS（另有 startRenderThread 里对旧线程的同长 join），
             // 两者相加是关闭窗口内的最坏等待。
             hung.join(THREAD_JOIN_TIMEOUT_MS)
@@ -3073,7 +3072,7 @@ constructor(
             // 该条目永不会再渲染，故「无活动会话」才是真实状态：沿用被移除会话的
             // 备用屏标记会让 imeGridReserve 继续扣着一份早已撤走的键盘高度，
             // 主屏位移恒为 0，且没有任何线程会再来重新发布这些值。
-            // （由 activeSessionId 的 setter 完成对齐。）
+            // （由 setActiveSessionId 完成对齐。）
             updateState()
             return
         }
@@ -3094,7 +3093,7 @@ constructor(
         }
         // 接替会话在窗口获得焦点时成为活动会话；
         // 重发 focus-in 使 DECSET 1004 的 TUI 恢复。
-        // 走 [dispatchFocusEvent] 而非就地调用：本函数在 [sessionLock] 内运行，
+        // 走 [dispatchFocusEvent] 而非就地调用：本函数在 [SessionRegistry] 总闸内运行，
         // 就地调用会在锁内做 VT 模式查询与 PTY 写入（持锁时间无上界），
         // 一次慢写就把全部会话操作（新建/切换/关闭/退出处理）冻住。
         if (lastWindowFocus && !replacement.closing) {
@@ -3296,13 +3295,13 @@ constructor(
     private fun updateState() {
         // 标题不在这里取：标题只能通过阻塞式 VT 往返获得（最长约 1 秒），
         // 持总闸查会把整个会话子系统冻结住。
-        publishSessionState(runtimeState, sessionLock) {
+        publishSessionState(runtimeState, sessionRegistry.lock) {
             SessionStateSnapshot(
-                isRunning = sessions.isNotEmpty(),
-                activeSessionId = activeSessionId,
-                // 升序发布（契约见 [RuntimeState.sessionIds]）：`sessions` 是并发
+                isRunning = !sessionRegistry.isEmpty(),
+                activeSessionId = sessionRegistry.activeSessionId,
+                // 升序发布（契约见 [RuntimeState.sessionIds]）：会话表是并发
                 // 映射，桶序不保证稳定，而标签序号按本列表下标换算。
-                sessionIds = sessions.keys.sorted(),
+                sessionIds = sessionRegistry.ids(),
             )
         }
     }
@@ -3312,13 +3311,13 @@ constructor(
      *
      * 标题是 VT 的 OSC 0 上报，只能通过一次阻塞式 VT 往返取得（最长约 1 秒），
      * 故整个查询必须离开调用线程（切换/关闭都可能发生在主线程），并且
-     * `activeSessionId` 要回到 `sessionLock` 内读取——它与 `sessions` 的增删
+     * 活动会话 id 要回到会话总闸内读取——它与会话表的增删
      * 在同一次持锁区间内切换，锁外读可能拿到已被移除的 id。
      * 写回时按会话 ID 校验，避免慢查询覆盖已经切走的会话标题。
      */
     internal fun scheduleActiveSessionTitleRefresh() {
         scope.launch {
-            val sessionId = synchronized(sessionLock) { activeSessionId }
+            val sessionId = sessionRegistry.withLock { sessionRegistry.activeSessionId }
             if (sessionId == 0L) {
                 runtimeState.update { current -> current.copy(title = "") }
                 return@launch
@@ -3424,8 +3423,8 @@ constructor(
         // 一起归零，5 次快试上限与 500ms 最小请求间隔同时失效：2026-11-19 实测
         // 15 次设备丢失连成 15 次换窗（每次都记 attempt 1/5），每 ~190ms 重建一次
         // VkInstance，既拖慢恢复又给驱动施加压力。慢重试（每 5s 一次）此时才真正生效。
-        synchronized(sessionLock) {
-            sessions.values.forEach { entry ->
+        sessionRegistry.withLock {
+            sessionRegistry.values().forEach { entry ->
                 entry.surfaceRecreateBudget.set(SessionEntry.SurfaceRecreateBudget())
                 // 预算已是一份全新的，恢复确认也一并归零：此后的第一帧就是
                 // 新一次前台会话的起点，不必背着上次的稳定计数。
@@ -3475,7 +3474,7 @@ constructor(
     private val backgroundRenderPause = BackgroundRenderPause(renderPauseLedger)
 
     /**
-     * 开孔遮罩的回读与发布。依赖 `sessions`/`activeSessionId`/`holeJournal` 均已在上方
+     * 开孔遮罩的回读与发布。依赖会话表/活动会话 id/`holeJournal` 均已在上方
      * 声明，故在此初始化；回读循环随进程存活。
      */
     internal val coverCapture =
@@ -3484,7 +3483,7 @@ constructor(
             backgroundPause = backgroundRenderPause,
             holeJournal = holeJournal,
             bufferPresent = { surfacePresentTracker.bufferPresent.value },
-            activeSession = { sessions[activeSessionId]?.let { it.sessionId to it.bridge } },
+            activeSession = { sessionRegistry.activeEntry()?.let { it.sessionId to it.bridge } },
         )
 
     /**
@@ -3524,7 +3523,7 @@ constructor(
      */
     fun runAfterRenderThreadsStopped(action: () -> Unit) {
         surfaceTransitionExecutor.execute {
-            synchronized(sessionLock) {
+            sessionRegistry.withLock {
                 action()
             }
         }
