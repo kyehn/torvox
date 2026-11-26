@@ -391,7 +391,7 @@ fn warm_fixture(
     CellInstanceConfig<'static>,
     Vec<CellData>,
 ) {
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+    let font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
     let (cell_width, cell_height) = font_pipeline.cell_metrics();
     let config = CellInstanceConfig {
         rows: TEST_GRID_ROWS,
