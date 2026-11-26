@@ -1,5 +1,6 @@
 package terminal.emulator.runtime
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
@@ -72,5 +73,26 @@ class DesktopNotificationPumpTest {
 
         advanceTimeBy(100)
         assertEquals(listOf("after failure"), delivered)
+    }
+
+    @Test
+    fun `cancellation from a poll propagates instead of being swallowed`() = runTest {
+        var polls = 0
+        val pump =
+            DesktopNotificationPump(
+                scope = backgroundScope,
+                pollEvent = {
+                    polls += 1
+                    throw CancellationException("cancelled")
+                },
+                sessionLabel = { "" },
+                deliver = { _, _ -> throw AssertionError("取消后不得投递") },
+                foreground = { true },
+            )
+
+        pump.start()
+        advanceTimeBy(1)
+        advanceTimeBy(100)
+        assertEquals("取消后轮询循环必须结束，而不是被当作单轮失败继续", 1, polls)
     }
 }

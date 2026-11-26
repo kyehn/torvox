@@ -1,5 +1,6 @@
 package terminal.emulator.runtime
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -39,6 +40,9 @@ internal class DesktopNotificationPump(
                         sessionLabel = sessionLabel,
                         deliver = { notification -> deliver(notification, foreground()) },
                     )
+                } catch (cancelled: CancellationException) {
+                    // 结构化取消不是轮询失败，必须继续上抛。
+                    throw cancelled
                 } catch (exception: Exception) {
                     // 单次轮询失败不终止轮询：原生侧把 VT 处理的 panic 转成 Java 异常
                     // 抛出（见 `pollEvent` 的同类保护），异常逸出协程会走默认的未捕获
