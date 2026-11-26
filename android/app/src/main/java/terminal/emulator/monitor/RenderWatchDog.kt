@@ -69,7 +69,7 @@ class RenderWatchDog(
                 generation++
                 watchJob.also { watchJob = null }
             } ?: return
-        // 非阻塞：stop 在 sessionLock 内被调用（pauseRendering 的执行器线程、
+        // 非阻塞：stop 在 SessionRegistry 的总闸内被调用（pauseRendering 的执行器线程、
         // handleSessionExit 的渲染线程），而该锁同时被主线程的
         // stopForegroundServiceIfIdle 争用——任何等待都按会话数累加为 ANR。
         job.cancel()

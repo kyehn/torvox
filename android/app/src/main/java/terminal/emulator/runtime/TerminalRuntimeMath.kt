@@ -99,7 +99,7 @@ internal fun initialRenderRetryNeeded(result: Int, attempts: Int, maxAttempts: I
     result < 0 && attempts < maxAttempts
 
 /**
- * switchSession 阶段 3 的并发切换守卫：首帧渲染期间（在 sessionLock 之外），
+ * switchSession 阶段 3 的并发切换守卫：首帧渲染期间（在 SessionRegistry 的总闸之外），
  * 另一个 switchSession 可能发布了不同的活动会话。返回在发布本次切换之前
  * 必须停止其渲染线程的会话 id；当活动会话未变（或正是本目标）时返回 null。
  */

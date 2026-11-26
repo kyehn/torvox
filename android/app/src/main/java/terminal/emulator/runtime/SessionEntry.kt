@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * 会话状态由两个布尔量编码：running 且未退出 = 存活；running 且已退出 = 死亡（待清理）；
  * running 为假 = 已停止（陈旧条目，跳过）。renderThreadExited 由渲染线程在循环退出后置位，
- * 须与 running 一同在 sessionLock 下读取。
+ * 须与 running 一同在 SessionRegistry 的总闸下读取。
  */
 internal data class SessionEntry(
     val sessionId: Long,
@@ -35,7 +35,7 @@ internal data class SessionEntry(
     // 未能在 join 超时内退出的渲染线程（GPU 挂起）。保留以便后续退出路径再 join 一次：
     // 若已退出则可安全关闭会话，仍挂起则必须跳过关闭。
     @Volatile var hungRenderThread: Thread? = null,
-    // closeSession 开始时在 sessionLock 下置位。startRenderThread 检查它并拒绝启动新线程，
+    // closeSession 开始时在 SessionRegistry 的总闸下置位。startRenderThread 检查它并拒绝启动新线程，
     // 封闭「关闭与重启」的 TOCTOU 窗口：否则并发的 resumeRendering/switchSession 可能在关闭决定之后、
     // bridge.close() 之前启动新渲染线程，留下轮询已销毁会话的孤儿线程（全局事件队列双重消费、原生 UAF 风险）。
     @Volatile var closing: Boolean = false,
