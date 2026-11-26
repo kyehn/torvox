@@ -1,9 +1,9 @@
 # 代码健康度审计留档
 
 本留档是 `code-health` 能力的唯一审计落点：重复率、代码规模口径、静态形状扫描、依赖
-活跃度四类实测数字与逐处判定都写在此处。最新采样日期 2026-11-26；测量对象是已提交树
-`6b1d1b29` 的快照（`git archive 6b1d1b29` 展开到独立目录），不含工作区未提交改动，故
-结果可复算。2026-11-24 的首轮基线保留在各表对照栏，偏差逐项写明来源。
+活跃度四类实测数字与逐处判定都写在此处。最新采样日期 2026-11-26；测量对象是复算当时的
+已提交树快照（`git archive HEAD` 展开到独立目录），不含工作区未提交改动，故结果可复算。
+2026-11-24 的首轮基线保留在各表对照栏，偏差逐项写明来源。
 
 ## 重复率扫描
 
@@ -414,7 +414,7 @@ MUST 维持 0，`style-policy` 类命中 MUST NOT 阻断构建；jscpd 的重复
 ## 复现方法
 
 ```sh
-git archive 6b1d1b29 | tar -x -C /tmp/audit-head
+git archive HEAD | tar -x -C /tmp/audit-head
 git -C /tmp/audit-head init -q
 git -C /tmp/audit-head remote add origin https://github.com/kyehn/torvox
 git -C /tmp/audit-head add -A
