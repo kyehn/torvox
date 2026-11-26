@@ -1,8 +1,9 @@
 # 代码健康度审计留档
 
 本留档是 `code-health` 能力的唯一审计落点：重复率、代码规模口径、静态形状扫描、依赖
-活跃度四类实测数字与逐处判定都写在此处。采样日期 2026-11-24；测量对象是已提交树的
-快照（`git archive HEAD` 展开到独立目录），不含工作区未提交改动，故结果可复算。
+活跃度四类实测数字与逐处判定都写在此处。最新采样日期 2026-11-26；测量对象是已提交树
+`6b1d1b29` 的快照（`git archive 6b1d1b29` 展开到独立目录），不含工作区未提交改动，故
+结果可复算。2026-11-24 的首轮基线保留在各表对照栏，偏差逐项写明来源。
 
 ## 重复率扫描
 
@@ -14,8 +15,8 @@
 
 | 口径 | sources | lines | tokens | clones | duplicatedLines | 重复率 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 生产 | 249 | 66120 | 504373 | 3 | 30 | 0.05% |
-| 全量 | 500 | 101091 | 777992 | 26 | 257 | 0.25% |
+| 生产 | 267 | 68916 | 523699 | 3 | 30 | 0.04% |
+| 全量 | 530 | 104924 | 805819 | 26 | 257 | 0.24% |
 
 生产口径三处命中的判定：
 
@@ -26,17 +27,20 @@
 3. `res/drawable/launcher_monochrome.xml` 与 `res/drawable/logo_art.xml` 的 `<vector>` 头与
    `<group>` 变换。Android drawable 不支持跨文件引用几何，单色版必须自带路径。
 
-全量口径比生产口径多出的 23 处命中全在测试源码集，判定为：
+全量口径比生产口径多出的 23 处命中，判定为：
 
-- 22 处是跨文件的同形包声明与 import 段。其中 `HardKeyboardMultipleArrivalTest.kt` 与
+- 22 处是跨文件的同形包声明与 import 段。其中 21 处在测试文件之间，1 处
+  （`SettingsDataStoreProvider.kt` 与 `SettingsRepositoryTest.kt`）一端是生产文件的头部、
+  另一端是测试文件的同形头部；`HardKeyboardMultipleArrivalTest.kt` 与
   `StickyCtrlInterruptInstrumentedTest.kt`、`RenderPauseSemanticsTest.kt` 与
   `VtCorrectnessInstrumentedTest.kt` 两组的片段尾部各带本用例自己的说明注释，被判为同一
-  类 import 样板；各文件按需 import 同一组 JUnit、Compose 与测试 API，合并同样只得到
+  类 import 样板。各文件按需 import 同一组 JUnit、Compose 与测试 API，合并同样只得到
   只为转发符号的中间层。
 - 1 处是 `TermuxPropertiesParserTest.kt` 内两段结构相同的测试数据（坏对象只丢一项与相邻
   用例的同形断言段）。两用例断言的键不同，抽公共夹具会掩盖各自的不变量。
 
-结论：生产口径无真重复，未做代码改动。
+结论：生产口径无真重复，未做代码改动。生产口径三处命中的文件对与首轮基线完全相同，
+重复率由 0.05% 降到 0.04% 是分母增长所致，不是新增或消除克隆。
 
 ## 代码规模口径
 
@@ -181,13 +185,13 @@ if __name__ == "__main__":
 
 | 仓库 | 生产 | 测试 | 合计 |
 | --- | --- | --- | --- |
-| torvox | 41376 | 48975 | 90351 |
+| torvox | 41704 | 50578 | 92282 |
 | termux-app | 26637 | 2471 | 29108 |
 | ghostty-android-terminal | 22381 | 2850 | 25231 |
 | 两个参考项目生产之和 | 49018 | 5321 | 54339 |
 
-判定：生产口径 41376 未越界（不超过 49018），满足 `STYLE.md` 的代码量约束；测试口径
-48975 远超两个参考项目测试之和 5321，源码合计口径同样越界。按 `code-health`「不同口径
+判定：生产口径 41704 未越界（不超过 49018），满足 `STYLE.md` 的代码量约束；测试口径
+50578 远超两个参考项目测试之和 5321，源码合计口径同样越界。按 `code-health`「不同口径
 导出相反结论」的条款，该项判定为**不可判定**，并以生产口径数字作为后续复算基线。
 不得以删测试的方式满足规模约束。
 
@@ -197,35 +201,48 @@ if __name__ == "__main__":
 ## 静态形状扫描
 
 - semgrep：`semgrep scan --config .semgrep/rules.yml --json --metrics=off
-  --disable-version-check .`，55 条规则扫过 1641 个受版本控制文件，**0 findings、0 errors**。
+  --disable-version-check .`，55 条规则扫过 1691 个受版本控制文件，**0 findings、0 errors**。
   扫描须在 git 仓库内执行并配置 `origin` 远端，否则规则集里的远端引用无法解析。
 - aislop 0.23.0：`npx --yes aislop@latest scan --json native/src`，`score` 100、label
-  `Healthy`、`errors` 0、`warnings` 1、`coverage.supportedFiles` 116、`unsupportedFiles` 0。
-  唯一告警是 `complexity/file-too-large`（`render/cell_builder.rs`），工具自身归类为
-  `style-policy`。按 `code-health`「超大文件阈值必须跨源码语言一致应用」，本仓不得为凑
-  行数阈值拆分源码文件，故如实登记而不处置。该工具扫不到 Kotlin 源码，只能作为 Rust
-  侧的门禁。
-- Rust 生产源码形状：剔除测试专用文件与文件内 `#[cfg(test)]` 模块体后，`unwrap()` 0 处、
-  `expect(` 23 处、`panic!` 5 处、`unsafe` 134 处（unsafe block 129、unsafe fn 3、
-  unsafe extern 2）、`todo!`/`unimplemented!` 0 处。
+  `Healthy`、`errors` 0、`warnings` 0、`coverage.supportedFiles` 116、`unsupportedFiles` 0。
+  上一轮登记的 `complexity/file-too-large` 告警（`render/cell_builder.rs`）随测试体拆到
+  `render/cell_builder/tests/` 后消失，告警归零。按 `code-health`「超大文件阈值必须跨源码
+  语言一致应用」，本仓不得为凑行数阈值拆分生产源码文件。该工具扫不到 Kotlin 源码，只能
+  作为 Rust 侧的门禁。
+- Rust 生产源码形状：剔除测试专用文件（`*_tests.rs`、`tests.rs`、`test_helpers.rs`、
+  `mock_pty.rs` 与 `tests/` 目录）、文件内 `#[cfg(test)]` 项、注释与字符串字面量后，
+  `unwrap()` 0 处、`expect(` 23 处、`panic!` 5 处、`unsafe` 131 处（unsafe block 44、
+  unsafe fn 3、unsafe extern 4、unsafe impl 0）、`todo!`/`unimplemented!` 0 处。
+  计数口径：`unsafe` 统计代码位置的关键字出现次数，细分按语法形态计数，
+  `unsafe extern "C" fn` 同时计入 extern 与 fn 两项。
 
 逐处判定：
 
 - 23 处 `expect` 全是不变量断言，每处带解释性注释：日志配额非零与限流闸已初始化
-  （`slow_log.rs`）、回滚余量已夹到合法区间（`terminal/pty.rs`）、默认主题必在主题清单内
-  （`terminal/theme.rs`）、命令快照缓存必然存在（`ghostty_terminal/internal/commands.rs`）、
-  增量渲染蕴含缓存存在（`render/cell_builder.rs`）、可复用槽位非空
-  （`render/context/gpu.rs`）、字形缓存容量常量大于零（`render/font/glyph_cache.rs`）、
-  `CString` 不含内嵌零字节且日志器未重复安装（`android/logging.rs`）、u16 线字段计数成立
-  （`android/ffi/font.rs`）、渲染状态已初始化（`android/ffi/render/window.rs`）。
+  （`slow_log.rs` 2）、回滚余量已夹到合法区间（`terminal/pty.rs`）、输出通道必有接收方
+  （`terminal/session/mod.rs`）、默认主题必在主题清单内（`terminal/theme.rs` 2）、命令快照
+  缓存必然存在（`ghostty_terminal/internal/commands.rs`）、增量渲染蕴含缓存存在
+  （`render/cell_builder.rs`）、可复用槽位非空（`render/context/gpu.rs`）、字形缓存容量
+  常量大于零（`render/font/glyph_cache.rs` 6）、`CString` 不含内嵌零字节且日志器未重复
+  安装（`android/logging.rs` 4）、u16 线字段计数成立（`android/ffi/font.rs` 2）、渲染状态
+  已初始化（`android/ffi/render/window.rs` 3）。
 - 5 处 `panic!` 是「失败即崩、不掩盖错误」的设计决策：alacritty 主题解析失败
   （`terminal/theme.rs`）、VT 线程卡死与快照超时（`ghostty_terminal/public_api/frames.rs`）、
   GPU 初始化失败（`render/context/gpu.rs`）、gpu-acquire 工作线程创建失败
   （`render/pass/acquire.rs`）。
-- 134 处 `unsafe` 集中在 FFI 与 wgpu 回调边界（`android/ffi/*`、`terminal/pty.rs`、
+- 131 处 `unsafe` 集中在 FFI 与 wgpu 回调边界（`android/ffi/*`、`terminal/pty.rs`、
   `render/*`）。JNI 导出统一经 `jni_export_guard!`（`native/src/android/ffi.rs`）把 panic
   转成 Java `RuntimeException`，semgrep 规则 `jni-export-must-use-panic-guard` 覆盖该约束，
   本轮扫描未报缺口。
+
+形状偏差来源（相对 2026-11-24 首轮基线，基线未被改写）：
+
+- `unwrap` 0、`expect` 23、`panic!` 5、`todo!`/`unimplemented!` 0 与首轮一致。
+- `unsafe` 134 → 131：减少的三处来自 `android/logging.rs`（−1）、
+  `terminal/ghostty_terminal/internal/selection.rs` 整文件移除（−1）与
+  `terminal/ghostty_terminal/mod.rs`（−1）。
+- 首轮留档的「unsafe block 129、unsafe extern 2」是「总数减去 fn 与 extern」的残差口径，
+  与本轮「按语法形态逐处计数」不可直接比较；两者 `unsafe` 总数 134 一致，基线未被改写。
 
 显示节拍核实：`setFrameRate`、`getRefreshRate`、`preferredDisplayModeId` 在生产代码零命中；
 `isPowerSaveMode` 只有 `TerminalApp.kt` 的 `powerPreferenceFor` 一处，用于给 wgpu 适配器选
@@ -238,7 +255,7 @@ if __name__ == "__main__":
 类型（仅作类型边界、无独立逻辑）可豁免「最近发布」一项，但须写明豁免理由。crates.io
 公开下载量，Maven Central 与 Google Maven 只公开发布元数据，本仓据后者判定发布节奏。
 
-crates.io 直接依赖（采样于 2026-11-24）：
+crates.io 直接依赖（采样于 2026-11-26）：
 
 | crate | 累计下载 | 近 90 天 | 最近发布 | 判定 |
 | --- | --- | --- | --- | --- |
@@ -281,7 +298,7 @@ crates.io 直接依赖（采样于 2026-11-24）：
 分别 3.7 亿与 4900 万，维护停滞不等于使用面窄。
 
 Maven 与 Google 侧坐标（45 个 Gradle 直接依赖，加 compose-bom 与 5 个 lint 插件坐标，
-采样同日）：
+共 51 个，采样同日）：
 
 | 坐标 | 仓库 | 最新版本 | 最近发布 | 判定 |
 | --- | --- | --- | --- | --- |
@@ -355,6 +372,11 @@ Maven 与 Google 侧坐标（45 个 Gradle 直接依赖，加 compose-bom 与 5 
   1.4.1（2024-10-02）：AndroidX 与 Compose 构件，按上游发布节奏，版本由 compose-bom 与
   目标 SDK 对齐，本仓不承担其发布节奏。
 
+本轮重跑 51 个坐标：最新版本与 2026-11-24 采样逐项一致，无新版本；发布日按该版本
+`.pom` 的 HTTP `Last-Modified` 复核，其中 `kotlinx-coroutines-test` 与
+`kotlinx-coroutines-android` 读到 2026-05-07（中央仓库镜像上传时刻），首轮记 2026-05-08，
+两者指向同一发布批次，不改变判定。
+
 ## 禁改区待维护者裁定项台账
 
 规范要求而现行门禁缺席、或门禁工具覆盖面小于代码树的项，全部落在 AGENTS.md 禁改区
@@ -363,7 +385,7 @@ Maven 与 Google 侧坐标（45 个 Gradle 直接依赖，加 compose-bom 与 5 
 
 | 项 | 规范依据 | 落地方案（未实施） | 当次实测基线 |
 | --- | --- | --- | --- |
-| aislop 与 jscpd 代码检查门禁 | `docs/specification/TESTING.md` 环境节 | `scripts/check.nu` 与 CI 增 `npx aislop@latest scan` 与 `npx jscpd@latest --min-lines 8 --min-tokens 60` 两步 | aislop：score 100、Healthy、0 errors、1 warning、supportedFiles 116；jscpd：生产口径 3 处克隆 / 30 行 / 0.05% |
+| aislop 与 jscpd 代码检查门禁 | `docs/specification/TESTING.md` 环境节 | `scripts/check.nu` 与 CI 增 `npx aislop@latest scan` 与 `npx jscpd@latest --min-lines 8 --min-tokens 60` 两步 | aislop：score 100、Healthy、0 errors、0 warnings、supportedFiles 116；jscpd：生产口径 3 处克隆 / 30 行 / 0.04% |
 | rapidocr OCR 自动化 | `docs/specification/TESTING.md` 环境节 | `scripts/` 增 OCR 判定脚本并在 CI 模拟器步骤调用 | 未实跑（本轮无截图产物） |
 | CI 产物哈希比对 | `vercel-labs-wterm` 研究结论 | CI 增产物 sha256 记录步骤 | CI 现无产物哈希步骤 |
 | Android 15+ 16KB 页 `.so` 对齐 | `GlobalTechInfo-RedTerm` 研究结论 | `android/app/build.gradle.kts` 按 AGP 16KB 对齐指南调整打包 | `android/app/build.gradle.kts` 现无 16KB 对齐配置 |
@@ -377,9 +399,9 @@ MUST 维持 0，`style-policy` 类命中 MUST NOT 阻断构建；jscpd 的重复
 ## 清洁运行计数
 
 本留档的复算轮次按同一组命令在已提交树快照上重复执行，每轮覆盖重复率、代码规模口径、
-静态形状扫描与依赖事实复算。当前计数为 **1**，距「连续清洁运行计数 ≥ 5」还差 4 次；每轮
-的实测数字 MUST 与本留档各表的基线逐项对照，出现偏差时 MUST 写明偏差来源，不得直接改写
-基线掩盖偏差。
+静态形状扫描与依赖事实复算。当前计数为 **2**（第 1 轮 2026-11-24，第 2 轮 2026-11-26），
+距「连续清洁运行计数 ≥ 5」还差 3 次；每轮的实测数字 MUST 与本留档各表的基线逐项对照，
+出现偏差时 MUST 写明偏差来源，不得直接改写基线掩盖偏差。
 
 ## vendor 与硬编码核对
 
@@ -392,9 +414,11 @@ MUST 维持 0，`style-policy` 类命中 MUST NOT 阻断构建；jscpd 的重复
 ## 复现方法
 
 ```sh
-git archive HEAD | tar -x -C /tmp/audit-head
+git archive 6b1d1b29 | tar -x -C /tmp/audit-head
 git -C /tmp/audit-head init -q
 git -C /tmp/audit-head remote add origin https://github.com/kyehn/torvox
+git -C /tmp/audit-head add -A
+git -C /tmp/audit-head -c user.email=audit@local -c user.name=audit commit -qm snapshot
 cd /tmp/audit-head
 npx --yes jscpd@4.0.5 --min-lines 8 --min-tokens 60 --reporters json \
     --output /tmp/jscpd-prod native/src android/app/src/main
@@ -404,6 +428,10 @@ npx --yes aislop@latest scan --json native/src
 semgrep scan --config .semgrep/rules.yml --json --metrics=off --disable-version-check .
 python3 sloc.py /tmp/audit-head
 ```
+
+Rust 形状扫描另按上文口径执行：剔除测试专用文件（`*_tests.rs`、`tests.rs`、
+`test_helpers.rs`、`mock_pty.rs` 与 `tests/` 目录）、文件内 `#[cfg(test)]` 项、注释与字符串
+字面量后，再统计 `unwrap`/`expect`/`panic!`/`unsafe`/`todo!`/`unimplemented!` 的命中。
 
 依赖活跃度采样用 crates.io 的 `https://crates.io/api/v1/crates/<name>` 与
 Maven 的 `maven-metadata.xml`（Google Maven 与 Maven Central 各取最新发布元数据），
