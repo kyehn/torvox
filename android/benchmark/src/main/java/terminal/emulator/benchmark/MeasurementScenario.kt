@@ -11,7 +11,7 @@ import androidx.test.uiautomator.UiDevice
  * 一行可机读记录（JSONL 行文件里的场景、环境、退出与判定）。
  *
  * 场景返回该轮的指标（没有指标的场次返回空表）；失败时指标作废、判定记失败并把失败
- * 抛出，失败信息里带上进程退出归因。
+ * 抛出，失败信息里带上进程退出归因与宿主负载证据。
  *
  * [note] 是本轮不进判定的补充说明（如被测应用的环境准备情况），与失败原因一同落进
  * 测量行。
@@ -93,9 +93,6 @@ internal fun measureScenario(
     } catch (thrown: Throwable) {
         failure = thrown.withProcessExitAttribution(device, preparedAtMillis, packageName)
     }
-    // 宿主负载证据随失败一起抛出：本轮慢是应用慢还是宿主被抢占，看 steal 占比。
-    // 负载是证据不是免责——判定不因负载改，失败照旧失败，只是消息里多出归因依据。
-    hostLoad?.let { load -> failure = failure?.withHostLoadAttribution(load) }
     val exits = try {
         readExitInfoRecords(device, packageName).withinWindow(startedAtMillis, endedAtMillis)
     } catch (collectionFailure: Throwable) {
@@ -135,7 +132,10 @@ internal fun measureScenario(
             note = listOfNotNull(note.takeIf { it.isNotEmpty() }, failure?.message).joinToString("；"),
         ).toJson(),
     )
-    failure?.let { throw it }
+    // 宿主负载证据随失败一起抛出：本轮慢是应用慢还是宿主被抢占，看 steal 占比。
+    // 附加放在落盘判定之后：判定仍按原始失败类型分类（超限终止/FAIL），
+    // 负载是证据不是免责——失败照旧失败，只是消息里多出归因依据。
+    failure?.let { throw it.withHostLoadAttribution(hostLoad) }
     if (exits.isNotEmpty() && !expectProcessExit) {
         check(false) {
             "$label 测量窗口内进程退出 ${exits.size} 次，测量结果作废：" +
