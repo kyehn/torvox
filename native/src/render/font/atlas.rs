@@ -1,10 +1,18 @@
 //! 字形图集：把光栅化后的字形打包进 GPU 纹理。
+use crate::slow_log::CountedLogThrottle;
 use swash::scale::{Render, Source};
 use swash::zeno::Transform;
 
 use super::{FontPipeline, GlyphInfo, GlyphKey, GlyphSynthesis};
 
 pub(super) const GLYPH_CACHE_EVICTION_DIVISOR: usize = 4;
+
+/// 「字形放不进图集」告警的限频闸门。
+///
+/// 该告警是逐帧发生的故障形态：只要屏幕上还有那个放不下的字形，每帧都会走到
+/// 这里。逐帧输出会把 logcat 刷成洪水（见 `logcat-hygiene` 规范），故与其他逐帧
+/// 诊断同口径限频，并把窗口内的累计次数一并交出。
+static OVERSIZED_GLYPH_LOG: CountedLogThrottle = CountedLogThrottle::new();
 
 /// 图集每个像素的字节数（RGBA）。
 pub(crate) const ATLAS_BYTES_PER_PIXEL: usize = 4;
@@ -104,6 +112,21 @@ impl FontPipeline {
         let height = image.placement.height as i32;
 
         if width == 0 || height == 0 {
+            return None;
+        }
+
+        // 字形本身比整张空图集还大：它永远放不进去（分配的是 width+1 × height+1，
+        // 两边各留一像素间隙）。此时驱逐缓存与重建图集都救不了它——重建只会把同样
+        // 放不下的字形再放一次。提前短路：否则这条路径会逐帧驱逐四分之一缓存并
+        // 重光栅化全部缓存字形，表现为「终端越用越慢」，而根因只有一个字形。
+        if width + 1 > self.atlas_width as i32 || height + 1 > self.atlas_height as i32 {
+            if let Some(count) = OVERSIZED_GLYPH_LOG.record() {
+                log::warn!(
+                    "ATLAS_OVERSIZED_GLYPH: 字形 {width}x{height} 放不进图集 {}x{}（{count} 次），该字形不渲染",
+                    self.atlas_width,
+                    self.atlas_height
+                );
+            }
             return None;
         }
 

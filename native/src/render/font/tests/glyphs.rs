@@ -437,6 +437,30 @@ fn font_size_change_invalidates_ascii_identity_cache() {
     assert!(after.width > 0 && after.height > 0);
 }
 
+/// 放不进图集的字形不得拖垮图集：既不驱逐缓存，也不重建图集。
+///
+/// 字形比整张空图集还大时它永远放不进去。此前的兜底路径会先驱逐四分之一缓存、
+/// 再重建整张图集（重光栅化全部缓存字形），而结果仍是一次失败的分配——每帧
+/// 重复一遍，用户看到的是终端越用越慢，根因却只有一个字形。
+///
+/// 取证对象是**图集代际**：驱逐与重建都会推进代际（见 `atlas_generation`），
+/// 代际不动即证明这两条路径都没有被触发。
+#[test]
+fn oversized_glyph_neither_evicts_nor_rebuilds_the_atlas() {
+    // 64px 图集 + 128px 字号：单个字形的墨迹（约 128px 见方）必然放不下。
+    let mut pipeline = FontPipeline::new(64, 64, 128.0);
+    let generation_before = pipeline.atlas_generation();
+    assert!(
+        pipeline.glyph_information('W').is_none(),
+        "放不进图集的字形不得被渲染出来"
+    );
+    assert_eq!(
+        pipeline.atlas_generation(),
+        generation_before,
+        "放不下的字形不得触发驱逐或重建（两者都会推进图集代际）"
+    );
+}
+
 #[test]
 fn atlas_eviction_keeps_glyphs_retrievable() {
     let mut pipeline = FontPipeline::new(256, 256, 14.0);
