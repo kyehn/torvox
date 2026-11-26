@@ -1043,10 +1043,10 @@ private fun buildModifierBarActions(
     drawerState: DrawerState,
     onKeyboardClick: () -> Unit,
 ): ModifierBarActions = ModifierBarActions(
-    // 文本输入页：输入法文本不经按键编码器，原样直写。
+    // 文本输入页：输入法文本不经按键编码器，原样入批缓冲（主线程直写会阻塞）。
     onSubmit = { data: String ->
         val sessionId = viewModel.runtime.inputTargetSessionId
-        viewModel.writeToPty(sessionId, data.toByteArray(Charsets.UTF_8))
+        viewModel.writeToPtyQueued(sessionId, data.toByteArray(Charsets.UTF_8))
     },
     // 按键页：统一走原生键编码器，模式（DECCKM、modifyOtherKeys、kitty 键盘
     // 协议）由终端状态决定，Kotlin 不再自带序列。

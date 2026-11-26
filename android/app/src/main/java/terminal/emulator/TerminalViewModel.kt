@@ -244,14 +244,35 @@ constructor(
     }
 
     fun writeToPty(sessionId: Long, data: ByteArray) {
+        noteUserInput(data)
+        // 写失败的原因（会话不存在/正在关闭，或存活但无 bridge）已由 runtime 记全，
+        // 此处不再重复一条泛化错误。
+        runtime.writeToPty(sessionId, data)
+    }
+
+    /**
+     * UI 线程的字节出口：经 Surface 安装的批缓冲异步写 PTY。
+     *
+     * 主线程直写 [writeToPty] 会在子进程暂不读 stdin 时阻塞（原生排空上限 5s，
+     * 足以触发 ANR）——输入法、硬件键与粘贴都已走批缓冲，修饰键栏的文本提交与
+     * 宏文本也 MUST 走同一条出口。批缓冲同时保证与已缓冲击键的先后顺序：先排空
+     * 驻留字节再写本批，后写不会越过先写。
+     *
+     * Surface 尚未附着时 [pasteSink] 是该视图模型的默认直写实现（没有可显示的
+     * 终端），行为与直写一致。
+     */
+    fun writeToPtyQueued(sessionId: Long, data: ByteArray) {
+        noteUserInput(data)
+        pasteSink(sessionId, data)
+    }
+
+    /** 输入引起的滚动吸附判定：两条写出口共用，避免一条路径忘了吸底。 */
+    private fun noteUserInput(data: ByteArray) {
         val isCommit =
             shouldResetScrollOnInput(data, _state.value.selection.let { it.active || it.dragging })
         // hasSelectionOrDrag 在 onUserInputForScrollSnap 内部也会检查；
         // 此处透传，使共用的辅助函数拥有最终守卫权。
         onUserInputForScrollSnap(isCommit)
-        // 写失败的原因（会话不存在/正在关闭，或存活但无 bridge）已由 runtime 记全，
-        // 此处不再重复一条泛化错误。
-        runtime.writeToPty(sessionId, data)
     }
 
     /** 把字节直接送入 VT 解析器（供转义序列测试使用）。 */
@@ -1068,7 +1089,7 @@ constructor(
 
                 is MacroStep.Text -> {
                     val bytes = MacroParser.encodeLiteral(step.text, modifiers)
-                    if (bytes.isNotEmpty()) writeToPty(runtime.inputTargetSessionId, bytes)
+                    if (bytes.isNotEmpty()) writeToPtyQueued(runtime.inputTargetSessionId, bytes)
                     modifiers = 0
                 }
             }

@@ -40,3 +40,17 @@
 
 - **WHEN** 批缓冲关闭时的最终刷写失败
 - **THEN** 记错误日志，不静默丢弃
+
+### Requirement: UI 线程的输入写入必须经批缓冲
+
+UI 线程发起的输入写入 MUST 经 Surface 安装的批缓冲（`InputBatchBuffer.write`）异步送达 PTY，MUST NOT 在 UI 线程直接调用原生 PTY 写入：原生 `write_all` 在子进程暂不读 stdin 时最多排空 5 秒，直写会把主线程冻住（ANR 级）。批缓冲同时保持与已缓冲击键的先后顺序。
+
+#### Scenario: 修饰键栏文本提交不直写
+
+- **WHEN** 用户在修饰键栏文本页提交
+- **THEN** 字节经批缓冲入队，UI 线程不调用原生 PTY 写入
+
+#### Scenario: 宏文本不直写
+
+- **WHEN** 宏的文本步骤在 UI 线程执行
+- **THEN** 字节经批缓冲入队，滚动吸附判定仍按原口径执行
