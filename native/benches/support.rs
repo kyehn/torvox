@@ -17,6 +17,12 @@
 /// 「持续退化必然判红」，又不让一阵与代码无关的机器噪声误伤提交。
 const MEASUREMENT_ROUNDS: u32 = 3;
 
+/// debug 档位不优化，同一操作比 `bench` 档位（继承 release，含 LTO）慢约一个
+/// 数量级：实测键入路径 0.061ms → 0.848ms。上限按档位缩放，否则
+/// `cargo test --all-targets` 会拿优化档位的阈值去判 debug 档位，把编译档位
+/// 差异误报成性能退化。真正的性能门禁在 `cargo bench`（优化档位，阈值不缩放）。
+const DEBUG_PROFILE_FACTOR: f64 = 30.0;
+
 /// 单次操作耗时上限（毫秒）。
 ///
 /// 用「单次耗时」而非「每秒次数」表达，读起来与基准名同尺度；也避免除零。
@@ -29,7 +35,15 @@ pub(crate) struct Floor {
 
 impl Floor {
     pub(crate) const fn new(what: &'static str, max_millis: f64) -> Self {
-        Self { what, max_millis }
+        let profile_factor = if cfg!(debug_assertions) {
+            DEBUG_PROFILE_FACTOR
+        } else {
+            1.0
+        };
+        Self {
+            what,
+            max_millis: max_millis * profile_factor,
+        }
     }
 
     /// 跑 `iterations` 次取平均，超预算即 panic。
