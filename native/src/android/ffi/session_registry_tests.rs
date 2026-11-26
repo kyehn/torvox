@@ -246,6 +246,10 @@ fn flood_shed_answers_are_capped_per_frame() {
         answers <= MAX_FLOOD_SHED_ANSWERS_PER_FRAME,
         "削减回写每帧 {answers} 次，超过上限 {MAX_FLOOD_SHED_ANSWERS_PER_FRAME}"
     );
+    assert!(
+        !session.lock().take_clipboard_reads().is_empty(),
+        "超出每帧上限的请求必须退回队列，否则远端永久等不到应答"
+    );
 }
 
 /// 洪泛削减的回写必须共享一份帧级墙钟预算。

@@ -1,5 +1,6 @@
 use super::super::output::{
-    MAX_PENDING_PTY_WRITES, MAX_PTY_WRITES_PER_FRAME, drop_excess_pty_responses,
+    MAX_PENDING_CLIPBOARD_READS, MAX_PENDING_PTY_WRITES, MAX_PTY_WRITES_PER_FRAME,
+    drop_excess_clipboard_reads, drop_excess_pty_responses,
 };
 use super::super::*;
 use super::hold_pty_write_lock;
@@ -199,6 +200,35 @@ fn vt_response_overflow_is_reported_once_per_window_with_the_count() {
         3,
         "窗口内丢弃的条数须攒着下次一并交出，不得丢弃"
     );
+}
+
+/// 回归钉：渲染暂停期间到达的 OSC 52 读请求不能把会话队列撑到无界。
+#[test]
+fn pending_clipboard_reads_are_bounded_and_reported_per_window() {
+    let drop_log = crate::slow_log::CountedLogThrottle::new();
+    let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    for _ in 0..(MAX_PENDING_CLIPBOARD_READS + 5) {
+        queue.push_back("c".to_string());
+    }
+    assert_eq!(
+        drop_excess_clipboard_reads(&mut queue, &drop_log),
+        Some(5),
+        "首条告警须可见且带窗口内丢弃条数"
+    );
+    assert_eq!(
+        queue.len(),
+        MAX_PENDING_CLIPBOARD_READS,
+        "队列须裁到上限，超出的请求按丢最旧处理"
+    );
+    for _ in 0..3 {
+        queue.push_back("c".to_string());
+    }
+    assert_eq!(
+        drop_excess_clipboard_reads(&mut queue, &drop_log),
+        None,
+        "窗口内再次溢出不得刷屏"
+    );
+    assert_eq!(drop_log.pending_count(), 3, "窗口内的丢弃计数不得丢失");
 }
 
 /// 回归钉：持锁写入进行中，`PtyMaster::child_pid` 仍须立即可读。

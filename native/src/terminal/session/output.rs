@@ -11,6 +11,26 @@ use crate::terminal::MAX_CLIPBOARD_PAYLOAD_BYTES;
 /// 停调，而程序可继续发 OSC 52；超出即丢最旧，使内存不随「上游发得多快」增长。
 pub(super) const MAX_CLIPBOARD_TEXT_QUEUE: usize = 8;
 
+/// 待处理 OSC 52 读取请求的上限。渲染暂停时 `handle_clipboard_reads` 不排空
+/// 该队列，而远端可连续发 `\e]52;c;?\a`；无上限时内存随请求数无限增长。
+/// 超限丢最旧并限频告警：请求-响应语义下未消费的旧请求不会回头读。
+pub(super) const MAX_PENDING_CLIPBOARD_READS: usize = 256;
+static CLIPBOARD_READ_DROP_LOG: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::new();
+
+/// 裁掉超量的剪贴板读取请求，返回窗口内累计丢弃条数（限频时 `None`）。
+pub(super) fn drop_excess_clipboard_reads(
+    queue: &mut VecDeque<String>,
+    drop_log: &crate::slow_log::CountedLogThrottle,
+) -> Option<u32> {
+    let overflow = queue.len().saturating_sub(MAX_PENDING_CLIPBOARD_READS);
+    if overflow == 0 {
+        return None;
+    }
+    queue.drain(..overflow);
+    drop_log.record_events(u32::try_from(overflow).unwrap_or(u32::MAX))
+}
+
 /// 单帧最多回写多少条 VT 应答。
 ///
 /// 上界而非下界：正常终端一帧内至多一两条（DSR 一次、DA 一次），而病态输出
@@ -101,8 +121,14 @@ impl Session {
         while let Ok(data) = self.output_rx.try_recv() {
             let snap = self.output_processor.process(&data);
 
-            for selection in snap.clipboard_reads {
-                self.clipboard_read.lock().push_back(selection);
+            if !snap.clipboard_reads.is_empty() {
+                let mut guard = self.clipboard_read.lock();
+                guard.extend(snap.clipboard_reads);
+                if let Some(dropped) =
+                    drop_excess_clipboard_reads(&mut guard, &CLIPBOARD_READ_DROP_LOG)
+                {
+                    log::warn!("osc52: dropped {dropped} pending clipboard reads (queue full)");
+                }
             }
             if let Err(pending) = self.terminal.try_pty_write(&snap.filtered) {
                 // 通道满不是「可以丢一块」的异常：VT 线程只是暂时忙于长命令。
@@ -336,6 +362,12 @@ impl Session {
     pub fn take_clipboard_reads(&self) -> Vec<String> {
         let mut guard = self.clipboard_read.lock();
         guard.drain(..).collect()
+    }
+
+    /// 把本帧没来得及回写的请求退回队首，下一帧先答它们。
+    /// 逐条从后往前调用可保持同一会话内原有顺序。
+    pub fn requeue_clipboard_read(&self, selection: String) {
+        self.clipboard_read.lock().push_front(selection);
     }
 
     /// 向 PTY 写入 `ESC ] 52 ; <selection> ; <base64> ESC \\` 应答待处理的 OSC 52

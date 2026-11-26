@@ -23,10 +23,11 @@ pub(super) fn handle_clipboard_reads(
     // 是「每帧条数上限 × 单次期限」= 16 × 50ms = 800ms——一帧就把渲染线程按住远超帧
     // 预算，看门狗会误判渲染线程已死并关掉会话。
     //
-    // 故本帧的削减回写共享一份预算：每条只拿**剩余**部分，预算用尽即止。被削减的请求
-    // 本就是「拒绝」（空串应答），不写即拒绝；答不完的部分退回续写队列，由逐帧收割
-    // 补齐——与逐帧收割同一条墙钟口径（见 `Session::drain_pty_write_back`）。
-    let flood_shed_deadline = std::time::Instant::now() + crate::terminal::pty::WRITE_BACK_TIMEOUT;
+    // 故本帧的削减回写共享一份预算：每条只拿**剩余**部分，预算用尽即止。答不完的
+    // 部分退回会话队列，由逐帧收割补齐——与逐帧收割同一条墙钟口径（见
+    // `Session::drain_pty_write_back`）。预算只在第一条削减回写时起算：此前的登记
+    // 工作不属于削减回写，把它算进预算会让负载下的整帧削减全被推迟，遥遥无期。
+    let mut flood_shed_deadline: Option<std::time::Instant> = None;
     // 每会话「未作答计数」的帧内缓存：`unanswered_clipboard_reads` 要锁
     // `REQUEST_REGISTRY` 并遍历全表，而一个 8KB 输出块可含数百条读请求、一帧十块即
     // 数千次全表扫描——洪泛削减本是为挡住病态远端，不能自己先成为瓶颈。
@@ -34,6 +35,8 @@ pub(super) fn handle_clipboard_reads(
     // 会话走正常分支会注册槽位使计数 +1，缓存会失准，故逐条重算（每会话至多
     // `MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION` 条走这条路径）。
     let mut shed_counts: Vec<(u64, usize)> = Vec::new();
+    // 帧级上限/预算挡下的请求必须退回会话队列：远端在等应答，丢弃即永久挂住。
+    let mut deferred: Vec<(u64, String)> = Vec::new();
     for (session_id, selection) in pending_clipboard_reads {
         let unanswered =
             if let Some((_, count)) = shed_counts.iter().find(|(id, _)| *id == session_id) {
@@ -52,13 +55,18 @@ pub(super) fn handle_clipboard_reads(
             // 但「就地作答」本身要写 PTY（base64 + 带期限的写入，子进程不读 stdin
             // 时每次可等到 50ms），而这段代码跑在渲染线程上：一次 8KB 输出块里能塞
             // 约 900 条读请求，一帧十块即约 9000 次带锁写入，光等待就足以吃掉整帧
-            // 预算。故削减回写也按帧封顶——被削减的请求本就是「拒绝」，不写即拒绝。
+            // 预算。故削减回写也按帧封顶——答不完的请求退回队列，下一帧再答。
             if flood_shed_answers >= MAX_FLOOD_SHED_ANSWERS_PER_FRAME {
+                deferred.push((session_id, selection));
                 continue;
             }
             // 帧级预算用尽即止：不再回写，也不占条数额度。
-            let budget = flood_shed_deadline.saturating_duration_since(std::time::Instant::now());
+            let deadline = *flood_shed_deadline.get_or_insert_with(|| {
+                std::time::Instant::now() + crate::terminal::pty::WRITE_BACK_TIMEOUT
+            });
+            let budget = deadline.saturating_duration_since(std::time::Instant::now());
             if budget.is_zero() {
+                deferred.push((session_id, selection));
                 continue;
             }
             flood_shed_answers += 1;
@@ -108,6 +116,12 @@ pub(super) fn handle_clipboard_reads(
         } else {
             // 应答线程启动前会话已消失：丢弃一次性槽位，避免 `REQUEST_REGISTRY` 泄漏 Sender。
             cancel_request(session_id, request_id);
+        }
+    }
+    // 倒序回灌：逐条 push_front 后，同一会话的退回请求仍按原序排在队首。
+    for (session_id, selection) in deferred.into_iter().rev() {
+        if let Some(session) = session_handle(session_id) {
+            session.lock().requeue_clipboard_read(selection);
         }
     }
 }
