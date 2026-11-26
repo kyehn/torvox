@@ -50,7 +50,7 @@ const CURSOR_MARKER_MINIMUM_THICKNESS: f32 = 1.0;
 /// 方块光标不走这条路径——它整格反色，背景是不透明的光标色。
 const CURSOR_MARKER_ALPHA_SCALE: f32 = 0.7;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// 把网格码位转成 `char`：非法值退化为 U+FFFD，但**必记一条 error**。
 ///
@@ -587,21 +587,43 @@ fn build_row_instances_into(
     // 增量提供要求尺寸兼容**且**图集代际为当前值：
     // 重建/驱逐会搬迁字形 UV，故按更旧代际缓存的实例
     // 会渲染出错或空白。
-    let incremental = dirty_rows.is_some_and(|dirty_flags| dirty_flags.len() >= rows as usize)
+    let mut incremental = dirty_rows.is_some_and(|dirty_flags| dirty_flags.len() >= rows as usize)
         && cache.as_ref().is_some_and(|instance_cache| {
             instance_cache.is_compatible(rows, cols)
                 && instance_cache.atlas_generation == font_pipeline.atlas_generation()
         });
 
-    // 发射前预热：本帧所有字形先光栅化（结果丢弃）。atlas 驱逐搬迁 UV，
+    // 发射前预热：本帧要重建的行里的字形先光栅化（结果丢弃）。atlas 驱逐搬迁 UV，
     // 帧内 rasterize 会使同帧早建实例失效（同字不同区渲染不一致）。
     // 预热后发射遍为纯查表，UV 稳定；若代际仍变化（防御），缓存已热，
     // 重建一遍即稳定，最多两遍。
     let generation_at_entry = font_pipeline.atlas_generation();
-    warm_frame_glyphs(cell_data, cursor, cell_width, cell_height, font_pipeline);
-    // 预热本身可能驱逐并搬迁 UV：此时缓存行的旧 UV 已失效，
-    // 必须降级为全量重建（预热后为纯查表，代价低且正确）。
-    let mut incremental = incremental && font_pipeline.atlas_generation() == generation_at_entry;
+    // 增量帧只重建脏行：干净行的字形早已在图集里——缓存代际一致即证明它们
+    // 没被驱逐、UV 也没搬迁——预热整屏纯属白费（实测整屏预热 68µs，
+    // 而一行脏行的重建只要几微秒）。全量重建才预热整屏。
+    warm_frame_glyphs(
+        cell_data,
+        &row_ranges,
+        if incremental { dirty_rows } else { None },
+        cursor,
+        cell_width,
+        cell_height,
+        font_pipeline,
+    );
+    if incremental && font_pipeline.atlas_generation() != generation_at_entry {
+        // 预热把干净行的字形挤出了图集：缓存行的旧 UV 已失效，必须降级为全量
+        // 重建；全量重建要整帧字形都在图集里，否则发射遍边建边光栅化会再次驱逐。
+        incremental = false;
+        warm_frame_glyphs(
+            cell_data,
+            &row_ranges,
+            None,
+            cursor,
+            cell_width,
+            cell_height,
+            font_pipeline,
+        );
+    }
     let mut row_ends: Vec<usize> = Vec::with_capacity(rows as usize);
     // 末遍是否在稳定代际下建完：只有稳定才允许把实例写回缓存。
     let mut built_stable = false;
@@ -671,11 +693,71 @@ fn build_row_instances_into(
     Some(())
 }
 
-/// 预热本帧全部字形（结果丢弃），保证发射遍为纯查表、UV 稳定。
+/// 预热遍的去重键：码位 + 粗斜样式位。
+///
+/// Unicode 标量值占低 21 位（上限 U+10FFFF），粗/斜各占 1 位。
+type WarmKey = u32;
+
+/// 预热键的粗体位。
+const WARM_BOLD_BIT: u32 = 1 << 21;
+
+/// 预热键的斜体位。
+const WARM_ITALIC_BIT: u32 = 1 << 22;
+
+/// 预热遍的簇去重键：主体字符 + 附加码位 + 粗斜。
+///
+/// 用原始附加码位数组而非拼好的簇文本做键：簇文本要拼 `String`（每单元一次
+/// 分配），而附加码位数组是 POD，可直接哈希。
+type WarmClusterKey = (
+    char,
+    [u32; crate::terminal::ghostty_terminal::MAX_GRAPHEME_EXTRA],
+    bool,
+    bool,
+);
+
+#[cfg(test)]
+thread_local! {
+    /// 预热遍访问过的单元数（仅测试用）。
+    ///
+    /// 线程局部而非全局：Rust 的测试用例并行跑在一个进程里，全局计数会被别的
+    /// 用例的构建搅脏，断言就成了随机失败。
+    static WARM_CELLS_VISITED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+
+    /// 预热遍向字体管线发出的字形请求数（仅测试用）。
+    static WARM_GLYPH_REQUESTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// 预热遍累计访问过的单元数（仅测试用）。
+///
+/// 回归钉要能「数」它：只断言构建输出相等只能证明「结果对」，证不了
+/// 「没白扫整屏」——增量帧的预热范围退化成整屏时，输出照样全对。
+#[cfg(test)]
+pub(crate) fn warm_cells_visited() -> u64 {
+    WARM_CELLS_VISITED.with(|counter| counter.get())
+}
+
+/// 预热遍累计发出的字形请求数（仅测试用）。
+///
+/// 计数的是**请求**而非光栅化：请求本身要走图集分配器的查找与 LRU 记账，
+/// 一屏 1920 单元里同一个字形出现几十次时，逐格请求就是白做的查表。
+#[cfg(test)]
+pub(crate) fn warm_glyph_requests() -> u64 {
+    WARM_GLYPH_REQUESTS.with(|counter| counter.get())
+}
+
+/// 预热本帧**要重建的行**里的全部字形（结果丢弃），保证发射遍为纯查表、UV 稳定。
 /// 字形附加项走与发射遍完全相同的 overlay/shaping 入口，
 /// 使回退链光栅化也在发射前完成。
+///
+/// 只覆盖本帧会重建的行（`dirty_rows` 为 `None` 时是整屏）：增量帧只重建脏行，
+/// 干净行的字形早已在图集里——缓存代际一致即证明它们没被驱逐、UV 也没搬迁。
+///
+/// 同一字形在一帧里出现几十次（1920 单元通常只含几十种字形），预热只需做一次：
+/// 去重表按（码位, 粗, 斜）记账，重复出现直接跳过。
 fn warm_frame_glyphs(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
+    row_ranges: &[std::ops::Range<usize>],
+    dirty_rows: Option<&[bool]>,
     cursor: CellCursor,
     cell_width: f32,
     cell_height: f32,
@@ -686,63 +768,92 @@ fn warm_frame_glyphs(
         let _ = font_pipeline.glyph_information('M');
         let _ = font_pipeline.glyph_information('0');
     }
-    for cell_data_entry in cell_data {
-        if (cell_data_entry.flags >> cell_flags::CONCEAL) & 1 == 1 {
+    let mut warmed: HashSet<WarmKey, RandomState> = HashSet::with_hasher(RandomState::default());
+    let mut warmed_clusters: HashSet<WarmClusterKey, RandomState> =
+        HashSet::with_hasher(RandomState::default());
+    for (row, range) in row_ranges.iter().enumerate() {
+        // 掩码短于行数时按脏处理：宁可多预热，不可漏预热——漏了就是帧内光栅化，
+        // 即同帧早建实例的 UV 失效。
+        if dirty_rows.is_some_and(|dirty| !dirty.get(row).copied().unwrap_or(true)) {
             continue;
         }
-        let character = codepoint_to_char(cell_data_entry.codepoint);
-        if character == ' '
-            || character == '\0'
-            || cell_data_entry.codepoint == 0
-            || cell_data_entry.codepoint == KITTY_PLACEHOLDER
-        {
-            continue;
-        }
-        let bold = (cell_data_entry.flags >> cell_flags::BOLD) & 1 == 1;
-        let italic = (cell_data_entry.flags >> cell_flags::ITALIC) & 1 == 1;
-        if bold || italic {
-            let _ = font_pipeline.glyph_information_styled(character, bold, italic);
-        } else {
-            let _ = font_pipeline.glyph_information(character);
-        }
-        let has_cluster = cell_data_entry
-            .grapheme_extra
-            .iter()
-            .any(|&codepoint| codepoint != 0);
-        if !has_cluster {
-            continue;
-        }
-        let cluster_text = cluster_text(character, &cell_data_entry.grapheme_extra);
-        if cluster_text.chars().count() <= 1 {
-            continue;
-        }
-        let shaped = font_pipeline.shape_run_styled(&cluster_text, bold, italic);
-        match shaped.len() {
-            1 => {
-                let glyph = &shaped[0];
-                let _ = font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id);
+        for cell_data_entry in &cell_data[range.clone()] {
+            #[cfg(test)]
+            WARM_CELLS_VISITED.with(|counter| counter.set(counter.get() + 1));
+            if (cell_data_entry.flags >> cell_flags::CONCEAL) & 1 == 1 {
+                continue;
             }
-            len if len > 1 => {
-                for glyph in shaped.iter().skip(1) {
+            let character = codepoint_to_char(cell_data_entry.codepoint);
+            if character == ' '
+                || character == '\0'
+                || cell_data_entry.codepoint == 0
+                || cell_data_entry.codepoint == KITTY_PLACEHOLDER
+            {
+                continue;
+            }
+            let bold = (cell_data_entry.flags >> cell_flags::BOLD) & 1 == 1;
+            let italic = (cell_data_entry.flags >> cell_flags::ITALIC) & 1 == 1;
+            let key = character as u32
+                | if bold { WARM_BOLD_BIT } else { 0 }
+                | if italic { WARM_ITALIC_BIT } else { 0 };
+            if warmed.insert(key) {
+                #[cfg(test)]
+                WARM_GLYPH_REQUESTS.with(|counter| counter.set(counter.get() + 1));
+                if bold || italic {
+                    let _ = font_pipeline.glyph_information_styled(character, bold, italic);
+                } else {
+                    let _ = font_pipeline.glyph_information(character);
+                }
+            }
+            let has_cluster = cell_data_entry
+                .grapheme_extra
+                .iter()
+                .any(|&codepoint| codepoint != 0);
+            if !has_cluster {
+                continue;
+            }
+            let cluster_key = (character, cell_data_entry.grapheme_extra, bold, italic);
+            if !warmed_clusters.insert(cluster_key) {
+                continue;
+            }
+            let cluster_text = cluster_text(character, &cell_data_entry.grapheme_extra);
+            if cluster_text.chars().count() <= 1 {
+                continue;
+            }
+            #[cfg(test)]
+            WARM_GLYPH_REQUESTS.with(|counter| counter.set(counter.get() + 1));
+            let shaped = font_pipeline.shape_run_styled(&cluster_text, bold, italic);
+            match shaped.len() {
+                1 => {
+                    let glyph = &shaped[0];
                     let _ =
                         font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id);
                 }
-            }
-            _ => {
-                let dummy_quad = || crate::render::font::OverlayQuad {
-                    origin: [0.0; 2],
-                    size: [cell_width, cell_height],
-                    foreground: [0.0; 4],
-                    background: [0.0; 4],
-                    deco: [0.0; 4],
-                    flags: 0.0,
-                };
-                for codepoint in &cell_data_entry.grapheme_extra {
-                    if *codepoint == 0 {
-                        continue;
+                len if len > 1 => {
+                    for glyph in shaped.iter().skip(1) {
+                        let _ = font_pipeline
+                            .glyph_information_for_glyph(glyph.font_id, glyph.glyph_id);
                     }
-                    let _ =
-                        font_pipeline.overlay_glyph_instance(*codepoint, dummy_quad(), cell_height);
+                }
+                _ => {
+                    let dummy_quad = || crate::render::font::OverlayQuad {
+                        origin: [0.0; 2],
+                        size: [cell_width, cell_height],
+                        foreground: [0.0; 4],
+                        background: [0.0; 4],
+                        deco: [0.0; 4],
+                        flags: 0.0,
+                    };
+                    for codepoint in &cell_data_entry.grapheme_extra {
+                        if *codepoint == 0 {
+                            continue;
+                        }
+                        let _ = font_pipeline.overlay_glyph_instance(
+                            *codepoint,
+                            dummy_quad(),
+                            cell_height,
+                        );
+                    }
                 }
             }
         }

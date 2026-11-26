@@ -68,6 +68,16 @@ CI 性能门禁的下限断言（`native/benches/support.rs` 的 `Floor::assert_
 - **WHEN** 转换路径被改成逐格重建字体或 O(n²) 查表
 - **THEN** 稳态均值超出上限，断言失败并报出实测均值与采样数
 
+增量路径 MUST 有独立的基准：生产上每来一次输出就走「脏掩码 + 行级实例缓存」这条路，
+只测全量构建会漏掉「增量帧退化成整屏遍历」这类固定开销（基准
+`build_instances_cached_one_dirty_row`）。
+
+#### Scenario: 增量帧退化被用例钉住
+
+- **WHEN** 增量帧的预热范围退化成整屏遍历
+- **THEN** 用例 `incremental_frame_warms_only_dirty_rows` MUST 因预热访问的单元数超过
+      脏行单元数而失败——下限断言留了两个数量级余量，捕不到这种量级的退化
+
 ### Requirement: 不采纳的测量手段须记录理由
 
 已评估后决定不采纳的测量手段 MUST 在本规范中记录理由，使后续复查不必重新调研。

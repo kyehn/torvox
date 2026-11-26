@@ -690,6 +690,298 @@ fn incremental_frame_with_midframe_eviction_has_current_uvs() {
     );
 }
 
+/// 增量帧的预热只覆盖脏行。
+///
+/// 干净行的字形早已在图集里——缓存代际一致即证明它们没被驱逐、UV 也没搬迁——
+/// 预热整屏纯属白费：实测整屏预热 68µs，而一行脏行的重建只要几微秒。
+/// 判别力在计数：断言预热只访问了脏行的单元数。只断言输出相等只能证明
+/// 「结果对」，证不了「没白扫整屏」——预热范围退化成整屏时输出照样全对。
+#[test]
+fn incremental_frame_warms_only_dirty_rows() {
+    const ROWS: u32 = 24;
+    const COLS: u32 = 80;
+    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
+    let cursor = CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: crate::terminal::ghostty_terminal::CursorStyle::Block,
+        color: [1.0; 4],
+    };
+    let config = CellInstanceConfig {
+        rows: ROWS,
+        cols: COLS,
+        grid_cell_width: cell_width,
+        grid_cell_height: cell_height,
+        cursor,
+        atlas_width: 1024.0,
+        atlas_height: 1024.0,
+        search_highlights: &[],
+        default_background: [0.0; 4],
+    };
+    let cells: Vec<CellData> = (0..ROWS)
+        .flat_map(|row| {
+            (0..COLS).map(move |col| cell_data(row, col, 'x', [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0))
+        })
+        .collect();
+    let mut cache = CachedInstances::new(ROWS, COLS);
+    let mut instances = Vec::new();
+    // 播种：首帧没有基线，整屏重建一次。
+    assert!(
+        build_instances_cached(
+            &cells,
+            config,
+            &mut font_pipeline,
+            &vec![true; ROWS as usize],
+            &mut cache,
+            &mut instances,
+        )
+        .is_some(),
+        "播种构建失败"
+    );
+
+    // 第二帧：只有第 2 行变脏。
+    let mut dirty = vec![false; ROWS as usize];
+    dirty[2] = true;
+    let before = warm_cells_visited();
+    assert!(
+        build_instances_cached(
+            &cells,
+            config,
+            &mut font_pipeline,
+            &dirty,
+            &mut cache,
+            &mut instances,
+        )
+        .is_some(),
+        "增量构建失败"
+    );
+    let visited = warm_cells_visited() - before;
+    assert!(
+        visited <= u64::from(COLS),
+        "增量帧的预热只应覆盖脏行（实测访问了 {visited} 个单元，全屏是 {} 个）",
+        u64::from(ROWS) * u64::from(COLS)
+    );
+}
+
+/// 预热遍按字形去重：同一字形在一帧里只请求一次。
+///
+/// 一屏 1920 单元通常只含几十种字形。逐格请求看着「只是查表」，但每次请求都要
+/// 走图集分配器的查找与 LRU 记账；重复字形占绝大多数时，那正是预热遍的主要开销。
+/// 判据是**请求数**而非单元数：单元数只说明扫了多少格，请求数才说明做了多少事。
+#[test]
+fn warm_frame_deduplicates_repeated_glyphs() {
+    const ROWS: u32 = 24;
+    const COLS: u32 = 80;
+    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
+    let cursor = CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: crate::terminal::ghostty_terminal::CursorStyle::Block,
+        color: [1.0; 4],
+    };
+    let config = CellInstanceConfig {
+        rows: ROWS,
+        cols: COLS,
+        grid_cell_width: cell_width,
+        grid_cell_height: cell_height,
+        cursor,
+        atlas_width: 1024.0,
+        atlas_height: 1024.0,
+        search_highlights: &[],
+        default_background: [0.0; 4],
+    };
+    // 三个不同的字形各自重复满屏。
+    let cells: Vec<CellData> = (0..ROWS)
+        .flat_map(|row| {
+            (0..COLS).map(move |col| {
+                let character = ['x', 'y', 'z'][((row + col) % 3) as usize];
+                cell_data(row, col, character, [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0)
+            })
+        })
+        .collect();
+    let mut cache = CachedInstances::new(ROWS, COLS);
+    let mut instances = Vec::new();
+    let before = warm_glyph_requests();
+    assert!(
+        build_instances_cached(
+            &cells,
+            config,
+            &mut font_pipeline,
+            &vec![true; ROWS as usize],
+            &mut cache,
+            &mut instances,
+        )
+        .is_some(),
+        "全量构建失败"
+    );
+    let requests = warm_glyph_requests() - before;
+    assert_eq!(
+        requests,
+        3,
+        "预热遍只应按去重后的字形数发请求（实测 {requests} 次，全屏是 {} 个单元）",
+        u64::from(ROWS) * u64::from(COLS)
+    );
+}
+
+/// 增量帧的预热触发驱逐时，必须降级为全量重建。
+///
+/// 预热把字形挤出图集时，缓存行引用的旧 UV 已失效；此时若仍按「干净行照抄
+/// 缓存」出帧，画面上就是同一个字符在两个区域画出不同轮廓。降级路径
+/// （预热驱逐 → 全量重建）必须让每个实例的 UV 都与当前查询一致。
+#[test]
+fn incremental_frame_falls_back_to_full_rebuild_when_warm_evicts() {
+    const ROWS: u32 = 2;
+    const COLS: u32 = 16;
+    const ATLAS: f32 = 64.0;
+    let mut font_pipeline =
+        crate::render::font::FontPipeline::new(ATLAS as i32, ATLAS as i32, 14.0);
+    // 先把图集塞满：光栅化不再有空间时才会驱逐，驱逐即图集已满的信号。
+    let mut atlas_is_full = false;
+    let generation = font_pipeline.atlas_generation();
+    for character in ('a'..='z').chain('α'..='ω').chain('а'..='я') {
+        let _ = font_pipeline.glyph_information(character);
+        if font_pipeline.atlas_generation() != generation {
+            atlas_is_full = true;
+            break;
+        }
+    }
+    assert!(atlas_is_full, "场景前提：图集必须先被塞满（未观察到驱逐）");
+    let cursor = CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: crate::terminal::ghostty_terminal::CursorStyle::Block,
+        color: [1.0; 4],
+    };
+    let config = CellInstanceConfig {
+        rows: ROWS,
+        cols: COLS,
+        grid_cell_width: ATLAS / COLS as f32,
+        grid_cell_height: ATLAS / ROWS as f32,
+        cursor,
+        atlas_width: ATLAS,
+        atlas_height: ATLAS,
+        search_highlights: &[],
+        default_background: [0.0; 4],
+    };
+    let make_row = |row: u32, characters: &[char]| -> Vec<CellData> {
+        characters
+            .iter()
+            .enumerate()
+            .map(|(col, &character)| {
+                cell_data(
+                    row,
+                    col as u32,
+                    character,
+                    [1.0; 4],
+                    [0.0, 0.0, 0.0, 1.0],
+                    0,
+                )
+            })
+            .collect()
+    };
+    // 帧 1：整屏 'x'（只一个字形），全脏重建。
+    let frame1: Vec<CellData> = make_row(0, &['x'; 16])
+        .into_iter()
+        .chain(make_row(1, &['x'; 16]))
+        .collect();
+    let mut cache = CachedInstances::new(ROWS, COLS);
+    let mut instances = Vec::new();
+    assert!(
+        build_instances_cached(
+            &frame1,
+            config,
+            &mut font_pipeline,
+            &vec![true; ROWS as usize],
+            &mut cache,
+            &mut instances,
+        )
+        .is_some(),
+        "播种构建失败"
+    );
+
+    // 帧 2 起步时缓存必须仍然有效（代际一致）：否则增量路径根本进不去，
+    // 降级分支也就没被覆盖。
+    assert_eq!(
+        cache.built_atlas_generation(),
+        font_pipeline.atlas_generation(),
+        "场景前提：帧 2 起步时缓存必须仍然有效"
+    );
+
+    // 帧 2：只有第 1 行变脏，且换成图集里没有的字形（大写希腊字母）。
+    // 预热它们必然触发驱逐 → 增量路径必须降级为全量重建。
+    let frame2: Vec<CellData> = make_row(0, &['x'; 16])
+        .into_iter()
+        .chain(make_row(
+            1,
+            &[
+                'Α', 'Β', 'Γ', 'Δ', 'Ε', 'Ζ', 'Η', 'Θ', 'Ι', 'Κ', 'Λ', 'Μ', 'Ν', 'Ξ', 'Ο', 'Π',
+            ],
+        ))
+        .collect();
+    let mut dirty = vec![false; ROWS as usize];
+    dirty[1] = true;
+    let generation_before = font_pipeline.atlas_generation();
+    let warm_before = warm_cells_visited();
+    assert!(
+        build_instances_cached(
+            &frame2,
+            config,
+            &mut font_pipeline,
+            &dirty,
+            &mut cache,
+            &mut instances,
+        )
+        .is_some(),
+        "增量构建失败"
+    );
+    assert!(
+        font_pipeline.atlas_generation() > generation_before,
+        "场景前提：新字形的光栅化必须真的驱逐了图集条目（代际 {generation_before} -> {}）",
+        font_pipeline.atlas_generation()
+    );
+    // 降级判据：预热触发驱逐后必须把整帧都预热一遍（发射遍才可能是纯查表）。
+    // 只预热脏行的话，干净行的字形仍可能被驱逐，帧内 UV 就会陈旧。
+    let warmed = warm_cells_visited() - warm_before;
+    assert!(
+        warmed >= u64::from(ROWS * COLS),
+        "预热触发驱逐后必须降级为整帧预热（实测只预热了 {warmed} 个单元，整帧是 {} 个）",
+        u64::from(ROWS * COLS)
+    );
+    assert_eq!(
+        cache.built_atlas_generation(),
+        font_pipeline.atlas_generation(),
+        "降级为全量重建后，缓存必须记下当前代际"
+    );
+    // 逐实例断言 UV 与当前查询一致：陈旧 UV 即「同字不同区」。
+    let generation_before_verify = font_pipeline.atlas_generation();
+    for (cell, instance) in frame2.iter().zip(instances.iter()) {
+        let character = char::from_u32(cell.codepoint).expect("测试单元码位合法");
+        let info = font_pipeline
+            .glyph_information(character)
+            .expect("帧内字形必须解析得出");
+        assert_eq!(
+            instance.atlas_offset,
+            [info.atlas_x as f32 / ATLAS, info.atlas_y as f32 / ATLAS],
+            "陈旧 UV：{character:?}"
+        );
+        assert_eq!(
+            instance.atlas_size,
+            [info.width as f32 / ATLAS, info.height as f32 / ATLAS],
+            "陈旧 UV 尺寸：{character:?}"
+        );
+    }
+    assert_eq!(
+        font_pipeline.atlas_generation(),
+        generation_before_verify,
+        "校验用的查询必须是纯缓存命中"
+    );
+}
+
 /// 退化输入（缓存网格尺寸陈旧，或脏标记短于网格）
 /// 必须回退为完整重建，而不是
 /// 提供陈旧行。
