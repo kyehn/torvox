@@ -37,6 +37,7 @@ class InteractionLatencyBenchmark {
                 awaitShellReady(device, sessionStartMillis)
             },
         ) { iteration, _ ->
+            val scenarioStartElapsedMillis = SystemClock.elapsedRealtime()
             val echoLatencies = mutableListOf<Long>()
             val presentLatencies = mutableListOf<Long>()
             repeat(INTERACTION_LATENCY_ROUND_COUNT) { round ->
@@ -68,9 +69,10 @@ class InteractionLatencyBenchmark {
             }
             val echoP95 = percentile(echoLatencies, 0.95)
             val presentP95 = percentile(presentLatencies, 0.95)
-            printMeasured("interactionLatency", echoP95, readFrameStats(device))
+            val elapsedMillis = SystemClock.elapsedRealtime() - scenarioStartElapsedMillis
+            printMeasured("interactionLatency", elapsedMillis, readFrameStats(device))
             emitMeasured(
-                measuredLinePrefix("interactionLatency", echoP95) +
+                measuredLinePrefix("interactionLatency", elapsedMillis) +
                     " echoP95=${echoP95}ms presentP95=${presentP95}ms",
             )
             check(echoP95 <= MAX_INTERACTION_ECHO_LATENCY_MILLIS) {

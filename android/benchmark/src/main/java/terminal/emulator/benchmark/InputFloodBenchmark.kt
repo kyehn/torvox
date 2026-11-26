@@ -35,6 +35,7 @@ class InputFloodBenchmark {
                 awaitShellReady(device, sessionStartMillis)
             },
         ) { _, _ ->
+            val scenarioStartElapsedMillis = SystemClock.elapsedRealtime()
             val floodKeys = (1..INPUT_FLOOD_KEY_COUNT).joinToString(" ") { KEYCODE_A.toString() }
             device.executeShellCommand("input text read%sX;echo%s__s10got%s\${#X}|log%s-t%s$INPUT_FLOOD_COUNT_TAG")
             device.executeShellCommand("input keyevent 66")
@@ -48,9 +49,10 @@ class InputFloodBenchmark {
             device.executeShellCommand("input keyevent 66")
             val received = awaitReceivedKeyCount(device, floodSentAtWallMillis)
             val alive = awaitAliveMarker(device, floodSentAtWallMillis)
-            printMeasured("inputFlood", received.toLong(), readFrameStats(device))
+            val elapsedMillis = SystemClock.elapsedRealtime() - scenarioStartElapsedMillis
+            printMeasured("inputFlood", elapsedMillis, readFrameStats(device))
             emitMeasured(
-                measuredLinePrefix("inputFlood", 0L) +
+                measuredLinePrefix("inputFlood", elapsedMillis) +
                     " sent=$INPUT_FLOOD_KEY_COUNT received=$received alive=$alive",
             )
             check(alive) {

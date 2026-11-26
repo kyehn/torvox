@@ -54,9 +54,10 @@ class ResourceStressBenchmark {
             releaseResourceStress(device, screenWasAwake)
             val batterystatsAfter = device.executeShellCommand("dumpsys batterystats --charged $TARGET_PACKAGE")
             store.writeArtifact("batterystats-after.txt", batterystatsAfter.toByteArray())?.let { artifacts += it }
-            printMeasured("resourceStress", SystemClock.elapsedRealtime() - observeStart, readFrameStats(device))
+            val observedMillis = SystemClock.elapsedRealtime() - observeStart
+            printMeasured("resourceStress", observedMillis, readFrameStats(device))
             emitMeasured(
-                measuredLinePrefix("resourceStress", SystemClock.elapsedRealtime() - observeStart) +
+                measuredLinePrefix("resourceStress", observedMillis) +
                     " processAlive=$processAlive screenWasAwake=$screenWasAwake",
             )
             // 「活着或死得有归因」均合格；UNKNOWN 归因由 measureScenario 判红。

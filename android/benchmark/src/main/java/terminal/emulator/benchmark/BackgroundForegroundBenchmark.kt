@@ -37,6 +37,7 @@ class BackgroundForegroundBenchmark {
                 awaitShellReady(device, sessionStartMillis)
             },
         ) { _, budget ->
+            val scenarioStartElapsedMillis = SystemClock.elapsedRealtime()
             // S11 是场景矩阵项，预算必然存在。
             val scenarioBudget = checkNotNull(budget) { "S11 必须带场景预算" }
             // 切后台：home 键，等焦点离开。
@@ -87,9 +88,10 @@ class BackgroundForegroundBenchmark {
                 } - rotatedAtMillis
                 ).toLong()
             restoreRotationSettings(device, originalRotation)
-            printMeasured("backgroundForeground", restoreFirstFrameMillis, readFrameStats(device))
+            val elapsedMillis = SystemClock.elapsedRealtime() - scenarioStartElapsedMillis
+            printMeasured("backgroundForeground", elapsedMillis, readFrameStats(device))
             emitMeasured(
-                measuredLinePrefix("backgroundForeground", restoreFirstFrameMillis) +
+                measuredLinePrefix("backgroundForeground", elapsedMillis) +
                     " restoreFirstFrame=${restoreFirstFrameMillis}ms" +
                     " rotationFirstFrame=${rotationFirstFrameMillis}ms" +
                     " launchState=${launchResult.launchState}",
