@@ -85,5 +85,12 @@ harness = false
 # 置 abort 会让守卫接住的 panic 直接终止进程。
 lto = true
 codegen-units = 1
-opt-level = "z"
+# 性能取向而非体积取向：同一台机器实测，体积取向的 `opt-level = "z"` 把三条 CPU
+# 热路径基准整体拖慢一倍以上（键入 92µs → 357µs、单元格实例构建 129µs → 267µs、
+# CJK 解析 232ns → 510ns），代价只是原生库增大 18%。BUILD.md 要求 release 尽可能
+# 确保性能，故按性能取向取 3。
+#
+# 该键还决定 `libghostty-vt-sys` 的 Zig 优化档：上游构建脚本按 `OPT_LEVEL` 选档
+# （`s`／`z` → ReleaseSmall，其余 → ReleaseFast），故体积取向会把 VT 解析核一并降档。
+opt-level = 3
 strip = true

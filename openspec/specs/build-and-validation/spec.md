@@ -39,6 +39,41 @@ Rust 最低版本 MUST 为 1.99，`edition` 最低为 2024。
 - **WHEN** 审阅 Gradle 与 Rust 的 Android 构建配置
 - **THEN** 目标架构只有 `arm64-v8a` 和 `x86_64`
 
+### Requirement: release 构建以运行性能为取向
+
+`native/Cargo.toml` 的 release profile MUST 以运行性能为取向：`opt-level` MUST 为 3，
+MUST NOT 取体积取向的 `"z"`／`"s"`；MUST 保留 `lto = true`、`codegen-units = 1` 与
+`strip = true`；`panic` MUST NOT 置为 `abort`（JNI 导出守卫的 panic 处理链依赖展开，
+置 abort 会让守卫接住的 panic 直接终止进程）。
+
+#### Scenario: 热路径不被体积取向拖慢
+
+- **WHEN** 以 release profile 跑 `native/benches/` 的三条 criterion 基准
+- **THEN** 实测耗时 MUST NOT 慢于下列上界：键入 94 µs、单元格实例构建 130 µs、CJK 解析 237 ns
+- **AND** 同机 `opt-level = "z"` 的对应实测为 354–361 µs、265–271 µs、507–513 ns——
+      体积取向至少慢一倍，性能取向 MUST NOT 退到该量级
+      （`opt-level = 3` 的同机实测为 91–93 µs、128–130 µs、228–237 ns）
+
+#### Scenario: panic 展开保留
+
+- **WHEN** 检查 release profile
+- **THEN** `panic` MUST NOT 为 `abort`，JNI 导出守卫接住的 panic MUST NOT 直接终止进程
+
+#### Scenario: 体积代价已记账
+
+- **WHEN** 比较两种取向的 `x86_64` 原生库体积
+- **THEN** 取性能取向的体积增幅 MUST 被记录（本仓实测 9 471 952 → 11 199 512 字节，+18.2%）
+
+#### Scenario: VT 核的 Zig 优化档随 profile 走
+
+- **WHEN** 以 release profile 构建 `libghostty-vt-sys`
+- **THEN** 其 Zig 优化档 MUST 为 `ReleaseFast`，MUST NOT 为 `ReleaseSmall`——
+      上游构建脚本按 Cargo 的 `OPT_LEVEL` 选档（`s`／`z` → `ReleaseSmall`，其余 →
+      `ReleaseFast`），故体积取向会连 VT 解析核一起降档
+
+体积取向的取舍 MUST 用实测数字记录，而非凭体感决定：`docs/specification/BUILD.md`
+要求「release 构建必须尽可能确保性能，正确设置构建参数」。
+
 ### Requirement: zig 崩溃按信号有界重试
 
 原生库构建使用的 Zig MUST 经 `native/tools/zig-build` 包装。包装脚本 MUST 仅在子进程
