@@ -10,9 +10,9 @@ import org.junit.runners.JUnit4
 import terminal.emulator.ComposeTerminalLogcatTest
 import terminal.emulator.MainActivity
 import terminal.emulator.UxTestUtils
+import terminal.emulator.bridge.coerceSpToPxScale
+import terminal.emulator.bridge.rasterScaleRange
 import terminal.emulator.findTerminalSurface
-import terminal.emulator.runtime.coerceSpToPxScale
-import terminal.emulator.runtime.rasterScaleRange
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.waitForSession
 

@@ -293,7 +293,7 @@ class NativeBridgeSmokeTest {
 
         listOf(0.1f, 0.5f, 1f, 2.625f, 3f, 4f, 8f, 16f, 100f).forEach { density ->
             listOf(0.1f, 0.5f, 1f, 1.3f, 2f, 4f, 10f).forEach { fontScale ->
-                val scale = terminal.emulator.runtime.coerceSpToPxScale(density, fontScale, range)
+                val scale = coerceSpToPxScale(density, fontScale, range)
                 assertTrue(
                     "density=$density fontScale=$fontScale 得到 $scale，超出原生区间 $range",
                     scale in range,

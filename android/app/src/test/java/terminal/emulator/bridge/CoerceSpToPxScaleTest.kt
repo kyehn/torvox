@@ -1,4 +1,4 @@
-package terminal.emulator.runtime
+package terminal.emulator.bridge
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
