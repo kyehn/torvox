@@ -6,12 +6,12 @@ import org.junit.Test
 import java.io.File
 
 /**
- * `isElf` 的直接覆盖：它用于安装结果校验——只有真实 ELF 锚点
- * （`usr/bin/login`、`usr/bin/bash`）才算引导成功，`isSystemShellScript`
- * 的解释器脚本与损坏文件都必须被排除。此前只有 `BootstrapInstallerTest`
- * 在伪造锚点时顺带用到 ELF magic，本函数自身无覆盖。
+ * 安装结果校验的两个探针：`isElf` 只认真实 ELF 锚点（`usr/bin/login`、
+ * `usr/bin/bash`），`isSystemShellScript` 只认指向 `/system/bin/` 的 shebang；
+ * 私有目录 shebang 与损坏文件都必须被排除。此前只有 `BootstrapInstallerTest`
+ * 在伪造锚点时顺带用到 ELF magic，两个函数自身无覆盖。
  */
-class IsElfTest {
+class InstalledEntryProbeTest {
     private fun fileWith(vararg bytes: Byte): File = File.createTempFile("elf-magic-test", ".bin").apply {
         writeBytes(bytes)
         deleteOnExit()
@@ -51,13 +51,8 @@ class IsElfTest {
     fun `missing file is not an elf`() {
         assertFalse(isElf(File("/nonexistent/definitely-missing")))
     }
-}
 
-/**
- * 系统解释器启动脚本判定：仅 `#!/system/bin/` 开头计入，可直接执行；
- * 私有目录 shebang 与普通文本均不计入。
- */
-class IsSystemShellScriptTest {
+    /** 系统解释器启动脚本判定：仅 `#!/system/bin/` 开头计入，可直接执行；私有目录 shebang 与普通文本均不计入。 */
     private fun scriptFile(content: String): File = File.createTempFile("system-script-test", ".sh").apply {
         writeText(content)
         deleteOnExit()
