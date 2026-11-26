@@ -34,8 +34,14 @@ internal fun createTestRuntime(sessionIds: List<Long>): TerminalRuntime {
  *
  * 与 [createTestRuntime] 同理——设置字段一改（新增设置项），两处抄本必须同步改，
  * 漏改的那处会在 relaxed mock 上拿到零值而把断言带偏。
+ *
+ * [context] 默认取 relaxed mock：它对 [Context.getString] 返回空串，故断言文案本身
+ * 的用例须传入真实上下文（Robolectric），否则拿不到可断言的字符串。
  */
-internal fun createTestViewModel(runtime: TerminalRuntime): TerminalViewModel {
+internal fun createTestViewModel(
+    runtime: TerminalRuntime,
+    context: Context = mockk(relaxed = true),
+): TerminalViewModel {
     val settingsRepository = mockk<SettingsRepository>(relaxed = true)
     every { settingsRepository.settings } returns
         flowOf(
@@ -50,7 +56,7 @@ internal fun createTestViewModel(runtime: TerminalRuntime): TerminalViewModel {
     val termuxProperties = mockk<TermuxPropertiesRepository>(relaxed = true)
     every { termuxProperties.configuration } returns MutableStateFlow(TermuxConfiguration())
     return TerminalViewModel(
-        context = mockk<Context>(relaxed = true),
+        context = context,
         settingsRepository = settingsRepository,
         termuxProperties = termuxProperties,
         runtime = runtime,

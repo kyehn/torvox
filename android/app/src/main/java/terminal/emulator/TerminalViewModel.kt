@@ -980,13 +980,20 @@ constructor(
                 LogUtil.warn("TerminalViewModel", "switchSession aborted by runtime for id=$sessionId")
                 return@launch
             }
+            // 运行期快照取一次：标题与序号都出自同一份状态，两次读之间会话可能已换。
+            val runtimeState = runtime.state.value
             _state.update { current ->
                 current.copy(
                     isRunning = true,
                     title =
-                    runtime.state.value.title.ifEmpty {
-                        val sortedIds = current.sessions.map { it.sessionId }.sorted()
-                        context.getString(R.string.session_number, sortedIds.indexOf(sessionId) + 1)
+                    runtimeState.title.ifEmpty {
+                        // 序号按运行期会话表的既定顺序换算（契约见 [RuntimeState.sessionIds]）：
+                        // 界面层的会话列表可能尚未合并该会话，用它算序号会得到「会话 0」。
+                        val position = runtimeState.sessionIds.indexOf(sessionId)
+                        context.getString(
+                            R.string.session_number,
+                            if (position >= 0) position + 1 else runtimeState.sessionIds.size + 1,
+                        )
                     },
                     activeSessionId = sessionId,
                     selection = SelectionState(),
