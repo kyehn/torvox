@@ -64,9 +64,13 @@ class ClipboardAccess(private val context: Context, private val tag: String = "C
     }
 
     /**
-     * 剪贴板里是否有可粘贴的文本；无主剪贴板、非文本项（URI/Intent 剪贴）或读取失败
-     * 均为 false。复用 [clipboardText]：粘贴菜单据此决定是否提供 PASTE，口径与真正
-     * 粘贴出去的必须是同一份内容。
+     * 剪贴板里是否有可粘贴的文本；无主剪贴板、空文本剪贴、非文本项（URI/Intent 剪贴）
+     * 或读取失败均为 false。复用 [clipboardText]：粘贴菜单据此决定是否提供 PASTE，
+     * 口径与真正粘贴出去的必须是同一份内容。
+     *
+     * 空文本剪贴（远端发空载荷的 OSC 52 写入把剪贴板清空）同样算「无文本」：它能
+     * 粘出的内容是空串，菜单给出 PASTE 只会得到一次什么也没发生的点击——与复制/
+     * 分享对空选区的同一口径。
      */
-    fun hasClipboardText(): Boolean = clipboardText().getOrNull() != null
+    fun hasClipboardText(): Boolean = !clipboardText().getOrNull().isNullOrEmpty()
 }

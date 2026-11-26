@@ -77,6 +77,24 @@ class ClipboardAccessTest {
     }
 
     /**
+     * 远端发空载荷的 OSC 52 写入把剪贴板清空后，剪贴板里没有可粘贴的文本：
+     * 粘贴菜单据此 MUST NOT 给出 PASTE——给出的话点下去什么也不会发生。
+     */
+    @Test
+    fun `hasClipboardText is false for an empty-text clip`() {
+        access.setClipboardText("")
+        assertEquals(
+            "空载荷写入须把剪贴板内容清空",
+            "",
+            access.clipboardText().getOrNull(),
+        )
+        org.junit.Assert.assertFalse(
+            "clip with empty text must not report hasClipboardText",
+            access.hasClipboardText(),
+        )
+    }
+
+    /**
      * 非文本剪贴（复制了一个链接 / 一张图片）在平台上 `hasPrimaryClip()` 为真，
      * 但没有任何可粘贴文本。粘贴菜单若据此提供 PASTE，点下去只会得到「剪贴板无文本」
      * ——正是该接口声称要消除的反馈，故此处钉住 hasClipboardText 只为文本项返回真。
