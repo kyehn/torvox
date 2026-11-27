@@ -39,7 +39,7 @@ pub use surface::{
 /// Kitty 图形协议（kgp_*）、逐帧瞬时状态。
 ///
 /// 线程安全：`Renderer` 为 `Send + Sync`，位于全局 `RENDER_STATE` 互斥锁后，
-/// `begin_frame()` 与 `render_frame()` 由单一渲染线程以 `&mut self` 调用。
+/// `begin_frame()` 与 `render_frame_with_plan()` 由单一渲染线程以 `&mut self` 调用。
 pub struct Renderer {
     pub(crate) device: wgpu::Device,
     /// 当前设备的判死位（与 `device` 同生共死）：换设备时随之换成新世代的那一份。

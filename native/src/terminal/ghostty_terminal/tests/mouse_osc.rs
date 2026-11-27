@@ -91,18 +91,13 @@ fn cell_snapshot_default() {
     assert!(!cell.italic);
 }
 
-/// Verify that the CellIterator-based `build_snapshot()` produces the same
-/// output as the legacy per-cell `terminal.grid_ref()` path for the viewport.
+/// 校验 `build_snapshot()` 的 `CellIterator` 抽取路径在视口内取到正确内容。
 ///
-/// This test exercises both code paths:
-/// - `CellIterator` path: `build_snapshot()` with `scroll_offset=0`
-/// - Legacy path: `build_snapshot_legacy()` with `scroll_offset=0`
-///
-/// The legacy path is triggered by the `internal::build_snapshot_legacy`
-/// function. We verify this by feeding content, flushing, and comparing
-/// cells from both paths cell-by-cell.
+/// 该路径只有一条：逐行迭代器 + 逐单元迭代器。此前存在的「按 `terminal.grid_ref()`
+/// 逐格取值」的旧路径已随上游 API 退场而删除，对照改由
+/// `build_cell_data_matches_grid_snapshot` 承担（同一份内容经两条抽取路径比对）。
 #[test]
-fn cell_iterator_matches_legacy_grid_ref() {
+fn cell_iterator_snapshot_matches_expected_content() {
     let mut terminal_under_test = terminal();
 
     // Feed mixed content: ASCII, bold, colored, CJK

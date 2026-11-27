@@ -1,23 +1,25 @@
-# YinTerminal 上游审查
+# yinterminal 研究留档
 
-- 上游：https://github.com/ditzabcd/YinTerminal @ `c4d29fd`（2026-11-25）；GPL-3.0。
-- 定位：轻量 Android shell 客户端，持久化 root/user shell、ANSI 着色、内嵌 Python、脚本与快捷工具；不是完整 VT 终端。
+## 定位
 
-## 架构与数据流
+YinTerm 是“持久 root/user shell + 内置 Python 3.13”的轻量 Android 终端。它**不是网格终端**：输出以日志行进入 `LazyColumn`，ANSI 被解析成 `AnnotatedString` 的 `SpanStyle`，没有 cell 网格、光标寻址、备用屏或 TUI 布局。这一点决定了它能借鉴的范围。
 
-- `AnsiParser.kt` 用正则分段处理 ANSI 颜色（16/256/RGB）并写入 `AnnotatedString`；输出按 stdout/stderr 分流，emoji 交由 Android 绘制。
-- `CommandInterpreter.kt` 解析内置命令（哈希、Base64/Hex/URL、JSON、正则、系统信息、Morse），命令输出与 shell 输出混在同一文本流。
-- `NativePty.kt`/`ShellManager.kt` 维持单个 `su` 或 `/system/bin/sh`，使 `cd` 与环境变量跨命令保留；`app/src/main/cpp/yinterm_pty.cpp` 提供 forkpty 桥。
-- Chaquopy 提供离线 Python 3.13；脚本、历史与快命令存为本地 JSON；`TerminalView` 直接绘制 `AnnotatedString`，没有网格、光标寻址或滚动区状态机。
+## 实现
 
-## 已核实边界
+`AnsiParser` 用一组正则识别 CSI、OSC、字符串序列、单字符 ESC 和控制字符；`extractCompleteChunk` 在分块边界保留未结束的 ESC 序列，避免跨块截断。`AnsiStyleState` 处理 16 色、256/RGB、粗体、斜体、下划线、删除线与反显，`toSpanStyle` 按默认前景背景解析实际颜色。
 
-- 只有 2 个测试文件；正则解析在转义序列分片、嵌套 SGR 与 OSC 上会出错，缺少 grid/cursor/alt-screen/滚动区/鼠标协议实现。
-- 隐藏崩溃状态文件与持久化 root shell 是隐私/安全敏感点；自动请求 `su`、本地明文 JSON 存储不符合最小暴露原则。
-- GPL-3.0 与本地依赖策略不相容，不能复制代码。
+`TerminalSession` 优先寻找 `su`，失败回退 `/system/bin/sh`，用 `__YIN_HS__<pid>__<cwd>__` 握手标记确认 shell 已就绪，root 超时 12 秒、user 超时 3 秒。启动时向 shell stdin 注入 `stty -echo` 与初始化命令，并用 `echoSuppressQueue` 抑制注入命令的回显；`SIGINT`/`SIGKILL` 与 `isAlive` 保活。stdout 与 stderr 分成两个协程流，`STREAM_BUFFER_SIZE` 为 4096。`NativePty` 是 JNI 封装：`posix_openpt`/`grantpt`/`unlockpt`/`ptsname_r`，`TIOCSWINSZ` 更新窗口并在有前台进程组时发 `SIGWINCH`，termios 关闭 ECHO 族标志但保留 `ISIG` 与 `OPOST|ONLCR`。
 
-## 对 torvox 的取舍
+数据层有房间实体与本地存储，提供历史、脚本、设置、终端日志的仓库；UI 包含终端、历史、脚本与主题定制界面，另有哈希、Base64/Hex、JSON、正则等内建工具。
 
-- 反例：ANSI 正则不能替代 VT 解析器；本地 `native/src/terminal/ghostty_terminal/public_api.rs` 的 `sanitize_vt_input` 与 `output_processor.rs` 的分派才是正确边界。
-- 内置命令解释器与持久 shell 不进入终端核心；本地 PTY 由 `native/src/terminal/pty.rs` 管理，命令语义留给 shell。
-- 跳过：未运行 Gradle 或在 root 设备上复现持久化 shell；风险是仅按源码核对。
+## 已核实局限
+
+- 日志行模型无法承载光标移动、备用屏、滚动区、宽字符占位与 TUI 重绘：`less`、`vim`、`htop` 这类程序不能正确显示。
+- 握手标记、回显抑制与 `stty -echo` 都靠向 shell stdin 注入命令完成，属于应用层与 shell 的隐式协议；握手超时后走 fallback 进程，行为分支较多。
+- 内建工具与脚本管理器属于本地规范明确不实现的功能类别，不能移植。
+
+## 与本仓对照
+
+- 可借鉴的只有“持久 shell + 握手超时 + 窗口变化时发 SIGWINCH”这几条工程细节；本仓的 shell 环境变量与启动目录由规范固定，不需要握手标记注入。
+- 本仓必须以 cell 网格与 Ghostty VT 状态为准，不能把输出当成文本行集合；滚动、选区、搜索、IME 的可见区域都依赖网格坐标。
+- 它把 stdout/stderr 分流显示，而本仓把它们合并进同一个 PTY 字节流交给 VT 解析，这是有意的差异。

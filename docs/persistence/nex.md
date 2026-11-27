@@ -1,25 +1,27 @@
-# nex 上游审查
+# nex 研究留档
 
-- 上游：https://github.com/jramirez-codes/nex @ `43356e5`（2026-11-26）；单 Rust crate 的 GPU 终端 + 远程助手。
-- 定位：`alacritty_terminal` 负责 VT，`egui/eframe` 负责全部 UI；集成标签、分屏、文件、git、SSH 与 AI agent 面板。
+## 定位
 
-## 架构与数据流
+nex 是 Rust 单体 crate 的 GPU 终端，桌面用 egui/eframe 与自己的 winit 事件循环，VT 引擎是 `alacritty_terminal`。除 `platform/` 外不检查操作系统；Android 与 iOS 是同一库包出来的瘦客户端，所有 pane 都跑在 ssh 主机上的 `nex-host` 会话里。
 
-- `src/terminal/mod.rs` 每窗格一个终端，拥有 PTY 与 VT 状态；`input.rs` 把键鼠转成 xterm 序列；`osc7.rs` 从 PTY wrapper 提取 cwd；`search.rs` 做滚动搜索与 URL/OSC 8 检测；`snapshot.rs` 在锁内复制可见屏幕，渲染只读副本。
-- `src/render/` 负责运行段、颜色、光标、选择、搜索高亮；`glyphs.rs` 字形缓存与每窗格 mesh，`boxdraw.rs` 程序化绘制框线/块/盲文/Powerline，`fonts.rs` 管字体设置。
-- `src/app/workspace/layout.rs` 是二叉分割树，焦点按方向计算；`session/` 以单写者锁管理 `session.json`。后台任务拆为 `Job`（后者取代前者）与 `Jobs`（并行），完成即请求重绘。
-- 远程窗格不是纯 SSH 文本流：`terminal/remote.rs` 与 `nex-host` 配合让分屏留在服务器上；文件/git 面板在远端执行 shell 脚本。`remote/upload.rs` 用 `posix_quote` 拼接上传命令，`remote/exec.rs` 承载会话与跟随。
-- `nex-android/` 与 `nex-ios/` 是同一库的包装；Android 端通过 JNI 暴露键盘/剪贴板接口，`build.rs` 收集 Java/Kotlin 源码。
+## 结构
 
-## 已核实问题
+`layout.rs` 是二叉 split 树，pane 用 `PaneId` 标识，四种类型（终端、文件浏览器、Changes、Agents）在 `layout::PaneKind` 中穷举；`App::panes` 是统一存储，访问某一种类型用 typed lookup，分支代码必须 match 整个 `Pane`，从而让编译器发现新增类型要改的所有位置。后台工作统一走 `jobs.rs`：`Job` 同时只保留一个，后来者让先前的答案作废；`Jobs` 并发多个，完成都会请求重绘，帧循环不阻塞。
 
-- `App::run` 在启动时无条件调用 `upload_all(false, false)` 与 `save_png()`：前者尝试上传未确认资源，后者把当前帧写为 PNG；两者都应受设置或显式动作控制，不能作为默认副作用。
-- `unsafe` 计数约 114，集中在 JNI/平台边界；集成功能使状态空间很大，若只借终端核心应避免连带引入面板状态模型。
-- 文档自述 iOS 为 beta、macOS 支持较新；Android 路径的平台差异主要在输入与窗口生命周期。
+`terminal/mod.rs` 的每个 pane 持有 PTY、子进程、`FairMutex<Term<EventProxy>>`、标题、cwd 与前台进程信息；标签只在这些信息变化时重建。`Snapshot::capture` 在锁内把可见 cell 拷入复用缓冲，放开锁后再绘制，避免 PTY 线程在 UI 绘制期间被卡住。`osc7.rs` 包裹 PTY 以捕获 shell 工作目录，`remote.rs` 把远端会话伪装成本地 pane，`search.rs` 覆盖回滚搜索与 URL/OSC 8 链接。`render/` 用字形缓存与 per-pane mesh，`boxdraw.rs` 程序化绘制盒线、块、盲文与 Powerline，并内嵌 Nerd Font。
 
-## 对 torvox 的取舍
+## Android 状态
 
-- 只取两点：`snapshot.rs` 的“锁内复制、锁外绘制”与 `render/boxdraw.rs` 的程序化框线兜底。
-- 对照本地 `native/src/render/cell_builder.rs` 的 `compute_dirty_bands`：Nex 是整窗格 mesh，本地是脏行增量，不能把其缓存策略整体搬过来。
-- 启动期副作用是明确反例：本地 `TerminalScreen` 的 Surface 生命周期已由显式门闸控制，不增加隐式上传/截图。
-- 跳过：未构建桌面/移动端与 nex-host（需 Rust 图形栈和 SDK）；风险是运行状态只按源码与 `ARCHITECTURE.md` 核对。
+`nex-android` 只是 NativeActivity 加载的共享库，`android_main` 交给 `nex::android_main`。README 把移植分成里程碑：启动到连接屏与 ssh 已完成；触摸输入（Esc/Ctrl/Tab/方向键的额外键栏、终端避开键盘、拖动滚动）标注为 on hold；Agents/Changes/Files pane 也还没做完。设备侧没有本地 shell，每个 pane 是服务器上的 `nex-host` 会话，网络断开后重连恢复画面。
+
+## 已核实局限
+
+- Android 版没有完成触摸输入链路，不能作为本地 Android 终端的现成参考；只能借鉴桌面侧的输入编码与快照模型。
+- 大量功能（Agents 流水线、git diff、文件浏览器、MCP 之外）超出本仓规范，不能引入。
+- 快照在锁内拷贝是正确方向，但 `Snapshot::capture` 复用了上一次的 `Vec<SnapCell>`，若被多处同时持有需要额外约束；本仓的快照共享边界要自己核对。
+
+## 与本仓对照
+
+- “锁内拷贝快照、锁外绘制”与本仓 Rust 侧渲染、Kotlin 只收事件的架构一致，适合用来核对本仓帧获取是否存在持有会话锁绘制的路径。
+- 后台任务统一注册、完成时请求重绘，可对照本仓 `render/pump` 与事件唤醒，避免固定时间轮询。
+- 程序化盒绘制与 OSC 7 捕获能作为本仓已有实现的交叉检查；触摸输入尚未完成这一部分不能照搬。
