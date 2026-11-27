@@ -211,7 +211,8 @@ if __name__ == "__main__":
 ## 静态形状扫描
 
 - semgrep：`semgrep scan --config .semgrep/rules.yml --json --metrics=off
-  --disable-version-check .`，55 条规则扫过 1691 个受版本控制文件，**0 findings、0 errors**。
+  --disable-version-check .`，55 条规则扫过 1693 个文件，**0 findings、0 errors**。
+  扫描文件数随代码树增长（首轮 1691 → 复算 1693）。
   扫描须在 git 仓库内执行并配置 `origin` 远端，否则规则集里的远端引用无法解析。
 - aislop 0.23.0：`npx --yes aislop@latest scan --json native/src`，`score` 100、label
   `Healthy`、`errors` 0、`warnings` 0、`coverage.supportedFiles` 116、`unsupportedFiles` 0。
@@ -221,7 +222,7 @@ if __name__ == "__main__":
   作为 Rust 侧的门禁。
 - Rust 生产源码形状：剔除测试专用文件（`*_tests.rs`、`tests.rs`、`test_helpers.rs`、
   `mock_pty.rs` 与 `tests/` 目录）、文件内 `#[cfg(test)]` 项、注释与字符串字面量后，
-  `unwrap()` 0 处、`expect(` 23 处、`panic!` 5 处、`unsafe` 131 处（unsafe block 44、
+  `unwrap()` 0 处、`expect(` 23 处、`panic!` 5 处、`unsafe` 132 处（unsafe block 45、
   unsafe fn 3、unsafe extern 4、unsafe impl 0）、`todo!`/`unimplemented!` 0 处。
   计数口径：`unsafe` 统计代码位置的关键字出现次数，细分按语法形态计数，
   `unsafe extern "C" fn` 同时计入 extern 与 fn 两项。
@@ -229,18 +230,20 @@ if __name__ == "__main__":
 逐处判定：
 
 - 23 处 `expect` 全是不变量断言，每处带解释性注释：日志配额非零与限流闸已初始化
-  （`slow_log.rs` 2）、回滚余量已夹到合法区间（`terminal/pty.rs`）、输出通道必有接收方
-  （`terminal/session/mod.rs`）、默认主题必在主题清单内（`terminal/theme.rs` 2）、命令快照
-  缓存必然存在（`ghostty_terminal/internal/commands.rs`）、增量渲染蕴含缓存存在
-  （`render/cell_builder.rs`）、可复用槽位非空（`render/context/gpu.rs`）、字形缓存容量
-  常量大于零（`render/font/glyph_cache.rs` 6）、`CString` 不含内嵌零字节且日志器未重复
-  安装（`android/logging.rs` 4）、u16 线字段计数成立（`android/ffi/font.rs` 2）、渲染状态
-  已初始化（`android/ffi/render/window.rs` 3）。
+  （`slow_log.rs` 2）、回滚余量已夹到合法区间（`terminal/pty.rs`）、默认主题必在主题清单内
+  （`terminal/theme.rs` 2）、命令快照缓存必然存在（`ghostty_terminal/internal/commands.rs`）、
+  增量渲染蕴含缓存存在（`render/cell_builder.rs`）、可复用槽位非空
+  （`render/context/gpu.rs`）、字形缓存容量常量大于零（`render/font/glyph_cache.rs` 6）、
+  `CString` 不含内嵌零字节且日志器未重复安装（`android/logging.rs` 4）、u16 线字段计数成立
+  （`android/ffi/font.rs` 2）、渲染状态已初始化（`android/ffi/render/window.rs` 3）。
+  上述清单逐文件相加为 23，与总数一致。`terminal/session/mod.rs` 的
+  `output_tx send must succeed` 位于 `#[cfg(test)]` 的 `inject_output_for_test` 内，
+  不属生产口径，不计入本条。
 - 5 处 `panic!` 是「失败即崩、不掩盖错误」的设计决策：alacritty 主题解析失败
   （`terminal/theme.rs`）、VT 线程卡死与快照超时（`ghostty_terminal/public_api/frames.rs`）、
   GPU 初始化失败（`render/context/gpu.rs`）、gpu-acquire 工作线程创建失败
   （`render/pass/acquire.rs`）。
-- 131 处 `unsafe` 集中在 FFI 与 wgpu 回调边界（`android/ffi/*`、`terminal/pty.rs`、
+- 132 处 `unsafe` 集中在 FFI 与 wgpu 回调边界（`android/ffi/*`、`terminal/pty.rs`、
   `render/*`）。JNI 导出统一经 `jni_export_guard!`（`native/src/android/ffi.rs`）把 panic
   转成 Java `RuntimeException`，semgrep 规则 `jni-export-must-use-panic-guard` 覆盖该约束，
   本轮扫描未报缺口。
@@ -251,6 +254,9 @@ if __name__ == "__main__":
 - `unsafe` 134 → 131：减少的三处来自 `android/logging.rs`（−1）、
   `terminal/ghostty_terminal/internal/selection.rs` 整文件移除（−1）与
   `terminal/ghostty_terminal/mod.rs`（−1）。
+- `unsafe` 131 → 132（block 44 → 45）：工作目录缺失回退到 `/` 的修复在 fork 与 exec
+  之间新增 `unsafe { libc::chdir(c"/".as_ptr()) }`，带 SAFETY 注释（静态 NUL 结尾路径、
+  fork 后 `chdir` 异步信号安全）。
 - 首轮留档的「unsafe block 129、unsafe extern 2」是「总数减去 fn 与 extern」的残差口径，
   与本轮「按语法形态逐处计数」不可直接比较；两者 `unsafe` 总数 134 一致，基线未被改写。
 
