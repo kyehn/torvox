@@ -15,9 +15,9 @@ struct MockPtyInner {
     /// Number of `resize()` calls, for tests asserting the short-circuit does
     /// not touch the PTY.
     resize_count: usize,
-    /// 前 N 次 write 返回 EINTR，用于验证调用方把信号打断当作「重试」而非失败
+    /// 写入打断方式：用于验证调用方把信号打断当作「重试」而非失败
     /// （SIGWINCH / SIGCHLD 都会走到这条）。
-    interrupt_writes: usize,
+    interrupt_writes: WriteInterrupts,
     /// 置位后 write 先进 gate 的「已进入」闸并等待「放行」，用于确定性地复现
     /// 「持有互斥量的写入进行中」这一并发状态（靠 sleep 判定必然带竞态）。
     gate: Option<Arc<WriteGate>>,
@@ -26,6 +26,15 @@ struct MockPtyInner {
     partial_write: Option<usize>,
     /// 额度用尽后恒返回 EAGAIN（模拟子进程不再读 stdin）。
     block_writes: bool,
+}
+
+/// 写入打断方式。
+#[derive(Clone, Copy)]
+enum WriteInterrupts {
+    /// 前 N 次 [`Pty::write`] 返回 EINTR。
+    Count(usize),
+    /// 该时刻之前恒返回 EINTR（持续打断，与调用方的迭代速度无关）。
+    Until(std::time::Instant),
 }
 
 /// 让 [`Pty::write`] 可被外部确定性地停在临界区内。
@@ -105,7 +114,19 @@ impl MockPty {
         self.inner
             .lock()
             .expect("mock mutex poisoned")
-            .interrupt_writes = count;
+            .interrupt_writes = WriteInterrupts::Count(count);
+    }
+
+    /// 让 [`Pty::write`] 在 `deadline` 之前恒以 EINTR 失败。
+    ///
+    /// 持续打断以「时刻」而非「次数」计量：按次数计量时打断额度可能在期限之前
+    /// 耗尽（release 构建的重试循环比 debug 快一个数量级），用例的前提便随构建
+    /// 档位漂移——同一个用例在 release 下判红、在 debug 下判绿。
+    pub fn interrupt_writes_until(&mut self, deadline: std::time::Instant) {
+        self.inner
+            .lock()
+            .expect("mock mutex poisoned")
+            .interrupt_writes = WriteInterrupts::Until(deadline);
     }
 
     /// 让下一次 [`Pty::write`] 只写出前 `bytes` 字节、其后恒返回 EAGAIN。
@@ -120,7 +141,7 @@ impl MockPty {
         let inner = Arc::new(Mutex::new(MockPtyInner {
             input_buffer: VecDeque::new(),
             resize_count: 0,
-            interrupt_writes: 0,
+            interrupt_writes: WriteInterrupts::Count(0),
             gate: None,
             partial_write: None,
             block_writes: false,
@@ -206,9 +227,15 @@ impl Pty for MockPty {
             }
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
-        if inner.interrupt_writes > 0 {
-            inner.interrupt_writes -= 1;
-            return Err(io::Error::from(io::ErrorKind::Interrupted));
+        match inner.interrupt_writes {
+            WriteInterrupts::Count(remaining) if remaining > 0 => {
+                inner.interrupt_writes = WriteInterrupts::Count(remaining - 1);
+                return Err(io::Error::from(io::ErrorKind::Interrupted));
+            }
+            WriteInterrupts::Until(deadline) if std::time::Instant::now() < deadline => {
+                return Err(io::Error::from(io::ErrorKind::Interrupted));
+            }
+            _ => {}
         }
         inner.input_buffer.push_back(buf.to_vec());
         Ok(buf.len())

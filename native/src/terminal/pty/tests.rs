@@ -99,8 +99,11 @@ fn write_all_retries_after_eintr_instead_of_failing() {
 #[test]
 fn write_all_gives_up_at_the_deadline_when_writes_keep_getting_interrupted() {
     let (mut pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-    // 额度远大于期限内的重试次数：没有期限闸时它会耗尽额度并写入成功。
-    pty.interrupt_next_writes(1_000_000);
+    // 持续打断到远超期限的时刻：按「次数」计量时额度会先于期限耗尽——release
+    // 构建的重试循环比 debug 快一个数量级，100 万次重试在 50ms 内即用尽，打断
+    // 随之失效、写入成功，本用例遂在 release 构建里判红。打断窗口给到秒级，
+    // 「期限闸缺失」时才会走到「打断结束、写入成功」那条分支（判红仍然成立）。
+    pty.interrupt_writes_until(std::time::Instant::now() + std::time::Duration::from_secs(5));
 
     let (written, result) =
         Pty::write_all(&pty, b"hello", std::time::Duration::from_millis(50), false);
