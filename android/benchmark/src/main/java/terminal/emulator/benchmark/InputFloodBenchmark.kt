@@ -83,6 +83,7 @@ class InputFloodBenchmark {
             if (records.isNotEmpty()) return true
             SystemClock.sleep(SUSTAINED_OUTPUT_POLL_MILLIS)
         }
-        return true
+        // 超时即未观测到探针：返回 true 会让调用方的 ANR 检查永远通过。
+        return false
     }
 }
