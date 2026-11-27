@@ -36,8 +36,10 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.detectDeviceArchitecture
 import terminal.emulator.input.KeyModifiers
@@ -544,15 +546,12 @@ private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalVi
         // 上，渲染器尚未建立时写入即丢失，故打开设置页前先等它出现（有界等待，
         // 只在带 `openSettingsOnLaunch` 的冷启动才真正等待）。
         awaitBridgeReady { viewModel.runtime.bridge() != null }
-        val token = viewModel.runtime.acquireRenderPause()
-        // 等待 bridge 期间（冷启动无引导时最长约 2.5s）用户可能已经关掉设置页：
-        // 此刻协程虽未被取消到能阻止这次赋值，把凭证记进状态就再无人归还——
-        // 账本里永远留着一次暂停，终端从此不再渲染。当场核对开合状态再决定去留。
-        if (!showSettings) {
-            viewModel.runtime.releaseRenderPause(token)
-        } else {
-            settingsPauseToken = token
-        }
+        // 领凭证与存入状态之间不能有取消点：否则 DisposableEffect 看不到凭证，
+        // 账本里永远留着一次暂停，终端从此不再出帧。
+        settingsPauseToken =
+            withContext(NonCancellable) {
+                viewModel.runtime.acquireRenderPause()
+            }
     }
     DisposableEffect(showSettings) {
         onDispose {
