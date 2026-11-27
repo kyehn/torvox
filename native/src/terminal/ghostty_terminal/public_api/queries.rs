@@ -1,7 +1,5 @@
 //! 只读查询：网格、选区、搜索与终端状态，一律经查询通道取回。
 
-use std::sync::atomic::Ordering;
-
 use flume::{Sender, bounded};
 
 use super::super::GhosttyTerminal;
@@ -73,19 +71,6 @@ impl GhosttyTerminal {
             );
             false
         }
-    }
-
-    /// 备用屏是否处于活动状态（读原子标志，不走查询通道）。
-    pub fn alt_screen_active_atomic(&self) -> bool {
-        self.alt_screen_active.load(Ordering::Acquire)
-    }
-
-    /// 鼠标上报（DECSET 1000/1002/1003）是否启用。
-    ///
-    /// 镜像由 VT 线程每帧刷新，故本调用不碰查询通道、不等待 VT 线程——
-    /// 触摸拖动的每个事件都要问一次，等一次应答就够卡住手势了。
-    pub fn mouse_tracking_active_atomic(&self) -> bool {
-        self.mouse_tracking_active.load(Ordering::Acquire)
     }
 
     /// 向 VT 线程发送无状态 [`Query`] 并等待应答，发送失败或超时回退到 `fallback`；
