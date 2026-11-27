@@ -8,11 +8,58 @@ use super::{
 };
 use lru::LruCache;
 
+/// 内联键文本容量：字素簇上限 `MAX_GRAPHEME_CLUSTERS` 个码位、每码位至多 4 字节。
+pub const SHAPE_TEXT_INLINE_CAPACITY: usize =
+    crate::terminal::ghostty_terminal::MAX_GRAPHEME_CLUSTERS * 4;
+
+/// 整形缓存键里的文本。
+///
+/// 生产路径只整形字素簇（不超过 [`SHAPE_TEXT_INLINE_CAPACITY`] 字节），内联进键
+/// 可让逐单元缓存命中不做堆分配——此前每次查找都 `text.to_string()`，组合簇满屏
+/// 时是每帧数百次分配的主体之一。直接整形长句（测试、基准）退回堆分配。
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub enum ShapeText {
+    /// 内联文本；`len` 为有效字节数。
+    Inline {
+        bytes: [u8; SHAPE_TEXT_INLINE_CAPACITY],
+        len: u8,
+    },
+    /// 超过内联容量的文本。
+    Heap(Box<str>),
+}
+
+impl ShapeText {
+    /// 从文本构造键内文本：短文本内联，长文本堆存。
+    pub fn new(text: &str) -> Self {
+        if text.len() <= SHAPE_TEXT_INLINE_CAPACITY {
+            let mut bytes = [0u8; SHAPE_TEXT_INLINE_CAPACITY];
+            bytes[..text.len()].copy_from_slice(text.as_bytes());
+            Self::Inline {
+                bytes,
+                len: u8::try_from(text.len()).expect("内联容量不超过 u8::MAX"),
+            }
+        } else {
+            Self::Heap(text.into())
+        }
+    }
+
+    /// 键内文本的字符串视图。
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Inline { bytes, len } => {
+                // 内联缓冲只由 `&str` 写入，切片必是合法 UTF-8。
+                std::str::from_utf8(&bytes[..usize::from(*len)]).expect("内联文本来自 &str")
+            }
+            Self::Heap(text) => text,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// 整形结果缓存键：同一键对应同一份整形输出。
 pub struct ShapeKey {
     /// 被整形的文本。
-    pub text: String,
+    pub text: ShapeText,
     /// 逻辑字号的精确位模式（不截断）。
     pub font_size_bits: u32,
     /// 光栅缩放的精确位模式（不截断）。
@@ -31,7 +78,7 @@ pub struct GlyphCache {
     /// 字形缓存：光栅化结果 → 图集位置与度量。
     pub glyph_cache: LruCache<GlyphKey, GlyphInfo>,
     /// 整形缓存：文本 → 逐字形的推进量与偏移。
-    pub shape_cache: LruCache<ShapeKey, Vec<super::ShapedGlyphInfo>>,
+    pub shape_cache: LruCache<ShapeKey, std::sync::Arc<[super::ShapedGlyphInfo]>>,
     /// ASCII 快速路径：预分配的 ' '..'~' 字形 id 数组。
     pub ascii_glyph_ids: [Option<swash::GlyphId>; ASCII_UPPER_BOUND as usize],
     /// CJK 字形解析（字符 → 最终 `font_id` + `glyph_id`）。

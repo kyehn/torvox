@@ -1,5 +1,10 @@
 //! 文本整形：接入 cosmic-text 以支持单码位整形与复杂文种叠加（按格渲染，不跨单元连字）。
-use super::{FontPipeline, ShapedGlyphInfo, glyph_cache::ShapeKey};
+use std::sync::Arc;
+
+use super::{
+    FontPipeline, ShapedGlyphInfo,
+    glyph_cache::{ShapeKey, ShapeText},
+};
 use unicode_script::{Script, UnicodeScript};
 
 /// 需要挂 CJK 回退族的文字：判定走 UAX #24 `Script` 属性而非硬编码码点区间，
@@ -34,24 +39,26 @@ impl FontPipeline {
     /// 按当前样式整形一段文本，返回逐字形的推进量与位图偏移。
     ///
     /// 不带样式变体时等价于 `shape_run_styled(text, false, false)`。
-    pub fn shape_run(&mut self, text: &str) -> Vec<ShapedGlyphInfo> {
+    pub fn shape_run(&mut self, text: &str) -> Arc<[ShapedGlyphInfo]> {
         self.shape_run_styled(text, false, false)
     }
 
     /// 按单元的粗体/斜体选择同族字面；字形缓存键包含这两个维度。
+    ///
+    /// 返回共享切片：缓存命中时只克隆 `Arc`，不再逐单元复制字形数组。
     pub fn shape_run_styled(
         &mut self,
         text: &str,
         bold: bool,
         italic: bool,
-    ) -> Vec<ShapedGlyphInfo> {
+    ) -> Arc<[ShapedGlyphInfo]> {
         if text.is_empty() {
-            return Vec::new();
+            return Arc::from([]);
         }
         // 整形结果依赖字号/字体/光栅缩放/回退层：单文本键在任一维度
         // 变化时串味（旧字号的 glyph_id 与 x 偏移被复用，“d 像 a”类错字）。
         let shape_key = ShapeKey {
-            text: text.to_string(),
+            text: ShapeText::new(text),
             font_size_bits: self.font_size.to_bits(),
             raster_scale_bits: self.raster_scale.to_bits(),
             font_id: self.font_id,
@@ -60,7 +67,7 @@ impl FontPipeline {
             italic,
         };
         if let Some(cached) = self.caches.shape_cache.get(&shape_key) {
-            return cached.clone();
+            return Arc::clone(cached);
         }
 
         // 布局单位必须是**光栅像素**：`x_offset`/`y_offset` 被 cell_builder 直接加到
@@ -147,7 +154,7 @@ impl FontPipeline {
         }
         buffer.shape_until_scroll(&mut self.font_system, false);
 
-        let result: Vec<ShapedGlyphInfo> = buffer
+        let result: Arc<[ShapedGlyphInfo]> = buffer
             .layout_runs()
             .flat_map(|run| run.glyphs.iter())
             .map(|glyph| ShapedGlyphInfo {
@@ -164,7 +171,7 @@ impl FontPipeline {
             .collect();
 
         self.shaping_buffer = Some(buffer);
-        self.caches.shape_cache.put(shape_key, result.clone());
+        self.caches.shape_cache.put(shape_key, Arc::clone(&result));
         result
     }
 }
@@ -184,7 +191,7 @@ mod tests {
     #[test]
     fn empty_text_shapes_to_nothing() {
         let mut pipeline = small_pipeline();
-        assert_eq!(pipeline.shape_run(""), []);
+        assert!(pipeline.shape_run("").is_empty());
     }
 
     #[test]
@@ -193,7 +200,7 @@ mod tests {
         let glyphs = pipeline.shape_run("Hello");
         assert!(!glyphs.is_empty(), "ASCII 'Hello' must shape to glyphs");
         let mut prev_x = 0.0f32;
-        for glyph in &glyphs {
+        for glyph in glyphs.iter() {
             assert!(glyph.x >= prev_x, "glyph x must not go backwards");
             prev_x = glyph.x;
         }
@@ -221,7 +228,7 @@ mod tests {
     fn shaping_results_are_cached() {
         let mut pipeline = small_pipeline();
         let first = pipeline.shape_run("cache me");
-        assert_ne!(first, []);
+        assert!(!first.is_empty());
         let second = pipeline.shape_run("cache me");
         assert_eq!(first, second, "cached shape must equal first shape");
     }
@@ -311,9 +318,9 @@ mod tests {
         // 即使不清缓存也不会串味。
         let mut pipeline = small_pipeline();
         let before = pipeline.shape_run("Hello");
-        assert_ne!(before, []);
+        assert!(!before.is_empty());
         let key_small = ShapeKey {
-            text: "Hello".to_string(),
+            text: ShapeText::new("Hello"),
             font_size_bits: pipeline.font_size.to_bits(),
             raster_scale_bits: pipeline.raster_scale.to_bits(),
             font_id: pipeline.font_id,
@@ -323,7 +330,7 @@ mod tests {
         };
         pipeline.font_size = 28.0;
         let key_large = ShapeKey {
-            text: "Hello".to_string(),
+            text: ShapeText::new("Hello"),
             font_size_bits: pipeline.font_size.to_bits(),
             raster_scale_bits: pipeline.raster_scale.to_bits(),
             font_id: pipeline.font_id,
@@ -356,7 +363,7 @@ mod tests {
             .caches
             .shape_cache
             .iter()
-            .filter(|(key, _)| key.text == "e\u{301}")
+            .filter(|(key, _)| key.text.as_str() == "e\u{301}")
             .map(|(key, _)| (key.bold, key.italic))
             .collect();
         assert_eq!(styles.len(), 3, "三种样式必须各占一条缓存");

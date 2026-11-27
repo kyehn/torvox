@@ -424,15 +424,17 @@ impl CachedInstances {
     }
 }
 
-/// 簇文本：主体码位后接全部有效组合记号（`grapheme_extra` 中的 0 为占位，跳过）。
+/// 簇文本写入调用方缓冲：主体码位后接全部有效组合记号（`grapheme_extra` 中的 0
+/// 为占位，跳过）。
 ///
-/// 预热遍与发射遍都需要它，故只此一处构造——两处各自拼一遍会让每个带组合记号的
-/// 单元在每帧做两次同样的扫描与 `String` 分配。
-fn cluster_text(
+/// 预热遍与发射遍都需要它，故只此一处构造；写入跨单元复用的缓冲，命中整形
+/// 缓存时整条路径不做堆分配（此前每单元一次 `String` 分配）。
+fn cluster_text_into(
+    text: &mut String,
     character: char,
     grapheme_extra: &[u32; crate::terminal::ghostty_terminal::MAX_GRAPHEME_EXTRA],
-) -> String {
-    let mut text = String::with_capacity(1 + grapheme_extra.len() * 4);
+) {
+    text.clear();
     text.push(character);
     for &codepoint in grapheme_extra {
         if codepoint == 0 {
@@ -442,7 +444,6 @@ fn cluster_text(
             text.push(mark);
         }
     }
-    text
 }
 
 /// 按字节比较两段行内单元切片。`CellData` 是 POD
@@ -596,6 +597,8 @@ fn build_row_instances_into(
                 && instance_cache.atlas_generation == font_pipeline.atlas_generation()
         });
 
+    // 组合簇文本的跨单元复用缓冲：预热遍与发射遍共用，命中整形缓存时零分配。
+    let mut cluster_text = String::new();
     // 发射前预热：本帧要重建的行里的字形先光栅化（结果丢弃）。atlas 驱逐搬迁 UV，
     // 帧内 rasterize 会使同帧早建实例失效（同字不同区渲染不一致）。
     // 预热后发射遍为纯查表，UV 稳定；若代际仍变化（防御），缓存已热，
@@ -612,6 +615,7 @@ fn build_row_instances_into(
         cell_width,
         cell_height,
         font_pipeline,
+        &mut cluster_text,
     );
     if incremental && font_pipeline.atlas_generation() != generation_at_entry {
         // 预热把干净行的字形挤出了图集：缓存行的旧 UV 已失效，必须降级为全量
@@ -625,6 +629,7 @@ fn build_row_instances_into(
             cell_width,
             cell_height,
             font_pipeline,
+            &mut cluster_text,
         );
     }
     let mut row_ends: Vec<usize> = Vec::with_capacity(rows as usize);
@@ -656,6 +661,7 @@ fn build_row_instances_into(
                     font_pipeline,
                     instances,
                     &cell_data[range.clone()],
+                    &mut cluster_text,
                 );
             }
             row_ends.push(instances.len());
@@ -777,6 +783,7 @@ fn warm_frame_glyphs(
     cell_width: f32,
     cell_height: f32,
     font_pipeline: &mut crate::render::font::FontPipeline,
+    cluster_text: &mut String,
 ) {
     if cursor.visible {
         // 空单元格光标路径的参考字形（'M' 优先，'0' 兜底），与发射遍一致。
@@ -831,13 +838,13 @@ fn warm_frame_glyphs(
             if !warmed_clusters.insert(cluster_key) {
                 continue;
             }
-            let cluster_text = cluster_text(character, &cell_data_entry.grapheme_extra);
+            cluster_text_into(cluster_text, character, &cell_data_entry.grapheme_extra);
             if cluster_text.chars().count() <= 1 {
                 continue;
             }
             #[cfg(test)]
             WARM_GLYPH_REQUESTS.with(|counter| counter.set(counter.get() + 1));
-            let shaped = font_pipeline.shape_run_styled(&cluster_text, bold, italic);
+            let shaped = font_pipeline.shape_run_styled(cluster_text, bold, italic);
             match shaped.len() {
                 1 => {
                     let glyph = &shaped[0];

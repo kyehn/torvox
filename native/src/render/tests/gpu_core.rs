@@ -568,7 +568,7 @@ fn cluster_cell_merged_precomposed_emits_single_primary() {
             .caches
             .shape_cache
             .iter()
-            .any(|(key, _)| key.text == "e\u{301}"),
+            .any(|(key, _)| key.text.as_str() == "e\u{301}"),
         "cluster shape must be cached"
     );
 }
@@ -655,7 +655,7 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
             .caches
             .shape_cache
             .iter()
-            .any(|(key, _)| key.text == "a\u{301}\u{302}"),
+            .any(|(key, _)| key.text.as_str() == "a\u{301}\u{302}"),
         "cluster shape must be cached"
     );
 }

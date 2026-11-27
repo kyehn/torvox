@@ -5,6 +5,7 @@
 //! 叠加都在此，与帧级缓存无关。
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use foldhash::fast::RandomState;
 
@@ -15,7 +16,7 @@ use crate::terminal::ghostty_terminal::{KITTY_PLACEHOLDER, cell_flags};
 use super::{
     BAR_CURSOR_WIDTH_FRACTION, CURSOR_MARKER_MINIMUM_THICKNESS, CellCursor, SearchHighlight,
     UNDERLINE_CURSOR_HEIGHT_FRACTION, apply_search_highlight, blank_cell_needs_quad,
-    cell_highlight, cluster_text, codepoint_to_char,
+    cell_highlight, cluster_text_into, codepoint_to_char,
 };
 
 /// 竖线/下划线光标标记在单元盒内的几何；方块光标返回 `None`。
@@ -102,6 +103,7 @@ pub(super) fn append_row_instances(
     font_pipeline: &mut crate::render::font::FontPipeline,
     instances: &mut Vec<CellInstance>,
     cell_row: &[crate::terminal::ghostty_terminal::CellData],
+    cluster_text: &mut String,
 ) {
     for cell_data_entry in cell_row {
         // 非法码位由 codepoint_to_char 记录（每个构建都记，不再只有 debug），
@@ -245,30 +247,30 @@ pub(super) fn append_row_instances(
         // 组合字形延续符的簇整形（组合记号、emoji ZWJ
         // 序列）：整簇只整形一次，使每个记号落到字体
         // 指定的位置。无附加符的单元完全跳过整形，
-        // 常见情形零开销。
-        let cluster_shaped: Vec<crate::render::font::ShapedGlyphInfo> = if cell_data_entry
+        // 常见情形零开销。整形文本写入跨单元复用的缓冲，
+        // 命中整形缓存时整条路径不做堆分配。
+        let mut cluster_shaped: Option<Arc<[crate::render::font::ShapedGlyphInfo]>> = None;
+        if cell_data_entry
             .grapheme_extra
             .iter()
             .any(|&codepoint| codepoint != 0)
         {
-            let cluster_text = cluster_text(character, &cell_data_entry.grapheme_extra);
+            cluster_text_into(cluster_text, character, &cell_data_entry.grapheme_extra);
             if cluster_text.chars().count() > 1 {
-                font_pipeline.shape_run_styled(&cluster_text, cell_bold, cell_italic)
-            } else {
-                Vec::new()
+                cluster_shaped =
+                    Some(font_pipeline.shape_run_styled(cluster_text, cell_bold, cell_italic));
             }
-        } else {
-            Vec::new()
-        };
+        }
         // 整簇整形成单个字形（ZWJ emoji）时，它取代主体字形
         // 成为主体四边形；带位置的记号交由下面的 overlay
         // 循环处理。
-        let merged_cluster_glyph = if cluster_shaped.len() == 1 {
-            let glyph = &cluster_shaped[0];
-            font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id)
-        } else {
-            None
-        };
+        let merged_cluster_glyph = cluster_shaped
+            .as_deref()
+            .filter(|glyphs| glyphs.len() == 1)
+            .and_then(|glyphs| glyphs.first())
+            .and_then(|glyph| {
+                font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id)
+            });
         let has_merged_glyph = merged_cluster_glyph.is_some();
         if let Some(info) = merged_cluster_glyph
             .or_else(|| font_pipeline.glyph_information_styled(character, cell_bold, cell_italic))
@@ -320,8 +322,10 @@ pub(super) fn append_row_instances(
             // 作为 overlay 实例渲染在主体字形之上，位置由上面的
             // 簇整形给出；整形无可用结果时按码点回退
             // 渲染。
-            if cluster_shaped.len() > 1 {
-                for glyph in cluster_shaped.iter().skip(1) {
+            if let Some(glyphs) = cluster_shaped.as_deref()
+                && glyphs.len() > 1
+            {
+                for glyph in &glyphs[1..] {
                     if let Some(info) =
                         font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id)
                     {
