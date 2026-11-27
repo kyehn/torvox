@@ -621,6 +621,30 @@ fn encode_mouse_wheel_batches_every_notch() {
     assert!(dropped.is_empty(), "tracking off:整批必须丢弃（不写 PTY）");
 }
 
+/// 档数上限：超出的档位必须被截断，不得让调用方把 VT 线程按在无界循环上。
+///
+/// 档数经 JNI 传入（`repeat` 收窄成 `u32`），上界只由宿主把握。编码在 VT 线程
+/// 上逐档产出转义序列，无界档数会让该线程长时间不返回（终端整体假死）并按
+/// 档数线性堆积应答字节（数十 GiB 的分配足以让进程被 OOM 杀掉）。
+#[test]
+fn encode_mouse_wheel_clamps_notch_count() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    terminal_under_test.flush();
+    let single = terminal_under_test
+        .encode_mouse_wheel((10.0, 10.0), 3, 0, 10.0, 20.0, 1)
+        .expect("wheel encode");
+    assert!(!single.is_empty(), "tracking on: one notch must encode");
+    let clamped = terminal_under_test
+        .encode_mouse_wheel((10.0, 10.0), 3, 0, 10.0, 20.0, u32::MAX)
+        .expect("wheel batch encode");
+    assert_eq!(
+        clamped.len(),
+        single.len() * GhosttyTerminal::MAX_WHEEL_NOTCHES as usize,
+        "档数须被夹到上限，不得按调用方的无界档数展开"
+    );
+}
+
 /// Wheel-up with DECSET 1000 + SGR → button 4 (wheel-up = button 64+4-32).
 /// The Ghostty encoder emits button 4 for wheel-up; SGR adds 32 for press.
 #[test]

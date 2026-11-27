@@ -6,7 +6,19 @@ use libghostty_vt::key;
 use super::super::GhosttyTerminal;
 use super::super::commands::Query;
 
+/// 档数截断告警的限频闸门：截断每发生一次就告警一次会把 logcat 刷成洪水。
+static WHEEL_NOTCH_CLAMP_LOG: crate::slow_log::CountedLogThrottle =
+    crate::slow_log::CountedLogThrottle::new();
+
 impl GhosttyTerminal {
+    /// 单次滚轮编码的档数上限。
+    ///
+    /// 档数由调用方给出并经 JNI 传入（`repeat` 收窄成 `u32`），上界只由宿主把握。
+    /// 编码在 VT 线程上逐档产出转义序列，无界档数会让该线程长时间不返回（终端
+    /// 整体假死）并按档数线性堆积应答字节（数十 GiB 的分配足以让进程被 OOM 杀掉）。
+    /// 触摸手势的合法档数是个位数，64 已是数量级的富余。
+    pub(crate) const MAX_WHEEL_NOTCHES: u32 = 64;
+
     /// 用 Ghostty 鼠标编码器把鼠标事件（像素位置、动作、按键）编码为终端转义序列。
     /// `cell_width`/`cell_height` 取渲染器的实时单元格尺寸，使像素→单元映射与实际显示一致。
     /// `modifiers` 是上游 `key.Mods` 原始位（Shift/Ctrl/Alt/Super）。
@@ -97,6 +109,15 @@ impl GhosttyTerminal {
         cell_height: f32,
         repeat: u32,
     ) -> Option<Vec<u8>> {
+        let notches = repeat.clamp(1, Self::MAX_WHEEL_NOTCHES);
+        if repeat > Self::MAX_WHEEL_NOTCHES
+            && let Some(count) = WHEEL_NOTCH_CLAMP_LOG.record()
+        {
+            log::warn!(
+                "encode_mouse_wheel: 档数 {repeat} 超出上限 {}，已截断（窗口内 {count} 次）",
+                Self::MAX_WHEEL_NOTCHES
+            );
+        }
         Self::query_on(
             query_tx,
             |tx| Query::EncodeMouseWheel {
@@ -105,7 +126,7 @@ impl GhosttyTerminal {
                 modifiers,
                 cell_width,
                 cell_height,
-                repeat: repeat.max(1),
+                repeat: notches,
                 tx,
             },
             Vec::new(),
