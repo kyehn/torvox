@@ -236,3 +236,17 @@
 - `SshSecrets`：手机密钥 Keystore AES-GCM 密封，密文解码三态（Value/Lost/NotNow）；Lost 才替换或清理，NotNow 保留；`commitOrUndo` 在 commit 失败时回滚内存值；密码保存与 forget 通过 `passwordLock` 和计数避免旧 seal 覆盖新 forget；主机密钥大小写别名归一，冲突返回 `differ`。
 - `Tailnet`：状态解析区分 Running/NeedsLogin/LoggedOut/Starting/Error；NeedsLogin URL 只在 debuggable 构建写入 logcat；扫描服务器与状态读取分线程池，generation 防止旧节点发布发现结果；`redialOn` 只在节点进入 Running 或 Starting 失败时触发重连。
 - `UiState`/`StateDecoder`：flat native groups 直接解码进最终列表/Map，拒绝重复字段与不完整 scalar group；`steady()` 去掉高频标题以稳定重组；`StateAccumulator` 要求 generation 递增且丢帧时请求 full。
+
+## 全仓分块读到 EOF：收尾批次
+
+按 `offset=201` 对每个 chunk 续读到末尾，十个仓库共 295 个分块全部读完：Bareboot 25、plyra-terminal 63、nex 42、velo-android 57、Rin 5、YinTerminal 5、moke 46、ferrux 16、termlib 34、mtty-term 2。
+
+- YinTerminal 的 `TerminalSession` 用 `__YIN_HS__(\d+)__(/[^\r\n]*)__` 只认真实执行输出、不认回显的 `$(id -u)`；su 路径覆盖 `/system/bin/su`、`/data/adb/ksu/bin/su`、`/data/adb/ap/bin/su`、`/data/adb/magisk/su`，root 握手超时 12s、普通用户 3s；PTY 被 SELinux 挡住时回退 `ProcessBuilder`，并用 `echoSuppressQueue` 消除命令回显；`/proc/<pid>/cwd` 优先于解析 `cd`；`NativePty.sendSignal` 发 SIGINT/SIGKILL，崩溃日志落到 `yinterm_crash.txt`。
+- YinTerminal 的 `TerminalThemeStore` 内置 5 套预设并在自定义hex时计算 `textContrastRatio`，小于 4.5 显示 Low Contrast；`YinLocalStorage` 用 `ArrayDeque` 保留 1000 条日志、250 条历史，预设与主题写入 SharedPreferences。
+- termlib 的 `ImageAnimationBounds` 在解码前数 GIF 帧与 WebP `ANMF` 块并强制上限；`ImageBytes` 用 4096 字节不可变分块；`ImageBase64` 严格校验填充位与跨分片 quartet；`ImageDimensions` 用 32KiB `HEADER_LIMIT` 解析 PNG/GIF/JPEG/WebP 尺寸，不按文件大小分配像素。
+- termlib 的 `InlineImageProtocol` 对 kitty/iTerm2 上传做同意门与尺寸/帧数/内存检查，`InlineImageStore` 负责编码/解码预算、视口裁剪与动画推进；`OscParser` 处理 OSC 8/9;4/52/133/1337；`ImeInputView` 的 `deleteSurroundingText` 把左删除数限制在 `MAX_DELETE_SURROUNDING`，防止恶意 IME 让 UI 线程执行数十亿次 DEL。
+- termlib 的 `TerminalEmulatorImpl` 在 damage 区域超过 100 个时合并成整屏、快照构建限速 12ms，并用 `damageLock` 保证 JNI 回调不重入 native；`AccessibilityNodeProviderCompat` 把虚拟行、语义段、超链接和字符位置暴露给 TalkBack。
+- moke 的 `netbridge/internal/relay` 用 AES-128-OCB 校验 mosh 客户端数据报，方向位为 1 的边转发，`expectedSeq` 只前进不回退，所有权在 registry 外释放，避免重用 ID 时误杀新会话；SOCKS5 只实现 CONNECT，单一凭据只消费一次。
+- Bareboot 的 `tools/device_smoke.py` 要求 SELinux Enforcing，验证对端授权、kernel 报告、Debian 新镜像、`sudo`、guest capabilities 去掉 SYS_PTRACE/SYS_ADMIN、备份恢复、USB Files 双向读写、tab 重新附着与 Wi-Fi/蜂窝 DNS 切换；GPU 构建把 mesa/gfxstream/rutabaga 固定到具体 revision，AHB token 类型为 `0x04000000`，媒体解码 kind 10 使用 YUV 共享内存槽，`sepolicy.rule` 单独约束 `bareboot_gpu_renderer` 域。
+
+与本地实现对照：`native/src/terminal/session/output.rs` 与 `native/src/terminal/session/tests/clipboard.rs` 是并发协作者修改，本轮未触碰；termlib 的 damage 合并、moke 的 mosh 认证与 Bareboot 的设备烟测矩阵，分别给本地渲染脏区、输入校验和回归测试提供了可复用形状。
