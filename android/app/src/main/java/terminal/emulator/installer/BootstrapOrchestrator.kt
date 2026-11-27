@@ -11,7 +11,6 @@ import java.util.concurrent.atomic.AtomicReference
 class BootstrapOrchestrator(
     private val downloader: BootstrapDownloader,
     private val installer: BootstrapInstaller,
-    private val secondStageRunner: SecondStageRunner,
     private val onProgress: BootstrapProgressCallback? = null,
 ) {
     enum class Status {
@@ -91,20 +90,9 @@ class BootstrapOrchestrator(
                     markError(exception.javaClass.simpleName)
                     return Result.failure(Exception("Install failed: ${exception.javaClass.simpleName}"))
                 }
-                val secondStageResult = secondStageRunner.run()
-                if (!secondStageResult.success) {
-                    markError("Postinst failed")
-                    val failureDetails = secondStageResult.errors.take(3).joinToString("\n") { "- $it" }
-                    return Result.failure(Exception(failureDetails.ifEmpty { "Postinst failed" }))
-                }
-                // CreatingSymlinks 进度在 BootstrapInstaller.install() 内部
-                // 符号链接真正创建时发出；在此重复会乱序。
                 onProgress?.onProgress(BootstrapProgress.Complete)
                 state.set(Status.INSTALLED)
-                // 成功负载不携带诊断：`Result.success` 的定义就是 `errors.isEmpty()`，
-                // 故走到这里 errors 恒为空，拼出来的 details 只会是空串（原先这段是
-                // 死代码）。非致命的 stderr 摘录只在失败分支里给出（上方 take(3)）。
-                // 成功标题由 UI 层本地化。
+                // 成功标题由 UI 本地化。
                 return Result.success("")
             } finally {
                 // 始终删除下载的归档，失败路径亦然：

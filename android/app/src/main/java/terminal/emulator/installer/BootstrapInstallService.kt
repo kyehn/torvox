@@ -67,8 +67,6 @@ class BootstrapInstallService : Service() {
                 installer.install(preserved).exceptionOrNull()?.let { failure ->
                     return@runBlocking failure.message ?: "install failed"
                 }
-                val stage = SecondStageRunner(directories.prefix, directories.home).run()
-                if (!stage.success) return@runBlocking "SECOND_STAGE_FAILED: ${stage.errors}"
                 "OK prefix=${directories.prefix} shell=${installer.installedShellEntry() ?: "none"}" +
                     " installed=${installer.isInstalled()} needsInstall=${installer.needsInstall()}"
             }

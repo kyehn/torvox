@@ -2,7 +2,8 @@
 
 ## Purpose
 
-bootstrap 经 staging 目录的原子安装行为：解压防护、清单建链、原子换入、postinst 执行。
+bootstrap 经 staging 目录的原子安装行为：解压防护、清单建链、原子换入；
+安装后脚本由用户自行处理。
 
 ## Requirements
 
@@ -82,40 +83,15 @@ bootstrap 经 staging 目录的原子安装行为：解压防护、清单建链�
 - **WHEN** staging 换入失败
 - **THEN** 备份恢复为 prefix，旧引导仍可用
 
-### Requirement: postinst 幂等执行
+### Requirement: 应用不运行安装后脚本
 
-换入后 MUST 运行 `var/lib/dpkg/info` 下 postinst（锁防重叠、陈旧锁删除重试、EEXIST 视为他者持有不报成功）；缺目录 MUST 视为成功；失败取前三段 stderr 摘录上报。
+换入完成后应用 MUST NOT 运行 `postinstall`、`termux-bootstrap-second-stage.sh`
+或任何等价流程；这类脚本的运行与失败交给用户处理。
 
-stderr 与 stdout MUST 由守护线程排空到 EOF（提前停止会让子进程卡在写满的管道上），
-但保留量 MUST 有上限——诊断只取前几百字符，保留量却按子进程全部输出增长时，一个崩溃
-后循环刷错误的脚本就能把应用进程读成 OOM。排空结果 MUST 以线程安全方式交接给等待方：
-`join` 超时（孙进程仍持有管道）后仍会读取，非线程安全的容器不能跨线程使用。
+#### Scenario: 换入完成
 
-#### Scenario: 缺目录视为成功
-
-- **WHEN** `var/lib/dpkg/info` 不存在
-- **THEN** postinst 阶段成功
-
-#### Scenario: 目录列举失败视为失败
-
-- **WHEN** `var/lib/dpkg/info` 存在但内容列举失败
-- **THEN** postinst 阶段失败并上报，MUST NOT 按「没有脚本」静默成功
-
-#### Scenario: 失败摘录上报
-
-- **WHEN** postinst 失败
-- **THEN** 返回前三段 stderr 摘录，状态为 ERROR
-
-#### Scenario: 崩溃脚本刷爆 stderr 不 OOM
-
-- **WHEN** 某个 postinst 向 stderr 写出远超上限的数据
-- **THEN** 排空 MUST 仍读到 EOF 以让子进程退出，但保留量 MUST 不超过上限，
-  MUST NOT 因诊断缓冲把进程读成 OOM
-
-#### Scenario: 排空超时后安全交接
-
-- **WHEN** 子进程已退出但孙进程仍持有管道，等待方 `join` 超时
-- **THEN** 等待方读取已收到的前缀 MUST 是线程安全的，MUST NOT 出现数据竞争
+- **WHEN** staging 已原子换入 prefix
+- **THEN** 安装完成，应用不执行 prefix 内的任何安装后脚本
 
 ### Requirement: 离线安装的中转包必须清理
 

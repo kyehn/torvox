@@ -51,7 +51,6 @@ object TerminalPrefix {
                     BootstrapOrchestrator(
                         BootstrapDownloader(context),
                         BootstrapInstaller(prefixDir, java.io.File(context.filesDir, "home"), stagingDir(context)),
-                        SecondStageRunner(prefixDir, java.io.File(context.filesDir, "home")),
                     ).ensureBootstrap(url)
                 }
             }

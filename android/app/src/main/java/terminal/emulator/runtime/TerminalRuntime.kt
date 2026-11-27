@@ -41,7 +41,6 @@ import terminal.emulator.bridge.rasterScaleRange
 import terminal.emulator.installer.BootstrapDownloader
 import terminal.emulator.installer.BootstrapInstaller
 import terminal.emulator.installer.BootstrapOrchestrator
-import terminal.emulator.installer.SecondStageRunner
 import terminal.emulator.installer.bootstrapDirectories
 import terminal.emulator.resolveEffectiveFontFamily
 import terminal.emulator.service.TerminalForegroundService
@@ -1499,10 +1498,6 @@ constructor(
                             prefixDir = directories.prefix,
                             homeDir = directories.home,
                             stagingDir = directories.staging,
-                        ),
-                        SecondStageRunner(
-                            prefixDir = directories.prefix,
-                            homeDir = directories.home,
                         ),
                     )
                 when (installOrchestrator.getInstallStatus()) {

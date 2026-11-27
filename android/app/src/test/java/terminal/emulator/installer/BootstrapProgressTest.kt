@@ -7,7 +7,7 @@ import org.junit.Test
 /**
  * BootstrapProgress.overallProgress — the settings-screen install bar.
  * Invariants pinned here: monotonic stage bands (download → extract →
- * symlinks → post-install → complete), never-over-1.0 progress, and
+ * symlinks → complete), never-over-1.0 progress, and
  * division-by-zero safety when totals are unknown (0).
  */
 class BootstrapProgressTest {
@@ -45,19 +45,6 @@ class BootstrapProgressTest {
     }
 
     @Test
-    fun `post install interpolates between 99 and 100 percent`() {
-        assertEquals(0.99f, BootstrapProgress.RunningPostInstall(0, 10).overallProgress(), tolerance)
-        assertEquals(0.995f, BootstrapProgress.RunningPostInstall(5, 10).overallProgress(), tolerance)
-        assertEquals(1f, BootstrapProgress.RunningPostInstall(10, 10).overallProgress(), tolerance)
-    }
-
-    @Test
-    fun `post install with unknown totals stays inside band`() {
-        val progress = BootstrapProgress.RunningPostInstall(1, 0).overallProgress()
-        assertTrue("unknown totals must stay in 0.99..1.0", progress in 0.99f..1f)
-    }
-
-    @Test
     fun `progress never regresses along the real phase order`() {
         // 逐个阶段断言具体数值等于把生产里的字面量抄一遍（CreatingSymlinks=0.99、
         // Complete=1、Error=0 都只是 `= 0.99f` 的回读）。真正该守的是 KDoc 写下
@@ -70,8 +57,6 @@ class BootstrapProgressTest {
                 BootstrapProgress.Extracting(50, 100),
                 BootstrapProgress.Extracting(100, 100),
                 BootstrapProgress.CreatingSymlinks,
-                BootstrapProgress.RunningPostInstall(0, 10),
-                BootstrapProgress.RunningPostInstall(10, 10),
                 BootstrapProgress.Complete,
             )
         phases.zipWithNext { previous, next ->

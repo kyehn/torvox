@@ -1709,10 +1709,9 @@ MUST 留在 warn，MUST NOT 由应用侧自行吞掉。
 
 #### Scenario: 外部 bootstrap 二进制
 
-- **WHEN** 引导安装运行预编译二进制
-- **THEN** `W/com.termux Unexpected CPU variant for x86: x86_64` 与
-      `SecondStageRunner coreutils postinst exited with code 139` MUST 归因为
-      外部二进制在模拟器的表现；安装器 MUST 保留既有重试兜底
+- **WHEN** 引导安装期间出现预编译二进制的日志
+- **THEN** `W/com.termux Unexpected CPU variant for x86: x86_64` MUST 归因为
+       外部二进制在模拟器的表现，MUST NOT 当成安装失败
 
 #### Scenario: 测试运行器扫描可选 runner
 

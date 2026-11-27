@@ -16,16 +16,7 @@ import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
-/**
- * JVM (Robolectric) tests for the bootstrap install + second-stage pipeline.
- *
- * These exercise the REAL [BootstrapInstaller] / [SecondStageRunner] code paths (zip extraction,
- * symlink creation via [Os.symlink], executable chmod, atomic rename, post-install script
- * execution) without downloading anything from the network: a synthetic bootstrap zip is built
- * locally and installed into a throwaway prefix under the app's exec-permitted `files/` tree.
- * Symlink direction and executable-bit verification live in the instrumented suite
- * (BootstrapSymlinkInstrumentedTest) — Robolectric's ShadowOs has no symlink/chmod/stat support.
- */
+/** 真实 [BootstrapInstaller] 路径：构造合成归档并装入临时 prefix。 */
 @RunWith(RobolectricTestRunner::class)
 class BootstrapInstallerTest {
     private val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -65,21 +56,6 @@ class BootstrapInstallerTest {
         homeDir.deleteRecursively()
         stagingDir.deleteRecursively()
         zipFile.delete()
-    }
-
-    /**
-     * 在 prefix 的 `var/lib/dpkg/info` 下落一个假 postinst 并置可执行。
-     *
-     * 三个 second-stage 用例共用这段脚手架：各写一份时「信息目录路径」这类细节
-     * 一旦在某一份里漂移，用例会因目录缺失而失败，而不是因被测行为失败。
-     */
-    private fun seedPostinst(body: String): File {
-        val infoDir = File(prefixDir, "var/lib/dpkg/info")
-        infoDir.mkdirs()
-        val script = File(infoDir, "fake.postinst")
-        script.writeText(body.trimIndent())
-        script.setExecutable(true)
-        return script
     }
 
     private fun buildFakeBootstrapZip(withSymlinks: Boolean): File {
@@ -288,71 +264,6 @@ class BootstrapInstallerTest {
         assertEquals(2, parsed.size)
         assertEquals("/pkg/store/abc-system-path/bin/login", parsed[0].first)
         assertEquals("bin/login", parsed[0].second)
-    }
-
-    @Test
-    fun secondStageRunner_executesPostinstScript() {
-        // Seed a minimal prefix with a post-install script that writes a marker file.
-        val marker = File(prefixDir, "postinst-ran.marker")
-        seedPostinst(
-            """
-            #!/bin/sh
-            echo "configure" > "${marker.absolutePath}"
-            exit 0
-            """,
-        )
-
-        val result = runBlocking { SecondStageRunner(prefixDir, homeDir).run() }
-
-        assertTrue("second stage should succeed: ${result.errors}", result.success)
-        assertTrue("postinst script must have executed", marker.exists())
-    }
-
-    @Test
-    fun secondStageRunner_retriesOnceAfterPostinstCrash() {
-        // 首轮 139（复刻 update-alternatives 首运崩溃：活干完、进程崩），
-        // 次轮幂等成功：旧逻辑无重试直接失败，新逻辑自愈。
-        val flag = File(prefixDir, "first-run-crashed.flag")
-        val marker = File(prefixDir, "postinst-retried.marker")
-        seedPostinst(
-            """
-            #!/bin/sh
-            if [ -f "${flag.absolutePath}" ]; then
-                echo "configure" > "${marker.absolutePath}"
-                exit 0
-            fi
-            touch "${flag.absolutePath}"
-            exit 139
-            """,
-        )
-
-        val result = runBlocking { SecondStageRunner(prefixDir, homeDir).run() }
-
-        assertTrue("retry must heal first-run crash: ${result.errors}", result.success)
-        assertTrue("postinst script must have completed on retry", marker.exists())
-    }
-
-    @Test
-    fun secondStageRunner_lockIsReleasedAfterRun() {
-        val marker = File(prefixDir, "postinst-ran.marker")
-        seedPostinst(
-            """
-            #!/bin/sh
-            echo "configure" > "${marker.absolutePath}"
-            exit 0
-            """,
-        )
-
-        val runner = SecondStageRunner(prefixDir, homeDir)
-        val first = runBlocking { runner.run() }
-        val second = runBlocking { runner.run() }
-        assertTrue("first run must succeed: ${first.errors}", first.success)
-        assertTrue("second run must succeed: ${second.errors}", second.success)
-        // The lock is deleted in finally — a second run proves it was released.
-        assertFalse(
-            "lock file must not remain",
-            File(prefixDir, "bin/termux-bootstrap-second-stage.sh.lock").exists(),
-        )
     }
 
     @Test

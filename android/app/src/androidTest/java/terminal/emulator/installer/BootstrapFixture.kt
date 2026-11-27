@@ -46,7 +46,6 @@ internal fun ensureBootstrapInstalled(): File {
                     home,
                     File(context.filesDir, "bootstrap-staging"),
                 ),
-                SecondStageRunner(File(context.filesDir, "usr"), home),
             ).ensureBootstrap(url)
         }
     Log.i(TAG, "bootstrap result: $result")

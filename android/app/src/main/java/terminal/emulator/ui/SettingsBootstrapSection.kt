@@ -259,14 +259,6 @@ private fun bootstrapStepText(progress: BootstrapProgress): String = when (progr
         )
     }
 
-    is BootstrapProgress.RunningPostInstall -> {
-        stringResource(
-            R.string.bootstrap_running_postinstall,
-            progress.scriptsCompleted,
-            progress.totalScripts,
-        )
-    }
-
     BootstrapProgress.CreatingSymlinks -> {
         stringResource(R.string.bootstrap_creating_symlinks)
     }

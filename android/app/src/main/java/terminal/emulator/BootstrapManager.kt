@@ -14,7 +14,6 @@ import terminal.emulator.installer.BootstrapInstaller
 import terminal.emulator.installer.BootstrapOrchestrator
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.installer.BootstrapProgressCallback
-import terminal.emulator.installer.SecondStageRunner
 import terminal.emulator.installer.bootstrapDirectories
 import terminal.emulator.installer.copyBootstrapArchive
 import terminal.emulator.runtime.LogUtil
@@ -59,14 +58,7 @@ internal class BootstrapManager(
 
     /** 把引导结果映射为本地化文案；失败负载是机器可读键（见 [BootstrapOrchestrator]）。 */
     private fun bootstrapOutcomeText(result: Result<String>): String = result.fold(
-        onSuccess = { diagnostics ->
-            val headline = context.getString(R.string.bootstrap_installed_success)
-            if (diagnostics.isEmpty()) {
-                headline
-            } else {
-                context.getString(R.string.bootstrap_postinst_errors) + "\n" + diagnostics
-            }
-        },
+        onSuccess = { context.getString(R.string.bootstrap_installed_success) },
         onFailure = { exception ->
             when (exception.message) {
                 BootstrapOrchestrator.ERROR_PRIMARY_USER_REQUIRED ->
@@ -90,22 +82,13 @@ internal class BootstrapManager(
         },
     )
 
-    /** 在线与离线安装路径共用的安装器与二阶段执行器配对；目录取自三处入口共用的 [bootstrapDirectories]。 */
-    private fun bootstrapComponents(
-        onProgress: BootstrapProgressCallback,
-    ): Pair<
-        BootstrapInstaller,
-        SecondStageRunner,
-        > {
+    /** 在线与离线安装路径共用的安装器；目录取自三处入口共用的 [bootstrapDirectories]。 */
+    private fun bootstrapInstaller(onProgress: BootstrapProgressCallback): BootstrapInstaller {
         val directories = bootstrapDirectories(context)
         return BootstrapInstaller(
             prefixDir = directories.prefix,
             homeDir = directories.home,
             stagingDir = directories.staging,
-            onProgress = onProgress,
-        ) to SecondStageRunner(
-            prefixDir = directories.prefix,
-            homeDir = directories.home,
             onProgress = onProgress,
         )
     }
@@ -146,12 +129,10 @@ internal class BootstrapManager(
                     context,
                     onProgress = onProgress,
                 )
-            val (installer, secondStage) = bootstrapComponents(onProgress)
             val orchestrator =
                 BootstrapOrchestrator(
                     downloader,
-                    installer,
-                    secondStage,
+                    bootstrapInstaller(onProgress),
                     onProgress = onProgress,
                 )
             // 直接读取防抖后的值：DataStore 写入有防抖
@@ -188,12 +169,11 @@ internal class BootstrapManager(
 
     /**
      * 从 SAF URI 离线安装引导。用户经 `ActivityResultContracts.OpenDocument` 选择 .zip 文件；
-     * 其内容被复制到缓存文件，再送入与在线路径相同的安装器管线
-     * （installer.install → secondStage.run）。无需网络；已下载的引导 URL 被忽略。
+     * 其内容被复制到缓存文件，再送入与在线路径相同的安装器管线。无需网络；已下载的引导 URL 被忽略。
      */
     fun installOffline(uri: Uri) {
         startBootstrapJob { onProgress ->
-            val (installer, secondStage) = bootstrapComponents(onProgress)
+            val installer = bootstrapInstaller(onProgress)
             // 把 SAF URI 内容复制到临时缓存文件——安装器需要一个 File
             // （它会对 zip 做哈希与流式读取）。缓存目录总是可写，
             // 且会在系统压力下被清理。
@@ -214,21 +194,9 @@ internal class BootstrapManager(
                 } ?: throw java.io.IOException("Failed to open bootstrap file")
                 val result = installer.install(cacheFile)
                 if (result.isSuccess) {
-                    val secondResult = secondStage.run()
-                    if (!secondResult.success) {
-                        val failureDiagnostics = secondResult.errors.take(3).joinToString("\n") { "- $it" }
-                        _bootstrapResult.value =
-                            context.getString(
-                                R.string.bootstrap_error,
-                                failureDiagnostics.ifEmpty { "Postinst failed" },
-                            )
-                        logOutcome(false)
-                    } else {
-                        _bootstrapProgress.value = BootstrapProgress.Complete
-                        val headline = context.getString(R.string.bootstrap_installed_from_file)
-                        _bootstrapResult.value = headline
-                        logOutcome(true)
-                    }
+                    _bootstrapProgress.value = BootstrapProgress.Complete
+                    _bootstrapResult.value = context.getString(R.string.bootstrap_installed_from_file)
+                    logOutcome(true)
                 } else {
                     _bootstrapResult.value =
                         context.getString(

@@ -100,9 +100,7 @@
     <string name="bootstrap_installed_from_file">已从文件安装引导程序</string>
     <string name="bootstrap_installed_success">引导程序安装成功</string>
     <string name="bootstrap_no_url">此架构没有可用的引导程序 URL</string>
-    <string name="bootstrap_postinst_errors">安装后脚本出现错误：</string>
     <string name="bootstrap_primary_user_required">引导程序只能由主用户（所有者资料）安装</string>
-    <string name="bootstrap_running_postinstall">正在运行安装后脚本…（%1$d / %2$d）</string>
     <string name="byte_unit_b">%1$d B</string>
     <string name="byte_unit_kb">%1$d KB</string>
     <string name="byte_unit_mb">%1$d MB</string>

@@ -19,14 +19,12 @@ import java.io.File
  * JVM tests for [BootstrapOrchestrator]: the install state machine, the
  * process-wide CAS guard (two entry points — runtime start + settings
  * button — must not install concurrently), and the primary-user guard.
- * The real downloader/installer/second-stage are mocked; their internals
- * are covered by BootstrapInstallerTest.
+ * The real downloader/installer are mocked; their internals are covered by BootstrapInstallerTest.
  */
 @RunWith(RobolectricTestRunner::class)
 class BootstrapOrchestratorTest {
     private val downloader = mockk<BootstrapDownloader>()
     private val installer = mockk<BootstrapInstaller>()
-    private val secondStageRunner = mockk<SecondStageRunner>()
 
     @Before
     fun declareHostAbi() {
@@ -38,7 +36,7 @@ class BootstrapOrchestratorTest {
         field.set(null, arrayOf("x86_64"))
     }
 
-    private fun orchestrator() = BootstrapOrchestrator(downloader, installer, secondStageRunner)
+    private fun orchestrator() = BootstrapOrchestrator(downloader, installer)
 
     @Test
     fun `already installed short circuits without touching downloader`() {
@@ -84,13 +82,9 @@ class BootstrapOrchestratorTest {
         every { installer.isInstalled() } returns false
         coEvery { downloader.download(any(), any()) } returns Result.success(File("/tmp/fake.zip"))
         coEvery { installer.install(any()) } returns Result.success(Unit)
-        coEvery { secondStageRunner.run() } returns
-            SecondStageRunner.Result()
         val orchestrator = orchestrator()
         val result = runBlocking { orchestrator.ensureBootstrap("https://example.com/x.zip") }
         assertTrue(result.isSuccess)
-        // SecondStageRunner 以 errors.isEmpty() 定义成功，故成功时没有诊断可返回；
-        // 非致命 stderr 只出现在失败分支。
         assertEquals("", result.getOrNull())
         assertEquals(BootstrapOrchestrator.Status.INSTALLED, orchestrator.getInstallStatus())
     }
@@ -129,8 +123,6 @@ class BootstrapOrchestratorTest {
         every { installer.isInstalled() } returns false
         coEvery { downloader.download(any(), any()) } returns Result.success(File("/tmp/fake.zip"))
         coEvery { installer.install(any()) } returns Result.success(Unit)
-        coEvery { secondStageRunner.run() } returns
-            SecondStageRunner.Result()
         val orchestrator = orchestrator()
         assertTrue(runBlocking { orchestrator.ensureBootstrap("https://example.com/x.zip") }.isSuccess)
         // After INSTALLED, isInstalled() drives the status.

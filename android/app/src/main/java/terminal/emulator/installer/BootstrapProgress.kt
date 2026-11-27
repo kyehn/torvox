@@ -16,20 +16,8 @@ sealed class BootstrapProgress {
     data class Extracting(val entriesExtracted: Int, val totalEntries: Int) : BootstrapProgress() {
         override fun overallProgress(): Float = 0.85f +
             if (totalEntries > 0) {
-                // 上限 0.97，使 CreatingSymlinks（0.99）与
-                // RunningPostInstall（0.99..1.0）永不使进度条回退
+                // 上限 0.97，使 CreatingSymlinks（0.99）不使进度条回退
                 (entriesExtracted.toFloat() / totalEntries) * 0.12f
-            } else {
-                0f
-            }
-    }
-
-    data class RunningPostInstall(val scriptsCompleted: Int, val totalScripts: Int) : BootstrapProgress() {
-        override fun overallProgress(): Float = 0.99f +
-            if (totalScripts > 0) {
-                // 起始 0.99（区间 0.99..1.0），使进度条永不从
-                // CreatingSymlinks（0.99）回退；Complete（1.0）是最后一步。
-                (scriptsCompleted.toFloat() / totalScripts) * 0.01f
             } else {
                 0f
             }
