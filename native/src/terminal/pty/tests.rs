@@ -256,6 +256,22 @@ fn read_until(pty: &PtyPair, needle: &[u8]) -> Vec<u8> {
     output
 }
 
+/// 按给定环境起一个 shell 会话并写出首条命令。
+///
+/// 工作目录生效、工作目录缺失回退、PATH 前缀三处用例共享同一段夹具：抄三份时，
+/// 改一处（起进程参数、非阻塞设置、写入期限）漏改另两处，三个用例会以不同口径
+/// 测同一件事。夹具只此一份，调用点各自的断言强度不变。
+fn spawn_shell_and_write(env: &ShellEnv, command: &[u8]) -> PtyPair {
+    use crate::terminal::pty::Pty;
+
+    let pty = PtyPair::spawn("/bin/sh", 24, 80, env, None).expect("spawn failed");
+    pty.set_nonblocking().expect("set_nonblocking failed");
+    Pty::write_all(&pty, command, WRITE_DRAIN_TIMEOUT, true)
+        .1
+        .expect("write failed");
+    pty
+}
+
 #[test]
 fn shebang_plain_interpreter_parses() {
     let dir = tempfile::tempdir().unwrap();
@@ -681,8 +697,6 @@ fn pty_error_display_works() {
 
 #[test]
 fn chdir_changes_working_directory() {
-    use crate::terminal::pty::Pty;
-
     let temp = tempfile::tempdir().expect("create test dir failed");
 
     let env = ShellEnv {
@@ -690,11 +704,7 @@ fn chdir_changes_working_directory() {
         ..ShellEnv::default()
     };
 
-    let pty = PtyPair::spawn("/bin/sh", 24, 80, &env, None).expect("spawn failed");
-    pty.set_nonblocking().expect("set_nonblocking failed");
-    Pty::write_all(&pty, b"pwd\n", WRITE_DRAIN_TIMEOUT, true)
-        .1
-        .expect("write failed");
+    let pty = spawn_shell_and_write(&env, b"pwd\n");
 
     let output = read_until(&pty, temp.path().to_string_lossy().as_bytes());
     assert!(
@@ -711,8 +721,6 @@ fn chdir_changes_working_directory() {
 /// 父进程的 cwd（宿主测试里就是仓库目录），与告知用户的路径不符。
 #[test]
 fn missing_working_directory_falls_back_to_root() {
-    use crate::terminal::pty::Pty;
-
     let temp = tempfile::tempdir().expect("create test dir failed");
     let missing = temp.path().join("no-such-working-directory");
     let env = ShellEnv {
@@ -720,16 +728,7 @@ fn missing_working_directory_falls_back_to_root() {
         ..ShellEnv::default()
     };
 
-    let pty = PtyPair::spawn("/bin/sh", 24, 80, &env, None).expect("spawn failed");
-    pty.set_nonblocking().expect("set_nonblocking failed");
-    Pty::write_all(
-        &pty,
-        b"echo cwd-fallback:$(pwd)\n",
-        WRITE_DRAIN_TIMEOUT,
-        true,
-    )
-    .1
-    .expect("write failed");
+    let pty = spawn_shell_and_write(&env, b"echo cwd-fallback:$(pwd)\n");
 
     const NEEDLE: &[u8] = b"cwd-fallback:/\r\n";
     let output = read_until(&pty, NEEDLE);
@@ -746,8 +745,6 @@ fn missing_working_directory_falls_back_to_root() {
 /// 子进程的 `PATH` 本身——合成结果未真正进 env 时，只有这里能发现。
 #[test]
 fn spawned_child_sees_prefix_bin_first_in_path() {
-    use crate::terminal::pty::Pty;
-
     let prefix = tempfile::tempdir().expect("create prefix dir");
     std::fs::create_dir_all(prefix.path().join("bin")).expect("create prefix bin dir");
     let prefix_path = prefix
@@ -760,11 +757,7 @@ fn spawned_child_sees_prefix_bin_first_in_path() {
         ..ShellEnv::default()
     };
 
-    let pty = PtyPair::spawn("/bin/sh", 24, 80, &env, None).expect("spawn failed");
-    pty.set_nonblocking().expect("set_nonblocking failed");
-    Pty::write_all(&pty, b"echo \"PATH-is:$PATH\"\n", WRITE_DRAIN_TIMEOUT, true)
-        .1
-        .expect("write failed");
+    let pty = spawn_shell_and_write(&env, b"echo \"PATH-is:$PATH\"\n");
 
     let needle = format!("PATH-is:{prefix_path}/bin");
     let output = read_until(&pty, needle.as_bytes());
