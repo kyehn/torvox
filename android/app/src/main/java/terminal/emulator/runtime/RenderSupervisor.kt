@@ -36,13 +36,6 @@ internal class RenderSupervisor(private val runtime: TerminalRuntime) {
         }
     }
 
-    internal fun stopRenderMonitor() {
-        synchronized(runtime.monitorLock) {
-            runtime.renderMonitorJob?.cancel()
-            runtime.renderMonitorJob = null
-        }
-    }
-
     internal fun checkSessions() {
         val deadSessions = mutableListOf<SessionEntry>()
         val healthySessions = mutableListOf<SessionEntry>()

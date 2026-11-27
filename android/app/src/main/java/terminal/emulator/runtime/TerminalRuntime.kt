@@ -657,8 +657,7 @@ constructor(
 
     // 串行化 startRenderMonitor 的「检查后赋值」：start()（IO 协程）与
     // resumeRendering（surfaceTransitionExecutor 线程）都可能到达，
-    // 未同步的一对操作会启动两个监视循环
-    // （stopRenderMonitor 只取消被引用的那个，另一个会空转到作用域取消为止）。
+    // 未同步的一对操作会启动两个监视循环（每轮重复扫描会话表与重复调度重启）。
     internal val monitorLock = Any()
 
     // ══════════════════════════════════════════════════════════════════════
@@ -2779,9 +2778,8 @@ constructor(
                         )
                     }
                 }
-                // 在锁内：在此串行化意味着监视器先于任何并发关闭路径的
-                // stopRenderMonitor 启动并被其取消
-                // ——绝不会在拆除完成后监视器又被复活。
+                // 恢复前台即拉起监视器：后台期间渲染线程停摆，
+                // 监视器负责发现线程异常退出并重启。
                 renderSupervisor.startRenderMonitor()
             }
         }
