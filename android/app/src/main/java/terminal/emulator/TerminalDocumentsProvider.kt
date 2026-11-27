@@ -201,7 +201,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         internal fun requireInsideRoot(file: File, rootDir: File) {
             val root = rootDir.canonicalFile
             val target = file.canonicalFile
-            if (!(target.path.startsWith(root.path + File.separator) || target == root)) {
+            if (!isInsideRoot(target.path, root.path)) {
                 throw FileNotFoundException(
                     "Access denied: ${target.path} is outside the terminal home directory",
                 )
