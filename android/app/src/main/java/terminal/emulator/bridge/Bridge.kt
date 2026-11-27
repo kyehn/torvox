@@ -11,7 +11,6 @@ import terminal.emulator.termuxDefaultFontFile
 import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
 import java.io.File
-import java.util.concurrent.atomic.AtomicReference
 
 /** 终端会话的 shell 配置。 */
 sealed interface Shell {
@@ -482,23 +481,26 @@ class Bridge(private val config: TerminalConfig) {
         onSession("setSystemLocale", Unit) { NativeBridge.setSystemLocale(it, locale) }
     }
 
-    // 字体设置的应用会从 IO 协程与设置流程并发到达，去重状态用原子引用整体替换：
-    // 普通可变字段的读-改-写会竞态，最坏结果是去重失效、重复下发同一份路径列表。
-    private val lastExtraFontPaths = AtomicReference<List<String>>(emptyList())
+    // 字体设置的应用会从 IO 协程与设置流程并发到达。去重状态与 JNI 下发必须在同一把锁内：
+    // 只对缓存做 CAS 时，两个不同列表可以都下发成功，而缓存只留下先完成 CAS 的那个，
+    // 此后再次设置真正生效的列表会被误判为「未变化」而跳过。
+    private val extraFontPathsLock = Any()
+    private var lastExtraFontPaths: List<String> = emptyList()
 
     fun setExtraFontPaths(paths: List<String>) {
         LogUtil.debug(TAG, "setExtraFontPaths($paths)")
         // 原生只把路径列表登记给字体枚举（不重建管线、不重分配图集）；列表未变时
         // 跳过重复的 JNI 调用与日志。缓存只能在调用成功后推进：会话尚未建立时
         // onSession 会跳过调用，提前写缓存会让这次路径再也送不到原生。
-        val previous = lastExtraFontPaths.get()
-        if (previous == paths) return
-        var delivered = false
-        onSession("setExtraFontPaths", Unit) {
-            NativeBridge.setExtraFontPaths(it, paths.toTypedArray())
-            delivered = true
+        synchronized(extraFontPathsLock) {
+            if (lastExtraFontPaths == paths) return
+            var delivered = false
+            onSession("setExtraFontPaths", Unit) {
+                NativeBridge.setExtraFontPaths(it, paths.toTypedArray())
+                delivered = true
+            }
+            if (delivered) lastExtraFontPaths = paths
         }
-        if (delivered) lastExtraFontPaths.compareAndSet(previous, paths)
     }
 
     private fun probeDefaultFontFile(): String? =
