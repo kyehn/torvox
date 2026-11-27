@@ -40,18 +40,26 @@ pub(crate) fn set_log_level(priority: i32) {
     log::set_max_level(filter);
 }
 
+/// 一条诊断是否应写入 logcat：先按宿主设定的等级门槛过滤，再按模块噪声门槛过滤。
+///
+/// 等级门槛必须取宿主当前设定（`LevelFilter`），不能硬编码为 Debug：否则宿主在设置里
+/// 选「详细」也放不出本仓的 trace 行，两侧等级语义便不再一致。
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn log_enabled(metadata: &log::Metadata<'_>, filter: log::LevelFilter) -> bool {
+    metadata.level() <= filter && module_filtered(metadata)
+}
+
 /// 参照 wgpu-in-app 的 `init_logger()` 模式：将 `wgpu_hal` / naga 降到 Error，
-/// 避免逐帧后端日志淹没 logcat；其余模块仍为 Debug。
+/// `wgpu_core` 降到 Info，避免逐帧后端日志淹没 logcat；其余模块只受宿主等级门槛约束。
+/// 噪声门槛 MUST 对包括 Trace 在内的每一级生效，否则宿主选「详细」时上游噪声会趁机放行。
 #[cfg(any(target_os = "android", test))]
 pub(crate) fn module_filtered(metadata: &log::Metadata<'_>) -> bool {
-    if metadata.level() <= log::Level::Debug {
-        let target = metadata.target();
-        if target.starts_with("wgpu_hal") || target.starts_with("naga") {
-            return metadata.level() <= log::Level::Error;
-        }
-        if target.starts_with("wgpu_core") {
-            return metadata.level() <= log::Level::Info;
-        }
+    let target = metadata.target();
+    if target.starts_with("wgpu_hal") || target.starts_with("naga") {
+        return metadata.level() <= log::Level::Error;
+    }
+    if target.starts_with("wgpu_core") {
+        return metadata.level() <= log::Level::Info;
     }
     true
 }
@@ -107,6 +115,60 @@ mod tests {
         assert!(module_filtered(&metadata(
             log::Level::Debug,
             "ghostty_terminal"
+        )));
+    }
+
+    /// 宿主把等级设为「详细」时，原生侧的 trace 级诊断 MUST 放行。
+    ///
+    /// 判别力：写入门限一旦硬编码为 `Debug`，宿主选「详细」也放不出任何
+    /// trace 行，两侧的等级语义便不再一致（`logcat-hygiene` 的两侧同步条）。
+    #[test]
+    fn verbose_level_releases_native_trace_diagnostics() {
+        assert!(log_enabled(
+            &metadata(log::Level::Trace, "native::render"),
+            log::LevelFilter::Trace
+        ));
+        assert!(!log_enabled(
+            &metadata(log::Level::Trace, "native::render"),
+            log::LevelFilter::Debug
+        ));
+    }
+
+    #[test]
+    fn off_level_blocks_every_level() {
+        for level in [
+            log::Level::Error,
+            log::Level::Warn,
+            log::Level::Info,
+            log::Level::Debug,
+            log::Level::Trace,
+        ] {
+            assert!(!log_enabled(
+                &metadata(level, "native::render"),
+                log::LevelFilter::Off
+            ));
+        }
+    }
+
+    /// 上游噪声门限 MUST 不因「详细」档位而放开：wgpu_hal 与 naga 只放行
+    /// 错误级，wgpu_core 只放行信息级及以上；放开的只是本仓诊断。
+    #[test]
+    fn upstream_trace_stays_filtered() {
+        assert!(!module_filtered(&metadata(
+            log::Level::Trace,
+            "wgpu_hal::vulkan"
+        )));
+        assert!(!module_filtered(&metadata(
+            log::Level::Trace,
+            "naga::front::wgsl"
+        )));
+        assert!(!module_filtered(&metadata(
+            log::Level::Trace,
+            "wgpu_core::device"
+        )));
+        assert!(module_filtered(&metadata(
+            log::Level::Trace,
+            "native::render"
         )));
     }
 

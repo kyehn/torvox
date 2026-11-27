@@ -54,7 +54,7 @@ struct AndroidLogger;
 
 impl Log for AndroidLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Debug && crate::android::module_filtered(metadata)
+        crate::android::log_enabled(metadata, log::max_level())
     }
 
     fn log(&self, record: &Record) {
