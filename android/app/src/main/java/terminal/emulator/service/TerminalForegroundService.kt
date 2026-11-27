@@ -236,10 +236,10 @@ class TerminalForegroundService : Service() {
      * 续期间隔取超时的一半，主线程被长时间占用时仍留有一次完整补救窗口。
      */
     private fun acquireWakeLockIfNeeded() {
-        if (wakeLock?.isHeld == true) {
-            scheduleWakeLockRenewal()
-            return
-        }
+        // 已持锁时绝不重排续期：超时从本次 acquire 算起，而这里会被每次会话数更新调用。
+        // 若在 t0+20min 重排到 t0+35min，t0+30min 的超时会先到，锁在续期前就失效，
+        // 后台会话被冻结（这正是续期机制要防的事）。原有回调已在 acquire 时排定。
+        if (wakeLock?.isHeld == true) return
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock =
             powerManager
