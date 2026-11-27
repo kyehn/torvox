@@ -50,10 +50,10 @@ internal fun <T> withPreservedArchive(target: File, source: File, block: (File) 
 }
 
 /**
- * 带硬上限的归档流复制：累计超过 [BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES] 即抛错。
+ * 按块复制归档流并回报累计字节数，[shouldAbort] 让下载路径在拷贝途中响应取消。
  *
- * 在线下载与离线 SAF 选择共用它：任一路径都不得把无界流写进 cacheDir。
- * [shouldAbort] 让下载路径在拷贝途中响应取消。
+ * 在线下载与离线 SAF 选择共用它。DESIGN 的 Bootstrap 节不限制安装包大小，
+ * 故复制本身不设体积上限。
  */
 internal fun copyBootstrapArchive(
     input: InputStream,
@@ -67,13 +67,8 @@ internal fun copyBootstrapArchive(
         if (shouldAbort()) throw InterruptedIOException("Bootstrap copy cancelled")
         val read = input.read(buffer)
         if (read == -1) break
-        // 先判后写：上限是硬保证，绝不允许「超出一个缓冲才报错」。
-        val next = total + read
-        if (next > BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES) {
-            throw IOException("Bootstrap exceeds ${BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES} bytes")
-        }
         output.write(buffer, 0, read)
-        total = next
+        total += read
         onCopied(total)
     }
 }
@@ -114,9 +109,6 @@ class BootstrapInstaller(
         // Zip 炸弹防护：限制解压后总负载。真实引导约 150 MB；
         // 该上限留有余量，同时阻止恶意归档填满数据分区。
         private const val MAX_EXTRACTED_BYTES = 1L * 1024 * 1024 * 1024
-
-        /** 归档体积硬上限：在线下载与离线 SAF 两条路径共用，防止任一路径无界写入 cacheDir。 */
-        const val MAX_BOOTSTRAP_SIZE_BYTES = 1_073_741_824L
 
         // 官方包 SYMLINKS.txt 旧式绝对路径中的分段：取其后缀拼到当前 prefix。
         // 字面量不含 /data/ 前缀，不触硬编码路径规则（见 rust-arch.yaml）。
@@ -296,9 +288,8 @@ class BootstrapInstaller(
                             )
                         }
                         totalExtractedBytes += read
-                        // 全归档的 Zip 炸弹防护：1 GiB 的下载在高压缩比下
-                        // 跨多个条目可膨胀到 TB 级。此处在累计总量上施加上限，
-                        // 而不只是逐条目。
+                        // 全归档的 Zip 炸弹防护：高压缩比归档跨多个条目
+                        // 可膨胀到 TB 级。此处在累计总量上施加上限，而不只是逐条目。
                         if (totalExtractedBytes > MAX_EXTRACTED_BYTES) {
                             throw IOException(
                                 "Bootstrap archive exceeds $MAX_EXTRACTED_BYTES bytes total uncompressed",

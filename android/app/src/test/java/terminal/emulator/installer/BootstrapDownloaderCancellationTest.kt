@@ -84,7 +84,7 @@ class BootstrapDownloaderCancellationTest {
         const val CANCEL_AFTER_MS = 200L
         const val CHUNK_BYTES = 8192
 
-        /** 低于 `BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES`，故不会被体积门控提前拒绝。 */
+        /** 无界响应体的声明长度，用来验证取消在拷贝途中生效。 */
         const val ENDLESS_LENGTH = 512L * 1024 * 1024
     }
 }

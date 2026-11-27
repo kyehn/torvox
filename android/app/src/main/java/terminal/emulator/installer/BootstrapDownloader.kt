@@ -66,11 +66,6 @@ class BootstrapDownloader(
                 if (!sourceFile.isFile || !sourceFile.canRead()) {
                     return@withContext Result.failure(Exception("Local bootstrap file unreadable"))
                 }
-                if (sourceFile.length() !in 1L..BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES) {
-                    return@withContext Result.failure(
-                        Exception("File size out of range: ${sourceFile.length()} bytes"),
-                    )
-                }
                 val staged = File(context.cacheDir, "bootstrap-local-$architecture.zip")
                 return@withContext try {
                     staged.delete()
@@ -113,9 +108,6 @@ class BootstrapDownloader(
                     val contentLength = response.body.contentLength()
                     if (contentLength > 0 && contentLength < MIN_BOOTSTRAP_SIZE_BYTES) {
                         return@withContext Result.failure(Exception("File too small: $contentLength bytes"))
-                    }
-                    if (contentLength > BootstrapInstaller.MAX_BOOTSTRAP_SIZE_BYTES) {
-                        return@withContext Result.failure(Exception("File too large: $contentLength bytes"))
                     }
                     val body = response.body
                     val cachedFile = File(context.cacheDir, "bootstrap-$architecture.zip")

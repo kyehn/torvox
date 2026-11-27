@@ -232,7 +232,7 @@ class BootstrapDownloaderTest {
 
     /**
      * 预设归档不做内容完整性校验（DESIGN Bootstrap 节）：字节不与任何摘要比对，
-     * 归档下载后直接交给安装器。状态码与体积门控仍然生效。
+     * 归档下载后直接交给安装器。状态码门控仍然生效。
      */
     @Test
     fun pinnedPresetArchiveIsDownloadedWithoutIntegrityCheck() = runBlocking {
