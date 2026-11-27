@@ -297,6 +297,21 @@ surface`，`attachWindow ptr` 与上次相同）对应 0 行，与该口径逐�
 - **THEN** 原生侧 MUST 退回信息级并出声，MUST NOT 退化为「详细」级——
       那会让一次笔误直接变成满屏日志
 
+#### Scenario: 详细档位放开原生 trace 级诊断
+
+- **WHEN** 用户把日志等级设为「详细」
+- **THEN** 原生侧 MUST 放行 trace 级诊断，MUST NOT 因写入门限硬编码为调试级而
+      一律丢弃——那会让设置里的「详细」在原生侧不生效，两侧等级语义分叉
+- **AND** 原生侧的上游噪声门槛 MUST 对包括 trace 在内的每一级生效：`wgpu_hal` 与
+      `naga` 只放行错误级，`wgpu_core` 只放行信息级及以上；详细档位放开的 MUST
+      是本仓诊断，MUST NOT 是上游后端的逐帧噪声
+
+#### Scenario: 默认等级不得放出 trace 级诊断
+
+- **WHEN** 用户未改动等级（调试构建缺省为调试级，发布构建缺省为信息级）
+- **THEN** 原生侧 MUST NOT 写出 trace 级诊断：逐帧热路径取值只在用户显式选
+      「详细」时进入 logcat
+
 ### Requirement: Release 构建必须剥离调试级日志代码
 
 Release 构建 MUST 剥离调试级日志代码（调用点连同其消息构造一起移除）。

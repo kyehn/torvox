@@ -1,7 +1,7 @@
 # 代码健康度审计留档
 
 本留档是 `code-health` 能力的唯一审计落点：重复率、代码规模口径、静态形状扫描、依赖
-活跃度四类实测数字与逐处判定都写在此处。最新采样日期 2026-11-26；测量对象是复算当时的
+活跃度四类实测数字与逐处判定都写在此处。最新采样日期 2026-11-27；测量对象是复算当时的
 已提交树快照（`git archive HEAD` 展开到独立目录），不含工作区未提交改动，故结果可复算。
 2026-11-24 的首轮基线保留在各表对照栏，偏差逐项写明来源。
 
@@ -15,11 +15,12 @@
 
 | 口径 | sources | lines | tokens | clones | duplicatedLines | 重复率 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 生产 | 267 | 69140 | 525539 | 3 | 30 | 0.04% |
-| 全量 | 531 | 105230 | 808280 | 26 | 257 | 0.24% |
+| 生产 | 267 | 69202 | 525933 | 3 | 30 | 0.04% |
+| 全量 | 531 | 105296 | 808697 | 26 | 257 | 0.24% |
 
-复算轮次：2026-11-26（同一组参数、同一条命令）。克隆集合与首轮基线完全相同，
-`lines`/`tokens` 随代码树增长（生产 68916 → 69140 行、全量 104924 → 105230 行）。
+复算轮次：2026-11-27（同一组参数、同一条命令）。克隆集合与首轮基线完全相同，
+`lines`/`tokens` 随代码树增长（生产 68916 → 69140 → 69202 行、全量 104924 → 105230 →
+105296 行）。
 
 生产口径三处命中的判定：
 
@@ -195,13 +196,13 @@ if __name__ == "__main__":
 
 | 仓库 | 生产 | 测试 | 合计 |
 | --- | --- | --- | --- |
-| torvox | 41704 | 50578 | 92282 |
+| torvox | 41847 | 50765 | 92612 |
 | termux-app | 26637 | 2471 | 29108 |
 | ghostty-android-terminal | 22381 | 2850 | 25231 |
 | 两个参考项目生产之和 | 49018 | 5321 | 54339 |
 
-判定：生产口径 41704 未越界（不超过 49018），满足 `STYLE.md` 的代码量约束；测试口径
-50578 远超两个参考项目测试之和 5321，源码合计口径同样越界。按 `code-health`「不同口径
+判定：生产口径 41847 未越界（不超过 49018），满足 `STYLE.md` 的代码量约束；测试口径
+50765 远超两个参考项目测试之和 5321，源码合计口径同样越界。按 `code-health`「不同口径
 导出相反结论」的条款，该项判定为**不可判定**，并以生产口径数字作为后续复算基线。
 不得以删测试的方式满足规模约束。
 
@@ -212,14 +213,16 @@ if __name__ == "__main__":
 
 - semgrep：`semgrep scan --config .semgrep/rules.yml --json --metrics=off
   --disable-version-check .`，55 条规则扫过 1693 个文件，**0 findings、0 errors**。
-  扫描文件数随代码树增长（首轮 1691 → 复算 1693）。
+  扫描文件数随代码树增长（首轮 1691 → 复算 1693）；2026-11-27 复算仍为 1693 个文件、
+  0 findings、0 errors。
   扫描须在 git 仓库内执行并配置 `origin` 远端，否则规则集里的远端引用无法解析。
 - aislop 0.23.0：`npx --yes aislop@latest scan --json native/src`，`score` 100、label
   `Healthy`、`errors` 0、`warnings` 0、`coverage.supportedFiles` 116、`unsupportedFiles` 0。
   上一轮登记的 `complexity/file-too-large` 告警（`render/cell_builder.rs`）随测试体拆到
   `render/cell_builder/tests/` 后消失，告警归零。按 `code-health`「超大文件阈值必须跨源码
   语言一致应用」，本仓不得为凑行数阈值拆分生产源码文件。该工具扫不到 Kotlin 源码，只能
-  作为 Rust 侧的门禁。
+  作为 Rust 侧的门禁。2026-11-27 复算仍为 score 100、Healthy、0 errors、0 warnings、
+  `supportedFiles` 116、`unsupportedFiles` 0。
 - Rust 生产源码形状：剔除测试专用文件（`*_tests.rs`、`tests.rs`、`test_helpers.rs`、
   `mock_pty.rs` 与 `tests/` 目录）、文件内 `#[cfg(test)]` 项、注释与字符串字面量后，
   `unwrap()` 0 处、`expect(` 23 处、`panic!` 5 处、`unsafe` 132 处（unsafe block 45、
@@ -250,6 +253,11 @@ if __name__ == "__main__":
 
 形状偏差来源（相对 2026-11-24 首轮基线，基线未被改写）：
 
+- 2026-11-27 复算：`unwrap` 0、`expect` 23、`panic!` 5、`todo!`/`unimplemented!` 0、
+  `unsafe` 132（block 45、fn 3、extern 4、impl 0），与上表逐项一致，无新增形状偏差。
+  同一扫描口径在第 2 轮快照上重放得 `unsafe` 131（block 44），差额来自第 2 轮之后落地的
+  `terminal/pty.rs` 工作目录回退修复新增的 `unsafe { libc::chdir(...) }`，与上述归因一致。
+
 - `unwrap` 0、`expect` 23、`panic!` 5、`todo!`/`unimplemented!` 0 与首轮一致。
 - `unsafe` 134 → 131：减少的三处来自 `android/logging.rs`（−1）、
   `terminal/ghostty_terminal/internal/selection.rs` 整文件移除（−1）与
@@ -271,47 +279,51 @@ if __name__ == "__main__":
 类型（仅作类型边界、无独立逻辑）可豁免「最近发布」一项，但须写明豁免理由。crates.io
 公开下载量，Maven Central 与 Google Maven 只公开发布元数据，本仓据后者判定发布节奏。
 
-crates.io 直接依赖（采样于 2026-11-26）：
+crates.io 直接依赖（采样于 2026-11-27）：
 
 | crate | 累计下载 | 近 90 天 | 最近发布 | 判定 |
 | --- | --- | --- | --- | --- |
-| base64 | 2059150455 | 576325269 | 2026-08-04 | 保留 |
-| bytemuck | 499712363 | 154646989 | 2026-07-19 | 保留 |
-| cosmic-text | 13221019 | 5556736 | 2026-04-22 | 保留 |
-| flume | 305789974 | 88491787 | 2025-12-08 | 保留 |
-| foldhash | 885942136 | 372632703 | 2025-08-23 | 豁免（生态基线） |
-| fontdb | 49450957 | 19304981 | 2026-07-29 | 保留 |
-| governor | 97660522 | 24804082 | 2025-12-16 | 保留 |
-| pollster | 52990819 | 24729043 | 2026-11-18 | 保留 |
-| etagere | 11033346 | 4924479 | 2026-03-18 | 保留 |
-| jni | 261340885 | 92793228 | 2026-03-16 | 保留 |
-| libc | 2054663009 | 519226399 | 2026-10-16 | 保留 |
-| log | 1595892749 | 421760028 | 2026-10-30 | 保留 |
-| lru | 463873824 | 141866179 | 2026-11-23 | 保留 |
-| nix | 1019233395 | 268870525 | 2026-11-17 | 保留 |
-| parking_lot | 1322788747 | 302825144 | 2026-10-21 | 保留 |
-| raw-window-handle | 143322157 | 49287322 | 2024-05-17 | 豁免（生态基线） |
-| roxmltree | 114453608 | 46724446 | 2026-10-24 | 保留 |
-| serde | 1775651269 | 460945803 | 2026-07-18 | 保留 |
-| serde_json | 1683119723 | 464083014 | 2026-10-11 | 保留 |
-| shell-words | 188265903 | 51349027 | 2025-12-10 | 保留 |
-| swash | 20508690 | 8884030 | 2026-07-17 | 保留 |
-| thiserror | 1937376043 | 569162132 | 2026-09-23 | 保留 |
-| toml | 1189428740 | 340081965 | 2026-11-21 | 保留 |
-| unicode-script | 67805767 | 26123664 | 2026-11-02 | 保留 |
-| wgpu | 54270949 | 21592137 | 2026-11-12 | 保留 |
-| wgpu-types | 56576792 | 22599866 | 2026-11-12 | 保留 |
-| criterion（dev） | 351913656 | 85742345 | 2026-02-04 | 保留 |
-| proptest（dev） | 259435843 | 84287899 | 2026-10-10 | 保留 |
-| shuttle（dev） | 7970112 | 2772802 | 2026-11-05 | 保留 |
-| tempfile（dev） | 1036625676 | 273142649 | 2026-03-11 | 保留 |
+| base64 | 2080383848 | 585216277 | 2026-08-04 | 保留 |
+| bytemuck | 505142979 | 156368405 | 2026-07-19 | 保留 |
+| cosmic-text | 13467890 | 5707278 | 2026-04-22 | 保留 |
+| flume | 308820363 | 89451182 | 2025-12-08 | 保留 |
+| foldhash | 899482684 | 377829161 | 2025-08-23 | 豁免（生态基线） |
+| fontdb | 50280803 | 19759753 | 2026-07-29 | 保留 |
+| governor | 98364161 | 24920673 | 2025-12-16 | 保留 |
+| pollster | 53911038 | 25242619 | 2026-11-18 | 保留 |
+| etagere | 11226202 | 5027553 | 2026-03-18 | 保留 |
+| jni | 264507085 | 93802199 | 2026-03-16 | 保留 |
+| libc | 2072530894 | 523539462 | 2026-10-16 | 保留 |
+| log | 1610768868 | 425699321 | 2026-10-30 | 保留 |
+| lru | 468401871 | 143080878 | 2026-11-23 | 保留 |
+| nix | 1028484497 | 271285662 | 2026-11-17 | 保留 |
+| parking_lot | 1333444596 | 305478955 | 2026-10-21 | 保留 |
+| raw-window-handle | 145123537 | 50062782 | 2024-05-17 | 豁免（生态基线） |
+| roxmltree | 116366930 | 47804575 | 2026-10-24 | 保留 |
+| serde | 1791729068 | 465148212 | 2026-07-18 | 保留 |
+| serde_json | 1699368670 | 468402314 | 2026-10-11 | 保留 |
+| shell-words | 189784506 | 51383984 | 2025-12-10 | 保留 |
+| swash | 20902468 | 9114554 | 2026-07-17 | 保留 |
+| thiserror | 1957379631 | 575176741 | 2026-09-23 | 保留 |
+| toml | 1200918637 | 343148309 | 2026-11-25 | 保留 |
+| unicode-script | 68923342 | 26758342 | 2026-11-02 | 保留 |
+| wgpu | 55128180 | 22074635 | 2026-11-12 | 保留 |
+| wgpu-types | 57470177 | 23095186 | 2026-11-12 | 保留 |
+| criterion（dev） | 354540550 | 86175706 | 2026-02-04 | 保留 |
+| proptest（dev） | 262370960 | 85453517 | 2026-10-10 | 保留 |
+| shuttle（dev） | 8079469 | 2833695 | 2026-11-05 | 保留 |
+| tempfile（dev） | 1045968666 | 275567543 | 2026-03-11 | 保留 |
 
 `libghostty-vt` 是 git 依赖（钉住上游 master rev），不走 registry 发布节奏，不适用下载量
 口径。
 
+2026-11-27 再采一轮：30 个 crate 的最新版本逐项未变，下载量随日累计自然增长；唯一的新发布
+是 `toml` 1.2.3+spec-1.1.0（2026-11-25），本仓 `native/Cargo.lock` 已钉在该版本，发布日随
+本表更新为 2026-11-25。
+
 两项豁免的理由：`foldhash` 与 `raw-window-handle` 只提供哈希函数与窗口句柄的类型边界，
-不承担独立逻辑，且被 wgpu 与窗口生态广泛依赖；两者下载量分别 8.8 亿与 1.4 亿，近 90 天
-分别 3.7 亿与 4900 万，维护停滞不等于使用面窄。
+不承担独立逻辑，且被 wgpu 与窗口生态广泛依赖；两者下载量分别 9.0 亿与 1.5 亿，近 90 天
+分别 3.8 亿与 5000 万，维护停滞不等于使用面窄。
 
 Maven 与 Google 侧坐标（45 个 Gradle 直接依赖，加 compose-bom 与 5 个 lint 插件坐标，
 共 51 个，采样同日）：
@@ -391,7 +403,8 @@ Maven 与 Google 侧坐标（45 个 Gradle 直接依赖，加 compose-bom 与 5 
 本轮重跑 51 个坐标：最新版本与 2026-11-24 采样逐项一致，无新版本；发布日按该版本
 `.pom` 的 HTTP `Last-Modified` 复核，其中 `kotlinx-coroutines-test` 与
 `kotlinx-coroutines-android` 读到 2026-05-07（中央仓库镜像上传时刻），首轮记 2026-05-08，
-两者指向同一发布批次，不改变判定。
+两者指向同一发布批次，不改变判定。2026-11-27 再读同一批坐标，版本号逐项未变，两个协程坐标
+仍读到 2026-05-07，其余坐标的发布日与表中一致。
 
 ## 禁改区待维护者裁定项台账
 
@@ -415,9 +428,13 @@ MUST 维持 0，`style-policy` 类命中 MUST NOT 阻断构建；jscpd 的重复
 ## 清洁运行计数
 
 本留档的复算轮次按同一组命令在已提交树快照上重复执行，每轮覆盖重复率、代码规模口径、
-静态形状扫描与依赖事实复算。当前计数为 **2**（第 1 轮 2026-11-24，第 2 轮 2026-11-26），
-距「连续清洁运行计数 ≥ 5」还差 3 次；每轮的实测数字 MUST 与本留档各表的基线逐项对照，
-出现偏差时 MUST 写明偏差来源，不得直接改写基线掩盖偏差。
+静态形状扫描与依赖事实复算。当前计数为 **3**（第 1 轮 2026-11-24，第 2 轮 2026-11-26，
+第 3 轮 2026-11-27），距「连续清洁运行计数 ≥ 5」还差 2 次；每轮的实测数字 MUST 与本留档
+各表的基线逐项对照，出现偏差时 MUST 写明偏差来源，不得直接改写基线掩盖偏差。
+
+第 3 轮（2026-11-27）的对照结果：克隆集合、重复率、静态形状扫描、依赖版本判定与
+显示节拍核实逐项与基线一致；偏差只有代码树增长带来的行数与 SLOC 上升，已在对应表内
+写明增长轨迹；依赖侧唯一变化是 `toml` 1.2.3+spec-1.1.0 于 2026-11-25 发布，判定不变。
 
 ## vendor 与硬编码核对
 
@@ -448,6 +465,138 @@ python3 sloc.py /tmp/audit-head
 Rust 形状扫描另按上文口径执行：剔除测试专用文件（`*_tests.rs`、`tests.rs`、
 `test_helpers.rs`、`mock_pty.rs` 与 `tests/` 目录）、文件内 `#[cfg(test)]` 项、注释与字符串
 字面量后，再统计 `unwrap`/`expect`/`panic!`/`unsafe`/`todo!`/`unimplemented!` 的命中。
+第 3 轮起该扫描由下列脚本执行（`python3 shape_scan.py <仓库根>/native/src`），其输出字段
+与上文「Rust 生产源码形状」一条逐项对应：
+
+```python
+#!/usr/bin/env python3
+"""Rust 生产源码形状扫描：剔除测试专用文件、文件内 #[cfg(test)] 项、注释与字符串字面量，
+统计 unwrap/expect/panic!/unsafe/todo!/unimplemented! 的命中。"""
+
+import os
+import re
+import sys
+
+EXCLUDED_NAMES = {"tests.rs", "test_helpers.rs", "mock_pty.rs"}
+EXCLUDED_DIRS = {"tests"}
+
+
+def strip_comments_and_strings(text):
+    out = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '/' and i + 1 < n and text[i + 1] == '/':
+            while i < n and text[i] != '\n':
+                i += 1
+            continue
+        if ch == '/' and i + 1 < n and text[i + 1] == '*':
+            depth = 1
+            i += 2
+            while i < n and depth:
+                if text.startswith('/*', i):
+                    depth += 1
+                    i += 2
+                elif text.startswith('*/', i):
+                    depth -= 1
+                    i += 2
+                else:
+                    i += 1
+            out.append(' ')
+            continue
+        if ch in '"\'':
+            quote = ch
+            i += 1
+            while i < n:
+                if text[i] == '\\':
+                    i += 2
+                    continue
+                if text[i] == quote:
+                    i += 1
+                    break
+                if text[i] == '\n':
+                    break
+                i += 1
+            out.append(' ')
+            continue
+        out.append(ch)
+        i += 1
+    return ''.join(out)
+
+
+def strip_cfg_test(text):
+    """移除 #[cfg(test)] 标注的项（含其函数体）。"""
+    marker = '#[cfg(test)]'
+    while True:
+        idx = text.find(marker)
+        if idx < 0:
+            return text
+        cursor = idx + len(marker)
+        while True:
+            rest = text[cursor:]
+            stripped = rest.lstrip()
+            cursor += len(rest) - len(stripped)
+            if stripped.startswith('#['):
+                end = stripped.find(']')
+                if end < 0:
+                    return text[:idx] + ' '
+                cursor += end + 1
+                continue
+            break
+        brace = text.find('{', cursor)
+        semi = text.find(';', cursor)
+        if brace < 0 or (0 <= semi < brace):
+            end = semi + 1 if semi >= 0 else cursor
+            text = text[:idx] + ' ' + text[end:]
+            continue
+        depth = 0
+        i = brace
+        while i < len(text):
+            if text[i] == '{':
+                depth += 1
+            elif text[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    i += 1
+                    break
+            i += 1
+        text = text[:idx] + ' ' + text[i:]
+
+
+def production_files(root):
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS]
+        for name in filenames:
+            if not name.endswith('.rs'):
+                continue
+            if name in EXCLUDED_NAMES or name.endswith('_tests.rs'):
+                continue
+            yield os.path.join(dirpath, name)
+
+
+def scan(root):
+    text = '\n'.join(
+        strip_comments_and_strings(strip_cfg_test(open(p, encoding='utf-8').read()))
+        for p in production_files(root)
+    )
+    return {
+        'unwrap': len(re.findall(r'\.unwrap\(\)', text)),
+        'expect': len(re.findall(r'\.expect\(', text)),
+        'panic': len(re.findall(r'panic!\s*[\(\{]', text)),
+        'todo': len(re.findall(r'todo!\s*[\(\{]', text)),
+        'unimplemented': len(re.findall(r'unimplemented!\s*[\(\{]', text)),
+        'unsafe_total': len(re.findall(r'\bunsafe\b', text)),
+        'unsafe_block': len(re.findall(r'\bunsafe\s*\{', text)),
+        'unsafe_fn': len(re.findall(r'\bunsafe\s+(?:extern\s+"[^"]*"\s+)?fn\b', text)),
+        'unsafe_extern': len(re.findall(r'\bunsafe\s+extern\b', text)),
+        'unsafe_impl': len(re.findall(r'\bunsafe\s+impl\b', text)),
+    }
+
+
+if __name__ == '__main__':
+    print(scan(sys.argv[1]))
+```
 
 依赖活跃度采样用 crates.io 的 `https://crates.io/api/v1/crates/<name>` 与
 Maven 的 `maven-metadata.xml`（Google Maven 与 Maven Central 各取最新发布元数据），
