@@ -629,6 +629,9 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             }
             visits++
             val current = pending.removeFirst()
+            // 与 queryChildDocuments 一致：让位文件是保存过程性临时名，
+            // 搜索里露出来会给客户端留下幽灵结果。
+            if (current.name.endsWith(DocumentQueries.ROLLBACK_SUFFIX)) continue
             val canonical = queries.canonicalOrNull(current) ?: continue
             if (!(canonical.startsWith(rootPath + File.separator) || canonical == rootPath)) {
                 continue

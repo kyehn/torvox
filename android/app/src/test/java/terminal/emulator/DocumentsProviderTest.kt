@@ -698,6 +698,16 @@ class DocumentsProviderTest {
     }
 
     @Test
+    fun querySearchDocuments_hides_rollback_placeholder_files() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "15398985.rollback").writeText("superseded")
+        val cursor = requireNotNull(provider.querySearchDocuments("terminal_home", "15398985", null))
+        cursor.use {
+            assertEquals("rollback placeholder must not surface in search results", 0, it.count)
+        }
+    }
+
+    @Test
     fun querySearchDocuments_case_fold_is_locale_independent() {
         val provider = ensureProvider()
         java.io.File(rootDir(), "IMPORTANT.txt").writeText("x")
