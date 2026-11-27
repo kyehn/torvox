@@ -159,3 +159,80 @@
 - 构建与工具侧核对了 `macrobenchmark/`、`test-app/`、`tools/generate-unicode.py` 与 `tools/talkback-touch-bridge.py`：基准固定 60 Hz 与 Perfetto 数据源；Unicode 表由固定版本缓存生成且 `--check` 校验哈希；TalkBack 桥通过模拟器 gRPC 注入触摸事件。
 
 与本地实现对照：termlib 的 `damageLock → Handler → TerminalDispatcher → StateFlow` 线程模型、快照不可变与行级复用、OSC 8/OscParser 的段归属、IME 的 NFC/组合态处理，均比本地 `native/src/terminal/output_processor.rs` 与 `TerminalInputEncoder.kt` 的当前形态更细；可优先借鉴其输出日志节流、URL 续行边界与选择锚点重映射。
+
+## nex：逐分块读到文件末尾（chunk 1–28）
+
+本轮把 nex 的分块 1–28 按 `offset=201` 读到 EOF，逐文件核对的关键符号如下。
+
+- `nex-host/src/agentcli/args.rs`：`parse_up_to_command()` 到第一个非选项词即把整条命令放进 `rest`；`--pr` 去掉前导 `#`，`--verdict` 只允许 approved/changes/failed，`--files` 按逗号切分并丢弃空段。
+- `nex-host/src/agentcli/mail.rs`：`send()` 的 kind 由 `--kind/--ask/--task/--note/--reply-to` 按优先级决定；`recv()` 用 `RECV_DEFAULT_MS` 与 1 小时上限，超时返回退出码 3 而不是错误。
+- `nex-host/src/daemon/agentcli/pipe.rs`（实际为 `nex-host/src/agentcli/pipe.rs`）：同仓库同 pipeline 的第二个 `pipe` 通过 `joins()` 加入正在运行的 run；`pipe-run` 把 Enter 监听与 stage 报告解耦，Enter 前 stages 的 agent 继续存活。
+- `nex-host/src/daemon/broker.rs`：`resolve()` 处理 `user/@me/@parent/@children/@task` 与 id/name，重名 agent 必须改用 id；`take()` 用 `Condvar` 等待消息，`taken` 位保证一条消息只被一个 `recv` 消费。
+- `nex-host/src/daemon/deliver.rs`：消息被渲染为自包含的 `<nex-message>` 块，正文移除控制字符并转义同类标签；`paste()` 主动删除正文里的 `ESC[201~`，防止受控文本提前结束括号粘贴。
+- `nex-host/src/daemon/redraw.rs`：`RESET_MODES` 在离开 pane 时复位 alt-screen、鼠标、括号粘贴与 kitty keyboard；`screen()` 按 SGR run 重建滚动区、光标与 title，并有往返重放测试。
+- `nex-host/src/shim.rs`：只在 `LC_TERMINAL=nex` 且未处于 `NEX_HOST` 时生效，`function claude/codex` 包装 nex-host；`with_marked()`/`without_marked()` 保证重复安装幂等且能完整移除。
+- `nex-host/src/skill.rs`：为 Claude Code 写 `skills/nex/SKILL.md`，为 Codex 在 `AGENTS.md` 中写标记块；手册开头强调 `$NEX_AGENT_ID` 才适用，并明确其他 agent 的消息不等于用户授权。
+- `nex/src/agents/group.rs`：团队卡片取最紧急成员的状态；pipeline 的 stages 按 role 保序，普通 helper 按状态与启动时间排序；`branches()` 只为 pipeline stage 与 sub-agent 生成连接线。
+- `nex/src/agents/notify.rs`：只在状态从“非 needs-you”跳到 needs-you 或 pipeline run 结束时通知一次，且 `Looking::sees()` 排除当前可见的 Agents tab / pane。
+- `nex/src/app/chrome/keyboard_button.rs`：`Spin::turn()` 累积最短转角，超过 200° 后停止方向键，整圈发 Esc；`Settle::due()` 要求手指在一个方向稳定 0.12s 才发首个箭头；双击 Ctrl 不改变键盘显隐。
+- `nex/src/app/input/keymap.rs`：`Mods::held()` 要求修饰键完全匹配；Linux Ctrl+C 是 SIGINT、Ctrl+Shift+C 才是剪贴板，macOS 则 Cmd+C 走剪贴板；`DIGITS` 的第 9 个键表示最后一个 tab。
+- `nex/src/app/workspace/panes.rs`：`Pane` 枚举统一 terminal/explorer/diff/agents，类型化查找只返回本类；新 pane 只能经 `insert_pane`，关闭经 `forget_pane`。
+- `nex/src/app/workspace/sticky.rs`：pin 的 pane 在每个 tab 的 split tree 中都是叶子，每个 tab 保留自己的比例；桌面向右、移动端向下堆叠，且多个 pin 互不干扰。
+- `nex/src/config.rs`：`strip_comment()` 只在空白后的 `#` 截断，保留 `#rrggbb`；`device-key-days` 限 1..3650，`palette` 只允许 0..15；`mobile` 是 `tab-bar` 的兼容别名。
+- `nex/src/file_explorer/fs/ops.rs`：`run_op()` 拒绝把目录移入自身，冲突名加 `(2)`；`unique_target()` 用 `symlink_metadata` 避免跟随链接；复制按 1 MiB 分块并可在取消时删除半成品。
+- `nex/src/file_explorer/fs/download.rs`：`local_name()` 清理共享存储禁用的字符并保留扩展名；`create_unique()` 用 `create_new` 不覆盖任何现有文件；远端 `cat` 脚本在打印前用退出码 2/3 区分非文件与无权限。
+- `nex/src/git_diff/mod.rs`：diff 任务先给视口内 hunk 上色 40ms，其余按 200 行分块；`syntax::reuse()` 复用未变 hunk 的 token，避免每两秒重读整份 diff。
+
+与本地实现对照：nex 在 agent 消息信封、括号粘贴净化、SSH 文件下载不覆盖、pin/多 tab 布局上的细节比本地更完整；本地 `TerminalInputEncoder.kt` 与 `native/src/android/ffi/input.rs` 可借鉴其“修饰键完全匹配 + 控制字符净化”的组合约束。
+
+## nex：chunk 29–42 按 offset 读到 EOF
+
+- `git_diff/view/mod.rs`：`sidebar_width()` 限在 210..320；窄于 560pt 时列表与 diff 互斥切换；`Frame::interact()` 把点击区裁到可见 clip，防止屏外行抢点击。
+- `git_diff/syntax.rs`：`MAX_LINE_BYTES=2_000` 跳过 minified 行；`reuse()` 只在 hunk 行数与每行 kind/text 全同时复制 token；`next(focus)` 先取视口及其下的未着色 hunk，再回头上文。
+- `jobs.rs`：`Job<T>` 以 generation 丢弃被取代任务的结果，`Job::stream` 的 `Sender::send()` 在无监听者时返回 false，使长任务可提前停止；`Jobs<T,M>` 按启动顺序回收结果。
+- `platform/android/keyboard.rs`：通过内存 dex 加载 `NexInput`，注册 `commit/type/wordDone/imeVisible` 四个 JNI 方法；`AutoSpace` 只为滑行输入补空格，并吞掉紧接着的手动空格。
+- `platform/ios/keyboard.rs`：`UITextView` 保留文本让键盘编辑整词，`edit_between()` 把差异转成退格与输入；`KEEP=200` 后清空，避免长按删除时把已删除内容再发一次。
+- `platform/linux/dnd/paste.rs`：粘贴读取在 worker 线程，键盘事件在队列里等待；`release()` 按原修饰键分组回放，保证 Ctrl+V 后的 Enter 执行粘贴内容。
+- `platform/linux/file_manager/mod.rs`：`ShowItems` 为每个文件所在目录开一个窗口并 `--select` 第一个；`display_env()` 在 ssh 激活缺失 DISPLAY 时选最小编号 wayland socket。
+- `platform/linux/memory.rs`：`mallopt(M_ARENA_MAX,2)` 限制 glibc arena；`malloc_trim(0)` 归还空闲页。
+- `remote/audio.rs`：固定 16 kHz/mono/s16 线格式，`Resampler` 用 Blackman 窗 sinc 把设备采样率转换到 16 kHz，截止 0.45/步。
+- `remote/mic.rs`：`Links::line()` 盯 `pw-link -m -l -o` 判断谁在录音；ALSA 模式用 FIFO 等待下一个读者，`MAX_FAILURES=3` 后才报失败。
+- `remote/host.rs`：`watch_script()` 把版本检查与 `nex-host watch` 合并到一次连接；`SILENCE=3*KEEPALIVE+1s`，静默超时结束脚本；`Backoff` 从 3s 倍增到 60s。
+- `remote/mux.rs`：`ssh -G` 解析 ControlPath，master 缓存 `CHECK_FOR=5s`，ssh 自身失败（exit 255）才清空缓存。
+- `remote/ssh/sshd_tests.rs`：私有 sshd + 临时 HOME 验证设备密钥登录、安装、断连重连与静默唤醒；默认 ignored。
+- `remote/target.rs`：`from_argv()` 按 VALUE_OPTS/NOT_A_SESSION/DROPPED 解析 ssh 命令行；`session_command()` 用 `set -m` 让 pane 看到 ssh 而非 sh。
+- `terminal/mod.rs`：`paste()` 去掉内嵌 `ESC[201~` 再包括号粘贴；`running_command()` 把 claude 改写成 resume、把 agent ssh 改写成 attach。
+- `terminal/osc7.rs`：扫描器状态机处理 BEL 与 `ESC \`，`MAX_OSC=4096` 跳过超长 OSC；OSC 9/99/777 触发通知，但排除 ConEmu 进度与 kitty 能力查询。
+- `render/glyphs.rs`：ASCII 按样式+字符直接索引，其他走 HashMap；图集填充率下降或 ppp 变化即清空缓存并用 epoch 让旧 mesh 重建。
+- `session/mod.rs`：会话 JSON 带版本与路径归一化；ratio clamp 到 0.05..0.95，命令最多 256 参数/16 KiB，写入用进程唯一临时文件再 rename。
+
+## velo-android：chunk 1–4 按 offset 读到 EOF
+
+- `.github/scripts/changelog.sh` 的 `pr-check` 只看 merge base 到 PR head 的 `Unreleased` 段，避免旧 release 段落被误认为新条目。
+- `.github/workflows/release.yml` 用 `github.repository_id` 锁定官方仓库，签名在离线环境完成，最终 APK 由 `verify-public-apk.sh` 校验签名者、versionCode、ABI 与字体清单。
+- `app/build.gradle.kts`：release versionCode 来自 tag/run number，本地版本用 `major*1e6+minor*1e3+patch`；`compileSdk 37.1` 而 `targetSdk 37`；baseline profile 覆盖本仓代码。
+- `TerminalEditor` 的韩文组合测试逐项核对 jamo 组合、数字回退、光标移动后的删除顺序，以及被其他窗口遮挡时预编辑文本的保留与丢弃。
+- `LayoutProbe`/`RecomposeProbe` 只存在于 debug，分别把可点击控件的整框/裁剪框与 composable 的 ran/entered/checked 计数写进 logcat。
+- `AppController` 的图片/按键设置、Tailnet 登录、SSH 密钥池与通知投递都集中在主线程控制器；`HostConnection` 通过 `coreLock` 保护 JNI 调用，下载/转发/输入在独立线程。
+
+与本地实现对照：velo 的 IME 组合态、通知回复的写入确认、调试期可观测性明显更完整；本地 `native/src/render/glyphs.rs` 可参考其图集 epoch 失效策略，`TerminalInputEncoder.kt` 可参考“组合态跨窗口/跨 pane 退役”的规则。
+
+## 逐分块补读：moke（chunk 29–36）
+
+按 offset=201 续读到 EOF，逐文件核对：
+
+- `TmuxCoordinator` 测试：必须持有 nonce 与见证身份才绑定当前会话；截断帧保持缓存未验证；`refresh` 合并重复定时请求而不排队；`dataEnded` 不撤回显式管理面板；`create` 要求新鲜已验证空目标且返回真实 ref；`renamed` 只改精确行且不能从 intent 造证明。
+- `TmuxDarwin`：fake JXA 桥证明生产 JXA 只认 stdin 的 `osascript -` 契约；`proc_pidinfo`/`proc_pidfdinfo` 的 uid/tty/设备模式差异都 fail closed；owner record 可被替换/符号链接/截断触发 UNKNOWN。
+- `TmuxRemote`：实验性 scrollSetup 只为私有无配置 server 使用 `kill-server`，用户 socket 永不 kill；`read-back` 不执行；`paneCwd` 要求单一完整路径帧且校验 client pid/created/tty/session。
+- `KeySeqTest`/`ModifiersTest`：修饰位 `1+shift+alt*2+ctrl*4`；方向键带修饰统一走 CSI `1;PARAM`；F1–F4 走 SS3；F5–F12 跳过 16/22；一次性修饰用后熄灭、锁定态保留；宏不被应用模式改写。
+- `netbridge/bridge.go`：ticket TTL 60s、dialError 5min、maxNetworks 16；`reserve` 先占后 start，避免同 ID 并发启动阻塞其它网络；`stop` 在 leases>0 时返回 BUSY；`nodePeers` 持有 lease 但在本地 I/O 时不持 registry 锁；错误体经 `codes.Boundary` 脱敏，authKey 等 secret 不进入返回值。
+- `netbridge/internal/proxynet`：HTTP CONNECT 只解析 bounded header（64KiB），成功时忽略 Content-Length/Transfer-Encoding，避免吞掉 SSH banner；401 与 407 同归 ProxyAuth；SOCKS5 UDP BND 域名只在基础设施 resolver 下解析，失败不回退控制连接 IP；SOCKS4 主机名不本地解析；`Association` 随控制连接关闭而结束。
+
+## 逐分块补读：velo-android（chunk 5–8）
+
+按 offset=201 续读到 EOF，逐文件核对：
+
+- `PaneAlert`/`PaneReply`：每个 prompt+button 有独立 PendingIntent，旧通知点击携带原 prompt 并被校验拒绝；`replyCheck` 用记录 id 与 updatedAt 阻止迟到回答落到新 prompt；Approve 要求手机解锁；写入按 `sent/changed/not_sent/unconfirmed` 四态确认，部分写入不重发。
+- `SshSecrets`：手机密钥 Keystore AES-GCM 密封，密文解码三态（Value/Lost/NotNow）；Lost 才替换或清理，NotNow 保留；`commitOrUndo` 在 commit 失败时回滚内存值；密码保存与 forget 通过 `passwordLock` 和计数避免旧 seal 覆盖新 forget；主机密钥大小写别名归一，冲突返回 `differ`。
+- `Tailnet`：状态解析区分 Running/NeedsLogin/LoggedOut/Starting/Error；NeedsLogin URL 只在 debuggable 构建写入 logcat；扫描服务器与状态读取分线程池，generation 防止旧节点发布发现结果；`redialOn` 只在节点进入 Running 或 Starting 失败时触发重连。
+- `UiState`/`StateDecoder`：flat native groups 直接解码进最终列表/Map，拒绝重复字段与不完整 scalar group；`steady()` 去掉高频标题以稳定重组；`StateAccumulator` 要求 generation 递增且丢帧时请求 full。
