@@ -116,6 +116,19 @@
 - `Keys.kt` 的编码在仓库测试中按 core 模式生成字节；已知差异是 libghostty 只保留 OSC 8 的 URI，两个 URI 相同但 `id=` 不同的链接会共享 link id。
 - 结论：mtty-term 的 `nReadRows` 拉取模型和本地 `output_processor.rs` 最接近，但其“resize 冻结帧”和生成式 box 表是本地缺的边际改进。
 
+## 第二轮：plyra-terminal 分块读到文件末尾
+
+对 plyra-terminal 的分块 1–41 按 `offset=201` 读到文件末尾，核对了首轮只见开头的关键实现。
+
+- `scripts/terminal/terminal_session.gd`：`_flush_commands()` 每帧最多写 64 条命令，写入停滞超过 `WRITE_TIMEOUT_MS` 才失败；`_consume_bytes()` 限制单行 1 MiB、每帧 64 事件，逐帧保留未完整 JSON 并进行严格 UTF-8 校验，UTF-8 代理区、过长序列和孤立续字节都会被拒绝。
+- `scripts/terminal/terminal_session.gd::_prepare_executable()`：按平台键从 manifest 读取路径、字节数与 SHA-256，校验 ELF/Mach-O 魔数，拒绝符号链接与非 0700 目录，已存在缓存文件必须哈希一致才复用；代码注释明确承认同用户并发路径替换不是无竞态的 `openat`/`O_EXCL` 沙箱。
+- `scripts/terminal/terminal_screen_test.gd`：验证后续行格式错误时整个事件原子拒绝、滚动历史批量追加的原子性、2000 行与单元格预算淘汰、控制字符与 ANSI 转义不能进入显示 run、标题中的 BEL/换行被移除。
+- `scripts/terminal/terminal_input.gd` 与 `terminal_view.gd`：普通文本走原生 `LineEdit` 与 IME，控制键走单一 `handle_key` 路由；`soft_key_guard` 仅允许显式授权设备进入软键路径，硬件事件不会重复进入。
+- `tools/mobile/terminal/plyra_terminal.c`：`decode64()` 严格校验填充位；`line_json()` 只为 ASCII 单宽单元格合并 run，组合字符、宽字符与不同样式保持独立 run；`used_columns()` 从行尾裁掉纯空格；`osc_event()` 对 OSC 8 URI 限制 2048 字节、拒绝控制字符、复用相同 URI 的 link id，并在滚动历史中检查 link 是否仍被引用后再回收。
+- `vendor/libvterm/src/{screen,state,parser,keyboard,encoding,pen,vterm}.c`：读取了行版本与 damage 合并、reflow 缩放、OSC 52 Base64 片段状态机、CSI 参数边界、Unicode 组合字符与宽度表、鼠标协议编码以及键位表；`PROVENANCE.json` 明确仅 `vterm.h` 与 `screen.c` 有 OSC 8 超链接补丁。
+- `vendor/vt100/src/{cell,grid,row,screen,parser,term}.rs`：单元格用 22 字节内联 UTF-8 与位标志表示宽字符；OSC 8 目标用 `Arc` 共享并限制 4096 字节、总预算 1 MiB；`write_contents_formatted`/`diff` 处理游标越界、宽字符尾格和换行锚点。
+- `vendor/wgpu-hal` 的本地补丁集中在 DX12 合成视觉的预乘 alpha 支持，Vulkan/Metal/GLES 后端源码保持上游不变。
+
 ## 第二轮：逐分块读到 EOF 的补充精读
 
 本轮对已打开的分块按 `offset=201` 继续读到文件末尾，重点核对首轮只看到开头的文件后半部分。
