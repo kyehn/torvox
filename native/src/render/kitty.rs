@@ -111,6 +111,11 @@ fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
             && clamped_y == 0
             && clamped_width == frame.image_width
             && clamped_height == frame.image_height
+            // 预算判据与条带路径、复用路径同源（见 [`atlas_byte_size`]）：
+            // 上游按像素字节记账，RGB 图像解码成 RGBA 后膨胀 4/3，故单图也可能
+            // 超预算。借用分支若绕过预算，就会「打包放行、复用拒绝」——图像先
+            // 出现，放置集合一变又消失。超限时落到条带路径，由它记日志后拒绝。
+            && atlas_byte_size(frame.image_width, frame.image_height).is_some()
         {
             return Some((
                 Cow::Borrowed(frame.image_rgba.as_ref()),
@@ -444,6 +449,29 @@ mod tests {
         assert!(
             layout_entries(&frames).is_none(),
             "超预算布局不得进入复用路径"
+        );
+    }
+
+    /// 单图借用路径必须与条带路径、复用路径同判据。
+    ///
+    /// 判别力：单图全图走零拷贝借用分支，该分支若不查预算，就会「打包放行、
+    /// 复用拒绝」——图像先出现，放置集合一变又消失（复用路径拿不到布局，
+    /// 实例被清空）。RGB 图像解码成 RGBA 后还会膨胀 4/3，故单图也可能超预算。
+    #[test]
+    fn oversized_single_image_is_rejected_by_both_paths() {
+        let mut huge = test_frame();
+        huge.image_width = 9_000_000;
+        huge.image_height = 2;
+        huge.source_width = 9_000_000;
+        huge.source_height = 2;
+        let frames = vec![huge];
+        assert!(
+            pack_atlas(&frames).is_none(),
+            "超预算的单图必须与条带路径同判据：拒绝"
+        );
+        assert!(
+            layout_entries(&frames).is_none(),
+            "超预算的单图不得进入复用路径"
         );
     }
 
