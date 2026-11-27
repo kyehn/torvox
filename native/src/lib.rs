@@ -2,8 +2,7 @@
 //!
 //! `terminal/` 为 Ghostty VT 解析、PTY 管理与 Session；`render/` 为 wgpu 管线与
 //! 字形渲染；`android/` 为 JNI FFI 导出、NDK 桥接与日志。单元测试就近存放于
-//! `#[cfg(test)]`，并发不变量由 `tests/concurrency.rs`（shuttle）承载；
-//! Miri 与 ASan 的跑法见 `docs/research/verification-tooling-2026.md`。
+//! `#[cfg(test)]`，并发不变量由 `tests/concurrency.rs`（shuttle）承载。
 
 pub mod event;
 
