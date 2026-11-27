@@ -1525,6 +1525,19 @@ class DocumentsProviderTest {
     }
 
     @Test
+    fun openDocument_append_only_mode_is_accepted() {
+        // "a" 是 AOSP ParcelFileDescriptor.parseMode 接受的合法模式：只追加写。
+        // 此前 fallback 要求 r/w 至少一个，"a" 被当成非法模式，客户端拿不到句柄。
+        val provider = ensureProvider()
+        val target = java.io.File(rootDir(), "append-only.txt")
+        target.writeText("abc")
+        provider.openDocument("append-only.txt", "a", null).use { parcelFileDescriptor ->
+            java.io.FileOutputStream(parcelFileDescriptor.fileDescriptor).write("Z".toByteArray())
+        }
+        assertEquals("abcZ", target.readText())
+    }
+
+    @Test
     fun queryDocument_subset_projection_returns_document_id() {
         val provider = ensureProvider()
         java.io.File(rootDir(), "subset.txt").apply { writeText("x") }

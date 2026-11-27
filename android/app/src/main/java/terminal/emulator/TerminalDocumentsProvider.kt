@@ -222,21 +222,20 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             }
             val read = mode.contains('r')
             val write = mode.contains('w')
-            if (!read && !write) {
-                unsupported("needs at least one of r/w")
+            val append = mode.contains('a')
+            if (!read && !write && !append) {
+                unsupported("needs at least one of r/w/a")
             }
-            var parsed = 0
-            parsed =
-                parsed or
+            var parsed =
                 if (read && write) {
                     ParcelFileDescriptor.MODE_READ_WRITE
-                } else if (write) {
+                } else if (write || append) {
                     ParcelFileDescriptor.MODE_WRITE_ONLY
                 } else {
                     ParcelFileDescriptor.MODE_READ_ONLY
                 }
-            if (write) parsed = parsed or ParcelFileDescriptor.MODE_CREATE
-            if (mode.contains('a')) parsed = parsed or ParcelFileDescriptor.MODE_APPEND
+            if (write || append) parsed = parsed or ParcelFileDescriptor.MODE_CREATE
+            if (append) parsed = parsed or ParcelFileDescriptor.MODE_APPEND
             if (mode.contains('t')) parsed = parsed or ParcelFileDescriptor.MODE_TRUNCATE
             return parsed
         }
