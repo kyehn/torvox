@@ -46,7 +46,11 @@ internal fun <T> withPreservedArchive(target: File, source: File, block: (File) 
     source.copyTo(target, overwrite = true)
     block(target)
 } finally {
-    target.delete()
+    if (!target.delete() &&
+        Files.exists(target.toPath(), LinkOption.NOFOLLOW_LINKS)
+    ) {
+        LogUtil.warn("BootstrapInstaller", "Failed to delete preserved archive copy")
+    }
 }
 
 /**
@@ -182,7 +186,9 @@ class BootstrapInstaller(
             // 丢弃部分解压的 staging 目录：它可能有数百 MB，
             // 而系统从不清理 filesDir，故安装失败会一直泄漏磁盘直到下次重试。
             try {
-                clearStaging(stagingDir)
+                if (!clearStaging(stagingDir)) {
+                    LogUtil.error(TAG, "Staging dir not fully cleaned; next install will be refused")
+                }
             } catch (cleanupException: Exception) {
                 LogUtil.warn("BootstrapInstaller", "Failed to clean staging dir", cleanupException)
             }
