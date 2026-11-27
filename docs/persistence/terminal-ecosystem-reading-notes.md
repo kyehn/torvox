@@ -140,3 +140,22 @@
 - Bareboot `runtime/src/validate.rs`：分发名限制 ASCII 字母数字开头且 1..=64 字节，镜像路径必须绝对且不含 `..`，SSH 端口为 0 或 1024..=65535，端口转发最多 32 条且不允许与 SSH 端口冲突，`valid_timezone()` 拒绝 `/`、`..` 和空白。
 - Bareboot `tools/bench/src/main.rs`：自带 SHA-256、排序、矩阵乘、内存拷贝、指针追逐、`getppid`、进程创建、管道 RTT 与文件 I/O 基准；`report.py` 只比较中位数并标记方向，不能替代真实设备上的 GPU/显示链路测量。
 - 这批补充阅读确认了前述仓库的安全边界：Bareboot 的可信根是 SELinux 域与能力集，终端相关项目的是解析器隔离与快照不可变，本地实现的可信根是 VT 输出处理与桥接层校验。
+
+## 重点仓库 termlib：逐分块读到 EOF 后的精读记录
+
+本轮对 termlib 的全部 34 个分块按 `offset=201` 继续读到文件末尾，并逐文件核对了关键符号。
+
+- `TerminalNative.kt`：`LIBRARY_NAME = "jni_cb_term"`；`loadNativeLibrary()` 只吞掉“already loaded in another classloader”异常，随后复制 `.so` 到临时文件再 `System.load`，避免同类加载器冲突；`nativeGetCells` 等原生声明均持有 `callbacks` 引用，并在 `close()` 中等待活跃原生调用结束。
+- `TerminalOutputJournal.kt`：`push()`/`move()`/`update()` 在 `damageLock` 下把快照差异转成可读文本；`appendChange()` 只保留新增后缀，`MAX_CHARACTERS = 8192` 且按代理对边界截断；`overflow` 在逐行上限与总量淘汰两处都会置位，`drain()` 一次性清空 pending 与完成队列。
+- `TerminalReviewSelection.kt`：用半开 UTF-16 `ReviewPosition` 表示冻结文档位置，`vertical()` 保留 `preferredColumn`；`next()` 对 WORD/CHARACTER 用 ICU `BreakIterator`，对软换行段落缓存 `Paragraph` 并跨段落合并文本，避免逐行扫描整个历史。
+- `TerminalScreenState.kt`：`updateSnapshot()` 在用户已上滚时按 scrollback 长度差修正位置，底部用户保持底部；`detectedUrlsAt()` 只在 sequenceNumber 或滚动位置变化时重建 URL 网格，且只给含链接的行分配列数组。
+- `TerminalShaping.kt`：`prepareViewport()` 在后台为视口预生成布局；`shapeParagraph()` 用 ICU `Bidi` 处理段落内 U+2029/U+0085 分隔符，按单元格映射 visual/logical 与镜像字符；`retainScreenLayouts()` 让仅颜色变化的行复用原布局；`admit()` 由 `byteLimit` 控制 glyph run 与行缓存。
+- `InlineImageProtocol.kt`：`kittyCommand()` 的 `a=t/T/q/f/d/a/c` 分支均有显式状态校验；`finishIterm()` 在批准前占位并在最后一块才真正 `place()`；`reply()` 用 `q=2` 静默错误、`q=1` 静默 OK；`place()` 对相对放置做 32 层祖先链检查，防止环和过深嵌套。
+- `InlineImageStore.kt`：`reserveUpload()` 按“无放置资源 → 不可见资源”顺序淘汰；`request()` 把 `frame.workingBytes()`、`nativeBytes` 和借用编码字节一起计入预算，解码完成回主线程后才发布并 retain；`visible()` 同时检查 alternate buffer 与视口相交。
+- `ImeInputView.kt`：`TerminalInputConnection` 在 `TYPE_NULL` 下直接把 `sendKeyEvent` 转发给 `KeyboardHandler`，在完整编辑器下用 `editable`、`composingText` 与 `committedContext` 追踪 Gboard 的重放；`resetImeBuffer()` 同时清空 Editable 与组合态，避免外部硬件键打断语音输入后出现幽灵退格。
+- `KeyboardHandler.kt`：`getCodePointFromKeyEvent()` 用 `KeyCharacterMap` 处理死键，位 63 标记“重音+基字符”双码点；`mapToVTermKey()` 完整覆盖 F1–F12、导航键与小键盘；`DelKeyMode.Backspace` 交换 Backspace 的 0x08 与 Delete 的 DEL。
+- `OscParser.kt`：OSC 52 拒绝 `?` 查询；OSC 9;4 将进度限制到 0..100；OSC 133 的 `COMMAND_INPUT` 在 B 时刻就创建零宽段，确保随后滚动时与文本一起移动；OSC 1337 支持 `SetCursorShape` 与 `AddAnnotation`。
+- 测试侧逐文件核对了 `TerminalNativeTest.kt`、`InlineImageTest.kt`、`ImeInputViewTest.kt`、`SelectionManagerTest.kt`、`AccessibilityOverlayTest.kt`、`BoundaryBenchmarkTest.kt`、`BoxDrawingGoldenTest.kt`、`ComplexScriptGoldenTest.kt`、`PipelineThreadingTest.kt`、`TerminalPageGestureTest.kt` 等：覆盖了光标合并、分片 OSC、NFC 预组合、宽字符/组合字符、死键、图像同意、内存预算、选择锚点、可访问性冻结视图与手势冲突。
+- 构建与工具侧核对了 `macrobenchmark/`、`test-app/`、`tools/generate-unicode.py` 与 `tools/talkback-touch-bridge.py`：基准固定 60 Hz 与 Perfetto 数据源；Unicode 表由固定版本缓存生成且 `--check` 校验哈希；TalkBack 桥通过模拟器 gRPC 注入触摸事件。
+
+与本地实现对照：termlib 的 `damageLock → Handler → TerminalDispatcher → StateFlow` 线程模型、快照不可变与行级复用、OSC 8/OscParser 的段归属、IME 的 NFC/组合态处理，均比本地 `native/src/terminal/output_processor.rs` 与 `TerminalInputEncoder.kt` 的当前形态更细；可优先借鉴其输出日志节流、URL 续行边界与选择锚点重映射。
