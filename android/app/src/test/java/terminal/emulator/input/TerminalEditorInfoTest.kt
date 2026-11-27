@@ -3,6 +3,7 @@ package terminal.emulator.input
 import android.text.InputType
 import android.view.inputmethod.EditorInfo
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -40,10 +41,13 @@ class TerminalEditorInfoTest {
             InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
         )
         ) {
+            // Android 的 variation 位已在 TYPE_MASK_VARIATION 内（0x80/0x90/0xe0）；
+            // 旧的 `variation shr 8` 恒为 0，断言永远通过，密码变体可以悄悄溜进来。
+            assertTrue("密码变体掩码不可为 0，否则断言恒真", variation != 0)
             assertEquals(
                 "不得带密码变体 $variation",
                 0,
-                outAttrs.inputType and (variation shr 8),
+                outAttrs.inputType and variation,
             )
         }
         for (
