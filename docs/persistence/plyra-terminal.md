@@ -4,6 +4,16 @@
 
 Plyra Terminal 是 GPL-3.0 的 Rust 工作区：桌面主目标是 macOS Apple Silicon，Android 目前是冒烟实现。工作区成员包括 `terminal-core`、`session-manager`、`terminal-render`、`system-api`、`mcp-client`、`privilege-policy`、`privilege-broker` 以及两个 app。它使用 vendored 的 `vt100`、`block`、`wgpu-hal`，终端解析在 macOS 上由 helper C 进程持有 libvterm 0.3.3，跨平台的便携后端才用 `portable-pty` 与 `vt100`。
 
+## 关键实现与文件锚点
+
+- `crates/terminal-core/src/lib.rs`：`MIN_COLS = 10`／`MAX_COLS = 240`／`MIN_ROWS = 4`／`MAX_ROWS = 100`／`MAX_EVENT_BYTES = 1_048_576`／`MAX_HISTORY_LINES = 2000`／`MAX_HISTORY_CELLS = 200_000`／`MAX_HISTORY_BYTES = 16 * 1024 * 1024`；`Screen::apply_helper_event`。
+- `crates/terminal-core/src/history.rs`：`used_columns` 与 reflow 锚点。
+- `crates/session-manager/src/lib.rs`：自有 PTY、输入队列、鼠标与焦点协议。
+- `crates/terminal-render/src/lib.rs`：wgpu 管线与 WGSL 材质。
+- `crates/{system-api,privilege-policy,privilege-broker}/`：能力绑定与一次性票据。
+- `apps/android/`：API 26–34 的冒烟实现。
+- `docs/ARCHITECTURE.md`：helper 持 libvterm 0.3.3 并经 JSON 事件投影。
+
 ## 终端核心
 
 `terminal-core` 是 libvterm 屏幕协议的只显示投影：helper 发来的 JSON 事件经 `Screen::apply_helper_event` 校验后更新 `Screen`，事件无效时保持原子性，不会留下半更新状态。`Run`/`Line`/`Screen` 保存样式、宽度、软换行标记与 OSC 8 超链接；`used_columns` 区分真实写入的空格与右侧填充，`reflow_history` 处理列宽变化，`viewport` 生成视图副本。

@@ -4,6 +4,16 @@
 
 Moke 是远程 SSH/mosh 终端：内置 userspace Tailscale（不占系统 VPN 槽）、代理、多会话、远程 tmux、SFTP 与加密 WebDAV 备份。终端核心是 vendored 的 Termux 模块 `terminal-emulator` 与 `terminal-view`（Java），产品层是 Kotlin Compose。应用代码 GPL-3.0，vendored 终端模块 Apache-2.0。
 
+## 关键实现与文件锚点
+
+- `terminal-emulator/src/main/java/com/termux/terminal/`：`TerminalEmulator`、`TerminalBuffer`、`JNI`、`KeyHandler`、`ByteQueue`、`TerminalScrollToken`。
+- `terminal-view/src/main/java/com/termux/view/`：`TerminalView`、`ScrollViewport`、`ScrollMotion`、`MokeScroll`。
+- `terminal-view/src/main/java/com/termux/view/textselection/TextSelectionCursorController.java`：`getColumnAndRow`。
+- `app/src/main/java/com/briqt/moke/terminal/TerminalSizeState.kt`：`initialize`／`update`／`attach`，尺寸与输入共用 FIFO。
+- `app/src/main/java/com/briqt/moke/terminal/KeySeq.kt`：`KeyId`／`KeyStep`／`Combo`、`encode`、`ctrlChar`、`describeBytes`。
+- `app/src/main/java/com/briqt/moke/terminal/TerminalController.kt`：修饰键、链接命中与滚到底。
+- `app/src/main/java/com/briqt/moke/terminal/MoshTransport.kt`：`TerminalSizeState` 的调用方。
+
 ## 终端相关实现
 
 `terminal-emulator` 保留 Termux 的 `TerminalEmulator`、`TerminalBuffer`、`JNI`、`WcWidth`、`KeyHandler`、`ByteQueue` 等结构，并加入 `TerminalScrollToken` 与 `MokeIgnoreAltScreenTest` 等 Moke 专用行为；`terminal-view` 有 `MokeScroll`、`ScrollViewport`、`ScrollMotion`、`GestureAndScaleRecognizer` 与光标/选区控制器。`GestureAndScaleRecognizer` 与 `ScrollMotion` 承担触摸与阻尼，测试里有 `MokeScrollPolicyTest`、`ScrollMotionTest`、`ScrollViewportTest`。

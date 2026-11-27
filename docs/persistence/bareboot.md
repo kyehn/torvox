@@ -4,6 +4,16 @@
 
 Bareboot 不是普通的本地终端 App：它在 root module 里运行 `bareboot daemon`，把发行版作为 ext4 镜像挂在 loop 设备上，holder 进程建立 mount/UTS/PID/IPC namespace 后 `pivot_root` 启动 PID 1；Android App 只是一个通过 Unix socket 连接的附着客户端。因此关闭 App 后 shell 仍存活。终端 UI 使用 `io.github.sagernet.libghostty.GhosttyTerminalSession`。
 
+## 关键实现与文件锚点
+
+- `android/app/src/main/java/ch/ausfuhrli/bareboot/terminal/TabConnection.kt`：`GhosttyTerminalSession.Transport` 实现、`readLoop`、`Os.poll`、wake pipe、`ByteArray(16 * 1024)`。
+- `android/app/src/main/java/ch/ausfuhrli/bareboot/ipc/BarebootClient.kt`：`DEFAULT_SOCKET_PATH = "/dev/socket/bareboot/barebootd.sock"`。
+- `android/app/src/main/java/ch/ausfuhrli/bareboot/BarebootViewModel.kt`：标签页、会话标题与设置状态。
+- `rust/crates/protocol/src/fdpass.rs`：PTY master 的 FD 传递。
+- `rust/crates/runtime/src/auth.rs`：`SO_PEERPIDFD` 校验。
+- `rust/crates/runtime/src/mount.rs`：`pivot_root`。
+- `rust/crates/{daemon,display,cli}/`：daemon、Wayland 合成器与命令行入口。
+
 ## 附着链路
 
 `BarebootClient` 经 `/dev/socket/bareboot/barebootd.sock` 与 daemon 通信，daemon 传回 PTY master 的 FileDescriptor。`TabConnection` 实现 `GhosttyTerminalSession.Transport`：

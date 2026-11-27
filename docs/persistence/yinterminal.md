@@ -4,6 +4,14 @@
 
 YinTerm 是“持久 root/user shell + 内置 Python 3.13”的轻量 Android 终端。它**不是网格终端**：输出以日志行进入 `LazyColumn`，ANSI 被解析成 `AnnotatedString` 的 `SpanStyle`，没有 cell 网格、光标寻址、备用屏或 TUI 布局。这一点决定了它能借鉴的范围。
 
+## 关键实现与文件锚点
+
+- `app/src/main/java/yin/term/core/AnsiParser.kt`：CSI／OSC 识别与样式拆分。
+- `app/src/main/java/yin/term/data/datasource/TerminalSession.kt`：`ROOT_HANDSHAKE_TIMEOUT_MS = 12_000`、`USER_HANDSHAKE_TIMEOUT_MS = 3_000`、`STREAM_BUFFER_SIZE = 4096`、`echoSuppressQueue`。
+- `app/src/main/java/yin/term/data/datasource/NativePty.kt`：`posix_openpt`／`grantpt`／`unlockpt`／`ptsname_r` 的 JNI 封装。
+- `app/src/main/cpp/yinterm_pty.cpp`：`TIOCSWINSZ`、`SIGWINCH`、termios 设置。
+- `app/src/main/java/yin/term/ui/terminal/{TerminalViewModel,TerminalView}.kt`：日志行驱动的 UI。
+
 ## 实现
 
 `AnsiParser` 用一组正则识别 CSI、OSC、字符串序列、单字符 ESC 和控制字符；`extractCompleteChunk` 在分块边界保留未结束的 ESC 序列，避免跨块截断。`AnsiStyleState` 处理 16 色、256/RGB、粗体、斜体、下划线、删除线与反显，`toSpanStyle` 按默认前景背景解析实际颜色。

@@ -4,6 +4,17 @@
 
 nex 是 Rust 单体 crate 的 GPU 终端，桌面用 egui/eframe 与自己的 winit 事件循环，VT 引擎是 `alacritty_terminal`。除 `platform/` 外不检查操作系统；Android 与 iOS 是同一库包出来的瘦客户端，所有 pane 都跑在 ssh 主机上的 `nex-host` 会话里。
 
+## 关键实现与文件锚点
+
+- `src/layout.rs`：`PaneKind`、`PaneId` 与二叉 split 树。
+- `src/jobs.rs`：`Job`、`Jobs` 后台任务注册表。
+- `src/terminal/mod.rs`：每 pane 的 PTY、子进程、`FairMutex<Term<EventProxy>>` 与标题/cwd 缓存。
+- `src/terminal/snapshot.rs`：`Snapshot::capture(term, previous)`。
+- `src/terminal/osc7.rs`：捕获 shell 工作目录。
+- `src/terminal/{remote,search}.rs`：远端会话伪装；回滚搜索与 OSC 8 链接。
+- `src/render/`：字形缓存与 per-pane mesh。
+- `nex-android/`：NativeActivity 加载的共享库。
+
 ## 结构
 
 `layout.rs` 是二叉 split 树，pane 用 `PaneId` 标识，四种类型（终端、文件浏览器、Changes、Agents）在 `layout::PaneKind` 中穷举；`App::panes` 是统一存储，访问某一种类型用 typed lookup，分支代码必须 match 整个 `Pane`，从而让编译器发现新增类型要改的所有位置。后台工作统一走 `jobs.rs`：`Job` 同时只保留一个，后来者让先前的答案作废；`Jobs` 并发多个，完成都会请求重绘，帧循环不阻塞。

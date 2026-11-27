@@ -4,6 +4,16 @@
 
 Velo 是 Rex 的 Android 客户端：手机上不跑本地 shell，终端状态与渲染由 Zig 原生核心 `VeloCore`（`native/src/jni.zig`）持有，Kotlin 只负责把 Surface、按键与触摸交给核心，并接收 JSON 状态与栅格化后的字形位图。另有 Go 实现的 Tailscale 节点与 SSH 支持。
 
+## 关键实现与文件锚点
+
+- `app/src/main/java/io/github/yhzion/velo/HostConnection.kt`：`op()`、`nativeState.accept`、`paneSurface`／`paneResume`／`paneSuspend`。
+- `app/src/main/java/io/github/yhzion/velo/core/UiState.kt`：Kotlin 侧状态模型。
+- `app/src/main/java/io/github/yhzion/velo/GlyphRasterizer.kt`：`rasterizeGlyph`，产出 `ARGB_8888`（彩色）与 `ALPHA_8`（单色）位图。
+- `app/src/main/java/io/github/yhzion/velo/ui/TerminalViews.kt`：`PaneSurfaceView`、`TerminalInputView`。
+- `native/src/jni.zig`：`VeloCore` 的 JNI 导出。
+- `native/src/rex/Core.zig`：`composerTarget` 与 `composer_gen`。
+- `native/src/sys/glyphs.zig`、`native/src/term/Renderer.zig`：字形来源与光栅化。
+
 ## 架构
 
 `HostConnection` 是 Kotlin 与 `VeloCore` 的唯一桥：`op()` 构造 JSON 命令，`requestState` 后的 `nativeState.accept` 解码出 `UiState`；`paneSurface`/`paneResume`/`paneSuspend` 管理各 pane 的 Surface 生命周期，`key`、`touch`、`pan`、`copy`、`find`、`click`、`markLink`、`bracketedPaste` 等把交互全部下推到核心。每个 pane 用 block id 标识，Kotlin 不持有 cell 网格或滚动状态。`CoreEnv` 提供 CA 目录、字体缩放、密度、`GlyphRasterizer`、设置与存储；`composerTarget` 返回单调 epoch 防止迟到提交写错目标。

@@ -4,6 +4,17 @@
 
 “Rust 核心 + 薄 Kotlin 外壳”的 Termux 风格终端。Rust 工作区按职责拆成 `ferrux-term`、`ferrux-pty`、`ferrux-session`、`ferrux-env`、`ferrux-jni-core`、`ferrux-android` 等 crate；`ferrux-term`、`ferrux-pty`、`ferrux-session` 不依赖 Android，可在 Linux 上测试。另一个应用 Ferride 复用同一套 terminal crate 并通过 Binder 访问 Ferrux。
 
+## 关键实现与文件锚点
+
+- `crates/ferrux-term/src/lib.rs`：`Terminal::feed`／`snapshot`／`take_responses`／`drain_events`；`scrollback: 10_000`、`bold_is_bright: true`、`WORD_SEPARATORS`。
+- `crates/ferrux-term/src/snapshot.rs`：`Snapshot`、`CellFlags(u32)`、`Damage::{Full, Rows}`、`MAX_CLIPBOARD_BYTES = 1 << 20`。
+- `crates/ferrux-session/src/lib.rs`：单 `poll(2)` 线程、`OUTBOX_LIMIT = 8 << 20`、`CLOSE_GRACE = 3s`。
+- `crates/ferrux-pty/`：Direct 与 Linker 两种 exec 模式。
+- `crates/ferrux-env/`：bootstrap 解压与原子重命名。
+- `android/app/src/main/kotlin/dev/ferrux/app/SessionManager.kt`：`ferrux-events` 线程与 `StateFlow`。
+- `android/terminal-view/src/main/kotlin/dev/ferrux/terminal/TerminalView.kt`：Canvas 渲染与回滚手势。
+- `README.md`：渲染器现状（Kotlin Canvas；wgpu 的 `ferrux-render` 为 M0 试验，本仓树内未落地）。
+
 ## 终端核心
 
 `ferrux-term` 是 `alacritty_terminal` 的薄封装，只用它的 grid 与 parser，不用 `tty` 模块（后者会安装进程级 `SIGCHLD` 处理器）。`Terminal::feed` 解析程序输出，`snapshot` 返回给渲染器，`take_responses` 返回要写回程序的设备应答，`drain_events` 返回标题、响铃、剪贴板事件，`keys` 负责键与粘贴编码。

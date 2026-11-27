@@ -4,6 +4,17 @@
 
 mtty 的终端核心，作为独立 Gradle 模块 `:term`（包名 `com.spizganed.mtty.term`）存在，不引用任何应用代码。唯一 VT 核心是 libghostty-vt，经 mtty 主仓的 JNI shim 访问；视图与按键编码由本模块自己写，只依据 xterm/vt100/Kitty 规范。
 
+## 关键实现与文件锚点
+
+- `src/main/kotlin/com/spizganed/mtty/term/TermCore.kt`：视图与按键所需的最小接口。
+- `GhosttyNative.kt`：`nCreate`／`nFeed`／`nResize`／`nReadRows`／`nInfo`／`nPalette`／`nScrolled`／`nTitle`／`nPwd`／`nSetCell`／`nLink` 均为 `external`。
+- `GhosttyTerminal.kt`：`nReadRows` 的 tag 0=当前屏、3=历史；`info[8]` 键盘标志、`info[9]` 模式位；`CELL = 24`、`EXTRA_ROOM = 16 * 1024`、`OLD_ROWS = 256`。
+- `Row.kt`：`var version = 0L`、`touch()`、`WIDE_TAIL`。
+- `Keys.kt`：`KITTY_SUPPORTED = KITTY_DISAMBIGUATE or KITTY_EVENT_TYPES or KITTY_ALL_AS_ESCAPES`。
+- `TermView.kt`：`onDraw`、`freeze()`、`onScreenUpdated()`。
+- `Find.kt` / `OneLine.kt`：搜索与软换行拼接。
+- `BoxTable.kt`：盒线与块元素形状表。
+
 ## 数据流
 
 `TermCore` 定义视图与按键所需的最小接口：屏幕行、历史、光标、各种模式、字节入口。`GhosttyTerminal` 是唯一实现，`GhosttyNative` 暴露 `nFeed`、`nResize`、`nReadRows`、`nInfo`、`nPalette`、`nScrolled`、`nTitle`、`nPwd`、`nSetCell`、`nLink`。行 tag 0 表示当前屏，3 表示历史。
