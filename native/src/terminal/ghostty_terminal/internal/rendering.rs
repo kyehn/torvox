@@ -275,7 +275,7 @@ impl super::GhosttyTerminal {
 
                 let mut grapheme_extra = [0u32; MAX_GRAPHEME_EXTRA];
                 // 复用调用方缓冲：上游 `graphemes()` 每次调用都新建 `Vec<char>`，
-                // 全屏重绘即每帧约 1920 次堆分配（实测稳态帧 708 次小分配）。
+                // 全屏重绘即每帧约 1920 次堆分配（实测整屏帧 1029 次/帧）。
                 // `graphemes_buf` 写入调用方缓冲；空间不足时按上游约定保留前
                 // `cap` 个码位，与旧的「取前 MAX_GRAPHEME_EXTRA 个附加码位」
                 // 截断语义一致。
