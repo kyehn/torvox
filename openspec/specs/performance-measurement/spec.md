@@ -68,6 +68,21 @@ CI 性能门禁的下限断言（`native/benches/support.rs` 的 `Floor::assert_
 - **WHEN** 转换路径被改成逐格重建字体或 O(n²) 查表
 - **THEN** 稳态均值超出上限，断言失败并报出实测均值与采样数
 
+下限断言的阈值 MUST 按**编译档位**缩放：debug 档位不优化，同一操作比 `bench` 档位
+（继承 release，含 LTO）慢约一个数量级，用优化档位的阈值去判 debug 档位会把编译档位
+差异误报成性能退化。缩放 MUST 只作用于 debug 档位，优化档位（`cargo bench`）的阈值
+MUST NOT 缩放——真正的性能门禁在优化档位。
+
+#### Scenario: debug 档位不误报为性能退化
+
+- **WHEN** 在 debug 档位运行 `cargo test --all-targets`（基准目标被一并执行）
+- **THEN** 下限断言的阈值按 debug 档位缩放，基准不因档位差异判红
+
+#### Scenario: 优化档位的门禁不被放宽
+
+- **WHEN** 在优化档位运行 `cargo bench`
+- **THEN** 下限断言的阈值与 CI 校准值一致，不因档位缩放而放宽
+
 增量路径 MUST 有独立的基准：生产上每来一次输出就走「脏掩码 + 行级实例缓存」这条路，
 只测全量构建会漏掉「增量帧退化成整屏遍历」这类固定开销（基准
 `build_instances_cached_one_dirty_row`）。
