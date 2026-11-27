@@ -83,7 +83,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             // 终端中指向 home 目录之外的符号链接很常见
             // （如 ln -s /sdcard/x ~/link）。跳过它们而非抛异常
             // ——require() 会使每次浏览都中断整个 SAF 目录列举。
-            if (!isInsideRoot(fileCanonical, rootPath)) {
+            if (!isInsideRoot(fileCanonical, rootPath) || !isInsideRoot(filePath, rootPath)) {
                 return null
             }
             // 根身份只认真实 inode：指向根的符号链接是家目录里的普通条目，
@@ -116,6 +116,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             path == rootCanonical || path.startsWith(rootCanonical + File.separator)
 
         fun decodeDocId(docId: String, rootDir: File): File {
+            requireEntryInsideRoot(docId, rootDir)
             if (docId == ROOT_ID) return rootDir.canonicalFile
             // 树 URI 线形：外部文件管理器经树 URI 寻址时，传进来的 docId 会带上树根前缀
             // （`terminal_home/nix.conf`），而本提供者行内只发行无前缀的相对路径。
@@ -159,7 +160,8 @@ class TerminalDocumentsProvider : DocumentsProvider() {
          *
          * [rawFile] 可能含 ".." 段（恶意 docId），而 [File] 不会规范化它们：
          * 规范解析父目录后重新追加文件名，使判据覆盖实际被触及的条目。
-         * 父目录为 null（无目录部分的裸文件名）无法逃出根目录。
+         * 条目自身也必须落在根内：`../outside-link` 这种指向家目录的站外链接
+         * 不是家目录条目，按链接操作会删改根外文件。
          */
         fun isHomeLink(rawFile: File, rootDir: File): Boolean {
             if (!Files
@@ -168,9 +170,32 @@ class TerminalDocumentsProvider : DocumentsProvider() {
                 return false
             }
             val parentCanonical = rawFile.parentFile?.canonicalFile ?: return true
-            val linkPath = File(parentCanonical, rawFile.name).canonicalPath
+            val linkEntry = File(parentCanonical, rawFile.name)
             val rootPath = rootDir.canonicalPath
-            return linkPath.startsWith(rootPath + File.separator) || linkPath == rootPath
+            if (!isInsideRoot(linkEntry.path, rootPath)) {
+                return false
+            }
+            val linkPath = linkEntry.canonicalPath
+            return isInsideRoot(linkPath, rootPath)
+        }
+
+        /**
+         * 校验 docId 词法上指向的条目（不跟随最后一段链接）落在根内。
+         *
+         * `decodeDocId` 的规范路径校验会被 `..` 别名绕过：`../outside-link`
+         * 若是一条指向家目录的站外链接，规范路径落在根内，校验通过，
+         * 但被操作的条目在根外。故所有寻址入口先按父目录规范路径 + 文件名
+         * 定位条目自身，再允许后续解析。
+         */
+        internal fun requireEntryInsideRoot(docId: String, rootDir: File) {
+            val rawFile = File(rootDir, docId)
+            val parent = rawFile.parentFile?.canonicalFile ?: rootDir.canonicalFile
+            val entry = File(parent, rawFile.name)
+            if (!isInsideRoot(entry.path, rootDir.canonicalPath)) {
+                throw FileNotFoundException(
+                    "Access denied: '$docId' is outside the terminal home directory",
+                )
+            }
         }
 
         internal fun requireInsideRoot(file: File, rootDir: File) {

@@ -948,6 +948,36 @@ class DocumentsProviderTest {
     }
 
     @Test
+    fun mutations_reject_dotdot_alias_to_link_outside_root() {
+        // `../outside-link` 的规范路径落在 home 内（链接指向 home），但被操作的条目
+        // 在根外。若按链接自身语义处理，delete/rename 会删改根外文件；必须整体拒绝。
+        val root = rootDir()
+        val outsideLink = java.io.File(root.parentFile, "outside-link")
+        outsideLink.delete()
+        java.nio.file.Files.createSymbolicLink(outsideLink.toPath(), root.toPath())
+        val provider = ensureProvider()
+        val escaping = "../outside-link"
+
+        val operations =
+            mapOf<String, () -> Unit>(
+                "delete" to { provider.deleteDocument(escaping) },
+                "rename" to { provider.renameDocument(escaping, "renamed") },
+                "copy" to { provider.copyDocument(escaping, "") },
+                "move" to { provider.moveDocument(escaping, "", "") },
+            )
+        for ((name, operation) in operations) {
+            assertThrows("$name must reject a docId outside the root", java.io.FileNotFoundException::class.java) {
+                operation()
+            }
+        }
+        assertTrue(
+            "outside link must survive",
+            java.nio.file.Files.isSymbolicLink(outsideLink.toPath()),
+        )
+        assertTrue("home directory must survive", root.isDirectory)
+    }
+
+    @Test
     fun openDocument_symlink_opens_target_content() {
         // 文件管理器点开 symlink，应读到目标文件内容（open 跟随链接）。
         val provider = ensureProvider()

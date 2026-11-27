@@ -82,6 +82,7 @@ internal class DocumentMutations(
 
     fun renameDocument(documentId: String, displayName: String): String? {
         val root = rootDir()
+        TerminalDocumentsProvider.requireEntryInsideRoot(documentId, root)
         val rootCanonical = root.canonicalFile
         if (documentId == TerminalDocumentsProvider.ROOT_ID) {
             throw FileNotFoundException("Refusing to rename the root document")
@@ -131,6 +132,7 @@ internal class DocumentMutations(
 
     fun deleteDocument(documentId: String) {
         val root = rootDir()
+        TerminalDocumentsProvider.requireEntryInsideRoot(documentId, root)
         if (documentId == TerminalDocumentsProvider.ROOT_ID) {
             throw FileNotFoundException("Refusing to delete the root document")
         }
@@ -153,6 +155,7 @@ internal class DocumentMutations(
 
     fun copyDocument(sourceDocumentId: String, targetParentDocumentId: String): String {
         val root = rootDir()
+        TerminalDocumentsProvider.requireEntryInsideRoot(sourceDocumentId, root)
         val rootCanonical = root.canonicalFile
         if (sourceDocumentId == TerminalDocumentsProvider.ROOT_ID) {
             throw FileNotFoundException("Refusing to copy the root document")
@@ -201,6 +204,7 @@ internal class DocumentMutations(
         sourceParentDocumentId: String? = null,
     ): String {
         val root = rootDir()
+        TerminalDocumentsProvider.requireEntryInsideRoot(sourceDocumentId, root)
         if (sourceDocumentId == TerminalDocumentsProvider.ROOT_ID) {
             throw FileNotFoundException("Refusing to move the root document")
         }
