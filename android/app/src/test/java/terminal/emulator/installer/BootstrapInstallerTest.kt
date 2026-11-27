@@ -1,19 +1,26 @@
 package terminal.emulator.installer
 
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.file.Files
 import java.util.UUID
 import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 /** 真实 [BootstrapInstaller] 路径：构造合成归档并装入临时 prefix。 */
@@ -111,6 +118,78 @@ class BootstrapInstallerTest {
             )
             assertFalse("no prefix may be published from $listing", prefixDir.exists())
         }
+    }
+
+    @Test
+    fun install_cancellation_clears_partial_staging_dir() {
+        // 进度每 10 项才回报一次；造 12 项才能在 staging 尚未换入时触发取消。
+        ZipOutputStream(zipFile.outputStream()).use { zip ->
+            repeat(12) { index ->
+                zip.putNextEntry(ZipEntry("bin/file$index"))
+                zip.write("x".toByteArray())
+                zip.closeEntry()
+            }
+            zip.putNextEntry(ZipEntry("SYMLINKS.txt"))
+            zip.write("x←bin/file0".toByteArray())
+            zip.closeEntry()
+        }
+        lateinit var installJob: Job
+        var cancelled = false
+        val installer =
+            BootstrapInstaller(
+                prefixDir,
+                homeDir,
+                stagingDir,
+                onProgress = { progress ->
+                    if (progress is BootstrapProgress.Extracting && progress.entriesExtracted >= 2) {
+                        installJob.cancel()
+                    }
+                },
+            )
+
+        runBlocking {
+            installJob =
+                launch {
+                    try {
+                        installer.install(zipFile)
+                    } catch (expected: CancellationException) {
+                        cancelled = true
+                    }
+                }
+            installJob.join()
+        }
+
+        assertTrue("install must observe cancellation", cancelled)
+        assertFalse("partially extracted staging dir must be removed", stagingDir.exists())
+        assertFalse("cancelled install must not publish a prefix", prefixDir.exists())
+    }
+
+    @Test
+    fun cancellation_inside_a_large_zip_entry_stops_before_writing_its_payload() {
+        val archive =
+            ByteArrayOutputStream().use { sink ->
+                ZipOutputStream(sink).use { zip ->
+                    zip.putNextEntry(ZipEntry("bin/blob"))
+                    zip.write(ByteArray(BootstrapInstaller.COPY_BUFFER_SIZE * 4) { 1 })
+                    zip.closeEntry()
+                }
+                sink.toByteArray()
+            }
+        var checks = 0
+        try {
+            BootstrapInstaller(prefixDir, homeDir, stagingDir)
+                .processZipEntries(
+                    ZipInputStream(ByteArrayInputStream(archive)),
+                    mutableListOf(),
+                    mutableListOf(),
+                    shouldAbort = { ++checks >= 2 },
+                    onEntryProcessed = {},
+                )
+            fail("大条目内的取消必须立即中断")
+        } catch (_: CancellationException) {
+            // 预期路径。
+        }
+        assertEquals("取消时不得写入单条目的 payload", 0L, File(stagingDir, "bin/blob").length())
     }
 
     @Test

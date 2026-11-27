@@ -3,6 +3,7 @@ package terminal.emulator.installer
 import android.content.Context
 import android.system.Os
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.TerminalDispatchers
@@ -159,7 +160,7 @@ class BootstrapInstaller(
             // （见 atomicRename），否则安装失败会让用户完全没有可用的引导。
             createDirectories()
             onProgress?.onProgress(BootstrapProgress.Extracting(0, 0))
-            val symlinks = extractZip(zipFile)
+            val symlinks = extractZip(zipFile, shouldAbort = { !isActive })
             if (symlinks.isEmpty()) {
                 // 抛异常而非直接返回：直接返回会跳过下面的 catch，staging 区留在原地，
                 // 而下次安装见 staging 已存在即拒绝——一次坏包就把引导彻底堵死。
@@ -172,7 +173,8 @@ class BootstrapInstaller(
             Result.success(Unit)
         } catch (exception: CancellationException) {
             // 取消不是安装失败：当成失败会让调用方继续走重试/报错路径，而协程此刻
-            // 已经取消。原样抛出，交给结构化并发收尾。
+            // 已经取消。但半解压的 staging 区必须一并清掉，否则下次安装直接拒绝。
+            discardStaging()
             throw exception
         } catch (exception: Exception) {
             // 与 BootstrapDownloader 一致只记录异常类名：异常消息可能嵌入用户提供的路径。
@@ -183,15 +185,7 @@ class BootstrapInstaller(
                     truncateTextKeepingHead(it, 300)
                 }}",
             )
-            // 丢弃部分解压的 staging 目录：它可能有数百 MB，
-            // 而系统从不清理 filesDir，故安装失败会一直泄漏磁盘直到下次重试。
-            try {
-                if (!clearStaging(stagingDir)) {
-                    LogUtil.error(TAG, "Staging dir not fully cleaned; next install will be refused")
-                }
-            } catch (cleanupException: Exception) {
-                LogUtil.warn("BootstrapInstaller", "Failed to clean staging dir", cleanupException)
-            }
+            discardStaging()
             Result.failure(exception)
         }
     }
@@ -200,14 +194,25 @@ class BootstrapInstaller(
         stagingDir.mkdirs()
     }
 
-    private fun extractZip(zipFile: File): List<Pair<String, String>> {
+    /** 丢弃本次安装创建的 staging 区；它可能有数百 MB，不清理会泄漏磁盘并堵死下次安装。 */
+    private fun discardStaging() {
+        try {
+            if (!clearStaging(stagingDir)) {
+                LogUtil.error(TAG, "Staging dir not fully cleaned; next install will be refused")
+            }
+        } catch (cleanupException: Exception) {
+            LogUtil.warn("BootstrapInstaller", "Failed to clean staging dir", cleanupException)
+        }
+    }
+
+    private fun extractZip(zipFile: File, shouldAbort: () -> Boolean): List<Pair<String, String>> {
         val symlinks = mutableListOf<Pair<String, String>>()
         val executables = mutableListOf<String>()
         val totalEntries = ZipFile(zipFile).use { it.size() }
         var lastReportedEntry = 0
         FileInputStream(zipFile).use { fileInputStream ->
             ZipInputStream(fileInputStream).use { zipInputStream ->
-                processZipEntries(zipInputStream, symlinks, executables) { entryIndex ->
+                processZipEntries(zipInputStream, symlinks, executables, shouldAbort) { entryIndex ->
                     if (
                         entryIndex - lastReportedEntry >= EXTRACT_PROGRESS_INTERVAL ||
                         entryIndex == totalEntries
@@ -237,16 +242,20 @@ class BootstrapInstaller(
         return symlinks
     }
 
-    private fun processZipEntries(
+    internal fun processZipEntries(
         zipInputStream: ZipInputStream,
         symlinks: MutableList<Pair<String, String>>,
         executables: MutableList<String>,
+        shouldAbort: () -> Boolean,
         onEntryProcessed: (Int) -> Unit,
     ) {
         var entry = zipInputStream.nextEntry
         var entryIndex = 0
         var totalExtractedBytes = 0L
         while (entry != null) {
+            // 解压是同步 IO，withContext 的调度点够不着这里：不主动检查取消，
+            // 用户取消后仍会解压完并换入 prefix。
+            if (shouldAbort()) throw CancellationException("Bootstrap install cancelled")
             val name = entry.name
             // Zip 滑移防护：拒绝绝对路径与任何 ".." 段，
             // 使恶意/被篡改的引导归档无法写入 staging 目录之外
@@ -285,6 +294,9 @@ class BootstrapInstaller(
                     var entryBytes = 0L
                     val buffer = ByteArray(COPY_BUFFER_SIZE)
                     while (true) {
+                        // 单个大条目的读取循环同样可取消：只在条目边界检查会让
+                        // 用户取消后继续写完整条几百 MB 数据（staging 白做且迟迟不退出）。
+                        if (shouldAbort()) throw CancellationException("Bootstrap install cancelled")
                         val read = zipInputStream.read(buffer)
                         if (read < 0) break
                         entryBytes += read
