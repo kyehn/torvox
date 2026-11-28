@@ -1,4 +1,4 @@
-//! 诊断日志的限频闸门。
+//! 诊断日志的限频闸门与分级口径。
 //!
 //! `logcat-hygiene` 规范要求逐帧诊断限频：两次输出之间的间隔不小于 500ms，
 //! MUST NOT 以逐帧频率刷屏。渲染侧有四类慢帧诊断（帧内分段、渲染分段、单元构建、
@@ -7,6 +7,9 @@
 //!
 //! 终端侧单元帧丢弃告警、剪贴板读请求洪泛告警、超长选择器告警与事件队列溢出
 //! 告警同样限频：各写一份时口径分叉，间隔下限的要求便失去保证，故一律走本模块。
+//!
+//! 慢帧诊断的级别分档（达到阈值记警告，否则记信息）也放在本模块：帧内分段与渲染
+//! 分段两处慢帧诊断各写一份分档时，阈值一旦调整就会漏改一处，故只留一处口径。
 //!
 //! 闸门用进程内单调时钟（[`Instant`] 相对进程启动时刻），不依赖墙上时钟：
 //! 墙上时钟被校准时可能前跳或回跳，前跳会把两次输出的真实间隔压到下限以下，
@@ -27,6 +30,23 @@ use std::time::{Duration, Instant};
 
 /// 诊断输出的最小间隔（毫秒）。与 `logcat-hygiene` 规范的 500ms 下限同档。
 pub(crate) const SLOW_LOG_INTERVAL_MS: u64 = 500;
+
+/// 慢帧诊断记警告的阈值（毫秒）。
+///
+/// 30ms 是「算慢帧」的门槛，60ms 是「严重慢帧」的门槛：达到后者才记警告，否则
+/// 记信息——逐帧都可能出现的诊断若一律记警告，真正的异常反而被淹没。
+pub(crate) const SLOW_FRAME_WARN_THRESHOLD_MS: u64 = 60;
+
+/// 慢帧诊断该记什么级别。
+///
+/// 纯函数：级别判定与日志输出分离，用例无需安装 logger 即可断言分档。
+pub(crate) fn slow_frame_log_level(total: Duration) -> log::Level {
+    if total >= Duration::from_millis(SLOW_FRAME_WARN_THRESHOLD_MS) {
+        log::Level::Warn
+    } else {
+        log::Level::Info
+    }
+}
 
 /// 进程内单调时钟原点。`Instant` 不可存成整数，取进程启动时刻作基准，
 /// 之后一律用相对毫秒比较。
@@ -203,7 +223,11 @@ impl CountedLogThrottle {
 
 #[cfg(test)]
 mod tests {
-    use super::{CountedLogThrottle, SLOW_LOG_INTERVAL_MS, SlowLogThrottle};
+    use super::{
+        CountedLogThrottle, SLOW_FRAME_WARN_THRESHOLD_MS, SLOW_LOG_INTERVAL_MS, SlowLogThrottle,
+        slow_frame_log_level,
+    };
+    use std::time::Duration;
 
     /// 首条必须可见：诊断的第一条往往就是最关键的那条（首次出现的慢帧）。
     #[test]
@@ -325,6 +349,22 @@ mod tests {
         assert_eq!(
             throttle.record_at(1_000 + 2 * SLOW_LOG_INTERVAL_MS),
             Some(2)
+        );
+    }
+
+    /// 慢帧诊断的分档：达到 60ms 记警告，否则记信息。两处慢帧诊断共用此口径，
+    /// 阈值调整只需改一处。
+    #[test]
+    fn slow_frame_level_separates_warning_from_info() {
+        assert_eq!(
+            slow_frame_log_level(Duration::from_millis(SLOW_FRAME_WARN_THRESHOLD_MS)),
+            log::Level::Warn,
+            "达到阈值必须记警告"
+        );
+        assert_eq!(
+            slow_frame_log_level(Duration::from_millis(SLOW_FRAME_WARN_THRESHOLD_MS - 1)),
+            log::Level::Info,
+            "未达阈值必须记信息"
         );
     }
 

@@ -424,11 +424,7 @@ pub(super) fn render_inner(session_id: u64) -> jint {
             milliseconds(timing.render_done.duration_since(timing.lock_done)),
             milliseconds(total),
         );
-        if total >= std::time::Duration::from_millis(60) {
-            log::warn!("{message}");
-        } else {
-            log::info!("{message}");
-        }
+        log::log!(crate::slow_log::slow_frame_log_level(total), "{message}");
     }
     count
 }

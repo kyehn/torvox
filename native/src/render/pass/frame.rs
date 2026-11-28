@@ -505,11 +505,7 @@ impl Renderer {
                 ms(total),
                 instances.len(),
             );
-            if total >= std::time::Duration::from_millis(60) {
-                log::warn!("{message}");
-            } else {
-                log::info!("{message}");
-            }
+            log::log!(crate::slow_log::slow_frame_log_level(total), "{message}");
         }
 
         // 呈现诊断按 500ms 窗口汇总：逐帧输出会把 logcat 刷成帧洪水（实测 84s 内
