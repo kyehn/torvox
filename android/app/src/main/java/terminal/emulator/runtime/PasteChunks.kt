@@ -33,23 +33,25 @@ internal fun pasteByteChunks(stream: ByteArray, chunkBytes: Int = PASTE_CHUNK_BY
     val chunks = mutableListOf<ByteArray>()
     var offset = 0
     while (offset < stream.size) {
-        var end = minOf(offset + chunkBytes, stream.size)
-        if (end < stream.size) {
-            // 回退到字符边界：尾部连续字节（10xxxxxx）属于被切半的字符，
-            // 连同其起始字节一并留给下一块。
-            while (end > offset && isUtf8Continuation(stream[end - 1])) end--
-            if (end > offset && isUtf8Lead(stream[end - 1])) end--
-            if (end <= offset) {
-                // 块小于一个完整字符（调用方传的 chunkBytes 过小）：向前吞完整字符。
-                var next = offset + 1
-                while (next < stream.size && isUtf8Continuation(stream[next])) next++
-                end = next
-            }
-        }
+        val end = chunkEnd(stream, offset, chunkBytes)
         chunks.add(stream.copyOfRange(offset, end))
         offset = end
     }
     return chunks
+}
+
+private fun chunkEnd(stream: ByteArray, offset: Int, chunkBytes: Int): Int {
+    var end = minOf(offset + chunkBytes, stream.size)
+    if (end == stream.size) return end
+    // 回退到字符边界：尾部连续字节（10xxxxxx）属于被切半的字符，
+    // 连同其起始字节一并留给下一块。
+    while (end > offset && isUtf8Continuation(stream[end - 1])) end--
+    if (end > offset && isUtf8Lead(stream[end - 1])) end--
+    if (end > offset) return end
+    // 块小于一个完整字符（调用方传的 chunkBytes 过小）：向前吞完整字符。
+    var next = offset + 1
+    while (next < stream.size && isUtf8Continuation(stream[next])) next++
+    return next
 }
 
 private fun isUtf8Continuation(byte: Byte): Boolean = byte.toInt() and 0xC0 == 0x80

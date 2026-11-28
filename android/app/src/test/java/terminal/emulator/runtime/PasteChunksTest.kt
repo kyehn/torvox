@@ -54,6 +54,12 @@ class PasteChunksTest {
     }
 
     @Test
+    fun chunkBudgetSmallerThanCharacterStillKeepsWholeCharacter() {
+        val chunks = pasteByteChunks("a😀b".toByteArray(), chunkBytes = 1)
+        assertEquals(listOf("a", "😀", "b"), chunks.map { it.toString(Charsets.UTF_8) })
+    }
+
+    @Test
     fun reassemblyIsIdentity() {
         val original = "中文😀a\nb".toByteArray()
         val joined = pasteByteChunks(original, chunkBytes = 5).reduce { first, second -> first + second }
