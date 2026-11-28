@@ -457,6 +457,21 @@ internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float, spToPxScale
 internal fun zoomSettledOnNewSize(baseFontSizeSp: Float, finalSizeSp: Float): Boolean = finalSizeSp != baseFontSizeSp
 
 /**
+ * 手势内「已转发滚轮」标记的更新（onScroll 可测核心）。
+ *
+ * 标记只升不降：一次手势里只要有一档滚动被转发给远端应用，整段手势（含惯性段）
+ * 都属于远端，MUST NOT 让本地回滚接管（规范见 `key-input-encoding`）。
+ *
+ * 若按最后一次编码的结果覆盖，前一次转发成功、后一次编码失败时标记会被清成
+ * false——本地回滚随即接管，应用与本地同时滚动。编码失败并非只在「应用未启用
+ * 上报」时发生：VT 忙时编码拿不到编码器（查询超时）同样返回空，二者不可混同。
+ *
+ * @param forwardedBefore 本次手势此前是否已转发过滚轮
+ * @param encodedNow 本次滚动是否已成功转发给远端
+ */
+internal fun wheelForwardedState(forwardedBefore: Boolean, encodedNow: Boolean): Boolean = forwardedBefore || encodedNow
+
+/**
  * 遮罩帧在开孔里的等比贴合参数（开孔遮罩的取放规则）。
  *
  * 遮罩帧是**离开画面时**回读的旧尺寸，而开孔尺寸会随后变化：输入法弹出/收起

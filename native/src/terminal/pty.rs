@@ -56,6 +56,44 @@ fn split_shell_entry(shell: &str) -> Result<(String, Vec<String>), PtyError> {
     Ok((executable, words.collect()))
 }
 
+/// 文本 → `CString`：含 NUL 即拒绝，报 fork 前置错误。
+///
+/// shell 路径、shell 参数、环境变量与工作目录都要过这道转换。各自写一份时，
+/// 「含 NUL」这一前置错误的日志与错误码容易分叉：有的带上出错位置，有的只留
+/// 一句「contains null byte」，排障时看不出是哪一个。
+fn cstring_without_null(bytes: &[u8], what: &str) -> Result<std::ffi::CString, PtyError> {
+    std::ffi::CString::new(bytes).map_err(|null_error| {
+        log::error!("{what} contains null byte: {null_error}");
+        PtyError::Fork(nix::errno::Errno::EINVAL)
+    })
+}
+
+/// 子进程用的 linker 路径：64 位架构用 linker64，32 位用 linker。
+///
+/// shell 与脚本解释器两条路径都要过 linker（Android 15+ 的 SELinux 拒绝 app-data
+/// 里的 ELF 直接 exec）。路径写两处时，新增架构支持会漏改一处。
+fn linker_path() -> &'static str {
+    if cfg!(any(target_arch = "aarch64", target_arch = "x86_64")) {
+        "/system/bin/linker64"
+    } else {
+        "/system/bin/linker"
+    }
+}
+
+/// 把 shell 参数与结尾的 NULL 追加到 argv。
+///
+/// 三条 exec 路径（linker + shell、解释器 + shell、直接 shell）都以「shell 参数 +
+/// NULL 结尾」收尾。argv 必须以 NULL 结尾，漏掉一处就是 execve 读到越界内存。
+fn push_shell_arguments(
+    args: &mut Vec<*const libc::c_char>,
+    shell_argument_cstrs: &[std::ffi::CString],
+) {
+    for argument in shell_argument_cstrs {
+        args.push(argument.as_ptr());
+    }
+    args.push(std::ptr::null());
+}
+
 #[derive(Debug, Error)]
 /// 伪终端创建与配置失败。
 pub enum PtyError {
@@ -336,40 +374,22 @@ impl PtyPair {
             return Err(PtyError::EmptyShell);
         }
         let (shell_executable, shell_argument_texts) = split_shell_entry(shell)?;
-        let shell_cstr =
-            std::ffi::CString::new(shell_executable.as_bytes()).map_err(|null_error| {
-                let message = format!("shell path contains null byte: {null_error}");
-                log::error!("{message}");
-                PtyError::Fork(nix::errno::Errno::EINVAL)
-            })?;
+        let shell_cstr = cstring_without_null(shell_executable.as_bytes(), "shell path")?;
         let shell_argument_cstrs: Vec<std::ffi::CString> = shell_argument_texts
             .into_iter()
-            .map(|argument| {
-                std::ffi::CString::new(argument).map_err(|_| {
-                    log::error!("shell argument contains null byte");
-                    PtyError::Fork(nix::errno::Errno::EINVAL)
-                })
-            })
+            .map(|argument| cstring_without_null(argument.as_bytes(), "shell argument"))
             .collect::<Result<Vec<_>, _>>()?;
         let env_cstrings: Vec<std::ffi::CString> = build_env(env)
             .into_iter()
             .map(|(key, value)| {
-                std::ffi::CString::new(format!("{key}={value}")).map_err(|null_error| {
-                    let message = format!("env var contains null byte: {null_error}");
-                    log::error!("{message}");
-                    PtyError::Fork(nix::errno::Errno::EINVAL)
-                })
+                cstring_without_null(format!("{key}={value}").as_bytes(), "env var")
             })
             .collect::<Result<Vec<_>, _>>()?;
         let chdir_target: &str = cwd.map_or(env.working_directory.as_str(), |path| {
             path.to_str().unwrap_or(env.working_directory.as_str())
         });
         let working_directory_cstr =
-            std::ffi::CString::new(chdir_target).map_err(|null_error| {
-                let message = format!("working directory contains null byte: {null_error}");
-                log::error!("{message}");
-                PtyError::Fork(nix::errno::Errno::EINVAL)
-            })?;
+            cstring_without_null(chdir_target.as_bytes(), "working directory")?;
 
         // fork 之前预分配参数与环境数组；fork 之后子进程不得调用任何分配函数。
         // Android 15+ 的 SELinux 对 untrusted_app 拒绝 app_data_file 上的
@@ -390,13 +410,8 @@ impl PtyPair {
             log::info!("SPAWN_DIRECT: shell={shell} prefix={prefix:?}");
         }
         let linker_cstr = if use_linker {
-            let linker = if cfg!(any(target_arch = "aarch64", target_arch = "x86_64")) {
-                "/system/bin/linker64"
-            } else {
-                "/system/bin/linker"
-            };
             Some(
-                std::ffi::CString::new(linker)
+                std::ffi::CString::new(linker_path())
                     .map_err(|_| PtyError::Fork(nix::errno::Errno::EINVAL))?,
             )
         } else {
@@ -421,14 +436,9 @@ impl PtyPair {
                 let interpreter_under_prefix =
                     !prefix.is_empty() && interpreter_text.starts_with(&format!("{prefix}/"));
                 if interpreter_under_prefix && is_pie(&interpreter_text) {
-                    let linker = if cfg!(any(target_arch = "aarch64", target_arch = "x86_64")) {
-                        "/system/bin/linker64"
-                    } else {
-                        "/system/bin/linker"
-                    };
                     log::info!("SPAWN_SCRIPT_LINKER: shell={shell} interpreter={interpreter_text}");
                     Some(
-                        std::ffi::CString::new(linker)
+                        std::ffi::CString::new(linker_path())
                             .map_err(|_| PtyError::Fork(nix::errno::Errno::EINVAL))?,
                     )
                 } else {
@@ -451,10 +461,7 @@ impl PtyPair {
             let mut args = Vec::with_capacity(4 + shell_argument_cstrs.len());
             args.push(linker_cstr.as_ptr());
             args.push(shell_ptr);
-            for argument in &shell_argument_cstrs {
-                args.push(argument.as_ptr());
-            }
-            args.push(std::ptr::null());
+            push_shell_arguments(&mut args, &shell_argument_cstrs);
             args
         } else if let Some((interpreter, interpreter_argument)) = &script_dispatch {
             let mut args = Vec::with_capacity(6 + shell_argument_cstrs.len());
@@ -466,18 +473,12 @@ impl PtyPair {
                 args.push(argument.as_ptr());
             }
             args.push(shell_ptr);
-            for argument in &shell_argument_cstrs {
-                args.push(argument.as_ptr());
-            }
-            args.push(std::ptr::null());
+            push_shell_arguments(&mut args, &shell_argument_cstrs);
             args
         } else {
             let mut args = Vec::with_capacity(3 + shell_argument_cstrs.len());
             args.push(shell_ptr);
-            for argument in &shell_argument_cstrs {
-                args.push(argument.as_ptr());
-            }
-            args.push(std::ptr::null());
+            push_shell_arguments(&mut args, &shell_argument_cstrs);
             args
         };
         let env_ptrs: Vec<*const libc::c_char> = env_cstrings

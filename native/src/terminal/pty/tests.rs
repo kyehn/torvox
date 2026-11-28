@@ -1,6 +1,61 @@
 use super::env::base_env_with_host;
 use super::*;
 
+/// argv 必须以 NULL 结尾：追加 shell 参数的那一步若漏掉结尾，execve 会读到越界内存。
+///
+/// 判别力：三条 exec 路径（linker + shell、解释器 + shell、直接 shell）共用这一段
+/// 收尾逻辑，收尾若丢一个指针，症状是子进程拿到乱码参数或直接崩在 execve。
+#[test]
+fn shell_arguments_are_appended_with_a_null_terminator() {
+    let arguments = vec![
+        std::ffi::CString::new("-l").expect("参数不含 NUL"),
+        std::ffi::CString::new("-c").expect("参数不含 NUL"),
+    ];
+    let mut args: Vec<*const libc::c_char> = Vec::new();
+    args.push(std::ptr::null());
+    push_shell_arguments(&mut args, &arguments);
+
+    assert_eq!(args.len(), 4, "两个参数 + 结尾 NULL + 前导占位");
+    assert_eq!(args[1], arguments[0].as_ptr(), "参数必须按原顺序追加");
+    assert_eq!(args[2], arguments[1].as_ptr());
+    assert!(
+        args[3].is_null(),
+        "argv 必须以 NULL 结尾，否则 execve 会读到越界内存"
+    );
+}
+
+/// 含 NUL 的文本必须在 fork 前被拒绝：execve 的路径与参数都不能带 NUL。
+///
+/// 判别力：NUL 出现在参数中时，`CString::new` 会失败；这份错误必须以 `Fork(EINVAL)`
+/// 的形式在 fork 之前返回，否则子进程会带着被截断的路径启动。
+#[test]
+fn text_with_nul_is_rejected_before_fork() {
+    let error = cstring_without_null(b"sh\0ell", "shell path").expect_err("含 NUL 必须被拒绝");
+    assert!(
+        matches!(error, PtyError::Fork(Errno::EINVAL)),
+        "expected Fork(EINVAL), got {error:?}"
+    );
+}
+
+/// linker 路径随架构而变：64 位架构用 linker64。
+///
+/// 判别力：写死单一路径会让 32 位设备 exec 失败（linker64 不存在），
+/// 而「两条路径各写一份」时新增架构支持会漏改一处。
+#[test]
+fn linker_path_follows_the_architecture() {
+    let linker = linker_path();
+    assert!(
+        linker.starts_with("/system/bin/linker"),
+        "linker 路径须在 /system/bin 下：{linker}"
+    );
+    let expected = if cfg!(any(target_arch = "aarch64", target_arch = "x86_64")) {
+        "/system/bin/linker64"
+    } else {
+        "/system/bin/linker"
+    };
+    assert_eq!(linker, expected);
+}
+
 /// `Session::spawn` 中 fork 成功后的错误路径上 `Session` 从未构造，
 /// 回收只能由主端所有者（`PtyPair::drop`）完成：drop 返回后子进程必须已被
 /// waitpid 回收（再查询即 ECHILD），既不得留活子进程也不得留僵尸。

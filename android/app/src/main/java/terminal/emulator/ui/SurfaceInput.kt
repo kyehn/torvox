@@ -169,7 +169,7 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
     /**
      * 本次手势是否已把拖动转发为滚轮（见 onScroll）：转发过的手势其惯性段
      * 同样属于应用，onFling 只吞不滚，绝不让本地回滚接管（见 onFling）。
-     * 手势开始时在 onDown 重置。
+     * 手势开始时在 onDown 重置；手势中只升不降（见 [wheelForwardedState]）。
      */
     private var wheelForwarded = false
 
@@ -229,7 +229,11 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                     val cappedLines = lines.coerceAtMost(MAX_WHEEL_LINES_PER_GESTURE)
                     // 一次往返编码全部档位：逐档 encodeMouseEvent 会把 UI 线程
                     // 按在每档一次 VT 应答上（滚动手势一次可滚十余行）。
-                    wheelForwarded =
+                    // 标记只升不降：一次手势里只要有一档被转发，整段手势（含惯性段）
+                    // 都属于远端。若按本次编码结果覆盖，前一次转发成功、后一次因 VT
+                    // 查询超时失败时标记会被清掉——本地回滚随即接管，应用与本地同时滚。
+                    wheelForwarded = wheelForwardedState(
+                        wheelForwarded,
                         wheelBridge.encodeMouseWheel(
                             pointerXPx,
                             pointerYPx,
@@ -238,7 +242,8 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                             mouseCellWidth,
                             mouseCellHeight,
                             cappedLines,
-                        )
+                        ),
+                    )
                 }
                 if (wheelForwarded) return true
                 if (wheelBridge != null && wheelBridge.isAltScreenActive()) return true
