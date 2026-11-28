@@ -339,7 +339,7 @@ master rev，MUST NOT 长期停在某个旧 rev 上——DESIGN 已要求「跟�
   无签名或语义变化，全量 Rust 测试与其之上的 Android 仪器测试保持全绿。
 - crates.io：`nix` 为 0.32（最新稳定），其余直接依赖已是当日最新稳定版本，锁文件已刷新到各
   依赖的最新修订；`fontdb` 仍受 `cosmic-text` 的 `^0.23` 要求约束（见依赖活跃度表）。
-- Gradle/Android：Gradle wrapper 9.9.2、KSP 2.3.14、Robolectric 4.18 为当日最新稳定版本。
+- Gradle/Android：Gradle wrapper 9.9.3、KSP 2.3.14、Robolectric 4.18 为当日最新稳定版本。
   `androidx.test`、Espresso 与 Benchmark 存在更新的 alpha，但当前所用为稳定版，按「最新稳定
   版本」口径保持不动；AGP 9.6.0-alpha06、lifecycle 2.12.0-alpha06、activity 1.14.0-alpha03、
   detekt 2.0.0-alpha.6、LeakCanary 3.0-alpha-9 属「已用不稳定版本且无更高稳定版本」，保持该线
