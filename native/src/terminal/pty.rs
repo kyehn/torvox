@@ -91,6 +91,11 @@ fn linker_path() -> &'static str {
     }
 }
 
+/// linker 路径的 CString 形式：含 NUL 即报错（静态字面量实际不会）。
+fn linker_cstring() -> Result<std::ffi::CString, PtyError> {
+    std::ffi::CString::new(linker_path()).map_err(|_| PtyError::Fork(nix::errno::Errno::EINVAL))
+}
+
 /// 把 shell 参数与结尾的 NULL 追加到 argv。
 ///
 /// 三条 exec 路径（linker + shell、解释器 + shell、直接 shell）都以「shell 参数 +
@@ -420,10 +425,7 @@ impl PtyPair {
             log::info!("SPAWN_DIRECT: shell={shell} prefix={prefix:?}");
         }
         let linker_cstr = if use_linker {
-            Some(
-                std::ffi::CString::new(linker_path())
-                    .map_err(|_| PtyError::Fork(nix::errno::Errno::EINVAL))?,
-            )
+            Some(linker_cstring()?)
         } else {
             None
         };
@@ -446,10 +448,7 @@ impl PtyPair {
                 let interpreter_under_prefix = under_prefix(&interpreter_text, prefix);
                 if interpreter_under_prefix && is_pie(&interpreter_text) {
                     log::info!("SPAWN_SCRIPT_LINKER: shell={shell} interpreter={interpreter_text}");
-                    Some(
-                        std::ffi::CString::new(linker_path())
-                            .map_err(|_| PtyError::Fork(nix::errno::Errno::EINVAL))?,
-                    )
+                    Some(linker_cstring()?)
                 } else {
                     None
                 }
