@@ -18,17 +18,29 @@ pub(super) const MAX_PENDING_CLIPBOARD_READS: usize = 256;
 static CLIPBOARD_READ_DROP_LOG: crate::slow_log::CountedLogThrottle =
     crate::slow_log::CountedLogThrottle::new();
 
-/// 裁掉超量的剪贴板读取请求，返回窗口内累计丢弃条数（限频时 `None`）。
-pub(super) fn drop_excess_clipboard_reads(
-    queue: &mut VecDeque<String>,
+/// 裁掉超量的队列元素，返回窗口内累计丢弃条数（限频时 `None`）。
+///
+/// 剪贴板读取请求与 VT 应答各有独立上限，裁剪语义却完全相同：超出上限丢最旧，
+/// 丢弃条数交给限频闸门。写成泛型后两条路径的「丢最旧、计数不丢」只有一份实现。
+fn drop_excess_queue<T>(
+    queue: &mut VecDeque<T>,
+    limit: usize,
     drop_log: &crate::slow_log::CountedLogThrottle,
 ) -> Option<u32> {
-    let overflow = queue.len().saturating_sub(MAX_PENDING_CLIPBOARD_READS);
+    let overflow = queue.len().saturating_sub(limit);
     if overflow == 0 {
         return None;
     }
     queue.drain(..overflow);
     drop_log.record_events(u32::try_from(overflow).unwrap_or(u32::MAX))
+}
+
+/// 裁掉超量的剪贴板读取请求，返回窗口内累计丢弃条数（限频时 `None`）。
+pub(super) fn drop_excess_clipboard_reads(
+    queue: &mut VecDeque<String>,
+    drop_log: &crate::slow_log::CountedLogThrottle,
+) -> Option<u32> {
+    drop_excess_queue(queue, MAX_PENDING_CLIPBOARD_READS, drop_log)
 }
 
 /// 单帧最多回写多少条 VT 应答。
@@ -57,12 +69,7 @@ pub(super) fn drop_excess_pty_responses(
     queue: &mut VecDeque<Vec<u8>>,
     drop_log: &crate::slow_log::CountedLogThrottle,
 ) -> Option<u32> {
-    let overflow = queue.len().saturating_sub(MAX_PENDING_PTY_WRITES);
-    if overflow == 0 {
-        return None;
-    }
-    queue.drain(..overflow);
-    drop_log.record_events(u32::try_from(overflow).unwrap_or(u32::MAX))
+    drop_excess_queue(queue, MAX_PENDING_PTY_WRITES, drop_log)
 }
 
 /// OSC 52 读取应答被截断的告警闸门（窗口内累计次数）。
