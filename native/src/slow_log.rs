@@ -109,8 +109,9 @@ impl SlowLogThrottle {
     /// 过窗口起点，用例需要回到首条必定可见的初始态才敢断言放行次数。
     #[cfg(test)]
     pub(crate) fn reset(&self) {
+        let mut gate = self.gate.lock();
         self.clock().nanos.store(0, Ordering::Release);
-        *self.gate.lock() = None;
+        *gate = None;
     }
 
     fn clock(&self) -> &LogClock {
@@ -130,21 +131,34 @@ impl SlowLogThrottle {
 
     /// 该次诊断是否允许输出；放行时同时推进窗口起点。
     pub(crate) fn should_log(&self) -> bool {
-        self.should_log_at(now_ms())
+        // 时刻必须在闸门锁内取：闸门锁串行化判定，锁外取的时刻只给出「判定时刻」
+        // 的下界——调用方取到时刻后若被调度走（渲染线程等 GPU 同步可达数百
+        // 毫秒），而另一线程在此期间放行了窗口，本线程拿着旧时刻进来就会被误判
+        // 为「已过窗口」而放行，两次输出便可能相距远小于窗口。锁内取时刻后，
+        // 放行时刻与判定时刻之差不超过锁持有时间，间隔下限成立。
+        let gate = self.gate();
+        self.check_at(&gate, now_ms())
     }
 
     /// 以给定时刻判定是否放行。
     ///
     /// 时刻由调用方给出，使测试无需靠睡眠推进时钟（睡眠会让用例变慢且不稳定）。
+    #[cfg(test)]
     pub(crate) fn should_log_at(&self, now_ms: u64) -> bool {
+        let gate = self.gate();
+        self.check_at(&gate, now_ms)
+    }
+
+    /// 闸门判定：时刻写入与放行检查同在闸门锁内完成。
+    ///
+    /// 两者分开会有两处竞态：写入时刻在锁外时，另一线程可在「写入」与「检查」
+    /// 之间改写同一个时钟量，本次检查便用上了别人的时刻；锁内完成则时钟量与
+    /// 判定一一对应。
+    fn check_at(&self, gate: &MutexGuard<'_, Option<Gate>>, now_ms: u64) -> bool {
         self.clock()
             .nanos
             .store(now_ms.saturating_mul(1_000_000).max(1), Ordering::Release);
-        self.gate()
-            .as_ref()
-            .expect("gate initialized")
-            .check()
-            .is_ok()
+        gate.as_ref().expect("gate initialized").check().is_ok()
     }
 }
 
@@ -181,10 +195,11 @@ impl CountedLogThrottle {
 
     /// 记一次事件；闸门放行时返回窗口内累计的事件数，否则返回 `None`。
     pub(crate) fn record(&self) -> Option<u32> {
-        self.record_at(now_ms())
+        self.record_events(1)
     }
 
     /// 以给定时刻记一次事件（测试用，免去睡眠）。
+    #[cfg(test)]
     pub(crate) fn record_at(&self, now_ms: u64) -> Option<u32> {
         self.record_events_at(1, now_ms)
     }
@@ -195,11 +210,21 @@ impl CountedLogThrottle {
     /// 一次窗口、且被压住的那几条会白跑一遍时钟；批量口径与逐条口径在「窗口内
     /// 累计了多少次」上完全一致。`events` 为 0 时不推进窗口、不产生输出。
     pub(crate) fn record_events(&self, events: u32) -> Option<u32> {
-        self.record_events_at(events, now_ms())
+        self.record_with(events, || self.throttle.should_log())
     }
 
     /// [`Self::record_events`] 的定时版（测试用）。
+    #[cfg(test)]
     pub(crate) fn record_events_at(&self, events: u32, now_ms: u64) -> Option<u32> {
+        self.record_with(events, || self.throttle.should_log_at(now_ms))
+    }
+
+    /// 记一批事件并按闸门判定交出计数。
+    ///
+    /// 计数与判定分开：计数先累加（限频吞掉的是条数，不是次数），闸门放行才把
+    /// 计数清零交出。判定时刻由调用方给（生产走闸门内部取时刻，测试给定时
+    /// 刻），两条路径只差时刻来源，其余口径完全一致。
+    fn record_with(&self, events: u32, allowed: impl FnOnce() -> bool) -> Option<u32> {
         if events == 0 {
             return None;
         }
@@ -207,7 +232,7 @@ impl CountedLogThrottle {
             .update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 count.saturating_add(events)
             });
-        if !self.throttle.should_log_at(now_ms) {
+        if !allowed() {
             return None;
         }
         Some(self.count.swap(0, Ordering::AcqRel))
@@ -400,6 +425,40 @@ mod tests {
             handed_over.load(Ordering::Acquire) + throttle.pending_count(),
             THREADS * EVENTS_PER_THREAD,
             "限频吞掉的是条数，不是次数：已交出与待交出的计数之和必须等于事件总数"
+        );
+    }
+
+    /// 同一时刻的并发判定只放行一次：闸门锁串行化判定，多个线程同时触发同一类
+    /// 诊断时不得各自放行——否则逐帧洪泛会绕过限频。
+    ///
+    /// 用同一时刻判定（而非真实时钟）是为了让结果与机器负载无关：真实时钟下
+    /// 线程若被拖过一个窗口，后续线程本就该被放行，断言会变成竞态。
+    #[test]
+    fn concurrent_decisions_at_one_instant_allow_only_one() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        const THREADS: u32 = 8;
+
+        let throttle = Arc::new(SlowLogThrottle::new());
+        let allowed = Arc::new(AtomicU32::new(0));
+        let mut handles = Vec::new();
+        for _ in 0..THREADS {
+            let throttle = Arc::clone(&throttle);
+            let allowed = Arc::clone(&allowed);
+            handles.push(std::thread::spawn(move || {
+                if throttle.should_log_at(1_000) {
+                    allowed.fetch_add(1, Ordering::AcqRel);
+                }
+            }));
+        }
+        for handle in handles {
+            handle.join().expect("判定线程");
+        }
+        assert_eq!(
+            allowed.load(Ordering::Acquire),
+            1,
+            "同一窗口内只许放行一次：并发判定不得各自放行"
         );
     }
 }

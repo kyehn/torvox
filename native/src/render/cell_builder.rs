@@ -312,12 +312,11 @@ fn is_content_codepoint(codepoint: u32) -> bool {
 
 /// 增量渲染的行级实例缓存（FR-013 / NFR-010）。
 ///
-/// 与全量路径 `build_instances_from_cell_data`（`row_ends` + 每行的实例切片）
-/// 保持一致，差异由 `cached_incremental_rebuild_matches_full_build`
-/// 逐实例比对：构建后 `row_ends[r]` 即
-/// 行 `r` 的实例在 `instances` 中的结束下标（不含）。干净行可
-/// 直接从上一帧复制，不必再经字体图集
-/// 遍历其单元格（NFR-010：只重绘脏行）。
+/// 缓存即当前帧实例的唯一副本：`row_ends[r]` 是行 `r` 的实例在
+/// `instances` 中的结束下标（不含）。增量帧只重建脏行并就地拼接，
+/// 干净行既不复制也不经字体图集遍历（NFR-010：只重绘脏行）；
+/// 与全量构建的一致性由 `cached_incremental_rebuild_matches_full_build`
+/// 逐实例比对。
 #[derive(Debug)]
 pub struct CachedInstances {
     row_ends: Vec<usize>,
@@ -394,23 +393,27 @@ impl CachedInstances {
         (start, end)
     }
 
-    /// 构建后替换缓存内容，并盖上实例构建所依据的
-    /// 图集代际。
-    fn update(
+    /// 全量重建：清空后按行重发整帧实例。
+    pub fn rebuild_all(
         &mut self,
-        rows: u32,
-        cols: u32,
-        instances: &[CellInstance],
-        row_ends: Vec<usize>,
-        atlas_generation: u64,
-    ) {
-        self.rows = rows;
-        self.cols = cols;
-        self.row_ends = row_ends;
-        self.instances.clear();
-        self.instances.extend_from_slice(instances);
-        self.atlas_generation = atlas_generation;
-        self.built = true;
+        cell_data: &[crate::terminal::ghostty_terminal::CellData],
+        config: CellInstanceConfig<'_>,
+        font_pipeline: &mut crate::render::font::FontPipeline,
+    ) -> Option<()> {
+        rebuild_into_cache(cell_data, config, font_pipeline, None, self)
+    }
+
+    /// 增量重建：只重发 `dirty_rows` 标记的行，其余行保持原实例。
+    ///
+    /// 缓存与网格不兼容、脏标记短于行数或图集代际不一致时降级为全量重建。
+    pub fn rebuild_dirty(
+        &mut self,
+        cell_data: &[crate::terminal::ghostty_terminal::CellData],
+        config: CellInstanceConfig<'_>,
+        font_pipeline: &mut crate::render::font::FontPipeline,
+        dirty_rows: &[bool],
+    ) -> Option<()> {
+        rebuild_into_cache(cell_data, config, font_pipeline, Some(dirty_rows), self)
     }
 
     /// 仅测试：直接写入 `row_ends`（`band_slice` 解析测试无需
@@ -487,11 +490,9 @@ pub(crate) fn diff_dirty_rows_into(
 
 /// 把预构建的 `CellData` 切片转换为 GPU 实例数据。
 ///
-/// 携带搜索高亮参数，使渲染器无需完整 `GridSnapshot`
-/// 即可给出视觉反馈（搜索高亮叠加）。
-/// 选区高亮归终端所有：VT 线程把受跟踪选区的反显
-/// 烘焙进 `CellData` 颜色，故本构建器
-/// 自身不做选区处理。
+/// 一次性全量构建，不保留跨帧缓存；渲染循环改用
+/// [`CachedInstances::rebuild_all`] / [`CachedInstances::rebuild_dirty`]
+/// 直接写入缓存，避免每帧把整屏实例复制进出。
 ///
 /// 转换失败（如字体图集不可用）时返回 `None`。
 pub fn build_instances_from_cell_data(
@@ -500,45 +501,23 @@ pub fn build_instances_from_cell_data(
     font_pipeline: &mut crate::render::font::FontPipeline,
     instances: &mut Vec<CellInstance>,
 ) -> Option<()> {
-    build_row_instances_into(cell_data, config, font_pipeline, None, None, instances)
+    let mut cache = CachedInstances::new(config.rows, config.cols);
+    cache.rebuild_all(cell_data, config, font_pipeline)?;
+    instances.clear();
+    instances.extend_from_slice(cache.instances());
+    Some(())
 }
 
-/// [`build_instances_from_cell_data`] 的增量变体（行级脏缓存，
-/// FR-013 / NFR-010）：只重建 `dirty_rows` 中标记的行，
-/// 干净行原样从 `cache` 复制；`cache` 就地更新，
-/// 下一帧即可复用。脏标记短于 `rows`，
-/// 或缓存与网格尺寸不兼容时，降级为全部行的
-/// 完整重建。
-pub fn build_instances_cached(
-    cell_data: &[crate::terminal::ghostty_terminal::CellData],
-    config: CellInstanceConfig<'_>,
-    font_pipeline: &mut crate::render::font::FontPipeline,
-    dirty_rows: &[bool],
-    cache: &mut CachedInstances,
-    instances: &mut Vec<CellInstance>,
-) -> Option<()> {
-    build_row_instances_into(
-        cell_data,
-        config,
-        font_pipeline,
-        Some(dirty_rows),
-        Some(cache),
-        instances,
-    )
-}
-
-/// 全量与增量构建器背后的共用实现。
+/// 全量与增量构建器背后的共用实现：把本帧实例写进 `cache`。
 ///
-/// 为每个网格行构建四边形实例。提供了 `dirty_rows` 与 `cache`
-/// 且二者一致时，干净行直接复制其缓存实例，
-/// 而不再经字体图集遍历其单元格。
-fn build_row_instances_into(
+/// 只有「缓存尺寸与图集代际都匹配、脏掩码覆盖整屏且并非全脏」时才走增量：
+/// 脏行就地重发并拼接，干净行不复制；其余情况整帧重建。
+fn rebuild_into_cache(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
     config: CellInstanceConfig<'_>,
     font_pipeline: &mut crate::render::font::FontPipeline,
     dirty_rows: Option<&[bool]>,
-    mut cache: Option<&mut CachedInstances>,
-    instances: &mut Vec<CellInstance>,
+    cache: &mut CachedInstances,
 ) -> Option<()> {
     let CellInstanceConfig {
         rows,
@@ -551,24 +530,15 @@ fn build_row_instances_into(
         search_highlights,
         default_background,
     } = config;
-    // 四边形几何用调用方给的网格单元尺寸，即 FONT 单元
-    // 大小（cell_metrics * raster_scale），而不是 surface/rows。
-    // 按 surface/rows 定尺寸会在高屏幕上留下行间空隙
-    // （2209px / 24 行 = 92px，而字体单元约 20px）。
-    let (cell_width, cell_height) = (grid_cell_width, grid_cell_height);
     // 用 trace 级别：每次脏重建都会触发；info 级别会淹没
     // logcat（逐行 binder IPC）并引发帧时间抖动。
     log::trace!(
-        "cell_builder: grid {rows}x{cols} cell {cell_width:.1}x{cell_height:.1} cells={}",
+        "cell_builder: grid {rows}x{cols} cell {grid_cell_width:.1}x{grid_cell_height:.1} cells={}",
         cell_data.len()
     );
-    let ascent_pixels = font_pipeline.ascent_pixels();
-    let raster_scale = font_pipeline.get_raster_scale();
-    // 跨帧复用缓冲：Vec 由调用方（Renderer）持有，
-    // 在此清空，避免 60fps 下每帧约 100KB 的分配
-    // （约 6MB/s 分配流量）。
-    instances.clear();
-    instances.reserve(cell_data.len());
+    // 一次性划分为每行范围；同时用于增量
+    // 脏行判定与下面的逐行迭代。
+    let row_ranges = build_row_ranges(cell_data, rows)?;
 
     // 用 foldhash（0.2，已在依赖树中）而非 std 默认的
     // SipHash13：该 map 每帧重建并查询
@@ -586,17 +556,17 @@ fn build_row_instances_into(
         }
     }
 
-    // 一次性划分为每行范围；同时用于增量
-    // 脏行判定与下面的逐行迭代。
-    let row_ranges = build_row_ranges(cell_data, rows)?;
+    // 掩码短于行数时按全脏处理：宁可多建，不可漏建。
+    let dirty_mask = dirty_rows.and_then(|dirty| dirty.get(..rows as usize));
     // 增量提供要求尺寸兼容**且**图集代际为当前值：
     // 重建/驱逐会搬迁字形 UV，故按更旧代际缓存的实例
-    // 会渲染出错或空白。
-    let mut incremental = dirty_rows.is_some_and(|dirty_flags| dirty_flags.len() >= rows as usize)
-        && cache.as_ref().is_some_and(|instance_cache| {
-            instance_cache.is_compatible(rows, cols)
-                && instance_cache.atlas_generation == font_pipeline.atlas_generation()
-        });
+    // 会渲染出错或空白。整屏全脏时直接全量重建，
+    // 免掉「先拷进 scratch 再拼回缓存」的一整屏复制。
+    let mut incremental = dirty_mask.is_some_and(|dirty| {
+        !dirty.iter().all(|&is_dirty| is_dirty)
+            && cache.is_compatible(rows, cols)
+            && cache.atlas_generation == font_pipeline.atlas_generation()
+    });
 
     // 组合簇文本的跨单元复用缓冲：预热遍与发射遍共用，命中整形缓存时零分配。
     let mut cluster_text = String::new();
@@ -611,10 +581,10 @@ fn build_row_instances_into(
     warm_frame_glyphs(
         cell_data,
         &row_ranges,
-        if incremental { dirty_rows } else { None },
+        if incremental { dirty_mask } else { None },
         cursor,
-        cell_width,
-        cell_height,
+        grid_cell_width,
+        grid_cell_height,
         font_pipeline,
         &mut cluster_text,
     );
@@ -627,69 +597,185 @@ fn build_row_instances_into(
             &row_ranges,
             None,
             cursor,
-            cell_width,
-            cell_height,
+            grid_cell_width,
+            grid_cell_height,
             font_pipeline,
             &mut cluster_text,
         );
     }
-    let mut row_ends: Vec<usize> = Vec::with_capacity(rows as usize);
-    // 末遍是否在稳定代际下建完：只有稳定才允许把实例写回缓存。
+    if incremental {
+        let dirty = dirty_mask.expect("incremental 蕴含脏掩码存在");
+        if rebuild_dirty_rows(
+            cell_data,
+            &row_ranges,
+            dirty,
+            config,
+            font_pipeline,
+            &mut cluster_text,
+            &highlights_by_row,
+            cache,
+        ) {
+            return Some(());
+        }
+        // 脏行发射期间图集搬迁：已拼接的带作废，整帧重建覆盖它们。
+        // 先重新预热整屏——脏行发射可能驱逐了干净行依赖的字形。
+        warm_frame_glyphs(
+            cell_data,
+            &row_ranges,
+            None,
+            cursor,
+            grid_cell_width,
+            grid_cell_height,
+            font_pipeline,
+            &mut cluster_text,
+        );
+    }
+    rebuild_all_rows(
+        cell_data,
+        &row_ranges,
+        config,
+        font_pipeline,
+        &mut cluster_text,
+        &highlights_by_row,
+        cache,
+    );
+    Some(())
+}
+
+/// 增量发射：逐脏带重建并就地拼接进缓存。
+///
+/// 每条带建完立即提交；后续带若推进了图集代际则返回 `false`，
+/// 由调用方用全量重建覆盖已提交的部分。
+fn rebuild_dirty_rows(
+    cell_data: &[crate::terminal::ghostty_terminal::CellData],
+    row_ranges: &[std::ops::Range<usize>],
+    dirty_rows: &[bool],
+    config: CellInstanceConfig<'_>,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+    cluster_text: &mut String,
+    highlights_by_row: &HashMap<i32, Vec<&SearchHighlight>, RandomState>,
+    cache: &mut CachedInstances,
+) -> bool {
+    let rows = config.rows as usize;
+    let generation_before_emit = font_pipeline.atlas_generation();
+    let ascent_pixels = font_pipeline.ascent_pixels();
+    let raster_scale = font_pipeline.get_raster_scale();
+    let mut scratch: Vec<CellInstance> = Vec::new();
+    let mut row_counts: Vec<usize> = Vec::new();
+    for (start_row, end_row_exclusive) in compute_dirty_bands(&dirty_rows[..rows]) {
+        scratch.clear();
+        row_counts.clear();
+        for row in start_row..end_row_exclusive {
+            let before = scratch.len();
+            append_row_instances(
+                config.grid_cell_width,
+                config.grid_cell_height,
+                ascent_pixels,
+                raster_scale,
+                config.atlas_width,
+                config.atlas_height,
+                config.cursor,
+                highlights_by_row,
+                config.default_background,
+                font_pipeline,
+                &mut scratch,
+                &cell_data[row_ranges[row].clone()],
+                cluster_text,
+            );
+            row_counts.push(scratch.len() - before);
+        }
+        if font_pipeline.atlas_generation() != generation_before_emit {
+            return false;
+        }
+        let old_start = if start_row == 0 {
+            0
+        } else {
+            cache.row_ends[start_row - 1]
+        };
+        let old_end = cache.row_ends[end_row_exclusive - 1];
+        let old_count = old_end - old_start;
+        cache
+            .instances
+            .splice(old_start..old_end, scratch.iter().copied());
+        let shift = scratch.len() as isize - old_count as isize;
+        let mut row_end = old_start;
+        for (offset, count) in row_counts.iter().enumerate() {
+            row_end += count;
+            cache.row_ends[start_row + offset] = row_end;
+        }
+        for later_row_end in &mut cache.row_ends[end_row_exclusive..] {
+            *later_row_end = (*later_row_end as isize + shift) as usize;
+        }
+    }
+    cache.atlas_generation = font_pipeline.atlas_generation();
+    cache.built = true;
+    true
+}
+
+/// 整帧发射：清空缓存后按行重建。
+///
+/// 发射期间图集代际变化（字形搬迁）时最多重试 [`MAX_STABLE_ATTEMPTS`] 遍；
+/// 仍不稳定则保留最后一帧实例供本帧绘制，但缓存标记为不可用，
+/// 下一帧强制重建（陈旧 UV 不得被打上当前代际）。
+fn rebuild_all_rows(
+    cell_data: &[crate::terminal::ghostty_terminal::CellData],
+    row_ranges: &[std::ops::Range<usize>],
+    config: CellInstanceConfig<'_>,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+    cluster_text: &mut String,
+    highlights_by_row: &HashMap<i32, Vec<&SearchHighlight>, RandomState>,
+    cache: &mut CachedInstances,
+) {
+    let CellInstanceConfig {
+        rows,
+        cols,
+        grid_cell_width,
+        grid_cell_height,
+        cursor,
+        atlas_width,
+        atlas_height,
+        default_background,
+        ..
+    } = config;
+    let ascent_pixels = font_pipeline.ascent_pixels();
+    let raster_scale = font_pipeline.get_raster_scale();
+    // 跨帧复用缓冲：Vec 由缓存持有，在此清空，避免 60fps 下每帧约 100KB 的分配
+    // （约 6MB/s 分配流量）。
+    cache.instances.clear();
+    cache.instances.reserve(cell_data.len());
     let mut built_stable = false;
     for _ in 0..MAX_STABLE_ATTEMPTS {
-        instances.clear();
-        row_ends.clear();
+        cache.instances.clear();
+        cache.row_ends.clear();
         let generation_before_emit = font_pipeline.atlas_generation();
-        for (row, range) in row_ranges.iter().enumerate() {
-            let is_clean = incremental && dirty_rows.is_some_and(|dirty| !dirty[row]);
-            if is_clean {
-                // 干净行：复用上一帧构建的实例（NFR-010）。
-                // `incremental` 已蕴含 `cache.is_some()`，故这里必命中。
-                let cache_ref = cache.as_ref().expect("incremental 蕴含缓存存在");
-                let (cs, ce) = cache_ref.row_slice(row);
-                instances.extend_from_slice(&cache_ref.instances()[cs..ce]);
-            } else {
-                append_row_instances(
-                    cell_width,
-                    cell_height,
-                    ascent_pixels,
-                    raster_scale,
-                    atlas_width,
-                    atlas_height,
-                    cursor,
-                    &highlights_by_row,
-                    default_background,
-                    font_pipeline,
-                    instances,
-                    &cell_data[range.clone()],
-                    &mut cluster_text,
-                );
-            }
-            row_ends.push(instances.len());
+        for range in row_ranges {
+            append_row_instances(
+                grid_cell_width,
+                grid_cell_height,
+                ascent_pixels,
+                raster_scale,
+                atlas_width,
+                atlas_height,
+                cursor,
+                highlights_by_row,
+                default_background,
+                font_pipeline,
+                &mut cache.instances,
+                &cell_data[range.clone()],
+                cluster_text,
+            );
+            cache.row_ends.push(cache.instances.len());
         }
         if font_pipeline.atlas_generation() == generation_before_emit {
             built_stable = true;
             break;
         }
-        // 发射中代际变更：已建实例与缓存 clean 行部分 stale，
-        // 降级为全量再建一遍（缓存已热，收敛）。
-        incremental = false;
     }
-    // 只有末遍全程未推进代际才写回缓存：否则实例里的 UV 属于被驱逐前的位置，
-    // 却会被打上推进后的代际——下一帧增量判定误判为「同代际」，
-    // 干净行于是照着已搬迁的 UV 采样（空白/错字）。
-    // 留空缓存让下一帧整体重建：代际不匹配本就会触发它。
-    if let Some(c) = cache.as_mut()
-        && built_stable
-    {
-        c.update(
-            rows,
-            cols,
-            &instances[..],
-            row_ends,
-            font_pipeline.atlas_generation(),
-        );
-    } else if !built_stable && ATLAS_THRASH_THROTTLE.should_log() {
+    cache.rows = rows;
+    cache.cols = cols;
+    cache.atlas_generation = font_pipeline.atlas_generation();
+    cache.built = built_stable;
+    if !built_stable && ATLAS_THRASH_THROTTLE.should_log() {
         // 遍数用尽仍不稳定 = 本帧工作集在图集里装不下：每次查询都把另一字形挤出去，
         // 增遍数亦不可能收敛。此时必须出声——画面上的字会在同一个字符之间出现
         // 不同的字形轮廓（stale UV 的典型症状），而归因所需的唯一线索就是「图集
@@ -700,7 +786,6 @@ fn build_row_instances_into(
              (workingset exceeds the atlas; raise the atlas size or lower the raster scale)"
         );
     }
-    Some(())
 }
 
 /// 预热遍的去重键：码位 + 粗斜样式位。
