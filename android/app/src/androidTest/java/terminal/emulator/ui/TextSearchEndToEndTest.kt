@@ -258,7 +258,7 @@ class TextSearchEndToEndTest : ComposeTerminalLogcatTest() {
         // Take screenshot for host-side OCR verification
         saveScreenshot("02_search_highlights")
 
-        // NOTE: OCR verification runs on the HOST: the dev shell carries `rapidocr`
+        // OCR verification runs on the HOST: the dev shell carries `rapidocr`
         // and its models (`scripts/download-rapidocr-models.nu` fetches them),
         // a device-side ProcessBuilder("rapidocr") can never work — the binary
         // lives in the host development shell, not on the device. So this test

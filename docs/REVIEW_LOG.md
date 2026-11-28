@@ -37,7 +37,7 @@
 | 前台服务 | 唤醒锁默认自动持有，并设 30 分钟超时 + 半程续期定时器，与 DESIGN「不自动申请、不自动持锁、锁由通知栏按钮切换、无超时机制」冲突 | 默认改为不持锁，仅由通知栏按钮申请/释放；移除超时与续期定时器，锁只由用户释放或会话归零释放；补「默认不取锁」「按钮双向切换」「长时间不失锁」三条用例；规范同步 |
 | 前台服务 | `specialUse` 类型未声明 `PROPERTY_SPECIAL_USE_FGS_SUBTYPE`，系统与 Play 审核无从识别该服务的用途 | 在 `<service>` 内声明终端会话保活的用途说明，与既有 `FOREGROUND_SERVICE_SPECIAL_USE` 权限配套 |
 | 启动入口 | `EXTRA_INSTALL_BOOTSTRAP_URL` 在 release 构建中同样可达，任何应用都能借官方地址触发一次约 150 MB 的下载与安装 | 与另一测试 extra 统一收进 `BuildConfig.DEBUG`：两个使用方（`NixBootstrapTest`、`TermuxBootstrapRealTerminalTest`）都跑 debug 变种 |
-| 现行规范 | Gradle wrapper 已升到 9.9.3，而 `build-and-validation` 与 `code-health` 两处规范仍写 9.9.2，「唯一弃用警告只有一条」那条判据无法按记录的版本复现 | 两处规范同步到 9.9.3，并实测复核：9.9.3 + AGP 9.6.0-alpha06 下 `:app:compileDebugKotlin --warning-mode all` 的弃用警告仍恰好一条（`Configuration.setVisible(boolean)`） |
+| 现行规范 | Gradle wrapper 已升到 9.9.3，而 `build-and-validation` 与 `code-health` 两处规范仍写 9.9.2，「唯一弃用警告只有一条」那条判据无法按记录的版本复现 | 两处规范同步到 9.9.3，并实测复核：9.9.3 + AGP 9.6.0-alpha07 下 `:app:compileDebugKotlin --warning-mode all` 的弃用警告仍恰好一条（`Configuration.setVisible(boolean)`） |
 | PTY | shell 路径与解释器路径各写一份 prefix 判据，分隔符 `/` 容易漏写；同一处还留着恒真的 `contains('\0')`（含 NUL 的路径已由 `cstring_without_null` 在 fork 前以 `?` 拒绝） | 判据收敛为 `under_prefix` 共享实现，按路径元素比较（`<prefix>_evil/…` 不再算 prefix 下）；删除恒真分支；补边界用例 |
 | PTY | shell 与脚本解释器两条 linker 路径各写一份逐字相同的 `CString::new(linker_path())` 及其错误映射 | 收敛为 `linker_cstring`；该文件在严格重复率口径下归零 |
 | 静态检查 | 方案调研文档照录被禁 API 的事实，触发 `docs/` 下的字面量禁令规则误报，质量门红灯 | 按既有豁免口径按文件路径豁免（与 `docs/persistence/*`、`docs/specification/*` 同类）；探针验证代码侧仍被拦下 |
@@ -48,8 +48,9 @@
 ## 验证
 
 - `./scripts/check.nu` 全量质量门通过（fmt、clippy、arm64 ndk clippy、cargo-machete、cargo test、rustdoc `-D warnings`、bench、release 构建、semgrep 55 条规则 0 命中、markdownlint 0 issue、openspec strict 55/55、Gradle 全套 `BUILD SUCCESSFUL`）。
-- Rust：`cargo test --all-targets` 为 991 + 1 + 2 + 1 个测试全部通过；`cargo clippy --all-targets -- -D warnings` 零告警。
-- Android：`testDebugUnitTest` 为 1174 个单元测试全部通过；`detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、benchmark 与 baselineprofile 编译全部 `BUILD SUCCESSFUL`。
+- Rust：`cargo test --all-targets` 为 992 + 1 + 2 + 1 个测试全部通过；`cargo clippy --all-targets --all-features -- -D warnings` 零告警。
+- Android：`testDebugUnitTest` 为 1177 个单元测试全部通过；`detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、benchmark 与 baselineprofile 编译全部 `BUILD SUCCESSFUL`。
+- 依赖更新：AGP 升至 9.6.0-alpha07，`cargo update` 将 `cc`、`find-msvc-tools`、`owo-colors` 升至 Rust 1.99 兼容的最新版，`nix flake update` 后锁文件无变化。Kotlin 2.5.0-RC2 因 KSP 仍停留在 2.3.14（尚无匹配版本）暂不升级；`fontdb` 受 `cosmic-text 0.19` 的 `^0.23` 约束，保持 0.23。
 - JNI 边界：Rust 侧 78 个 `Java_*` 导出与 Kotlin `NativeBridge.kt` 78 个 `external fun` 双向差集为空（名字、参数个数与类型均核对）。
 - 反汇编 release `classes.dex`：69 个可达 JNI 方法全部保留；9 个仅诊断/测试用且 Kotlin 侧无可达调用点的方法随死代码移除，原生侧不存在通过 JNI 反射回调 Kotlin 的路径。
 - 全部修复均已提交并推送到 `origin/main`。
@@ -80,6 +81,6 @@
 
 ## 已知残余风险
 
-- `qlty check --all` 仍有 36 条：31 条 `zizmor` 命中受保护的 `.github/workflows/`（action 未固定到 hash、`persist-credentials` 未关闭、自仓引用语法、多余 action），须用户明确授权后才能改；1 条 OSV 提示 `ttf-parser@0.25.1` 已停止维护，它由 `cosmic-text 0.19` 经 `fontdb 0.23` 间接引入，`Cargo.toml` 受保护且上游版本约束未放开，本地无法单独替换；余下 4 条是 `ripgrep` 对源码注释中 `TODO` / `NOTE` / `XXX` 的提示，不是运行期缺陷。
+- `qlty check --all` 仍有 32 条：31 条 `zizmor` 命中受保护的 `.github/workflows/`（action 未固定到 hash、`persist-credentials` 未关闭、自仓引用语法、多余 action），须用户明确授权后才能改；1 条 OSV 提示 `ttf-parser@0.25.1` 已停止维护且无补丁版本，它由 `cosmic-text 0.19` 经 `fontdb 0.23` 间接引入，`Cargo.toml` 受保护且上游版本约束未放开，本地无法单独替换。原先 4 条 `ripgrep` 注释提示已通过改写措辞消除。
 - 未连接真机执行 GPU/JNI 压力测试与 Android instrumentation 测试；设备特定纹理上限已按运行时 `limits()` 兜底，但真机路径仍需在有设备环境复验。
 - 同一仓库存在并行提交者：其提交会把工作区暂存的内容一并卷入（本次「滚轮转发标记只升不降」的修复即随另一笔 `refactor(pty)` 提交落库，随后该提交被改写）。提交前须逐文件核对暂存区，勿把他人的半成品计入自己的提交；跨提交的归属以文件内容与本记录为准，不以提交标题为准。

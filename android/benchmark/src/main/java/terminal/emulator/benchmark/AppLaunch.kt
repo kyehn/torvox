@@ -121,7 +121,7 @@ internal fun forceStop(device: UiDevice, packageName: String) {
 /** `dumpsys package` 里的运行时权限段标题。 */
 private const val RUNTIME_PERMISSIONS_HEADER = "runtime permissions:"
 
-/** 运行时权限行：`android.permission.XXX: granted=true|false, flags=[...]`。 */
+/** 运行时权限行：`android.permission.<NAME>: granted=true|false, flags=[...]`。 */
 private val RUNTIME_PERMISSION_ROW = Regex("""^(android\.permission\.[A-Z_]+): granted=(true|false)""")
 
 /**

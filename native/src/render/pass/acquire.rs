@@ -40,7 +40,7 @@ type AcquireResult = Result<wgpu::CurrentSurfaceTexture, Box<dyn std::any::Any +
 /// 把已取到但本帧不再使用的交换链纹理清成背景色并呈现，让它回到交换链的缓冲区池。
 ///
 /// **为什么必须呈现而不是丢弃**：wgpu-hal 的 Vulkan 后端在纹理未呈现即被丢弃时，
-/// `discard_texture` 是空实现（上游 TODO）。那张交换链图像于是既不呈现、也不归还：
+/// `discard_texture` 是空实现（上游尚未实现）。那张交换链图像于是既不呈现、也不归还：
 /// 累积几帧后 `vkAcquireNextImageKHR` 永远等不到可用图像，终端就此永久停帧
 /// （模拟器实测：取纹理超时后持续 `dequeueBuffer timed out`，画面停在旧帧，
 /// 帧循环每 600ms 报一次瞬时渲染错误，几十秒内毫无恢复）。
