@@ -385,6 +385,18 @@ fn setup_test_gpu_context(device: wgpu::Device, queue: wgpu::Queue) -> Renderer 
         color_space: wgpu::SurfaceColorSpace::Auto,
     });
     context.initialize_pipeline_and_bind_group(256, 256, 50, 50);
+    // 挂载路径必须把两条文本管线都建好：KGP 管线若留到首幅 kitty 图像时
+    // 才在渲染循环里编译，那一帧会平白多出一次着色器编译（实测约 27ms），
+    // 被慢帧诊断记成一次渲染回归。
+    assert!(
+        context.kgp_pipeline.is_some(),
+        "initialize_pipeline_and_bind_group 必须同时建立 KGP 管线"
+    );
+    assert_eq!(
+        context.kgp_pipeline_format,
+        Some(wgpu::TextureFormat::Rgba8Unorm),
+        "KGP 管线必须按当前 surface 格式建立"
+    );
     context
 }
 

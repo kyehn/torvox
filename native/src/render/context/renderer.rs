@@ -822,6 +822,9 @@ impl Renderer {
             });
         self.pipeline_format = format;
         self.cell_pipeline = Some(Self::create_cell_pipeline(&self.device, format));
+        // KGP 管线同样在这里建好：首幅 kitty 图像不再在渲染循环里编译着色器
+        // （实测首图帧 draw 段多出约 27ms，恰好是一帧的慢帧阈值）。
+        self.ensure_kgp_pipeline_created();
 
         self.projection_width = config_width;
         self.projection_height = config_height;
@@ -837,8 +840,9 @@ impl Renderer {
         // 记下耗时：着色器编译与图集分配是一次性开销，把它挪出渲染循环后，
         // 这笔账就得挂在这里才看得见（否则只是从「慢帧」挪成了「无影无踪」）。
         log::info!(
-            "initialize_pipeline_and_bind_group: pipeline={} atlas={}x{} surface={}x{} elapsed={:.3}ms",
+            "initialize_pipeline_and_bind_group: pipeline={} kgp={} atlas={}x{} surface={}x{} elapsed={:.3}ms",
             self.cell_pipeline.is_some(),
+            self.kgp_pipeline.is_some(),
             atlas_width,
             atlas_height,
             config_width,

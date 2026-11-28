@@ -230,22 +230,39 @@ impl Renderer {
         )
     }
 
-    pub(crate) fn ensure_kgp_pipeline(&mut self, config_width: u32, config_height: u32) {
-        if self.kgp_texture.is_none() {
-            return;
-        }
+    /// 建立 KGP 文本管线（只编译着色器，不依赖图集纹理）。
+    ///
+    /// 挂载路径与渲染路径共用：前者把它从首帧里挪走（见 `render-stability` 的
+    /// 「管线建立不得发生在渲染循环内」），后者只作兜底。返回是否本次新建，
+    /// 兜底路径据此记录耗时。
+    pub(crate) fn ensure_kgp_pipeline_created(&mut self) -> bool {
         let format = self
             .surface_config
             .as_ref()
             .map_or(wgpu::TextureFormat::Rgba8Unorm, |surface_config| {
                 surface_config.format
             });
+        if self.kgp_pipeline.is_some() && self.kgp_pipeline_format == Some(format) {
+            return false;
+        }
+        let started = std::time::Instant::now();
+        self.kgp_pipeline = Some(Self::create_kgp_pipeline(&self.device, format));
+        self.kgp_pipeline_format = Some(format);
+        // 旧管线派生的绑定组不可复用。
+        self.kgp_bind_group = None;
+        log::info!(
+            "ensure_kgp_pipeline: created pipeline format={format:?} elapsed={:.3}ms",
+            started.elapsed().as_secs_f64() * 1000.0,
+        );
+        true
+    }
 
-        if self.kgp_pipeline.is_none() || self.kgp_pipeline_format != Some(format) {
-            self.kgp_pipeline = Some(Self::create_kgp_pipeline(&self.device, format));
-            self.kgp_pipeline_format = Some(format);
-            // 旧管线派生的绑定组不可复用。
-            self.kgp_bind_group = None;
+    pub(crate) fn ensure_kgp_pipeline(&mut self, config_width: u32, config_height: u32) {
+        // 管线与图集纹理相互独立：即使本次没有图像，也先把着色器编译掉，
+        // 首幅 kitty 图像就不会在渲染循环里承担这笔一次性代价。
+        self.ensure_kgp_pipeline_created();
+        if self.kgp_texture.is_none() {
+            return;
         }
 
         if self.kgp_sampler.is_none() {

@@ -1965,3 +1965,88 @@ MUST NOT 以「平台噪声」概括了事，MUST NOT 加过滤器、降级日�
 - **AND** 本批日志 MUST NOT 用于背书后续 provider 或冷启动优化：它采于泄漏检测
       自动安装移除之后、EmojiCompat 初始化器移除之前，冷启动 9s 与首次安装/
       系统竞争同拍；优化效果 MUST 由同一设备的新日志复核，MUST NOT 由本批日志推断
+
+### Requirement: 2026-11-28 真机日志的逐类归因
+
+`logcat_2026-11-28_15-05-56.txt`（同一台设备，debug 构建；一次 shell 会话与一次
+仪器化测试活动重叠）共 648 条：I 445、W 97、E 42、D 61、V 3，F 0；W/E 合计 139
+条。逐条归因 MUST 保留原始 tag、等级与计数，MUST NOT 以「平台噪声」概括，
+MUST NOT 加过滤器、降级日志或提高阈值。
+
+#### Scenario: 应用侧唯一的慢帧及其修复
+
+- **WHEN** 15:04:00.775–.776 出现 `I/native::android::ffi::render::frame` 的
+      `SLOW_RENDER_INNER`（`query=3.759ms`、`prepare=1.573ms`、`draw=27.527ms`、
+      `total=32.866ms`）与 `W/Runtime` 的 `SLOW_FRAME`／`SLOW_LOOP`
+      （`render=33.17ms`、`total=39.27ms`，各 1 条）
+- **THEN** MUST 归因为**首幅 kitty 图像在渲染循环内首次编译 KGP 管线**：
+      `draw` 段 27.527ms 与 KGP 管线编译同量级，`query`／`prepare` 合计只占
+      5.3ms；该帧 `count=1`、`newOutput=true`，下一窗口 `max` 回落到 0.235ms，
+      是孤立的一次性代价，不是持续渲染回归
+- **AND** 修复 MUST 是把 KGP 管线提前到挂载路径
+      （`initialize_pipeline_and_bind_group` 同时建立 cell 与 KGP 两条文本管线），
+      MUST NOT 调高 30ms 阈值、MUST NOT 过滤 `SLOW_*`、MUST NOT 把 `draw` 段
+      拆小来掩盖；修复后 `initialize_pipeline_and_bind_group` 日志 MUST 带
+      `kgp=true`，首幅 kitty 帧 MUST NOT 再包含管线编译
+- **AND** 复核判据 MUST 是同一设备的新日志：首幅 kitty 图像帧不再出现
+      `SLOW_RENDER_INNER`／`SLOW_FRAME`，或 `draw` 段只剩图像查询与上传的
+      毫秒级成本；模拟器（x86_64）上 `KittyGraphicsOverlayTest` 的复核日志为
+      `ensure_kgp_pipeline: created pipeline format=Rgba8Unorm elapsed=3.807ms`
+      与 `initialize_pipeline_and_bind_group: ... kgp=true`，首幅图像无 `SLOW_*`
+
+#### Scenario: 输入法弹出时的循环窗口长尾
+
+- **WHEN** 15:04:32.358 的 `I/Runtime` 循环窗口出现 `max=209.213ms`，同期
+      `frame timing window` 的 `max=11.331ms`、`pre_max=0.012ms`，且前后有
+      `InsetsController` 的 inset 变更
+- **THEN** MUST 归因为输入法弹出/收起造成的 vsync 间隔长尾（循环在等下一帧），
+      MUST NOT 记为应用渲染工作慢帧；`SLOW_LOOP` 的判据是工作段
+      （`pre`＋`render`）超阈值，不是 vsync 间隔，故该窗口没有 `SLOW_LOOP`
+      是正确行为
+- **AND** MUST NOT 为压低该长尾而提高 `SLOW_LOOP` 阈值或过滤 `Runtime` 日志
+
+#### Scenario: 驱动、框架与厂商告警的逐类计数
+
+- **WHEN** 逐条核对 139 条 W/E 的 tag 与载荷
+- **THEN** `E/mali_gralloc` 40 条（`Requested R8 format` 20 与
+      `Unrecognized ... format 0x38` 20）MUST 归因为 5 次
+      `attach_surface: configured` 各 4 组 R8 能力探测，应用无 API 可关；
+      `W/wgpu_core::instance` 2 条 MUST 归因为一次适配器创建的如实上报
+- **AND** `W/RemoteInputConnectionImpl` 6 条 MUST 归因为输入法在失活连接上请求
+      光标锚点（见「输入法在失活连接上请求光标监视」），`W/Parcel` 2 条 MUST
+      归因为平台编组路径（见「平台编组路径上的 `Expecting binder but got null!`」），
+      两者 MUST NOT 记为应用侧缺陷
+- **AND** `E/Typeface` 1、`W/ziparchive` 4、`W/libc` 4 与 `W/FeatureOpt` 2
+      MUST 归因为厂商系统组件（字体资源缓存、缺失的 `*.dm`、厂商属性读取、
+      `zte_foldable`），不是应用写入的条目
+- **AND** `E/com.termux Not starting debugger ...` 1 条 MUST 归因为 debug 构建
+      无法装载 jdwp，release 构建不复现，MUST NOT 由应用修代码
+
+#### Scenario: 用户命令与测试基础设施的 SELinux 审计
+
+- **WHEN** 逐条核对 shell 与测试线程的 `avc: granted/denied` 条目
+- **THEN** `W/fish` 31、`W/login` 10、`W/file` 7、`W/coreutils` 3、`W/nix` 2、
+      `W/clear` 2、`W/bash` 1 与 `W/DefaultDispatch` 中的 6 条 MUST 归因为用户
+      输入命令经 SELinux 审计的结果（`granted` 为绝大多数，`denied` 来自
+      `/proc/modules`、`/proc/bus/pci/devices` 与 `/proc/partitions` 的常规访问），
+      MUST NOT 由应用吞掉
+- **AND** `W/tokio-rt-worker` 6 条 MUST 归因为 `nix`/`file` 等 Rust 命令的
+      Tokio 工作线程读取 `/proc/partitions` 与 tmpfs 路径，不是应用的原生线程
+- **AND** `W/pool-13-thread-` 6 条 MUST 归因为测试运行期的 Java 线程池对
+      `media_rw_data_file` 上的 `000000000_999999.f` 做 `relabelfrom` 被 SELinux
+      拒绝；生产代码没有 `Executors` 线程池，`TerminalDocumentsProvider` 的根是
+      `filesDir/home`（`app_data_file`），`StorageAccessInstrumentedTest` 只写
+      `storage-probe.txt`，故 MUST NOT 记为生产缺陷；若在非测试启动中出现，
+      MUST 按测试依赖排查，MUST NOT 通过过滤器消除
+- **AND** `W/DefaultDispatch` 中 1 条 15:03:14 的 `theme_prop` 读取来自
+      pid 16302（非本应用当前 pid 16692）的厂商/框架线程，MUST NOT 归到应用
+
+#### Scenario: 应用侧稳定性
+
+- **WHEN** 逐条检查 `E`/`W`/`F` 与原生诊断
+- **THEN** 应用代码 MUST NOT 出现 panic、`device lost`、`ERROR_SURFACE_LOST_KHR`、
+      `surface invalidated`、`readCoverFrame`；F 为 0，5 次 `attach_surface:
+      configured` 均完成并呈现首帧
+- **AND** 除首幅 kitty 图像的 1 组慢帧外，`I/Runtime` 的 60 帧窗口 `render` 段
+      MUST 保持在亚毫秒到 11.3ms；MUST NOT 把 15:04:32 的 209ms vsync 长尾
+      或首幅图像的 33ms 一次性代价写成「持续渲染回归」
