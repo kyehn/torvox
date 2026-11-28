@@ -795,9 +795,14 @@ fn repack_kitty_atlas(
     cell_height: f32,
     uploaded_generation: u64,
 ) {
+    let max_side = render_state.renderer.max_texture_side();
     render_state.kitty_instances = if let Some((atlas, atlas_width, atlas_height, instances)) =
-        crate::render::kitty::pack_and_build(&render_state.kitty_frames, cell_width, cell_height)
-    {
+        crate::render::kitty::pack_and_build(
+            &render_state.kitty_frames,
+            cell_width,
+            cell_height,
+            max_side,
+        ) {
         // 图集被拒（超设备上限、长度不符、尺寸溢出）时纹理为空，而留着按旧图集
         // 算好的实例会让 `kgp_present` 恒真：绑定组恒 `None` 图像永不出现，
         // 部分帧增量渲染却被永久关掉，且每帧都因尺寸漂移重打包一次。

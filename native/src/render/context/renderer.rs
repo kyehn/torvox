@@ -689,6 +689,14 @@ impl Renderer {
         }
     }
 
+    /// 设备可创建的纹理边长上限（`max_texture_dimension_2d`）。
+    ///
+    /// 图集布局须以此为判据之一：超限的布局 GPU 装不下，只能整张丢弃。
+    /// 调用方据此在**布局阶段**就判掉，复用路径便不会逐帧重试打包。
+    pub fn max_texture_side(&self) -> u32 {
+        self.device.limits().max_texture_dimension_2d
+    }
+
     /// 装载 KGP 图集。返回是否装载成功——**拒绝也必须让调用方知道**：拒绝后纹理为空，
     /// 若调用方仍留着按旧图集算好的实例，非空实例会让部分帧增量渲染被永久关掉
     /// （`kgp_present` 恒真而绑定组恒 `None`），且每帧都因「尺寸漂移」重打包一次。

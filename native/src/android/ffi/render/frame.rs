@@ -632,7 +632,10 @@ pub(super) fn render_new_frame(
                     kitty_generation,
                 );
             } else if let Some((atlas_width, atlas_height, entries)) =
-                crate::render::kitty::layout_entries(&render_state.kitty_frames)
+                crate::render::kitty::layout_entries(
+                    &render_state.kitty_frames,
+                    render_state.renderer.max_texture_side(),
+                )
             {
                 // 同图集复用：仅重建实例。防御已上传图集尺寸漂移则全量重传。
                 let (uploaded_width, uploaded_height) = (
@@ -839,21 +842,24 @@ pub(super) fn render_idle_frame(session_id: u64) -> Result<(jint, RenderTiming),
             > f32::EPSILON
             || (idle_cell_height - render_state.kitty_cell_height).abs() > f32::EPSILON;
         if idle_cell_changed {
-            let rebuilt = crate::render::kitty::layout_entries(&render_state.kitty_frames)
-                .filter(|(layout_width, layout_height, _)| {
-                    *layout_width == render_state.renderer.kgp_atlas_width
-                        && *layout_height == render_state.renderer.kgp_atlas_height
-                })
-                .map(|(layout_width, layout_height, entries)| {
-                    crate::render::kitty::build_kitty_instances(
-                        &render_state.kitty_frames,
-                        layout_width,
-                        layout_height,
-                        &entries,
-                        idle_cell_width,
-                        idle_cell_height,
-                    )
-                });
+            let rebuilt = crate::render::kitty::layout_entries(
+                &render_state.kitty_frames,
+                render_state.renderer.max_texture_side(),
+            )
+            .filter(|(layout_width, layout_height, _)| {
+                *layout_width == render_state.renderer.kgp_atlas_width
+                    && *layout_height == render_state.renderer.kgp_atlas_height
+            })
+            .map(|(layout_width, layout_height, entries)| {
+                crate::render::kitty::build_kitty_instances(
+                    &render_state.kitty_frames,
+                    layout_width,
+                    layout_height,
+                    &entries,
+                    idle_cell_width,
+                    idle_cell_height,
+                )
+            });
             if let Some(instances) = rebuilt {
                 render_state.kitty_instances = instances;
             }

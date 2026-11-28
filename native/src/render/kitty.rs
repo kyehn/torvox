@@ -24,17 +24,47 @@ pub(crate) struct AtlasEntry {
 /// 为时已晚：分配失败会让进程 abort，且没有任何日志。故预算必须在分配**之前**。
 const MAX_ATLAS_BYTES: usize = crate::terminal::ghostty_terminal::KGP_STORAGE_LIMIT as usize;
 
-/// 条带布局：各有效放置的钳制源矩形与图集偏移（与 frames 等长，无效帧占位零矩形）。
-/// 单个无效帧被跳过而非拖垮整张图集；无有效帧时返回 None。
-struct StripLayout {
+/// 图集布局：图集尺寸与条目表。
+///
+/// 条目表与 frames 等长：有效放置为图集内偏移，无效放置为 None。
+struct AtlasLayout {
     width: u32,
     height: u32,
-    /// 与 frames 等长：有效帧为图集偏移，无效帧为 None。
     entries: Vec<Option<AtlasEntry>>,
+}
+
+/// 条带布局：各有效放置的钳制源矩形与图集偏移。
+/// 单个无效帧被跳过而非拖垮整张图集；无有效帧时返回 None。
+struct StripLayout {
+    layout: AtlasLayout,
     /// 与 frames 等长：有效帧为钳制源矩形，无效帧为零矩形。
     clamped: Vec<(u32, u32, u32, u32)>,
 }
 
+/// 图集方案：像素来源 + 布局。
+///
+/// 打包路径与复用路径共用同一份方案，故二者的判据永不分叉。
+enum AtlasPlan<'a> {
+    /// 单图整幅：图集即该帧的像素本身，借用即可（零分配）。
+    Borrowed {
+        pixels: &'a [u8],
+        layout: AtlasLayout,
+    },
+    /// 条带布局：各源矩形并排铺开，需新分配图集缓冲。
+    Strip(StripLayout),
+}
+
+impl AtlasPlan<'_> {
+    /// 图集布局（尺寸 + 条目表）。
+    fn layout(&self) -> &AtlasLayout {
+        match self {
+            AtlasPlan::Borrowed { layout, .. } => layout,
+            AtlasPlan::Strip(strip) => &strip.layout,
+        }
+    }
+}
+
+/// 条带布局：各有效放置的钳制源矩形与图集偏移（与 frames 等长，无效帧占位零矩形）。
 fn layout_strip(frames: &[KittyPlacementFrame]) -> Option<StripLayout> {
     let mut width: u32 = 0;
     let mut height: u32 = 0;
@@ -67,41 +97,20 @@ fn layout_strip(frames: &[KittyPlacementFrame]) -> Option<StripLayout> {
         return None;
     }
     Some(StripLayout {
-        width,
-        height,
-        entries,
+        layout: AtlasLayout {
+            width,
+            height,
+            entries,
+        },
         clamped,
     })
 }
 
-/// 打包产物：（图集 RGBA，宽，高，与 frames 等长的条目表）。
+/// 计算图集方案（打包路径与复用路径共用）。
 ///
-/// 单图全图时图集即该帧的像素本身，零拷贝借用即可；横条带布局才需新分配。
-/// 调用方只读（见 [`pack_and_build`] 与 `repack_kitty_atlas`），故借用可行。
-type PackedAtlas<'a> = (Cow<'a, [u8]>, u32, u32, Vec<Option<AtlasEntry>>);
-
-/// 图集字节数：跨步 `width * 4` 乘 `height`，受检且不超过 [`MAX_ATLAS_BYTES`]。
-///
-/// [`pack_atlas`] 与 [`layout_entries`] 必须共用同一判据：一方认为可打包、另一方
-/// 拒绝时，复用路径会拿这份布局与已上传图集（永远是 0）比对，于是每帧重试打包、
-/// 每帧刷一条警告，图像却永远不会出现。
-fn atlas_byte_size(width: u32, height: u32) -> Option<usize> {
-    let stride = width.checked_mul(4)?;
-    let bytes = (stride as usize).checked_mul(height as usize)?;
-    (bytes <= MAX_ATLAS_BYTES).then_some(bytes)
-}
-
-/// 组装图集：源矩形钳制到图像边界；无有效帧返回 None（调用方清空实例与图集）。
-/// 输入总量由上游存储上限约束（`KGP_STORAGE_LIMIT`=64MiB，见 `types.rs`）；
-/// 横条带布局存在矩形空洞，故输出像素数可大于输入面积和——图集字节数用受检算术
-/// 计算，超出预算（[`MAX_ATLAS_BYTES`]）时明确记日志后放弃该图集，绝不先分配。
-fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
-    if frames.is_empty() {
-        return None;
-    }
-    // 单图且全图显示：图集与帧像素同一份，借用即可（KGP 上限 64MiB，克隆即翻倍峰值）。
-    if frames.len() == 1 {
-        let frame = &frames[0];
+/// 单图整幅时图集即该帧像素，零拷贝借用即可；其余情形为条带布局。
+fn plan_atlas(frames: &[KittyPlacementFrame]) -> Option<AtlasPlan<'_>> {
+    if let [frame] = frames {
         let (clamped_x, clamped_y, clamped_width, clamped_height) =
             clamp_source(frame, frame.image_width, frame.image_height);
         if clamped_width == 0 || clamped_height == 0 {
@@ -111,61 +120,127 @@ fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas<'_>> {
             && clamped_y == 0
             && clamped_width == frame.image_width
             && clamped_height == frame.image_height
-            // 预算判据与条带路径、复用路径同源（见 [`atlas_byte_size`]）：
-            // 上游按像素字节记账，RGB 图像解码成 RGBA 后膨胀 4/3，故单图也可能
-            // 超预算。借用分支若绕过预算，就会「打包放行、复用拒绝」——图像先
-            // 出现，放置集合一变又消失。超限时落到条带路径，由它记日志后拒绝。
-            && atlas_byte_size(frame.image_width, frame.image_height).is_some()
         {
-            return Some((
-                Cow::Borrowed(frame.image_rgba.as_ref()),
-                frame.image_width,
-                frame.image_height,
-                vec![Some(AtlasEntry {
-                    atlas_x: 0,
-                    atlas_y: 0,
-                })],
-            ));
+            return Some(AtlasPlan::Borrowed {
+                pixels: frame.image_rgba.as_ref(),
+                layout: AtlasLayout {
+                    width: frame.image_width,
+                    height: frame.image_height,
+                    entries: vec![Some(AtlasEntry {
+                        atlas_x: 0,
+                        atlas_y: 0,
+                    })],
+                },
+            });
         }
     }
-    let layout = layout_strip(frames)?;
+    Some(AtlasPlan::Strip(layout_strip(frames)?))
+}
+
+/// 打包产物：（图集 RGBA，宽，高，与 frames 等长的条目表）。
+///
+/// 单图全图时图集即该帧的像素本身，零拷贝借用即可；横条带布局才需新分配。
+/// 调用方只读（见 [`pack_and_build`] 与 `repack_kitty_atlas`），故借用可行。
+type PackedAtlas<'a> = (Cow<'a, [u8]>, u32, u32, Vec<Option<AtlasEntry>>);
+
+/// 图集被拒的原因（供打包路径记可归因的日志）。
+enum AtlasRejection {
+    /// 尺寸超出设备纹理边长上限：这张纹理 GPU 装不下。
+    DeviceLimit,
+    /// 字节数溢出或超出预算：分配图集缓冲会撑爆内存。
+    Budget,
+}
+
+/// 图集可服务性判定——判据的唯一实现点。
+///
+/// 打包路径与复用路径共用：一方认为可打包、另一方拒绝时，复用路径会拿这份布局
+/// 与已上传图集（永远是 0）比对，于是每帧重试打包、每帧刷一条警告，图像却永远
+/// 不会出现。故尺寸与预算两项判据都只有这一处实现。
+///
+/// 返回 `Ok(字节数)`：字节数即图集缓冲长度（跨步 `width * 4` 乘 `height`，受检
+/// 算术，溢出即拒绝）。复用路径只判成败、不取字节数。
+fn check_atlas(plan: &AtlasPlan<'_>, max_side: u32) -> Result<usize, AtlasRejection> {
+    let layout = plan.layout();
+    // 设备上限：纹理装不下时 GPU 侧只会逐帧报校验错误。先在此判掉，复用路径便
+    // 不会拿这份布局与已上传图集（永远是 0）比对后逐帧重试打包。
+    if layout.width > max_side || layout.height > max_side {
+        return Err(AtlasRejection::DeviceLimit);
+    }
+    let stride = layout.width.checked_mul(4).ok_or(AtlasRejection::Budget)?;
+    let bytes = (stride as usize)
+        .checked_mul(layout.height as usize)
+        .ok_or(AtlasRejection::Budget)?;
+    if bytes > MAX_ATLAS_BYTES {
+        return Err(AtlasRejection::Budget);
+    }
+    Ok(bytes)
+}
+
+/// 组装图集：源矩形钳制到图像边界；无有效帧返回 None（调用方清空实例与图集）。
+/// 输入总量由上游存储上限约束（`KGP_STORAGE_LIMIT`=64MiB，见 `types.rs`）；
+/// 横条带布局存在矩形空洞，故输出像素数可大于输入面积和——图集字节数用受检算术
+/// 计算，超出预算（[`MAX_ATLAS_BYTES`]）时明确记日志后放弃该图集，绝不先分配。
+fn pack_atlas(frames: &[KittyPlacementFrame], max_side: u32) -> Option<PackedAtlas<'_>> {
+    let plan = plan_atlas(frames)?;
     // 预算检查必须在分配**之前**：条带布局下同一幅图像被放置 N 次就会在图集里
     // 铺 N 份，PTY 控住图像尺寸与放置数量即可让图集达到数十 GB。分配失败会让
     // 进程 abort（无日志），且这份缓冲注定传不上 GPU。
-    let Some(atlas_len) = atlas_byte_size(layout.width, layout.height) else {
-        log::warn!(
-            "kitty: atlas {}x{} overflows or exceeds the {MAX_ATLAS_BYTES}-byte budget; dropping image",
-            layout.width,
-            layout.height
-        );
-        return None;
+    let bytes = match check_atlas(&plan, max_side) {
+        Ok(bytes) => bytes,
+        Err(rejection) => {
+            let layout = plan.layout();
+            match rejection {
+                AtlasRejection::DeviceLimit => log::warn!(
+                    "kitty: atlas {}x{} exceeds the device texture limit {max_side}; dropping image",
+                    layout.width,
+                    layout.height
+                ),
+                AtlasRejection::Budget => log::warn!(
+                    "kitty: atlas {}x{} overflows or exceeds the {MAX_ATLAS_BYTES}-byte budget; dropping image",
+                    layout.width,
+                    layout.height
+                ),
+            }
+            return None;
+        }
     };
-    let mut atlas = vec![0u8; atlas_len];
-    for (index, frame) in frames.iter().enumerate() {
-        let (Some(entry), (source_x, source_y, source_width, source_height)) =
-            (&layout.entries[index], layout.clamped[index])
-        else {
-            continue;
-        };
-        copy_sub_rect(
-            frame.image_rgba.as_ref(),
-            frame.image_width,
-            &mut atlas,
+    match plan {
+        // 单图整幅：图集与帧像素同一份，借用即可（KGP 上限 64MiB，克隆即翻倍峰值）。
+        AtlasPlan::Borrowed { pixels, layout } => Some((
+            Cow::Borrowed(pixels),
             layout.width,
-            entry.atlas_x,
-            0,
-            source_x,
-            source_y,
-            source_width,
-            source_height,
-        );
+            layout.height,
+            layout.entries,
+        )),
+        AtlasPlan::Strip(strip) => {
+            let AtlasLayout {
+                width,
+                height,
+                entries,
+            } = strip.layout;
+            let mut atlas = vec![0u8; bytes];
+            for (index, frame) in frames.iter().enumerate() {
+                let (Some(entry), (source_x, source_y, source_width, source_height)) =
+                    (&entries[index], strip.clamped[index])
+                else {
+                    continue;
+                };
+                copy_sub_rect(
+                    frame.image_rgba.as_ref(),
+                    frame.image_width,
+                    &mut atlas,
+                    width,
+                    entry.atlas_x,
+                    0,
+                    source_x,
+                    source_y,
+                    source_width,
+                    source_height,
+                );
+            }
+            Some((Cow::Owned(atlas), width, height, entries))
+        }
     }
-    Some((
-        Cow::Owned(atlas),
-        layout.width,
-        layout.height,
-        layout.entries,
-    ))
 }
 
 /// 源矩形钳制到图像边界（防御上游行为漂移，避免越界 panic）。
@@ -274,12 +349,21 @@ pub(crate) fn build_kitty_instances(
 
 /// 无像素拷贝的布局计算（图集未变时滚动/缩放只重建实例）。
 /// 返回（图集宽，高，与 frames 等长的条目表）。
-/// 与 [`pack_atlas`] 共用预算判据：无法打包的布局也不得进入复用路径。
+/// 与 [`pack_atlas`] 共用判据（[`check_atlas`]）：无法打包的布局也不得进入复用路径。
 pub(crate) fn layout_entries(
     frames: &[KittyPlacementFrame],
+    max_side: u32,
 ) -> Option<(u32, u32, Vec<Option<AtlasEntry>>)> {
-    let layout = layout_strip(frames)?;
-    atlas_byte_size(layout.width, layout.height)?;
+    let plan = plan_atlas(frames)?;
+    // 复用路径只判成败、不记拒绝日志：逐帧重试时它会把一条诊断刷成日志洪水
+    // （打包路径已经记过同一条）。
+    if check_atlas(&plan, max_side).is_err() {
+        return None;
+    }
+    let layout = match plan {
+        AtlasPlan::Borrowed { layout, .. } => layout,
+        AtlasPlan::Strip(strip) => strip.layout,
+    };
     Some((layout.width, layout.height, layout.entries))
 }
 
@@ -293,8 +377,9 @@ pub fn pack_and_build(
     frames: &[KittyPlacementFrame],
     grid_cell_width: f32,
     grid_cell_height: f32,
+    max_side: u32,
 ) -> Option<AtlasInstances<'_>> {
-    let (atlas, atlas_width, atlas_height, entries) = pack_atlas(frames)?;
+    let (atlas, atlas_width, atlas_height, entries) = pack_atlas(frames, max_side)?;
     let instances = build_kitty_instances(
         frames,
         atlas_width,
@@ -310,6 +395,9 @@ pub fn pack_and_build(
 mod tests {
     use super::*;
     use crate::terminal::ghostty_terminal::KittyPlacementFrame;
+
+    /// 设备纹理边长上限（Vulkan 保证的 `maxTextureDimension2D` 最小值）。
+    const TEST_MAX_SIDE: u32 = 16384;
 
     fn test_frame() -> KittyPlacementFrame {
         KittyPlacementFrame {
@@ -357,7 +445,7 @@ mod tests {
     #[test]
     fn single_full_image_packs_without_copy_change() {
         let frames = vec![test_frame()];
-        let (atlas, width, height, entries) = pack_atlas(&frames).expect("atlas");
+        let (atlas, width, height, entries) = pack_atlas(&frames, TEST_MAX_SIDE).expect("atlas");
         assert_eq!((width, height), (1, 1));
         assert_eq!(atlas, vec![255, 0, 0, 255]);
         assert_eq!(entries.len(), 1);
@@ -367,7 +455,7 @@ mod tests {
     #[test]
     fn instances_map_viewport_grid_to_pixels_with_normalized_uv() {
         let frames = vec![test_frame()];
-        let (atlas, width, height, entries) = pack_atlas(&frames).expect("atlas");
+        let (atlas, width, height, entries) = pack_atlas(&frames, TEST_MAX_SIDE).expect("atlas");
         let instances = build_kitty_instances(&frames, width, height, &entries, 8.0, 16.0);
         assert_eq!(instances.len(), 1);
         assert_eq!(instances[0].quad_origin, [16.0, 48.0]);
@@ -379,8 +467,8 @@ mod tests {
 
     #[test]
     fn empty_frames_yield_no_atlas() {
-        assert!(pack_atlas(&[]).is_none());
-        assert!(layout_entries(&[]).is_none());
+        assert!(pack_atlas(&[], TEST_MAX_SIDE).is_none());
+        assert!(layout_entries(&[], TEST_MAX_SIDE).is_none());
     }
 
     /// 条目在图集里紧挨着排，UV 覆盖的正是条目自己的纹素。
@@ -392,7 +480,7 @@ mod tests {
     #[test]
     fn strip_entries_are_packed_side_by_side() {
         let frames = vec![test_frame(), green_frame_at(5, 0)];
-        let (atlas, width, height, entries) = pack_atlas(&frames).expect("atlas");
+        let (atlas, width, height, entries) = pack_atlas(&frames, TEST_MAX_SIDE).expect("atlas");
         // 1 像素的第一张 + 2 像素的第二张，无沟槽。
         assert_eq!((width, height), (3, 2));
         assert_eq!(entries[1].as_ref().map(|entry| entry.atlas_x), Some(1));
@@ -419,7 +507,8 @@ mod tests {
         bad.source_width = 99;
         bad.source_x = 10;
         let frames = vec![bad, green_frame_at(0, 0)];
-        let (atlas, width, height, entries) = pack_atlas(&frames).expect("atlas survives");
+        let (atlas, width, height, entries) =
+            pack_atlas(&frames, TEST_MAX_SIDE).expect("atlas survives");
         assert_eq!((width, height), (2, 2), "无效帧不占图集空间");
         assert!(entries[0].is_none());
         let instances = build_kitty_instances(&frames, width, height, &entries, 8.0, 16.0);
@@ -435,20 +524,56 @@ mod tests {
     #[test]
     fn oversized_atlas_is_rejected_before_allocation() {
         let mut huge = test_frame();
-        huge.image_width = 9_000_000;
-        huge.image_height = 1;
-        huge.source_width = 9_000_000;
-        huge.source_height = 1;
+        // 尺寸刻意留在设备纹理上限内：这样被拒的原因只有字节预算，判别力不与
+        // 设备上限那条判据混在一起。
+        huge.image_width = 5_000;
+        huge.image_height = 2_000;
+        huge.source_width = 5_000;
+        huge.source_height = 2_000;
         // 同一幅图像放两处：条带布局把它的源矩形并排铺开，图集宽度翻倍。
         let frames = vec![huge.clone(), huge];
         assert!(
-            pack_atlas(&frames).is_none(),
+            pack_atlas(&frames, TEST_MAX_SIDE).is_none(),
             "超预算的图集必须在分配像素缓冲之前被拒绝"
         );
         // 复用路径必须与打包同判据：放行则会每帧与已上传图集（0）比对失败而重试打包。
         assert!(
-            layout_entries(&frames).is_none(),
+            layout_entries(&frames, TEST_MAX_SIDE).is_none(),
             "超预算布局不得进入复用路径"
+        );
+    }
+
+    /// 设备装不下的图集必须与打包路径同判据地被拒绝。
+    ///
+    /// 判别力：图集宽度超出设备纹理上限时 GPU 侧只会逐帧报校验错误。若复用路径
+    /// 仍放行这份布局，它会拿它与已上传图集（永远是 0）比对失败，于是每帧重试
+    /// 打包、每帧刷一条警告，图像却永远不会出现。
+    #[test]
+    fn atlas_beyond_device_limit_is_rejected_by_both_paths() {
+        let mut wide = test_frame();
+        wide.image_width = 20_000;
+        wide.image_height = 1;
+        wide.source_width = 20_000;
+        wide.source_height = 1;
+        // 单图整幅（零拷贝借用）与条带布局都超设备上限：字节数却只有 160KB，
+        // 远在预算内，故被拒的原因只有设备上限。
+        let single = vec![wide.clone()];
+        assert!(
+            pack_atlas(&single, TEST_MAX_SIDE).is_none(),
+            "超设备上限的单图必须被拒绝"
+        );
+        assert!(
+            layout_entries(&single, TEST_MAX_SIDE).is_none(),
+            "超设备上限的单图不得进入复用路径"
+        );
+        let pair = vec![wide.clone(), wide];
+        assert!(
+            pack_atlas(&pair, TEST_MAX_SIDE).is_none(),
+            "超设备上限的条带图集必须被拒绝"
+        );
+        assert!(
+            layout_entries(&pair, TEST_MAX_SIDE).is_none(),
+            "超设备上限的条带布局不得进入复用路径"
         );
     }
 
@@ -460,17 +585,18 @@ mod tests {
     #[test]
     fn oversized_single_image_is_rejected_by_both_paths() {
         let mut huge = test_frame();
-        huge.image_width = 9_000_000;
-        huge.image_height = 2;
-        huge.source_width = 9_000_000;
-        huge.source_height = 2;
+        // 尺寸刻意留在设备纹理上限内：这样被拒的原因只有字节预算。
+        huge.image_width = 8_192;
+        huge.image_height = 2_050;
+        huge.source_width = 8_192;
+        huge.source_height = 2_050;
         let frames = vec![huge];
         assert!(
-            pack_atlas(&frames).is_none(),
+            pack_atlas(&frames, TEST_MAX_SIDE).is_none(),
             "超预算的单图必须与条带路径同判据：拒绝"
         );
         assert!(
-            layout_entries(&frames).is_none(),
+            layout_entries(&frames, TEST_MAX_SIDE).is_none(),
             "超预算的单图不得进入复用路径"
         );
     }
@@ -478,7 +604,8 @@ mod tests {
     #[test]
     fn negative_viewport_row_is_kept_for_gpu_clipping() {
         let frames = vec![green_frame_at(0, -2)];
-        let (atlas_width, atlas_height, entries) = layout_entries(&frames).expect("layout");
+        let (atlas_width, atlas_height, entries) =
+            layout_entries(&frames, TEST_MAX_SIDE).expect("layout");
         let instances =
             build_kitty_instances(&frames, atlas_width, atlas_height, &entries, 8.0, 16.0);
         assert_eq!(instances.len(), 1);

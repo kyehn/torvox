@@ -949,8 +949,9 @@ fn kitty_atlas_entries_do_not_bleed_into_each_other() {
         kitty_frame(0, 1, 3, 1, 3, [255, 0, 0, 255]),
         kitty_frame(2, 2, 2, 4, 4, [0, 255, 0, 255]),
     ];
+    let max_side = context.max_texture_side();
     let (atlas, atlas_width, atlas_height, instances) =
-        crate::render::kitty::pack_and_build(&frames, 8.0, 8.0).expect("atlas");
+        crate::render::kitty::pack_and_build(&frames, 8.0, 8.0, max_side).expect("atlas");
     assert!(
         context.set_kgp_atlas(&atlas, atlas_width, atlas_height),
         "图集必须装载成功"

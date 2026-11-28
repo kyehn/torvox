@@ -230,6 +230,20 @@ if __name__ == "__main__":
   语言一致应用」，本仓不得为凑行数阈值拆分生产源码文件。该工具扫不到 Kotlin 源码，只能
   作为 Rust 侧的门禁。2026-11-27 复算仍为 score 100、Healthy、0 errors、0 warnings、
   `supportedFiles` 116、`unsupportedFiles` 0。
+- clippy pedantic（一次性评估，非门禁；2026-11-27 复算）：`cargo clippy --all-targets --
+  -W clippy::pedantic` 给出 605 条告警，分类为数值转换 425 条（`cast_sign_loss` 144、
+  `cast_possible_truncation` 118、`cast_precision_loss` 114、`cast_possible_wrap` 49）、
+  文档类 52 条（`missing_errors_doc` 32、`missing_panics_doc` 20）、`assert_is_empty` 39、
+  `too_many_lines` 20、`float_cmp` 18、`must_use_candidate` 12、`needless_pass_by_value` 11、
+  `doc_markdown` 7、`struct_excessive_bools` 3、`similar_names` 2、
+  `redundant_closure_for_method_calls` 2。判定：数值转换集中在渲染与颜色数学（源值域由
+  上游协议与网格尺寸限定），文档类与行数类是 pedantic 的接口口味，而本仓门禁为默认
+  clippy（当前仅 1 条既存告警）；`needless_pass_by_value` 的 11 处全在 FFI/回调与值语义
+  边界（`android/ffi.rs:905`、`android/ffi/input.rs:484`、`android/ffi/render/clipboard.rs:197`、
+  `android/ffi/session.rs:69`–`72`、`android/ffi/wake.rs:154`、`render/font/pipeline.rs` 的
+  `OverlayQuad` 形参、`terminal/ghostty_terminal/internal/commands.rs:406`、
+  `internal/run.rs:29`），按值接收省去一次拷贝或克隆，改成引用只增间接层，故不改。
+  复算时不必逐条重判，只需确认默认 clippy 无新增告警。
 - Rust 生产源码形状：剔除测试专用文件（`*_tests.rs`、`tests.rs`、`test_helpers.rs`、
   `mock_pty.rs` 与 `tests/` 目录）、文件内 `#[cfg(test)]` 项、注释与字符串字面量后，
   `unwrap()` 0 处、`expect(` 23 处、`panic!` 5 处、`unsafe` 132 处（unsafe block 45、
