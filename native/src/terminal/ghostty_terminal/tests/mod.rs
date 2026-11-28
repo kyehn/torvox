@@ -217,7 +217,7 @@ fn encode_paste_text(text: &str, bracketed: bool) -> Vec<u8> {
 }
 
 /// 取下一帧 CellData；VT 线程按批推送，轮询到有帧为止（不依赖固定时长）。
-fn next_cell_frame(terminal_under_test: &GhosttyTerminal) -> Vec<CellData> {
+fn next_cell_frame(terminal_under_test: &GhosttyTerminal) -> std::sync::Arc<Vec<CellData>> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         if let Some((cells, _)) = terminal_under_test.receive_cell_data() {

@@ -289,3 +289,19 @@ pub(crate) fn osc52_diagnostics_are_aggregated_per_window() {
         "窗口内丢弃的次数须攒着下次一并交出，不得丢弃"
     );
 }
+
+/// 行缓存必须与发布帧共用同一块内存。
+///
+/// 整网格约 184KB（24×80），缓存另存一份等于每帧多一次整网格分配与拷贝；
+/// 内容断言看不出拷贝（克隆出来的内容逐字节相同），只有比对内存身份才判得出来。
+#[test]
+pub(crate) fn row_cache_shares_the_published_frame() {
+    let mut cache = RowCache::new();
+    let cell: CellData = bytemuck::Zeroable::zeroed();
+    let frame = Arc::new(vec![cell]);
+    cache.store(&frame, 1);
+    assert!(
+        Arc::ptr_eq(&cache.cells, &frame),
+        "行缓存必须持有与发布帧同一块内存，不得是拷贝"
+    );
+}

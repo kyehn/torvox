@@ -39,7 +39,7 @@ impl super::GhosttyTerminal {
         default_background: [f32; 4],
         mirrors: &ScreenMirrors<'_>,
         extractors: &mut RenderExtractors<'alloc>,
-    ) -> Option<(Vec<CellData>, CursorInfo)> {
+    ) -> Option<(Arc<Vec<CellData>>, CursorInfo)> {
         // VT 线程每推一帧就同步这个无锁的备用屏镜像。Android 输入路径在每次
         // 触摸滚动时无锁读取它，以决定手势是否转发给远端
         // （Haven 研究：altScreen 滚轮消费）。
@@ -97,7 +97,7 @@ impl super::GhosttyTerminal {
         let (mut previous_cells, mut previous_ranges) = if reusable_rows {
             row_cache.take_previous()
         } else {
-            (Vec::new(), Vec::new())
+            (Arc::new(Vec::new()), Vec::new())
         };
         // 纯视口滚动：上一帧的每一行内容整体上下移动，平移缓存即可复用，
         // 只需逐格抽取露出的 |delta| 行。没有这一步时每次滚轮事件都会
@@ -106,12 +106,11 @@ impl super::GhosttyTerminal {
             && let Some(delta) = scroll_shift
             && delta != 0
         {
-            Some(RowCache::shift_previous(
-                &mut previous_cells,
-                &mut previous_ranges,
-                delta,
-                rows,
-            ))
+            let (shifted_cells, shifted_ranges, reusable) =
+                RowCache::shift_previous(&previous_cells, &previous_ranges, delta, rows);
+            previous_cells = Arc::new(shifted_cells);
+            previous_ranges = shifted_ranges;
+            Some(reusable)
         } else {
             None
         };
@@ -336,12 +335,10 @@ impl super::GhosttyTerminal {
         // · 缓存按 `build_row_ranges` 的行边界划分，行数与内容不符即无法复用；
         // · 上游要求整帧完成后才可 `clean`，提前标记会让下一帧误判未读出的行为干净。
         //
-        // 一次整网格拷贝（约 150KB/24×80）换下一帧少走 22 行的逐单元 FFI 往返
-        // （实测同一 `RenderState` 跨帧复用时，改一行只判脏该行与末行）：
-        // 净收益为正，故此处不做「全干净帧免拷贝」之类的特化——该路径本就
-        // 很少进入（`build_cell_data` 由 `batch_dirty`/`cell_data_dirty` 双重守卫），
-        // 而特化会引入一条需要单独证明正确的相等性判断。
-        row_cache.store(&data, rows);
+        // 缓存只存一份共享引用（不拷贝整网格）：下一帧据此少走 22 行的逐单元 FFI
+        // 往返（实测同一 `RenderState` 跨帧复用时，改一行只判脏该行与末行）。
+        let frame = Arc::new(data);
+        row_cache.store(&frame, rows);
         if let Err(clean_error) = snapshot.clean() {
             log::warn!("build_cell_data: snapshot clean failed: {clean_error}");
         }
@@ -353,7 +350,7 @@ impl super::GhosttyTerminal {
         let (cursor_row, cursor_col, cursor_at_wide_tail, cursor_visible) =
             cursor_in_viewport(&snapshot);
         Some((
-            data,
+            frame,
             CursorInfo {
                 row: cursor_row,
                 col: cursor_col,
@@ -746,7 +743,7 @@ impl super::GhosttyTerminal {
         terminal: &libghostty_vt::terminal::Terminal<'alloc, '_>,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
-        last_push: &mut Option<(Vec<CellData>, CursorInfo)>,
+        last_push: &mut Option<(Arc<Vec<CellData>>, CursorInfo)>,
         extractors: &mut RenderExtractors<'alloc>,
     ) {
         Self::push_cell_data(
@@ -772,10 +769,10 @@ impl super::GhosttyTerminal {
         terminal: &Terminal<'alloc, '_>,
         default_foreground: [f32; 4],
         default_background: [f32; 4],
-        last_push: &mut Option<(Vec<CellData>, CursorInfo)>,
+        last_push: &mut Option<(Arc<Vec<CellData>>, CursorInfo)>,
         extractors: &mut RenderExtractors<'alloc>,
     ) {
-        if let Some(data) = Self::build_cell_data(
+        if let Some((frame, cursor)) = Self::build_cell_data(
             terminal,
             default_foreground,
             default_background,
@@ -789,9 +786,9 @@ impl super::GhosttyTerminal {
             // 全量渲染开销相比可忽略。
             let unchanged = match last_push {
                 Some((last_cells, last_cursor)) => {
-                    *last_cursor == data.1
-                        && bytemuck::cast_slice::<CellData, u8>(last_cells)
-                            == bytemuck::cast_slice::<CellData, u8>(&data.0)
+                    *last_cursor == cursor
+                        && bytemuck::cast_slice::<CellData, u8>(last_cells.as_slice())
+                            == bytemuck::cast_slice::<CellData, u8>(frame.as_slice())
                 }
                 None => false,
             };
@@ -799,8 +796,12 @@ impl super::GhosttyTerminal {
                 return;
             }
             // 邮箱只留最新一帧：写入即覆盖旧帧，最新的画面不会被丢掉。
-            cell_data_mailbox.store((data.0.clone(), data.1));
-            *last_push = Some(data);
+            // 邮箱与去重基线共享同一份网格：整网格约 184KB（24×80），
+            // 克隆一份等于每帧多一次整网格分配与拷贝。
+            #[cfg(test)]
+            cell_data_mailbox.record_published(&frame);
+            cell_data_mailbox.store((Arc::clone(&frame), cursor));
+            *last_push = Some((frame, cursor));
             // 帧已可被取走：叫醒可能正睡在空闲闭锁上的渲染线程。
             if let Some(wake) = frame_wake {
                 wake();

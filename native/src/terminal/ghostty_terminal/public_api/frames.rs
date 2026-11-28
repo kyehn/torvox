@@ -71,7 +71,10 @@ impl GhosttyTerminal {
     }
 
     /// 取走邮箱里的最新一帧：邮箱只保留最新帧，故取到的必是当前画面。
-    pub fn receive_cell_data(&self) -> Option<(Vec<CellData>, CursorInfo)> {
+    ///
+    /// 帧内容以 `Arc` 交付：同一份网格还要留在 VT 线程的行缓存与去重基线里，
+    /// 共享一份比各自克隆一份整网格（约 184KB）便宜得多。
+    pub fn receive_cell_data(&self) -> Option<(Arc<Vec<CellData>>, CursorInfo)> {
         self.cell_data_mailbox.take()
     }
 }

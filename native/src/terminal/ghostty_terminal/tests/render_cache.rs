@@ -1118,3 +1118,26 @@ fn kitty_direct_placement_display_size_follows_cell_geometry() {
         "取源矩形是整幅原图，缩放由显示尺寸承担"
     );
 }
+
+/// 发布到渲染侧的帧必须与 VT 线程构建的那份是同一块内存。
+///
+/// 整网格约 184KB（24×80），发布路径上任何一次整网格克隆都是实打实的分配与
+/// 拷贝；内容断言看不出拷贝（克隆出来的内容逐字节相同），只有比对内存身份
+/// 才判得出来。
+#[test]
+fn published_frame_reaches_the_renderer_without_copying() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"X");
+    terminal_under_test.flush();
+
+    let (cells, _) = terminal_under_test
+        .receive_cell_data()
+        .expect("写后必须收到一帧");
+    let published = terminal_under_test.cell_data_mailbox.published_identity();
+    assert_ne!(published, 0, "VT 线程必须记录已发布帧的身份");
+    assert_eq!(
+        std::sync::Arc::as_ptr(&cells) as usize,
+        published,
+        "渲染侧拿到的必须是 VT 线程发布的那一块内存，不得是克隆副本"
+    );
+}

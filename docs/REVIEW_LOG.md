@@ -2,7 +2,7 @@
 
 ## 范围与依据
 
-- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 625 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（53,615 行）与 `android/app/src/main` 下 115 个 Kotlin 文件（30,381 行）逐个过目。
+- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 625 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（53,692 行）与 `android/app/src/main` 下 115 个 Kotlin 文件（30,381 行）逐个过目。
 - 外部规则：`awesome-skills/code-review-skill` 的 `SKILL.md`、`review-checklist.md`、`code-quality-universal.md`、`common-bugs-checklist.md`、`architecture-review-guide.md`、`performance-review-guide.md`、`security-review-guide.md`、`kotlin.md`、`rust.md`；`android/skills` 的 `android-jni-security`、`jetpack-compose-performance`、`anr-audit-and-fix`、`r8-analyzer`、`edge-to-edge`、`testing-setup`、`agp-9-upgrade`。
 - 本地规则：`docs/specification/` 全部文档，以及 `rust-review`、`rust-best-practices`、`code-review-and-quality`、`compose-expert`、`compose-screens-footguns`、`state-and-background-footguns`、`data-layer-footguns`、`security-and-hardening`。
 - 重点模块：Rust FFI/JNI 边界、会话与 PTY、渲染/Kitty 图集、字体与日志；Kotlin 启动与 ViewModel、渲染监督、Compose UI、设置/DataStore、DocumentsProvider、引导下载与解压、构建与 R8。
@@ -33,12 +33,13 @@
 | 选区手柄 | 快速拖动路径与常规拖动路径各写一份「更新被拖端点状态 + 重定位两侧手柄」 | 收敛为 `applyDragResult`，端点语义不再可能分叉 |
 | JNI | 等待输出与唤醒渲染两处各抄了一份「取注册表读锁 → 查会话 → 克隆唤醒器 → 放锁」 | 收敛为 `session_render_wake`，读锁持有范围与会话已销毁的处置口径只剩一处 |
 | 字体图集 | 驱逐重建与字号/字体变化后的重置各写一份「重建 etagere 分配器 + 位图清零」 | 收敛为 `reset_atlas_storage`；只重建分配器而忘了清位图会让新字形与旧像素叠加 |
+| 终端帧 | 帧网格在行缓存、帧邮箱与渲染侧各存一份整网格拷贝（24×80 约 184KB），每帧多两次「分配 + 拷贝」 | 帧网格改为单一所有权（`Arc` 共享），三者共用一份；分配预算护栏收紧到每帧 2 份整帧缓冲，帧内存身份比对作回归钉；取舍台账第⑨项 |
 
 重复度扫描（`jscpd`，阈值 8 行/80 token）：Rust 0 处克隆；Kotlin 1 处 11 行重复，且为两个设置分区的相同 import 块，不构成逻辑重复。另以更严的阈值（5 行/40 token）复扫一遍，触及生产文件的 34 处命中已逐类判定并留档（Kotlin import 段 14、Android 资源 3、JNI 导出签名 10、转发函数参数表 3、VT 核心参数表 3、wgpu 回读样板 1），其中真重复已收敛为共享实现，判定明细见 `openspec/changes/archive/2026-11-24-code-health-audit/audit.md` 的严格口径一节。
 
 ## 验证
 
-- Rust：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 通过；`cargo test --all-targets` 为 987 + 1 + 2 + 1 个测试全部通过。
+- Rust：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 通过；`cargo test --all-targets` 为 989 + 1 + 2 + 1 个测试全部通过。
 - Android：`nu scripts/build-android-libs.nu x86_64` 后执行 `detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、`testDebugUnitTest`（1172 个单元测试）、benchmark 与 baselineprofile 编译、`assembleRelease`、`analyzeReleaseR8Config`，全部 `BUILD SUCCESSFUL`。
 - 反汇编 release `classes.dex`：69 个可达 JNI 方法全部保留；9 个仅诊断/测试用且 Kotlin 侧无可达调用点的方法随死代码移除，原生侧不存在通过 JNI 反射回调 Kotlin 的路径。
 - 全部修复均已提交并推送到 `origin/main`。

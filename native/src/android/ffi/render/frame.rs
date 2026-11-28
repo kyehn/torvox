@@ -77,7 +77,7 @@ pub(super) enum FrameData {
 /// 成组传递：取帧与出图按同一组数据走，拆成散参数传一遍只会让两处签名各写
 /// 一份字段清单，改一处漏一处。
 pub(super) struct NewFrame {
-    cells: Vec<crate::terminal::ghostty_terminal::CellData>,
+    cells: std::sync::Arc<Vec<crate::terminal::ghostty_terminal::CellData>>,
     cursor_info: crate::terminal::ghostty_terminal::CursorInfo,
     rows: u32,
     cols: u32,
@@ -921,7 +921,7 @@ mod tests {
     #[test]
     fn plain_text_frame_never_releases_the_render_state_lock() {
         let frame = NewFrame {
-            cells: Vec::new(),
+            cells: std::sync::Arc::new(Vec::new()),
             cursor_info: CursorInfo {
                 row: 0,
                 col: 0,

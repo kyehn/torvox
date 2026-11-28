@@ -150,7 +150,7 @@ struct CommandState {
     /// （`SwiftShader` 模拟器上实测 ~5 fps，真实 GPU 上也烧 CPU：
     /// 「20fps 不可接受」）。当单元与光标自上次推送以来都没变时，
     /// 直接跳过发送。
-    last_cell_data_push: Option<(Vec<CellData>, CursorInfo)>,
+    last_cell_data_push: Option<(Arc<Vec<CellData>>, CursorInfo)>,
     /// 网格是否已变更（快照缓存的失效标记）：与 `cached_all_text` 同源失效，
     /// 但它会在 `TakeSnapshot` 消费后清除。
     grid_dirty: bool,
@@ -436,7 +436,11 @@ impl<'alloc> RenderExtractors<'alloc> {
 /// 干净行整段复制自这里，故行边界必须由 [`build_row_ranges`] 依
 /// `CellData.row` 划分而非按 `cols` 反推：宽字符被上游省略，各行单元数不同。
 pub(crate) struct RowCache {
-    cells: Vec<CellData>,
+    /// 上一帧的网格内容。
+    ///
+    /// 用 `Arc` 与帧邮箱、去重基线共用同一份：整网格约 184KB（24×80），
+    /// 各存一份等于每帧多两次整网格分配与拷贝。
+    cells: Arc<Vec<CellData>>,
     ranges: Vec<std::ops::Range<usize>>,
 }
 
@@ -496,7 +500,7 @@ impl BatchStats {
 impl RowCache {
     pub(crate) fn new() -> Self {
         Self {
-            cells: Vec::new(),
+            cells: Arc::new(Vec::new()),
             ranges: Vec::new(),
         }
     }
@@ -511,9 +515,9 @@ impl RowCache {
     /// 取走而非克隆：本帧结束后 [`Self::store`] 用本帧输出重建，无需保留旧缓冲。
     /// 克隆 24×80 网格（约 150KB）会把省下的逐单元 FFI 往返换成与被否方案同型的
     /// 拷贝成本。
-    fn take_previous(&mut self) -> (Vec<CellData>, Vec<std::ops::Range<usize>>) {
+    fn take_previous(&mut self) -> (Arc<Vec<CellData>>, Vec<std::ops::Range<usize>>) {
         (
-            std::mem::take(&mut self.cells),
+            std::mem::replace(&mut self.cells, Arc::new(Vec::new())),
             std::mem::take(&mut self.ranges),
         )
     }
@@ -521,14 +525,17 @@ impl RowCache {
     /// 按视口滚动平移上一帧的行缓存。
     ///
     /// `delta` 为终端语义（向下为正）：新行 `i` 复用旧行 `i + delta`，
-    /// 越界行留下空区间，由本帧逐格抽取补齐。返回逐行「可直接复用」标记；
-    /// 平移后单元的行号同步改成新行号，列与样式保持不变（内容整体移动）。
+    /// 越界行留下空区间，由本帧逐格抽取补齐。返回逐行「可直接复用」标记、
+    /// 平移后的行内容与行边界；平移后单元的行号同步改成新行号，列与样式保持
+    /// 不变（内容整体移动）。
+    ///
+    /// 平移后的内容是新的一份（旧内容与帧邮箱、去重基线共享，不可就地改写）。
     fn shift_previous(
-        cells: &mut Vec<CellData>,
-        ranges: &mut Vec<std::ops::Range<usize>>,
+        cells: &[CellData],
+        ranges: &[std::ops::Range<usize>],
         delta: isize,
         rows: u32,
-    ) -> Vec<bool> {
+    ) -> (Vec<CellData>, Vec<std::ops::Range<usize>>, Vec<bool>) {
         let mut shifted_cells = Vec::with_capacity(cells.len());
         let mut shifted_ranges = Vec::with_capacity(rows as usize);
         let mut reusable = vec![false; rows as usize];
@@ -547,19 +554,17 @@ impl RowCache {
                 shifted_ranges.push(shifted_cells.len()..shifted_cells.len());
             }
         }
-        *cells = shifted_cells;
-        *ranges = shifted_ranges;
-        reusable
+        (shifted_cells, shifted_ranges, reusable)
     }
 
     /// 记录本帧输出与其行边界。行边界推导失败时保持缓存为空：
     /// 错位的区间会把别行的内容写进本行，比不缓存更糟。
     ///
-    /// 拷贝一整份本帧网格换取后续帧免去逐单元 FFI 往返——只在本帧确有脏行
-    /// （即确有新内容）时才走到这里。
-    pub(crate) fn store(&mut self, data: &[CellData], rows: u32) {
-        if let Some(ranges) = crate::terminal::ghostty_terminal::build_row_ranges(data, rows) {
-            self.cells = data.to_vec();
+    /// 只存一份共享引用：整网格约 184KB（24×80），另存一份等于每帧多一次
+    /// 整网格分配与拷贝，而帧邮箱与去重基线拿到的正是同一份内容。
+    pub(crate) fn store(&mut self, frame: &Arc<Vec<CellData>>, rows: u32) {
+        if let Some(ranges) = crate::terminal::ghostty_terminal::build_row_ranges(frame, rows) {
+            self.cells = Arc::clone(frame);
             self.ranges = ranges;
         } else {
             log::error!("build_cell_data: row ranges mismatch — cache invalidated");
@@ -583,7 +588,7 @@ impl RowCache {
     /// 整体失效：下一帧必须逐格重建。用于网格尺寸变化、重置、主题或选区变更
     /// ——这些情形下缓存内容与新网格不可比。
     pub(crate) fn invalidate(&mut self) {
-        self.cells.clear();
+        self.cells = Arc::new(Vec::new());
         self.ranges.clear();
     }
 }

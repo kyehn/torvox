@@ -489,7 +489,7 @@ struct RenderState {
     /// 上次渲染的帧（单元 + 光标 + 尺寸 + 会话）。`render()` 只在有新输出时绘制，故空闲
     /// 终端复用此缓存帧而非逐帧重新合成。会话标识避免切会话后把旧会话网格画到新会话。
     last_frame: Option<(
-        Vec<crate::terminal::ghostty_terminal::CellData>,
+        std::sync::Arc<Vec<crate::terminal::ghostty_terminal::CellData>>,
         crate::terminal::ghostty_terminal::CursorInfo,
         u32,
         u32,
