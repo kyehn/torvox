@@ -66,6 +66,17 @@ pub(super) fn with_session_entry<T>(
     Some(read(entry))
 }
 
+/// 按会话读一个标量量：会话未知时回落到该类型的默认值。
+///
+/// 三个导出（网格尺寸、VT 忙时长、PTY 投递忙时长）形状相同：查会话 → 读一个值 →
+/// 会话未知时给默认。各自抄一份样板时，「会话未知即默认值」的口径容易分叉。
+pub(super) fn session_scalar<T: Default>(
+    session_id: jlong,
+    read: impl FnOnce(&SessionEntry) -> T,
+) -> T {
+    with_session_entry(session_id as u64, read).unwrap_or_default()
+}
+
 /// 当前网格尺寸，打包为 `(rows << 32) | cols`；会话未知时为 0。
 /// 供 `Bridge.getGridRowsColsPacked` 使用：Kotlin 桩实现原本永远返回 0，
 /// 导致 resize 被丢弃后 `syncGridDimensions` 永远无法收敛到原生网格。
@@ -76,12 +87,11 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGrid
     session_id: jlong,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, 0, |_env| {
-        with_session_entry(session_id as u64, |entry| {
+        session_scalar(session_id, |entry| {
             let session = entry.session.lock();
             let (rows, cols) = session.grid_size();
             (i64::from(rows) << 32) | i64::from(cols)
         })
-        .unwrap_or(0)
     })
 }
 
@@ -279,10 +289,9 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getVtBu
     session_id: jlong,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, 0, |_env| {
-        with_session_entry(session_id as u64, |entry| {
+        session_scalar(session_id, |entry| {
             busy_elapsed_nanos(entry.vt_busy_since_nanos.load(Ordering::Acquire))
         })
-        .unwrap_or(0)
     })
 }
 
@@ -297,10 +306,9 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getPtyS
     session_id: jlong,
 ) -> jlong {
     jni_export_guard!(&mut unowned_env, 0, |_env| {
-        with_session_entry(session_id as u64, |entry| {
+        session_scalar(session_id, |entry| {
             busy_elapsed_nanos(entry.pty_send_since_nanos.load(Ordering::Acquire))
         })
-        .unwrap_or(0)
     })
 }
 

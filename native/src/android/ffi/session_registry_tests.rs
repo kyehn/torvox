@@ -8,6 +8,7 @@ use super::{
     rendered_cursor_packed, rendered_scrollback, wlock_session_registry,
 };
 use crate::terminal::session::Session;
+use jni::sys::jlong;
 
 /// 会话注册表与活跃会话 id 是进程级全局量：两个用例各自登记会话再驱动
 /// `pump_sessions`，并行跑时会把对方的会话也泵一遍（谁先取走对方的读请求，
@@ -178,6 +179,37 @@ fn session_entry_lookup_separates_unknown_session_from_idle_one() {
         super::state::with_session_entry(session_id + 1, |_| 1u64),
         None,
         "未知会话必须与「已知但空闲」区分开"
+    );
+
+    wlock_session_registry().remove(&session_id);
+}
+
+/// 按会话读标量量：未知会话回落到默认值。
+///
+/// 判别力：网格尺寸与两个忙标记的导出都走这条路径给「会话未知」一个值。回落成
+/// `None` 或 panic 会让看门狗读不到「会话已死」的事实——它只会看到与「空闲」相同的
+/// 0，静默失去诊断能力。
+#[test]
+fn session_scalar_falls_back_to_default_for_unknown_session() {
+    let _registry_access = REGISTRY_ACCESS.lock();
+    let (session, _handle) = crate::terminal::mock_pty::mock_arc_session();
+    let session_id = 0x005C_A1A5_u64;
+    wlock_session_registry().insert(
+        session_id,
+        SessionEntry::new(session, Arc::new(RenderWake::default())),
+    );
+
+    assert_eq!(
+        super::state::session_scalar(session_id as jlong, |entry| {
+            entry.vt_busy_since_nanos.load(Ordering::Acquire)
+        }),
+        0,
+        "已登记但空闲的会话须读出 0"
+    );
+    assert_eq!(
+        super::state::session_scalar(session_id as jlong + 1, |_| 1u64),
+        0,
+        "未知会话必须回落到默认值"
     );
 
     wlock_session_registry().remove(&session_id);
