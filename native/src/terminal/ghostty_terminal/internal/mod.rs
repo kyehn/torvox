@@ -245,12 +245,12 @@ impl QueryContext<'_> {
 /// 终端网格列数：ghostty 断开时回退 `DISCONNECTED_COLS`。调用方一律经此取值，
 /// 不重复写 `unwrap_or` 链。
 fn grid_cols(terminal: &Terminal<'_, '_>) -> u32 {
-    u32::from(terminal.cols().unwrap_or(DISCONNECTED_COLS as u16))
+    terminal.cols().map(u32::from).unwrap_or(DISCONNECTED_COLS)
 }
 
 /// 终端网格行数：ghostty 断开时回退 `DISCONNECTED_ROWS`（与 `grid_cols` 对称）。
 fn grid_rows(terminal: &Terminal<'_, '_>) -> u32 {
-    u32::from(terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16))
+    terminal.rows().map(u32::from).unwrap_or(DISCONNECTED_ROWS)
 }
 
 /// 回滚行数：ghostty 断开时为 0（与 `grid_rows` 对称）。
