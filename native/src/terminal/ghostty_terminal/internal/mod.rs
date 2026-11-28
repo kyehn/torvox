@@ -243,24 +243,29 @@ impl QueryContext<'_> {
 }
 
 /// 终端网格列数：ghostty 断开时回退 `DISCONNECTED_COLS`。调用方一律经此取值，
-/// 不重复写 `unwrap_or` 链。
+/// 不重复写回退链。
 fn grid_cols(terminal: &Terminal<'_, '_>) -> u32 {
-    terminal.cols().map(u32::from).unwrap_or(DISCONNECTED_COLS)
+    terminal.cols().map_or(DISCONNECTED_COLS, u32::from)
 }
 
 /// 终端网格行数：ghostty 断开时回退 `DISCONNECTED_ROWS`（与 `grid_cols` 对称）。
 fn grid_rows(terminal: &Terminal<'_, '_>) -> u32 {
-    terminal.rows().map(u32::from).unwrap_or(DISCONNECTED_ROWS)
+    terminal.rows().map_or(DISCONNECTED_ROWS, u32::from)
 }
 
 /// 回滚行数：ghostty 断开时为 0（与 `grid_rows` 对称）。
 /// FFI 报错时记下原因再按 0 处理——静默吞掉会让「回滚量=0」的下游断言
-/// 只能猜错误来源（本机 cargo 全量套件曾撞上一次，无法归因）。
+/// 只能猜错误来源（本机 cargo 全量套件曾撞过一次，无法归因）。
+///
+/// 上游返回 `usize`，本仓的行号口径是 `u32`。超出 `u32::MAX` 的回滚量在物理上
+/// 不可达（每行至少占一份单元内存），但窄化转换会静默回绕，故显式判定并按
+/// `u32::MAX` 截断——下游只做加法与比较，截断后仍是上界，不会回绕成小数。
 fn scrollback_len(terminal: &Terminal<'_, '_>) -> u32 {
-    terminal.scrollback_rows().unwrap_or_else(|error| {
+    let rows = terminal.scrollback_rows().unwrap_or_else(|error| {
         log::warn!("ghostty_terminal: scrollback_rows query failed: {error}");
         0
-    }) as u32
+    });
+    u32::try_from(rows).unwrap_or(u32::MAX)
 }
 
 /// VT 视口顶部的绝对行号（上游 `scrollbar.offset` 的行空间：0 = 回滚区顶部）。

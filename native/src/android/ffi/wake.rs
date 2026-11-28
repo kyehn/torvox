@@ -153,7 +153,7 @@ pub(super) fn take_notification_event(queue: &EventQueue, pump: impl FnOnce()) -
 }
 
 /// 通知事件序列化为 JSON 字符串（两条取用路径共用）。
-fn serialize_notification_event<'local>(env: &mut Env<'local>, event: Event) -> jstring {
+fn serialize_notification_event(env: &mut Env<'_>, event: Event) -> jstring {
     match serde_json::to_string(&event) {
         Ok(json) => string_to_jstring(env, &json),
         Err(err) => {

@@ -271,7 +271,7 @@ fn answer_writer_loop(receiver: std::sync::mpsc::Receiver<ClipboardAnswerJob>) {
                 // 它一死，之后所有宿主答复都只入队不写回（远端永远等不到应答）。
                 // panic 钩子已记下现场，这里只把该条记为失败并继续服务下一条。
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    write_back_clipboard_answer(job)
+                    write_back_clipboard_answer(job);
                 }));
                 if outcome.is_err() {
                     log::error!("osc52: clipboard answer write-back panicked");

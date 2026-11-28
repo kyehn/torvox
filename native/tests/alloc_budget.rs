@@ -156,7 +156,7 @@ fn measure(mut frame: impl FnMut()) -> (usize, usize) {
 /// 构造一份改写整屏的内容：`tick` 进入正文，使相邻两帧的内容不同。
 fn full_screen_content(tick: usize) -> Vec<u8> {
     let mut content = Vec::new();
-    for row in 0..GRID_ROWS as u32 {
+    for row in 0..u32::from(GRID_ROWS) {
         content.extend_from_slice(
             format!("\x1b[{row};1Hrow {row} tick {tick} some realistic terminal content here")
                 .as_bytes(),

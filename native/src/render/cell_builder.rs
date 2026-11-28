@@ -754,7 +754,7 @@ thread_local! {
 /// 「没白扫整屏」——增量帧的预热范围退化成整屏时，输出照样全对。
 #[cfg(test)]
 pub(crate) fn warm_cells_visited() -> u64 {
-    WARM_CELLS_VISITED.with(|counter| counter.get())
+    WARM_CELLS_VISITED.get()
 }
 
 /// 预热遍累计发出的字形请求数（仅测试用）。
@@ -763,7 +763,7 @@ pub(crate) fn warm_cells_visited() -> u64 {
 /// 一屏 1920 单元里同一个字形出现几十次时，逐格请求就是白做的查表。
 #[cfg(test)]
 pub(crate) fn warm_glyph_requests() -> u64 {
-    WARM_GLYPH_REQUESTS.with(|counter| counter.get())
+    WARM_GLYPH_REQUESTS.get()
 }
 
 /// 预热本帧**要重建的行**里的全部字形（结果丢弃），保证发射遍为纯查表、UV 稳定。
