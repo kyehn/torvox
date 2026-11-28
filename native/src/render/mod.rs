@@ -27,7 +27,7 @@ pub(crate) mod wgpu_backend;
 mod tests;
 
 // ── 再导出 ──────────────────────────────────────────────────────────────
-pub use cell_builder::{CellCursor, build_instances_from_cell_data};
+pub use cell_builder::CellCursor;
 #[cfg(test)]
 pub(crate) use cell_builder::{SearchHighlight, blend_highlight, cell_highlight};
 pub use context::Renderer;

@@ -91,13 +91,8 @@ pub struct Renderer {
     pub(crate) cell_bind_group: Option<wgpu::BindGroup>,
     pub(crate) cell_uniform_buffer: Option<wgpu::Buffer>,
     pub(crate) instance_buffer: Option<wgpu::Buffer>,
-    /// 跨帧复用的 CPU 侧实例缓冲（避免每帧约 100KB 分配）。
-    pub(crate) cpu_instances: Vec<crate::render::CellInstance>,
-    /// 行级脏区实例缓存：保留各行的实例切片，使干净行只复制而不重建。
+    /// 行级脏区实例缓存：既是各行的实例切片，也是本帧实例的唯一副本。
     pub(crate) cell_cache: Option<crate::render::cell_builder::CachedInstances>,
-    /// 可复用的全 true 脏标记（长度为当前网格行数），用于 `cell_cache` 刚从零重建后
-    /// 的那一帧（resize）：此时把“干净”行当作无缓存会导致丢行。
-    pub(crate) cell_full_mask_cache: Vec<bool>,
     pub(crate) viewport_scroll_px: f32,
     /// 上一呈现帧实际使用的视口像素偏移。当前偏移非零或与此值不同
     /// 时，pass.rs 禁用脏带部分路径：纹理拷贝无法亚像素平移累加器，

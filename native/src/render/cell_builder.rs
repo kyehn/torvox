@@ -73,7 +73,7 @@ fn codepoint_to_char(codepoint: u32) -> char {
     }
 }
 
-/// 供 `build_instances_from_cell_data()` 渲染光标用的光标状态。
+/// 供 `CachedInstances::rebuild()` 渲染光标用的光标状态。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CellCursor {
     /// 光标所在网格行号。
@@ -106,10 +106,9 @@ impl CellCursor {
 
 /// 一次单元格实例构建所需的配置。
 ///
-/// 全量构建（[`build_instances_from_cell_data`]）与增量构建
-/// （`build_instances_cached`）共用；大块数据仍作独立参数传入：
-/// 单元缓冲、可变的字体管线以及输出
-/// 实例缓冲。
+/// 全量构建（[`CachedInstances::rebuild_all`]）与增量构建
+/// （[`CachedInstances::rebuild_dirty`]）共用；大块数据仍作独立参数传入：
+/// 单元缓冲、可变的字体管线以及实例缓存。
 #[derive(Debug, Clone, Copy)]
 pub struct CellInstanceConfig<'a> {
     /// 网格行数。
@@ -393,27 +392,24 @@ impl CachedInstances {
         (start, end)
     }
 
-    /// 全量重建：清空后按行重发整帧实例。
-    pub fn rebuild_all(
-        &mut self,
-        cell_data: &[crate::terminal::ghostty_terminal::CellData],
-        config: CellInstanceConfig<'_>,
-        font_pipeline: &mut crate::render::font::FontPipeline,
-    ) -> Option<()> {
-        rebuild_into_cache(cell_data, config, font_pipeline, None, self)
-    }
-
-    /// 增量重建：只重发 `dirty_rows` 标记的行，其余行保持原实例。
+    /// 重建本帧实例并写回缓存。
     ///
-    /// 缓存与网格不兼容、脏标记短于行数或图集代际不一致时降级为全量重建。
-    pub fn rebuild_dirty(
+    /// `dirty_rows` 为 `Some(mask)` 时尝试增量路径：只重建 mask 标记的行，
+    /// 干净行沿用缓存中的旧实例。返回 `Some(true)` 表示确实走了增量路径；
+    /// `Some(false)` 表示整帧重建（首帧、resize、换字体、掩码缺失或过短、
+    /// 整屏全脏、构建中图集搬迁）；`None` 表示转换失败。
+    ///
+    /// 走哪条路径由构建过程自己判定并回报，调用方不得另行推断——
+    /// 推断用的条件（缓存尺寸、图集代际、掩码形状）与构建时的判定同源，
+    /// 两处各判一次必然出现分歧，分歧的后果是拿全量重建的实例去做稀疏上传。
+    pub fn rebuild(
         &mut self,
         cell_data: &[crate::terminal::ghostty_terminal::CellData],
         config: CellInstanceConfig<'_>,
         font_pipeline: &mut crate::render::font::FontPipeline,
-        dirty_rows: &[bool],
-    ) -> Option<()> {
-        rebuild_into_cache(cell_data, config, font_pipeline, Some(dirty_rows), self)
+        dirty_rows: Option<&[bool]>,
+    ) -> Option<bool> {
+        rebuild_into_cache(cell_data, config, font_pipeline, dirty_rows, self)
     }
 
     /// 仅测试：直接写入 `row_ends`（`band_slice` 解析测试无需
@@ -488,47 +484,27 @@ pub(crate) fn diff_dirty_rows_into(
     }
 }
 
-/// 把预构建的 `CellData` 切片转换为 GPU 实例数据。
-///
-/// 一次性全量构建，不保留跨帧缓存；渲染循环改用
-/// [`CachedInstances::rebuild_all`] / [`CachedInstances::rebuild_dirty`]
-/// 直接写入缓存，避免每帧把整屏实例复制进出。
-///
-/// 转换失败（如字体图集不可用）时返回 `None`。
-pub fn build_instances_from_cell_data(
-    cell_data: &[crate::terminal::ghostty_terminal::CellData],
-    config: CellInstanceConfig<'_>,
-    font_pipeline: &mut crate::render::font::FontPipeline,
-    instances: &mut Vec<CellInstance>,
-) -> Option<()> {
-    let mut cache = CachedInstances::new(config.rows, config.cols);
-    cache.rebuild_all(cell_data, config, font_pipeline)?;
-    instances.clear();
-    instances.extend_from_slice(cache.instances());
-    Some(())
-}
-
 /// 全量与增量构建器背后的共用实现：把本帧实例写进 `cache`。
 ///
 /// 只有「缓存尺寸与图集代际都匹配、脏掩码覆盖整屏且并非全脏」时才走增量：
 /// 脏行就地重发并拼接，干净行不复制；其余情况整帧重建。
+/// 返回是否走了增量路径；转换失败返回 `None`。
 fn rebuild_into_cache(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
     config: CellInstanceConfig<'_>,
     font_pipeline: &mut crate::render::font::FontPipeline,
     dirty_rows: Option<&[bool]>,
     cache: &mut CachedInstances,
-) -> Option<()> {
+) -> Option<bool> {
+    // 图集尺寸与默认底色由下游两个发射函数从 `config` 整体取用，此处不拆。
     let CellInstanceConfig {
         rows,
         cols,
         grid_cell_width,
         grid_cell_height,
         cursor,
-        atlas_width,
-        atlas_height,
         search_highlights,
-        default_background,
+        ..
     } = config;
     // 用 trace 级别：每次脏重建都会触发；info 级别会淹没
     // logcat（逐行 binder IPC）并引发帧时间抖动。
@@ -615,7 +591,7 @@ fn rebuild_into_cache(
             &highlights_by_row,
             cache,
         ) {
-            return Some(());
+            return Some(true);
         }
         // 脏行发射期间图集搬迁：已拼接的带作废，整帧重建覆盖它们。
         // 先重新预热整屏——脏行发射可能驱逐了干净行依赖的字形。
@@ -639,7 +615,7 @@ fn rebuild_into_cache(
         &highlights_by_row,
         cache,
     );
-    Some(())
+    Some(false)
 }
 
 /// 增量发射：逐脏带重建并就地拼接进缓存。

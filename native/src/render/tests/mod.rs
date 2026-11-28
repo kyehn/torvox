@@ -251,15 +251,10 @@ fn build_instances(
     config: cell_builder::CellInstanceConfig<'_>,
     font_pipeline: &mut crate::render::font::FontPipeline,
 ) -> Vec<crate::render::CellInstance> {
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
-        cell_data,
-        config,
-        font_pipeline,
-        &mut instances,
-    );
+    let mut cache = cell_builder::CachedInstances::new(config.rows, config.cols);
+    let built = cache.rebuild(cell_data, config, font_pipeline, None);
     assert!(built.is_some(), "production instance build failed");
-    instances
+    cache.instances().to_vec()
 }
 
 /// Build production instances for one configured cell (shared by cursor

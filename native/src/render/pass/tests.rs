@@ -256,14 +256,14 @@ fn partial_instance_uploads_skip_empty_and_out_of_range_bands() {
 fn dirty_rows_yield_bands_when_cache_matches() {
     let cache = built_cache();
     let bands = partial_frame_bands(
-        false,
+        true,
         Some(&cache),
         4,
         2,
         0,
         Some(&[false, true, false, true]),
     )
-    .expect("cache 一致且非全量重建时必须给出脏带");
+    .expect("cache 一致且本帧走增量时必须给出脏带");
     assert_eq!(bands.len(), 2);
     assert_eq!((bands[0].start_row, bands[0].end_row_exclusive), (1, 2));
     assert_eq!((bands[0].instance_start, bands[0].instance_end), (2, 3));
@@ -281,7 +281,7 @@ fn overlong_dirty_mask_is_truncated_not_indexed_out_of_bounds() {
     let cache = built_cache();
     // 掩码比行数长（前 4 位与等长用例完全相同，多出的 3 位全是脏行）。
     let bands = partial_frame_bands(
-        false,
+        true,
         Some(&cache),
         4,
         2,
@@ -291,7 +291,7 @@ fn overlong_dirty_mask_is_truncated_not_indexed_out_of_bounds() {
     .expect("超长掩码应截断后照常给出脏带");
     // 与等长掩码的结果逐字段一致：多出的位必须被忽略。
     let expected = partial_frame_bands(
-        false,
+        true,
         Some(&cache),
         4,
         2,
@@ -322,7 +322,7 @@ fn overlong_dirty_mask_is_truncated_not_indexed_out_of_bounds() {
 fn short_dirty_mask_falls_back_to_a_full_redraw() {
     let cache = built_cache();
     assert!(
-        partial_frame_bands(false, Some(&cache), 4, 2, 0, Some(&[true, true])).is_none(),
+        partial_frame_bands(true, Some(&cache), 4, 2, 0, Some(&[true, true])).is_none(),
         "掩码短于行数时必须放弃稀疏带"
     );
 }
@@ -335,7 +335,7 @@ fn full_rebuild_never_yields_partial_bands() {
     let cache = built_cache();
     assert!(
         partial_frame_bands(
-            true,
+            false,
             Some(&cache),
             4,
             2,
@@ -350,22 +350,22 @@ fn full_rebuild_never_yields_partial_bands() {
 #[test]
 fn unbuilt_cache_yields_no_bands() {
     let cache = crate::render::cell_builder::CachedInstances::new(4, 2);
-    assert!(partial_frame_bands(false, Some(&cache), 4, 2, 0, Some(&[true; 4])).is_none());
+    assert!(partial_frame_bands(true, Some(&cache), 4, 2, 0, Some(&[true; 4])).is_none());
 }
 
 /// 尺寸变化（缩放）与图集代际变化（UV 已搬迁）同样强制全量。
 #[test]
 fn incompatible_size_or_generation_yields_no_bands() {
     let cache = built_cache();
-    assert!(partial_frame_bands(false, Some(&cache), 8, 2, 0, Some(&[true; 4])).is_none());
-    assert!(partial_frame_bands(false, Some(&cache), 4, 2, 7, Some(&[true; 4])).is_none());
+    assert!(partial_frame_bands(true, Some(&cache), 8, 2, 0, Some(&[true; 4])).is_none());
+    assert!(partial_frame_bands(true, Some(&cache), 4, 2, 7, Some(&[true; 4])).is_none());
 }
 
 #[test]
 fn missing_cache_or_mask_yields_no_bands() {
     let cache = built_cache();
-    assert!(partial_frame_bands(false, None, 4, 2, 0, Some(&[true; 4])).is_none());
-    assert!(partial_frame_bands(false, Some(&cache), 4, 2, 0, None).is_none());
+    assert!(partial_frame_bands(true, None, 4, 2, 0, Some(&[true; 4])).is_none());
+    assert!(partial_frame_bands(true, Some(&cache), 4, 2, 0, None).is_none());
 }
 
 /// 空脏掩码不产生带——与构建行为一致，无带即由 `should_render_partial` 的
@@ -373,7 +373,7 @@ fn missing_cache_or_mask_yields_no_bands() {
 #[test]
 fn empty_mask_yields_no_bands() {
     let cache = built_cache();
-    let bands = partial_frame_bands(false, Some(&cache), 4, 2, 0, Some(&[false; 4]))
+    let bands = partial_frame_bands(true, Some(&cache), 4, 2, 0, Some(&[false; 4]))
         .expect("路径本身可用，只是没有脏行");
     assert_eq!(bands, []);
     assert!(!Renderer::should_render_partial(

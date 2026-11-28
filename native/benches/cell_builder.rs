@@ -1,8 +1,8 @@
 //! Criterion trend benchmarks: `CellData` -> `CellInstance` conversion.
 //!
-//! Complements the in-test `bench_build_instances_from_cell_data`
-//! assertion benchmark. This one measures the pure CPU conversion path
-//! with realistic mixed content (ASCII/CJK/colors/bold/italic):
+//! This benchmark measures the pure CPU conversion path with realistic mixed
+//! content (ASCII/CJK/colors/bold/italic) and reuses the instance cache across
+//! iterations, exactly as the render loop does:
 //!
 //! ```text
 //! cargo bench --manifest-path native/Cargo.toml -p native --bench cell_builder
@@ -100,27 +100,17 @@ fn build_instances(c: &mut Criterion) {
     // 按 CI 约 3 倍估 0.8ms，取 25 倍余量 = 20ms：
     //  - 回归到「每格重扫全库」是 740ms 量级，必然判红；
     //  - 25 倍余量足以吸收 CI 调度抖动与字体集差异。
-    // 生产路径跨帧复用实例缓冲；基准也复用，否则把每帧一次的分配算进构建成本。
-    let mut instances = Vec::new();
-    support::Floor::new("build_instances_from_cell_data", 20.0).assert_within(16, || {
-        black_box(native::render::build_instances_from_cell_data(
-            &cell_data,
-            config,
-            &mut font_pipeline,
-            &mut instances,
-        ));
-        black_box(instances.len());
+    // 生产路径跨帧复用实例缓存；基准也复用，否则把每帧一次的分配算进构建成本。
+    let mut cache = native::render::cell_builder::CachedInstances::new(rows, cols);
+    support::Floor::new("rebuild_all_rows", 20.0).assert_within(16, || {
+        black_box(cache.rebuild(&cell_data, config, &mut font_pipeline, None));
+        black_box(cache.instances().len());
     });
 
-    c.bench_function("build_instances_from_cell_data", |b| {
+    c.bench_function("rebuild_all_rows", |b| {
         b.iter(|| {
-            black_box(native::render::build_instances_from_cell_data(
-                &cell_data,
-                config,
-                &mut font_pipeline,
-                &mut instances,
-            ));
-            black_box(instances.len());
+            black_box(cache.rebuild(&cell_data, config, &mut font_pipeline, None));
+            black_box(cache.instances().len());
         });
     });
 }
@@ -128,7 +118,7 @@ fn build_instances(c: &mut Criterion) {
 /// 增量帧基准：一行变脏时的构建耗时。
 ///
 /// 生产路径每来一次输出就走这条（脏掩码 + 行级实例缓存）：此时只有脏行需要
-/// 重建，干净行原样复制缓存里的实例。若构建器仍逐帧遍历整屏做预热，
+/// 重建，干净行原地保留。若构建器仍逐帧遍历整屏做预热，
 /// 增量帧的耗时就由「预热整屏」而不是「重建脏行」决定——这是生产路径上
 /// 占比最大的一段固定开销。
 fn build_instances_incremental(c: &mut Criterion) {
@@ -162,21 +152,14 @@ fn build_instances_incremental(c: &mut Criterion) {
     };
 
     let mut cache = native::render::cell_builder::CachedInstances::new(rows, cols);
-    let mut instances = Vec::new();
     let mut dirty = vec![false; rows as usize];
     dirty[DIRTY_ROW as usize] = true;
 
     // 播种：首帧没有基线，整屏重建一次（生产首帧同样如此）。
     assert!(
-        native::render::cell_builder::build_instances_cached(
-            &cells_a,
-            config,
-            &mut font_pipeline,
-            &vec![true; rows as usize],
-            &mut cache,
-            &mut instances,
-        )
-        .is_some(),
+        cache
+            .rebuild(&cells_a, config, &mut font_pipeline, None)
+            .is_some(),
         "增量基准的播种构建失败"
     );
 
@@ -184,7 +167,7 @@ fn build_instances_incremental(c: &mut Criterion) {
     // 下限断言：只兜数量级崩塌（增量帧退化成整屏重建是 0.13ms 量级，
     // 退化成逐格重扫字体库是毫秒量级）。阈值按实测留两个数量级余量，
     // 不因机器差异判红；「增量帧不得遍历整屏」由单测的预热计数钉住。
-    support::Floor::new("build_instances_cached_one_dirty_row", 1.0).assert_within(16, || {
+    support::Floor::new("rebuild_dirty_one_dirty_row", 1.0).assert_within(16, || {
         build_one_dirty_row(
             &cells_a,
             &cells_b,
@@ -192,12 +175,11 @@ fn build_instances_incremental(c: &mut Criterion) {
             &dirty,
             &mut font_pipeline,
             &mut cache,
-            &mut instances,
             &mut flip,
         );
     });
 
-    c.bench_function("build_instances_cached_one_dirty_row", |b| {
+    c.bench_function("rebuild_dirty_one_dirty_row", |b| {
         b.iter(|| {
             build_one_dirty_row(
                 &cells_a,
@@ -206,7 +188,6 @@ fn build_instances_incremental(c: &mut Criterion) {
                 &dirty,
                 &mut font_pipeline,
                 &mut cache,
-                &mut instances,
                 &mut flip,
             );
         });
@@ -221,19 +202,11 @@ fn build_one_dirty_row(
     dirty: &[bool],
     font_pipeline: &mut FontPipeline,
     cache: &mut native::render::cell_builder::CachedInstances,
-    instances: &mut Vec<native::render::CellInstance>,
     flip: &mut bool,
 ) {
     let cells = if *flip { cells_b } else { cells_a };
     *flip = !*flip;
-    black_box(native::render::cell_builder::build_instances_cached(
-        cells,
-        config,
-        font_pipeline,
-        dirty,
-        cache,
-        instances,
-    ));
+    black_box(cache.rebuild(cells, config, font_pipeline, Some(dirty)));
 }
 
 criterion_group!(benches, build_instances, build_instances_incremental);

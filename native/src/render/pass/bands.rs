@@ -4,22 +4,23 @@ use crate::render::context::MIN_VERTEX_BUFFER_SIZE;
 
 /// 本帧可用的部分渲染脏带；`None` 即强制全量重绘（判定表见 `pass::tests`）。
 ///
-/// 脏带掩码必须与本帧的构建掩码同源：本帧走了全量重建（换字体、缩放、缓存失效）
-/// 时每个单元的图集 UV 与几何都换了，而 `should_render_partial` 只看脏带数量，
+/// `incremental` 为真表示本帧确实走了增量构建（只重建了脏行）：此时稀疏带才
+/// 与本帧的实例同源。若本帧走了全量重建（换字体、缩放、缓存失效、图集搬迁），
+/// 每个单元的图集 UV 与几何都换了，而 `should_render_partial` 只看脏带数量，
 /// 于是 partial 路径只重绘脏带、其余行沿用累加器里的旧像素——换字体后整屏仍是
 /// 旧字，直到下一次输出把各行碰巧重新变脏。
 ///
 /// 另两项同前：缓存尺寸不符（缩放）或图集代际变化（UV 已搬迁）时稀疏带会让
 /// 干净行残留陈旧 UV，同样强制全量。
 pub(super) fn partial_frame_bands(
-    rebuilt_all_rows: bool,
+    incremental: bool,
     cache: Option<&crate::render::cell_builder::CachedInstances>,
     rows: u32,
     cols: u32,
     atlas_generation: u64,
     dirty_rows: Option<&[bool]>,
 ) -> Option<Vec<crate::render::cell_builder::DirtyBand>> {
-    if rebuilt_all_rows {
+    if !incremental {
         return None;
     }
     let cache = cache?;
@@ -35,6 +36,9 @@ pub(super) fn partial_frame_bands(
     if !cache.is_compatible(rows, cols) {
         return None;
     }
+    // `atlas_generation` 是构建**前**的代际：构建中发生搬迁时，缓存已按新代际
+    // 全量重建（此时 `incremental` 为假，本就不会走到这里）；两者不等即意味着
+    // 本帧的干净行实例已不对应当前图集，稀疏带不得使用。
     if cache.built_atlas_generation() != atlas_generation {
         return None;
     }

@@ -36,8 +36,8 @@ fn build(
     highlights: &[SearchHighlight],
 ) -> Vec<CellInstance> {
     let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    let mut instances = Vec::new();
-    let result = build_instances_from_cell_data(
+    let mut cache = CachedInstances::new(24, 80);
+    let result = cache.rebuild(
         cells,
         CellInstanceConfig {
             rows: 24,
@@ -51,11 +51,11 @@ fn build(
             default_background: [0.0; 4],
         },
         &mut font_pipeline,
-        &mut instances,
+        None,
     );
     assert!(
         result.is_some(),
         "build should succeed with a font pipeline"
     );
-    instances
+    cache.instances().to_vec()
 }

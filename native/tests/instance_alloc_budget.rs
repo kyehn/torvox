@@ -136,25 +136,16 @@ fn instance_build_with_clusters_stays_within_the_allocation_budget() {
         default_background: [0.0; 4],
     };
     let cell_data = cluster_cells();
-    let mut instances = Vec::new();
+    // 生产路径：实例缓存跨帧复用，帧内不重建缓存。
+    let mut cache = native::render::cell_builder::CachedInstances::new(GRID_ROWS, GRID_COLS);
     // 预热：字体管线、字形图集与整形缓存的一次性分配都在窗口之外。
     for _ in 0..5 {
-        let _ = native::render::build_instances_from_cell_data(
-            &cell_data,
-            config,
-            &mut font_pipeline,
-            &mut instances,
-        );
+        let _ = cache.rebuild(&cell_data, config, &mut font_pipeline, None);
     }
 
     let (allocations, bytes) = measure(|| {
         for _ in 0..MEASURED_FRAMES {
-            let _ = native::render::build_instances_from_cell_data(
-                &cell_data,
-                config,
-                &mut font_pipeline,
-                &mut instances,
-            );
+            let _ = cache.rebuild(&cell_data, config, &mut font_pipeline, None);
         }
     });
     let allocation_budget = ALLOCATIONS_PER_FRAME_BUDGET * MEASURED_FRAMES;

@@ -28,7 +28,6 @@ struct SeededCacheBuild {
     cursor: CellCursor,
     font_pipeline: crate::render::font::FontPipeline,
     cache: CachedInstances,
-    instances: Vec<CellInstance>,
 }
 
 fn seeded_cache_build() -> SeededCacheBuild {
@@ -47,7 +46,6 @@ fn seeded_cache_build() -> SeededCacheBuild {
         cursor,
         font_pipeline: crate::render::font::FontPipeline::new(1024, 1024, 14.0),
         cache: CachedInstances::new(24, 80),
-        instances: Vec::new(),
     };
     let ok = run_cached_build(
         &seeded.cells,
@@ -55,7 +53,6 @@ fn seeded_cache_build() -> SeededCacheBuild {
         &std::iter::repeat_n(true, 24).collect::<Vec<bool>>(),
         &mut seeded.font_pipeline,
         &mut seeded.cache,
-        &mut seeded.instances,
     );
     assert!(ok.is_some(), "initial full build should succeed");
     seeded
@@ -67,16 +64,8 @@ fn run_cached_build(
     mask: &[bool],
     font_pipeline: &mut crate::render::font::FontPipeline,
     cache: &mut CachedInstances,
-    instances: &mut Vec<CellInstance>,
-) -> Option<()> {
-    build_instances_cached(
-        cells,
-        test_config(cursor),
-        font_pipeline,
-        mask,
-        cache,
-        instances,
-    )
+) -> Option<bool> {
+    cache.rebuild(cells, test_config(cursor), font_pipeline, Some(mask))
 }
 
 /// 退化输入用例的公共夹具：24 行全 `x` 的网格、隐藏光标与 1024² 字体管线。
@@ -113,7 +102,7 @@ fn instances_equal(left: &[CellInstance], right: &[CellInstance]) -> bool {
             })
 }
 
-/// 增量路径（`build_instances_cached`）：只让第 2 行变脏的一帧
+/// 增量路径（`CachedInstances::rebuild` 带脏掩码）：只让第 2 行变脏的一帧
 /// 必须产出与完整重建完全一致的实例，其中干净行
 /// 从缓存提供（NFR-010：只重绘脏行）。
 #[test]
@@ -123,11 +112,10 @@ fn cached_incremental_rebuild_matches_full_build() {
         cursor,
         mut font_pipeline,
         mut cache,
-        mut instances,
     } = seeded_cache_build();
     let full_frame1 = build(&cells, cursor, &[]);
     assert!(
-        instances_equal(&instances, &full_frame1),
+        instances_equal(cache.instances(), &full_frame1),
         "initial build equals a full build"
     );
 
@@ -137,25 +125,16 @@ fn cached_incremental_rebuild_matches_full_build() {
     cells2[2] = cell_data(2, 0, 'z', [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0);
     let mut dirty = vec![false; 24];
     dirty[2] = true;
-    instances.clear();
-    let ok = run_cached_build(
-        &cells2,
-        cursor,
-        &dirty,
-        &mut font_pipeline,
-        &mut cache,
-        &mut instances,
+    let ok = run_cached_build(&cells2, cursor, &dirty, &mut font_pipeline, &mut cache);
+    assert_eq!(
+        ok,
+        Some(true),
+        "incremental build should take the incremental path"
     );
-    assert!(ok.is_some(), "incremental build should succeed");
     let full_frame2 = build(&cells2, cursor, &[]);
     assert!(
-        instances_equal(&instances, &full_frame2),
+        instances_equal(cache.instances(), &full_frame2),
         "incremental result must match a full rebuild"
-    );
-    // 缓存此刻保存第 2 帧的实例供下一帧复用。
-    assert!(
-        instances_equal(cache.instances(), &instances),
-        "cache must be refreshed with the latest instances"
     );
 }
 
@@ -170,7 +149,6 @@ fn cached_stale_atlas_generation_forces_full_rebuild() {
         cursor,
         mut font_pipeline,
         mut cache,
-        mut instances,
     } = seeded_cache_build();
 
     // 模拟缓存填充之后的图集重建/驱逐。
@@ -182,19 +160,15 @@ fn cached_stale_atlas_generation_forces_full_rebuild() {
     let mut cells2 = cells;
     cells2[2] = cell_data(2, 0, 'z', [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0);
     let clean = vec![false; 24];
-    instances.clear();
-    let ok = run_cached_build(
-        &cells2,
-        cursor,
-        &clean,
-        &mut font_pipeline,
-        &mut cache,
-        &mut instances,
+    let ok = run_cached_build(&cells2, cursor, &clean, &mut font_pipeline, &mut cache);
+    assert_eq!(
+        ok,
+        Some(false),
+        "stale atlas generation must fall back to a full rebuild"
     );
-    assert!(ok.is_some(), "rebuild after atlas change should succeed");
     let full_frame2 = build(&cells2, cursor, &[]);
     assert!(
-        instances_equal(&instances, &full_frame2),
+        instances_equal(cache.instances(), &full_frame2),
         "stale atlas generation must force a full rebuild, not serve cached rows"
     );
 }
@@ -256,7 +230,6 @@ fn incremental_frame_with_midframe_eviction_has_current_uvs() {
     };
     let mut font_pipeline =
         crate::render::font::FontPipeline::new(ATLAS as i32, ATLAS as i32, 14.0);
-    let mut instances = Vec::new();
     let mut cache = CachedInstances::new(ROWS, 80);
     // Frame 1：全 dirty 播种缓存。
     let mut frame1 = Vec::new();
@@ -273,15 +246,8 @@ fn incremental_frame_with_midframe_eviction_has_current_uvs() {
     }
     let generation_before_frame1 = font_pipeline.atlas_generation();
     let all_dirty = vec![true; ROWS as usize];
-    let ok = build_instances_cached(
-        &frame1,
-        config,
-        &mut font_pipeline,
-        &all_dirty,
-        &mut cache,
-        &mut instances,
-    );
-    assert!(ok.is_some(), "seed build should succeed");
+    let ok = cache.rebuild(&frame1, config, &mut font_pipeline, Some(&all_dirty));
+    assert_eq!(ok, Some(false), "seed build should be a full rebuild");
     // 帧间 churn：直接光栅化 300+ 帧外字形，逐出第一帧条目
     // （DejaVu Sans Mono 覆盖希腊/西里尔/拉丁扩展-A/箭头，
     // 主字体直命中，无慢速全库扫描）。
@@ -325,17 +291,15 @@ fn incremental_frame_with_midframe_eviction_has_current_uvs() {
     for (row, dirty_entry) in dirty.iter_mut().enumerate() {
         *dirty_entry = row % 2 == 1;
     }
-    instances.clear();
     let generation_before_frame2 = font_pipeline.atlas_generation();
-    let ok = build_instances_cached(
-        &frame2,
-        config,
-        &mut font_pipeline,
-        &dirty,
-        &mut cache,
-        &mut instances,
+    let ok = cache.rebuild(&frame2, config, &mut font_pipeline, Some(&dirty));
+    // 帧间 churn 已把缓存的图集代际推旧：增量路径的前置条件（代际一致）不成立，
+    // 必须整帧重建。本用例要的正是这条降级路径。
+    assert_eq!(
+        ok,
+        Some(false),
+        "stale cache must fall back to a full rebuild"
     );
-    assert!(ok.is_some(), "incremental build should succeed");
     // 场景前提（之二）：第二帧内部必须有字形搬迁。代际不动即 churn 没有
     // 真的制造帧内驱逐，本用例就没有碰到它要验的那条路径。
     assert!(
@@ -343,14 +307,14 @@ fn incremental_frame_with_midframe_eviction_has_current_uvs() {
         "frame 2 must relocate glyphs mid-frame (generation stuck at {generation_before_frame2})"
     );
     assert_eq!(
-        instances.len(),
+        cache.instances().len(),
         frame2.len(),
         "each non-empty cell yields exactly one instance (no cursor/highlights)"
     );
     // 逐实例断言 UV 与当前查询一致；验证查询本身必须零变更
     // （纯命中），否则断言失去意义。
     let generation_before_verify = font_pipeline.atlas_generation();
-    for (cell, instance) in frame2.iter().zip(instances.iter()) {
+    for (cell, instance) in frame2.iter().zip(cache.instances()) {
         let character = char::from_u32(cell.codepoint).expect("test cells are valid");
         let bold = (cell.flags >> cell_flags::BOLD) & 1 == 1;
         let info = font_pipeline.glyph_information_styled(character, bold, false);
@@ -436,18 +400,16 @@ fn warm_fixture(
 fn incremental_frame_warms_only_dirty_rows() {
     let (mut font_pipeline, config, cells) = warm_fixture(|_, _| 'x');
     let mut cache = CachedInstances::new(TEST_GRID_ROWS, TEST_GRID_COLS);
-    let mut instances = Vec::new();
     // 播种：首帧没有基线，整屏重建一次。
     assert!(
-        build_instances_cached(
-            &cells,
-            config,
-            &mut font_pipeline,
-            &vec![true; TEST_GRID_ROWS as usize],
-            &mut cache,
-            &mut instances,
-        )
-        .is_some(),
+        cache
+            .rebuild(
+                &cells,
+                config,
+                &mut font_pipeline,
+                Some(&vec![true; TEST_GRID_ROWS as usize]),
+            )
+            .is_some(),
         "播种构建失败"
     );
 
@@ -455,17 +417,10 @@ fn incremental_frame_warms_only_dirty_rows() {
     let mut dirty = vec![false; TEST_GRID_ROWS as usize];
     dirty[2] = true;
     let before = warm_cells_visited();
-    assert!(
-        build_instances_cached(
-            &cells,
-            config,
-            &mut font_pipeline,
-            &dirty,
-            &mut cache,
-            &mut instances,
-        )
-        .is_some(),
-        "增量构建失败"
+    assert_eq!(
+        cache.rebuild(&cells, config, &mut font_pipeline, Some(&dirty)),
+        Some(true),
+        "增量构建失败或未走增量路径"
     );
     let visited = warm_cells_visited() - before;
     assert!(
@@ -486,18 +441,16 @@ fn warm_frame_deduplicates_repeated_glyphs() {
     let (mut font_pipeline, config, cells) =
         warm_fixture(|row, col| ['x', 'y', 'z'][((row + col) % 3) as usize]);
     let mut cache = CachedInstances::new(TEST_GRID_ROWS, TEST_GRID_COLS);
-    let mut instances = Vec::new();
     let before = warm_glyph_requests();
     assert!(
-        build_instances_cached(
-            &cells,
-            config,
-            &mut font_pipeline,
-            &vec![true; TEST_GRID_ROWS as usize],
-            &mut cache,
-            &mut instances,
-        )
-        .is_some(),
+        cache
+            .rebuild(
+                &cells,
+                config,
+                &mut font_pipeline,
+                Some(&vec![true; TEST_GRID_ROWS as usize]),
+            )
+            .is_some(),
         "全量构建失败"
     );
     let requests = warm_glyph_requests() - before;
@@ -524,7 +477,6 @@ const EVICTION_ATLAS: f32 = 64.0;
 struct EvictionFixture {
     font_pipeline: crate::render::font::FontPipeline,
     cache: CachedInstances,
-    instances: Vec<CellInstance>,
     frame: Vec<CellData>,
     /// 帧 2 构建前预热遍访问过的单元数。
     warm_before: u64,
@@ -589,17 +541,15 @@ fn eviction_fixture() -> EvictionFixture {
         .chain(make_row(1, &['x'; 16]))
         .collect();
     let mut cache = CachedInstances::new(EVICTION_ROWS, EVICTION_COLS);
-    let mut instances = Vec::new();
     assert!(
-        build_instances_cached(
-            &frame1,
-            config,
-            &mut font_pipeline,
-            &vec![true; EVICTION_ROWS as usize],
-            &mut cache,
-            &mut instances,
-        )
-        .is_some(),
+        cache
+            .rebuild(
+                &frame1,
+                config,
+                &mut font_pipeline,
+                Some(&vec![true; EVICTION_ROWS as usize]),
+            )
+            .is_some(),
         "播种构建失败"
     );
 
@@ -626,17 +576,10 @@ fn eviction_fixture() -> EvictionFixture {
     dirty[1] = true;
     let generation_before = font_pipeline.atlas_generation();
     let warm_before = warm_cells_visited();
-    assert!(
-        build_instances_cached(
-            &frame,
-            config,
-            &mut font_pipeline,
-            &dirty,
-            &mut cache,
-            &mut instances,
-        )
-        .is_some(),
-        "增量构建失败"
+    assert_eq!(
+        cache.rebuild(&frame, config, &mut font_pipeline, Some(&dirty)),
+        Some(false),
+        "预热触发驱逐时必须降级为全量重建"
     );
     assert!(
         font_pipeline.atlas_generation() > generation_before,
@@ -646,7 +589,6 @@ fn eviction_fixture() -> EvictionFixture {
     EvictionFixture {
         font_pipeline,
         cache,
-        instances,
         frame,
         warm_before,
     }
@@ -680,7 +622,7 @@ fn incremental_frame_falls_back_to_full_rebuild_when_warm_evicts() {
 fn incremental_frame_uv_matches_atlas_after_eviction() {
     let mut fixture = eviction_fixture();
     let generation_before_verify = fixture.font_pipeline.atlas_generation();
-    for (cell, instance) in fixture.frame.iter().zip(fixture.instances.iter()) {
+    for (cell, instance) in fixture.frame.iter().zip(fixture.cache.instances().iter()) {
         let character = char::from_u32(cell.codepoint).expect("测试单元码位合法");
         let info = fixture
             .font_pipeline
@@ -720,35 +662,19 @@ fn cached_degraded_input_falls_back_to_full_rebuild() {
 
     // 陈旧缓存：按 12 行网格构建，而网格已有 24 行。
     let mut cache = CachedInstances::new(12, 80);
-    let mut instances = Vec::new();
-    let ok = run_cached_build(
-        &cells,
-        cursor,
-        &[true; 24],
-        &mut font_pipeline,
-        &mut cache,
-        &mut instances,
-    );
-    assert!(ok.is_some());
+    let ok = run_cached_build(&cells, cursor, &[true; 24], &mut font_pipeline, &mut cache);
+    assert_eq!(ok, Some(false), "陈旧缓存必须回退为完整重建");
     assert!(
-        instances_equal(&instances, &full),
+        instances_equal(cache.instances(), &full),
         "stale cache must force a full rebuild"
     );
 
     // 脏标记短于网格（仅 10 行）。
     let mut cache2 = CachedInstances::new(24, 80);
-    instances.clear();
-    let ok = run_cached_build(
-        &cells,
-        cursor,
-        &[true; 10],
-        &mut font_pipeline,
-        &mut cache2,
-        &mut instances,
-    );
-    assert!(ok.is_some());
+    let ok = run_cached_build(&cells, cursor, &[true; 10], &mut font_pipeline, &mut cache2);
+    assert_eq!(ok, Some(false), "过短的脏标记必须回退为完整重建");
     assert!(
-        instances_equal(&instances, &full),
+        instances_equal(cache2.instances(), &full),
         "a too-short dirty mask must force a full rebuild"
     );
 }
@@ -768,31 +694,23 @@ fn stale_cache_with_partial_mask_must_not_drop_rows() {
     // 现为 24x80（仅列数变化）。为 24x80 重建的空缓存
     // 在尺寸上「兼容」，却不含任何行数据。
     let mut cache = CachedInstances::new(24, 80);
-    let mut instances = Vec::new();
     // 部分标记：只有第 2 行脏（仅一行字节变化时单元 diff
     // 路径的产出）。
     let mut mask = vec![false; 24];
     mask[2] = true;
-    let ok = run_cached_build(
-        &cells,
-        cursor,
-        &mask,
-        &mut font_pipeline,
-        &mut cache,
-        &mut instances,
-    );
-    assert!(ok.is_some());
+    let ok = run_cached_build(&cells, cursor, &mask, &mut font_pipeline, &mut cache);
+    assert_eq!(ok, Some(false), "空缓存必须回退为完整重建");
     // 每一行都必须在场：空缓存提供「干净」行时
     // 23 个干净行只会产出 0 个实例。
     assert_eq!(
-        instances.len(),
+        cache.instances().len(),
         full.len(),
         "partial mask on an empty cache must not drop rows (got {} vs {})",
-        instances.len(),
+        cache.instances().len(),
         full.len()
     );
     assert!(
-        instances_equal(&instances, &full),
+        instances_equal(cache.instances(), &full),
         "result must equal a full rebuild on cache mismatch"
     );
 }

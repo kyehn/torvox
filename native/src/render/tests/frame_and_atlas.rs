@@ -318,8 +318,8 @@ fn bench_end_to_end_cpu_pipeline_latency() {
     let content = b"user@host:~$ cargo build --release --features=test-util\n   Compiling native v0.1.0\n    Finished `release` profile [optimized] target(s) in 0.42s\n";
     let iteration_count = 20; // 20 screens
 
-    // 生产路径跨帧复用实例缓冲；基准也复用，避免把每帧分配算进管线成本。
-    let mut instances = Vec::new();
+    // 生产路径跨帧复用实例缓存；基准也复用，避免把每帧分配算进管线成本。
+    let mut cache = crate::render::cell_builder::CachedInstances::new(24, 80);
     let start = Instant::now();
     for _ in 0..iteration_count {
         terminal_under_test.vt_write(content);
@@ -334,13 +334,13 @@ fn bench_end_to_end_cpu_pipeline_latency() {
             style: cursor_info.style,
             ..test_cell_cursor(cursor_info.visible)
         };
-        super::super::build_instances_from_cell_data(
+        cache.rebuild(
             &cells,
             test_config(24, 80, 1024.0 / 80.0, 1024.0 / 24.0, cursor, &[]),
             &mut font_pipeline,
-            &mut instances,
+            None,
         );
-        let count = black_box(instances.len());
+        let count = black_box(cache.instances().len());
         black_box(count);
     }
     let elapsed = start.elapsed();
@@ -617,15 +617,11 @@ fn repeat_build_is_identical_and_produces_no_new_dirty_rect() {
         ..test_cell_cursor(false)
     };
     let config = test_config(1, text.len() as u32, cell_width, cell_height, cursor, &[]);
-    let mut first = Vec::new();
+    let mut first_cache = crate::render::cell_builder::CachedInstances::new(1, text.len() as u32);
     assert!(
-        crate::render::build_instances_from_cell_data(
-            &cell_data,
-            config,
-            &mut font_pipeline,
-            &mut first
-        )
-        .is_some(),
+        first_cache
+            .rebuild(&cell_data, config, &mut font_pipeline, None)
+            .is_some(),
         "首帧构建失败"
     );
     let rect = font_pipeline
@@ -640,19 +636,15 @@ fn repeat_build_is_identical_and_produces_no_new_dirty_rect() {
     );
 
     // 第二次构建：字形缓存命中，实例与首帧一致，无新上传区。
-    let mut second = Vec::new();
+    let mut second_cache = crate::render::cell_builder::CachedInstances::new(1, text.len() as u32);
     assert!(
-        crate::render::build_instances_from_cell_data(
-            &cell_data,
-            config,
-            &mut font_pipeline,
-            &mut second
-        )
-        .is_some(),
+        second_cache
+            .rebuild(&cell_data, config, &mut font_pipeline, None)
+            .is_some(),
         "重复构建失败"
     );
-    let first_bytes = bytemuck::cast_slice::<CellInstance, u8>(&first);
-    let second_bytes = bytemuck::cast_slice::<CellInstance, u8>(&second);
+    let first_bytes = bytemuck::cast_slice::<CellInstance, u8>(first_cache.instances());
+    let second_bytes = bytemuck::cast_slice::<CellInstance, u8>(second_cache.instances());
     assert_eq!(
         first_bytes, second_bytes,
         "重复构建实例必须与首帧逐字节一致"

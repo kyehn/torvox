@@ -60,7 +60,7 @@ CI 性能门禁的下限断言（`native/benches/support.rs` 的 `Floor::assert_
 
 #### Scenario: 首调成本不判红
 
-- **WHEN** CI runner 上首次运行 `build_instances_from_cell_data` 下限断言
+- **WHEN** CI runner 上首次运行 `rebuild_all_rows` 下限断言
 - **THEN** 初始化被预热吸收，采样均值反映稳态转换成本，不因首调光栅化失败
 
 #### Scenario: 数量级退化仍然判红
@@ -85,7 +85,7 @@ MUST NOT 缩放——真正的性能门禁在优化档位。
 
 增量路径 MUST 有独立的基准：生产上每来一次输出就走「脏掩码 + 行级实例缓存」这条路，
 只测全量构建会漏掉「增量帧退化成整屏遍历」这类固定开销（基准
-`build_instances_cached_one_dirty_row`）。
+`rebuild_dirty_one_dirty_row`）。
 
 #### Scenario: 增量帧退化被用例钉住
 
@@ -1185,3 +1185,17 @@ S12（资源极端）MUST 各自有可执行的场景执行器，覆盖宽字符
 
 - **WHEN** 施加灭屏压力后复原
 - **THEN** 复原 MUST 以当前屏幕状态与原值比较决定是否再按电源键，MUST NOT 按原值盲按
+
+### Requirement: 性能门禁 MUST 测生产路径
+
+实例构建的基准与分配预算 MUST 走生产路径的入口：跨帧复用的实例缓存 + 与渲染线程
+相同的调用方式。MUST NOT 另立一条只在用例里存在、而生产不走的构建路径来当门禁——那样
+测出的分配与耗时都不是生产实际承受的，门禁形同虚设。
+
+判定口径：基准与预算用例调用的入口 MUST 与渲染线程调用的是同一个。
+
+#### Scenario: 分配预算测的是跨帧复用的缓存
+
+- **WHEN** 检视实例构建的分配预算用例
+- **THEN** 它 MUST 在窗口外预热后，跨帧复用同一个实例缓存逐帧重建，
+      MUST NOT 每帧新建缓存或经由另一条构建入口

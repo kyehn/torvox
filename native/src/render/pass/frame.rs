@@ -524,8 +524,8 @@ impl Renderer {
 
     /// 由 `CellData` 渲染一帧：先查图集并定位转成 CellInstance，再提交 GPU。
     ///
-    /// `dirty_rows` 为 `Some` 时只重建被标记的行，干净行取自 `self.cell_cache`；
-    /// `None` 强制全量重建并丢弃陈旧缓存。
+    /// `dirty_rows` 为 `Some` 时只重建被标记的行，干净行保留在 `self.cell_cache`；
+    /// `None` 强制全量重建。
     // 渲染线程入口：参数由调用帧装配固定，成组改结构体只增间接无收益。
     pub fn render_cell_data(
         &mut self,
@@ -568,48 +568,21 @@ impl Renderer {
                 self.background.a as f32,
             ],
         };
-        // 行级脏缓存：给出脏掩码时只重建被标记的行，干净行复制自跨帧缓存；
-        // `None`（调用方无基线，如首帧）强制全量重建。
+        // 行级脏缓存即实例的唯一副本：脏行就地重建、干净行原地保留，
+        // 不再每帧把整屏实例复制进缓存、下一帧又复制出来。
         let build_start = std::time::Instant::now();
-        let (converted, rebuilt_all_rows) = if let Some(mask) = dirty_rows {
-            let cache = self.cell_cache.get_or_insert_with(|| {
-                crate::render::cell_builder::CachedInstances::new(rows, cols)
-            });
-            let (effective_mask, rebuilt_all_rows): (&[bool], bool) =
-                if cache.is_compatible(rows, cols) {
-                    (mask, false)
-                } else {
-                    // 缓存已与网格不匹配（缩放）：新缓存是空的，若仍按“干净行”
-                    // 取值会复制 0 个实例并丢行。本帧强制全量重建。
-                    *cache = crate::render::cell_builder::CachedInstances::new(rows, cols);
-                    self.cell_full_mask_cache.resize(rows as usize, true);
-                    (&self.cell_full_mask_cache, true)
-                };
-            let converted = crate::render::cell_builder::build_instances_cached(
-                cell_data,
-                config,
-                font_pipeline,
-                effective_mask,
-                cache,
-                &mut self.cpu_instances,
-            );
-            (converted, rebuilt_all_rows)
-        } else {
-            // 无基线：丢弃可能已失效的陈旧缓存并重建所有行。
-            self.cell_cache = None;
-            (
-                crate::render::build_instances_from_cell_data(
-                    cell_data,
-                    config,
-                    font_pipeline,
-                    &mut self.cpu_instances,
-                ),
-                true,
-            )
-        };
+        let atlas_generation_before_build = font_pipeline.atlas_generation();
+        let mut cache = self
+            .cell_cache
+            .take()
+            .unwrap_or_else(|| crate::render::cell_builder::CachedInstances::new(rows, cols));
+        // 走哪条路径由构建过程判定并回报（增量 / 全量 / 失败）：
+        // 调用方另行推断会在「构建内部降级为全量」时分歧——缓存里已是全量
+        // 重建的实例，而推断仍说「增量」，于是拿全量实例去做稀疏上传。
+        let built = cache.rebuild(cell_data, config, font_pipeline, dirty_rows);
         let build_done = std::time::Instant::now();
 
-        // 字形首帧完整性：实例构建（build_instances_cached/…）期间新光栅化
+        // 字形首帧完整性：实例构建（`CachedInstances::rebuild_*`）期间新光栅化
         // 的字形只写入了 CPU 侧 atlas_bitmap 并登记 dirty_rect，尚未到达
         // GPU 纹理。render_inner 的上传发生在实例构建之前（下一帧才轮到
         // 本帧的脏区），若此处不补传，本帧绘制将按空纹理采样，而 Idle
@@ -621,25 +594,24 @@ impl Renderer {
             self.upload_atlas(font_pipeline.atlas_bitmap(), atlas_w, atlas_h, Some(rect));
         }
         let upload_done = std::time::Instant::now();
-        if converted.is_none() {
+        let Some(incremental) = built else {
+            self.cell_cache = Some(cache);
             return Err(GpuError::Surface("CellData conversion failed".into()));
-        }
-        // 把缓冲移出 self，使 render_frame 能借用它而不与对 self 的 &mut 调用
-        // 别名冲突（NLL 无法拆分同一个接收者的借用）。
-        let cpu_instances = std::mem::take(&mut self.cpu_instances);
+        };
         // 把行级脏掩码解析成连续的实例切片脏带，供 GPU 脏带路径使用。
-        // 仅在缓存
-        // 本身一致（确实发生了增量构建）时有效，否则空脏带列表会强制全量重绘。
+        // 仅在确实发生了增量构建时有效：全量重建（首帧、resize、换字体、
+        // 掩码过短、整屏全脏、构建中图集搬迁）必须整屏重绘。
         // 代际必须一致：atlas 重建/驱逐搬迁 UV 后实例已全量重建（新 UV），
         // 若 bands 仍稀疏，partial 路径只画 bands，干净行残留 stale UV
         //（`nix --help` 斜体/新字形部分不可见、滑动后部分出现）。
-        // 与增量发射的代际门控（cell_builder 428 行）同条件。
+        // 比较构建**前**的代际：构建中发生搬迁时，缓存虽已按新代际全量重建，
+        // 累加器里干净行的旧像素仍属于搬迁前的 UV，必须整屏重绘。
         let bands = partial_frame_bands(
-            rebuilt_all_rows,
-            self.cell_cache.as_ref(),
+            incremental,
+            Some(&cache),
             rows,
             cols,
-            font_pipeline.atlas_generation(),
+            atlas_generation_before_build,
             dirty_rows,
         );
         let partial = bands.is_some();
@@ -647,11 +619,12 @@ impl Renderer {
             bands: bands.unwrap_or_default(),
             cell_height_px: grid_cell_height,
         };
+        let instance_count = cache.instances().len();
         let gpu_start = std::time::Instant::now();
         let result =
-            self.render_frame_with_plan(&cpu_instances, kgp_instances, kgp_overlay_dirty, &plan);
+            self.render_frame_with_plan(cache.instances(), kgp_instances, kgp_overlay_dirty, &plan);
         let gpu_done = std::time::Instant::now();
-        self.cpu_instances = cpu_instances;
+        self.cell_cache = Some(cache);
         let total = gpu_done.duration_since(build_start);
         if total >= std::time::Duration::from_millis(30)
             && let Some(slow_frames) = SLOW_CELL_BUILD_THROTTLE.record()
@@ -673,7 +646,7 @@ impl Renderer {
                 ms(gpu_done.duration_since(gpu_start)),
                 ms(total),
                 cell_data.len(),
-                self.cpu_instances.len(),
+                instance_count,
             );
         }
         result

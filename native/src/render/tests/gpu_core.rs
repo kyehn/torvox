@@ -453,53 +453,34 @@ fn cached_build_matches_full_build_byte_for_byte() {
     };
     let config = test_config(rows, cols, cell_width, cell_height, cursor, &[]);
 
-    let mut full = Vec::new();
+    let mut full_cache = crate::render::cell_builder::CachedInstances::new(rows, cols);
     assert!(
-        crate::render::build_instances_from_cell_data(
-            &cells,
-            config,
-            &mut font_pipeline,
-            &mut full
-        )
-        .is_some(),
+        full_cache
+            .rebuild(&cells, config, &mut font_pipeline, None)
+            .is_some(),
         "full build failed"
     );
+    let full = full_cache.instances();
 
     let mut cache = crate::render::cell_builder::CachedInstances::new(rows, cols);
-    let all_dirty = vec![true; rows as usize];
-    let mut first = Vec::new();
     assert!(
-        crate::render::cell_builder::build_instances_cached(
-            &cells,
-            config,
-            &mut font_pipeline,
-            &all_dirty,
-            &mut cache,
-            &mut first,
-        )
-        .is_some(),
+        cache
+            .rebuild(&cells, config, &mut font_pipeline, None)
+            .is_some(),
         "cache-populating build failed"
     );
 
     let mut dirty = vec![false; rows as usize];
     dirty[2] = true;
-    let mut partial = Vec::new();
-    assert!(
-        crate::render::cell_builder::build_instances_cached(
-            &cells,
-            config,
-            &mut font_pipeline,
-            &dirty,
-            &mut cache,
-            &mut partial,
-        )
-        .is_some(),
-        "partial build failed"
+    assert_eq!(
+        cache.rebuild(&cells, config, &mut font_pipeline, Some(&dirty)),
+        Some(true),
+        "partial build must take the incremental path"
     );
 
     assert_eq!(
-        bytemuck::cast_slice::<CellInstance, u8>(&full),
-        bytemuck::cast_slice::<CellInstance, u8>(&partial),
+        bytemuck::cast_slice::<CellInstance, u8>(full),
+        bytemuck::cast_slice::<CellInstance, u8>(cache.instances()),
         "增量构建的输出必须与全量构建逐字节一致（脏带只改画哪些行，不改行内容）"
     );
 }
@@ -517,21 +498,14 @@ fn resize_cycles_do_not_accumulate_stale_rows() {
     for (rows, cols) in [(4u32, 5u32), (3, 6), (5, 4), (2, 8), (4, 5)] {
         let cells = non_default_grid(rows, cols);
         let config = test_config(rows, cols, cell_width, cell_height, cursor, &[]);
-        let mut out = Vec::new();
         assert!(
-            crate::render::cell_builder::build_instances_cached(
-                &cells,
-                config,
-                &mut font_pipeline,
-                &vec![true; rows as usize],
-                &mut cache,
-                &mut out,
-            )
-            .is_some(),
+            cache
+                .rebuild(&cells, config, &mut font_pipeline, None)
+                .is_some(),
             "build for {rows}x{cols} failed"
         );
         assert_eq!(
-            out.len(),
+            cache.instances().len(),
             (rows * cols) as usize,
             "resize 后实例数必须等于当前网格单元数（{rows}x{cols}），不得累积旧网格的行"
         );
