@@ -1,9 +1,9 @@
 use super::GhosttyTerminal;
 
-use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 
 use libghostty_vt::Terminal;
 use libghostty_vt::color::PaletteIndex;
@@ -426,6 +426,12 @@ impl<'alloc> RenderExtractors<'alloc> {
     }
 }
 
+/// 空网格占位：行缓存交出内容或整体失效后需要先放回一份空网格。
+///
+/// 共享同一份即可——该网格不可变（写入都整体替换 `Arc`），共享后每帧省去
+/// 一次空 `Arc` 的堆分配。
+static EMPTY_CELLS: LazyLock<Arc<Vec<CellData>>> = LazyLock::new(|| Arc::new(Vec::new()));
+
 /// 上一帧的扁平 `CellData` 与其按行划分的区间。
 ///
 /// 干净行整段复制自这里，故行边界必须由 [`build_row_ranges`] 依
@@ -495,7 +501,7 @@ impl BatchStats {
 impl RowCache {
     pub(crate) fn new() -> Self {
         Self {
-            cells: Arc::new(Vec::new()),
+            cells: EMPTY_CELLS.clone(),
             ranges: Vec::new(),
         }
     }
@@ -512,7 +518,7 @@ impl RowCache {
     /// 拷贝成本。
     fn take_previous(&mut self) -> (Arc<Vec<CellData>>, Vec<std::ops::Range<usize>>) {
         (
-            std::mem::replace(&mut self.cells, Arc::new(Vec::new())),
+            std::mem::replace(&mut self.cells, EMPTY_CELLS.clone()),
             std::mem::take(&mut self.ranges),
         )
     }
@@ -583,7 +589,7 @@ impl RowCache {
     /// 整体失效：下一帧必须逐格重建。用于网格尺寸变化、重置、主题或选区变更
     /// ——这些情形下缓存内容与新网格不可比。
     pub(crate) fn invalidate(&mut self) {
-        self.cells = Arc::new(Vec::new());
+        self.cells = EMPTY_CELLS.clone();
         self.ranges.clear();
     }
 }
