@@ -1,6 +1,7 @@
 package terminal.emulator.ui
 
 import android.os.SystemClock
+import terminal.emulator.HandleDragResult
 import terminal.emulator.util.runCatchingCancellable
 
 /** 边缘滚动单步方向与行数：+1 向上（回滚多露一行）、-1 向下（少露一行）。 */
@@ -135,9 +136,7 @@ internal class HandleDragController(private val surface: TerminalSurface) {
                         cachedMaxCol = (surface.cols - 1).coerceAtLeast(0),
                     )
                 if (result != null) {
-                    state = if (result.draggingStart) HandleDrag.START else HandleDrag.END
-                    surface.selectionHandles.repositionHandle(HandleDrag.START, result.startRow, result.startCol)
-                    surface.selectionHandles.repositionHandle(HandleDrag.END, result.endRow, result.endCol)
+                    applyDragResult(result)
                 }
             }
         }
@@ -250,6 +249,16 @@ internal class HandleDragController(private val surface: TerminalSurface) {
                 cachedMaxRow = (surface.currentScrollbackLength() + surface.rows - 1).coerceAtLeast(0),
                 cachedMaxCol = (surface.cols - 1).coerceAtLeast(0),
             ) ?: return
+        applyDragResult(result)
+    }
+
+    /**
+     * 把一次拖动结果落到手柄上：更新被拖端点的状态并重定位两侧手柄。
+     *
+     * 快速路径与常规路径各写一份时，一边改了端点语义（起点/终点）而另一边没跟上，
+     * 手柄就会停在旧端点上——两条路径的差别只在耗时，不该有语义差。
+     */
+    private fun applyDragResult(result: HandleDragResult) {
         state = if (result.draggingStart) HandleDrag.START else HandleDrag.END
         surface.selectionHandles.repositionHandle(HandleDrag.START, result.startRow, result.startCol)
         surface.selectionHandles.repositionHandle(HandleDrag.END, result.endRow, result.endCol)
