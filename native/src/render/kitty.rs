@@ -22,6 +22,9 @@ pub(crate) struct AtlasEntry {
 /// 被放置 N 次就在图集里铺 N 份，故图集可以远大于图像存储。PTY 同时控制图像尺寸
 /// 与放置数量，两者相乘即可把图集撑到数十 GB——先分配、再由 GPU 侧尺寸检查拒绝
 /// 为时已晚：分配失败会让进程 abort，且没有任何日志。故预算必须在分配**之前**。
+///
+/// 预算约束的是**新分配**：单图整幅走零拷贝借用（不分配新缓冲），故不受此预算
+/// 约束（见 [`AtlasPlan::Borrowed`]）。
 const MAX_ATLAS_BYTES: usize = crate::terminal::ghostty_terminal::KGP_STORAGE_LIMIT as usize;
 
 /// 图集布局：图集尺寸与条目表。
@@ -157,8 +160,9 @@ enum AtlasRejection {
 /// 与已上传图集（永远是 0）比对，于是每帧重试打包、每帧刷一条警告，图像却永远
 /// 不会出现。故尺寸与预算两项判据都只有这一处实现。
 ///
-/// 返回 `Ok(字节数)`：字节数即图集缓冲长度（跨步 `width * 4` 乘 `height`，受检
-/// 算术，溢出即拒绝）。复用路径只判成败、不取字节数。
+/// 返回 `Ok(需分配的字节数)`：条带布局要分配的图集缓冲长度（跨步 `width * 4`
+/// 乘 `height`，受检算术，溢出即拒绝）；零拷贝借用路径不分配新缓冲，故为 0。
+/// 复用路径只判成败、不取字节数。
 fn check_atlas(plan: &AtlasPlan<'_>, max_side: u32) -> Result<usize, AtlasRejection> {
     let layout = plan.layout();
     // 设备上限：纹理装不下时 GPU 侧只会逐帧报校验错误。先在此判掉，复用路径便
@@ -166,9 +170,19 @@ fn check_atlas(plan: &AtlasPlan<'_>, max_side: u32) -> Result<usize, AtlasReject
     if layout.width > max_side || layout.height > max_side {
         return Err(AtlasRejection::DeviceLimit);
     }
-    let stride = layout.width.checked_mul(4).ok_or(AtlasRejection::Budget)?;
+    let strip = match plan {
+        // 单图整幅：不分配新缓冲，故字节预算（约束的是新分配）不适用——图像像素
+        // 缓冲已由上游存储上限约束，超预算也无妨，不该整幅拒掉。
+        AtlasPlan::Borrowed { .. } => return Ok(0),
+        AtlasPlan::Strip(strip) => strip,
+    };
+    let stride = strip
+        .layout
+        .width
+        .checked_mul(4)
+        .ok_or(AtlasRejection::Budget)?;
     let bytes = (stride as usize)
-        .checked_mul(layout.height as usize)
+        .checked_mul(strip.layout.height as usize)
         .ok_or(AtlasRejection::Budget)?;
     if bytes > MAX_ATLAS_BYTES {
         return Err(AtlasRejection::Budget);
@@ -180,6 +194,7 @@ fn check_atlas(plan: &AtlasPlan<'_>, max_side: u32) -> Result<usize, AtlasReject
 /// 输入总量由上游存储上限约束（`KGP_STORAGE_LIMIT`=64MiB，见 `types.rs`）；
 /// 横条带布局存在矩形空洞，故输出像素数可大于输入面积和——图集字节数用受检算术
 /// 计算，超出预算（[`MAX_ATLAS_BYTES`]）时明确记日志后放弃该图集，绝不先分配。
+/// 单图整幅走零拷贝借用，不分配新缓冲，故不受字节预算约束。
 fn pack_atlas(frames: &[KittyPlacementFrame], max_side: u32) -> Option<PackedAtlas<'_>> {
     let plan = plan_atlas(frames)?;
     // 预算检查必须在分配**之前**：条带布局下同一幅图像被放置 N 次就会在图集里
@@ -579,26 +594,31 @@ mod tests {
 
     /// 单图借用路径必须与条带路径、复用路径同判据。
     ///
-    /// 判别力：单图全图走零拷贝借用分支，该分支若不查预算，就会「打包放行、
-    /// 复用拒绝」——图像先出现，放置集合一变又消失（复用路径拿不到布局，
-    /// 实例被清空）。RGB 图像解码成 RGBA 后还会膨胀 4/3，故单图也可能超预算。
+    /// 单图整幅走零拷贝借用：不分配新缓冲，故不受字节预算约束。
+    ///
+    /// 判别力：借用分支若照搬条带路径的预算判据，这幅图（宽高都在设备上限内、
+    /// 设备装得下）会整幅不显示。复用路径必须同判据：拒绝则图像先出现，放置
+    /// 集合一变又消失。
     #[test]
-    fn oversized_single_image_is_rejected_by_both_paths() {
+    fn oversized_single_image_is_borrowed_without_budget() {
         let mut huge = test_frame();
-        // 尺寸刻意留在设备纹理上限内：这样被拒的原因只有字节预算。
+        // 尺寸刻意留在设备纹理上限内：这样「被拒」只可能源于字节预算。
         huge.image_width = 8_192;
-        huge.image_height = 2_050;
+        huge.image_height = 2_100;
         huge.source_width = 8_192;
-        huge.source_height = 2_050;
+        huge.source_height = 2_100;
         let frames = vec![huge];
+        let (atlas, width, height, entries) = pack_atlas(&frames, TEST_MAX_SIDE).expect("atlas");
+        assert_eq!((width, height), (8_192, 2_100));
         assert!(
-            pack_atlas(&frames, TEST_MAX_SIDE).is_none(),
-            "超预算的单图必须与条带路径同判据：拒绝"
+            matches!(atlas, Cow::Borrowed(_)),
+            "单图整幅必须零拷贝借用，不得因预算而拒"
         );
-        assert!(
-            layout_entries(&frames, TEST_MAX_SIDE).is_none(),
-            "超预算的单图不得进入复用路径"
-        );
+        assert!(entries[0].is_some());
+        let (layout_width, layout_height, layout_entries) =
+            layout_entries(&frames, TEST_MAX_SIDE).expect("layout");
+        assert_eq!((layout_width, layout_height), (8_192, 2_100));
+        assert!(layout_entries[0].is_some());
     }
 
     #[test]
