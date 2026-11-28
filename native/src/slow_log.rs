@@ -203,11 +203,14 @@ impl CountedLogThrottle {
         if events == 0 {
             return None;
         }
-        self.count
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+        // 闭包恒返回 `Some`，更新不会失败；`fetch_update` 在 CAS 失败时重试，
+        // 而 `try_update` 会把并发争用当成放弃更新——被吞掉的那批事件就再也
+        // 不计入窗口，与「限频吞掉的是条数，不是次数」相悖。
+        let _ = self
+            .count
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 Some(count.saturating_add(events))
-            })
-            .ok();
+            });
         if !self.throttle.should_log_at(now_ms) {
             return None;
         }
