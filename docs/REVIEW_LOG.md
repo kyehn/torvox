@@ -40,11 +40,12 @@
 ## 验证
 
 - Rust：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 通过；`cargo test --all-targets` 为 989 + 1 + 2 + 1 个测试全部通过。
-- Android：`nu scripts/build-android-libs.nu x86_64` 后执行 `detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、`testDebugUnitTest`（1172 个单元测试）、benchmark 与 baselineprofile 编译、`assembleRelease`、`analyzeReleaseR8Config`，全部 `BUILD SUCCESSFUL`。
+- Android：`nu scripts/build-android-libs.nu x86_64` 后执行 `detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、`testDebugUnitTest`（1174 个单元测试）、benchmark 与 baselineprofile 编译、`assembleRelease`、`analyzeReleaseR8Config`，全部 `BUILD SUCCESSFUL`。
 - 反汇编 release `classes.dex`：69 个可达 JNI 方法全部保留；9 个仅诊断/测试用且 Kotlin 侧无可达调用点的方法随死代码移除，原生侧不存在通过 JNI 反射回调 Kotlin 的路径。
 - 全部修复均已提交并推送到 `origin/main`。
 
 ## 已知残余风险
 
+- `qlty check --all` 仍有 36 条：31 条 `zizmor` 命中受保护的 `.github/workflows/`（action 未固定到 hash、`persist-credentials` 未关闭、自仓引用语法、多余 action），须用户明确授权后才能改；1 条 OSV 提示 `ttf-parser@0.25.1` 已停止维护，它由 `cosmic-text 0.19` 经 `fontdb 0.23` 间接引入，`Cargo.toml` 受保护且上游版本约束未放开，本地无法单独替换；余下 4 条是 `ripgrep` 对源码注释中 `TODO` / `NOTE` / `XXX` 的提示，不是运行期缺陷。
 - 未连接真机执行 GPU/JNI 压力测试与 Android instrumentation 测试；设备特定纹理上限已按运行时 `limits()` 兜底，但真机路径仍需在有设备环境复验。
 - 同一仓库存在并行提交者：其提交会把工作区暂存的内容一并卷入（本次「滚轮转发标记只升不降」的修复即随另一笔 `refactor(pty)` 提交落库，随后该提交被改写）。提交前须逐文件核对暂存区，勿把他人的半成品计入自己的提交；跨提交的归属以文件内容与本记录为准，不以提交标题为准。
