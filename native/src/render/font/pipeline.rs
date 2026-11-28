@@ -365,11 +365,7 @@ impl FontPipeline {
     /// 重建字形图集：重置分配器、清位图、递增代次并重光栅化 ASCII。
     /// 字号、光栅缩放或字体族变化后调用。
     fn reset_atlas(&mut self) {
-        self.atlas = etagere::AtlasAllocator::new(etagere::size2(
-            self.atlas_width as i32,
-            self.atlas_height as i32,
-        ));
-        self.atlas_bitmap.fill(0);
+        self.reset_atlas_storage();
         self.atlas_generation = self.atlas_generation.wrapping_add(1);
         // 位图已清空，只有重新光栅化的字形才有像素：脏区交给 rasterize_ascii 逐个
         // 登记即可，不必整幅重传（整幅是 2048×2048×4B = 16MB）。

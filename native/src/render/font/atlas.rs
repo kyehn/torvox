@@ -245,6 +245,19 @@ impl FontPipeline {
         Some(info)
     }
 
+    /// 清空图集存储：重建分配器并把位图清零。
+    ///
+    /// 驱逐后的重建（[Self::rebuild_atlas]）与字号/字体变化后的重置（`reset_atlas`）
+    /// 都要从一张空白图集重新落位字形：分配器里的旧布局与位图里的旧像素必须同时
+    /// 作废。两处各写一份时，只重建分配器而忘了清位图，新字形会与旧像素叠加。
+    pub(super) fn reset_atlas_storage(&mut self) {
+        self.atlas = etagere::AtlasAllocator::new(etagere::size2(
+            self.atlas_width as i32,
+            self.atlas_height as i32,
+        ));
+        self.atlas_bitmap.fill(0);
+    }
+
     pub(super) fn rebuild_atlas(&mut self) {
         let entries: Vec<(GlyphKey, GlyphInfo)> = self
             .caches
@@ -252,11 +265,7 @@ impl FontPipeline {
             .iter()
             .map(|(&k, v)| (k, v.clone()))
             .collect();
-        self.atlas = etagere::AtlasAllocator::new(etagere::size2(
-            self.atlas_width as i32,
-            self.atlas_height as i32,
-        ));
-        self.atlas_bitmap.fill(0);
+        self.reset_atlas_storage();
         self.caches.glyph_cache.clear();
         // 重建后逐个字形重新入图集，每次入图都登记脏区：先清掉旧脏区，让脏区正好
         // 等于重新落位的字形包围盒，而不是整幅图集（2048×2048×4B = 16MB 的白传）。
