@@ -68,6 +68,17 @@ fn cstring_without_null(bytes: &[u8], what: &str) -> Result<std::ffi::CString, P
     })
 }
 
+/// 路径是否落在 prefix 之下：prefix 非空，且路径以 `prefix/` 开头。
+///
+/// shell 路径与解释器路径共用这一判据：分开写时前缀分隔符容易漏掉 `/`，
+/// 那会让 `<prefix>_evil/bin/sh` 被当成 prefix 下的可执行文件。
+fn under_prefix(path: &str, prefix: &str) -> bool {
+    !prefix.is_empty()
+        && path
+            .strip_prefix(prefix)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
 /// 子进程用的 linker 路径：64 位架构用 linker64，32 位用 linker。
 ///
 /// shell 与脚本解释器两条路径都要过 linker（Android 15+ 的 SELinux 拒绝 app-data
@@ -398,13 +409,12 @@ impl PtyPair {
         // ——linker 运行于 system_linker_exec 域，能正常加载 app-data 中的 ELF。
         // 子进程不设置 `LD_PRELOAD`，仅走 linker 间接。
         let prefix = env.prefix.as_deref().unwrap_or("");
-        let use_linker = !prefix.is_empty()
-            && shell_executable.starts_with(&format!("{prefix}/"))
-            && !shell_executable.contains('\0')
-            && is_pie(&shell_executable);
+        // 含 NUL 的 shell 路径已由 `cstring_without_null` 在 fork 前拒绝，此处不可能再遇。
+        let shell_under_prefix = under_prefix(&shell_executable, prefix);
+        let use_linker = shell_under_prefix && is_pie(&shell_executable);
         if use_linker {
             log::info!("SPAWN_LINKER: shell={shell} prefix={prefix}");
-        } else if !prefix.is_empty() && shell_executable.starts_with(&format!("{prefix}/")) {
+        } else if shell_under_prefix {
             log::info!("SPAWN_DIRECT_ET_EXEC: shell={shell} (non-PIE, skip linker)");
         } else {
             log::info!("SPAWN_DIRECT: shell={shell} prefix={prefix:?}");
@@ -433,8 +443,7 @@ impl PtyPair {
         let script_linker_cstr: Option<std::ffi::CString> = match &script_dispatch {
             Some((interpreter, _)) => {
                 let interpreter_text = interpreter.to_string_lossy();
-                let interpreter_under_prefix =
-                    !prefix.is_empty() && interpreter_text.starts_with(&format!("{prefix}/"));
+                let interpreter_under_prefix = under_prefix(&interpreter_text, prefix);
                 if interpreter_under_prefix && is_pie(&interpreter_text) {
                     log::info!("SPAWN_SCRIPT_LINKER: shell={shell} interpreter={interpreter_text}");
                     Some(

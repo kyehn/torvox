@@ -56,6 +56,40 @@ fn linker_path_follows_the_architecture() {
     assert_eq!(linker, expected);
 }
 
+/// prefix 判据必须以 `prefix/` 为界：只看前缀开头会让 `<prefix>_evil/bin/sh`
+/// 被当成 prefix 下的可执行文件，空 prefix 也不能把任意路径算成 prefix 下。
+///
+/// 判别力：shell 路径与解释器路径共用这一判据，判据放宽一次就等于放行
+/// prefix 目录树之外的可执行文件。
+#[test]
+fn under_prefix_requires_the_directory_separator() {
+    assert!(
+        under_prefix(
+            "/data/data/com.termux/files/usr/bin/bash",
+            "/data/data/com.termux/files/usr"
+        ),
+        "prefix 下的路径必须判为真"
+    );
+    assert!(
+        !under_prefix(
+            "/data/data/com.termux/files/usr_evil/bin/bash",
+            "/data/data/com.termux/files/usr"
+        ),
+        "同前缀的兄弟目录不得判为 prefix 下"
+    );
+    assert!(
+        !under_prefix("/usr/bin/bash", ""),
+        "空 prefix 不得把任意路径判为 prefix 下"
+    );
+    assert!(
+        !under_prefix(
+            "/data/data/com.termux/files/usr",
+            "/data/data/com.termux/files/usr"
+        ),
+        "prefix 本身不是 prefix 下的路径"
+    );
+}
+
 /// `Session::spawn` 中 fork 成功后的错误路径上 `Session` 从未构造，
 /// 回收只能由主端所有者（`PtyPair::drop`）完成：drop 返回后子进程必须已被
 /// waitpid 回收（再查询即 ECHILD），既不得留活子进程也不得留僵尸。
