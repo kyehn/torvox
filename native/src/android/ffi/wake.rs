@@ -1,9 +1,21 @@
 use super::render::{pump_sessions, string_to_jstring};
 use super::{
-    Arc, Duration, EVENT_QUEUE, Env, EnvUnowned, Event, JClass, NOTIFICATION_QUEUE,
+    Arc, Duration, EVENT_QUEUE, Env, EnvUnowned, Event, JClass, NOTIFICATION_QUEUE, RenderWake,
     ThrowRuntimeExAndFailure, jlong, jstring, rlock_session_registry,
 };
 use crate::event::EventQueue;
+
+/// 取一份会话的渲染唤醒器；会话已销毁时返回 `None`。
+///
+/// 注册表读锁只用于取一份 `Arc`：等待期间绝不能持注册表锁（销毁会话要写锁），
+/// 故克隆后立即放锁。等待输出与唤醒渲染两处各写一份时，「会话已销毁怎么办」的
+/// 口径容易分叉——等待路径要按节奏睡一段，唤醒路径则什么都不做。
+fn session_render_wake(session_id: jlong) -> Option<Arc<RenderWake>> {
+    let registry = rlock_session_registry();
+    registry
+        .get(&(session_id as u64))
+        .map(|entry| Arc::clone(&entry.render_wake))
+}
 
 // ── 渲染唤醒 ────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
@@ -26,12 +38,7 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_waitFor
         let timeout = Duration::from_millis(u64::try_from(timeout_millis).unwrap_or(0));
         let last_generation = u64::try_from(last_generation).unwrap_or(0);
         // 读锁只用于取一份 Arc：等待期间绝不能持注册表锁（销毁会话要写锁）。
-        let wake = {
-            let registry = rlock_session_registry();
-            registry
-                .get(&(session_id as u64))
-                .map(|entry| Arc::clone(&entry.render_wake))
-        };
+        let wake = session_render_wake(session_id);
         if let Some(wake) = wake {
             wake.wait(last_generation, timeout) as jlong
         } else {
@@ -51,12 +58,7 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_wakeRen
     session_id: jlong,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
-        let wake = {
-            let registry = rlock_session_registry();
-            registry
-                .get(&(session_id as u64))
-                .map(|entry| Arc::clone(&entry.render_wake))
-        };
+        let wake = session_render_wake(session_id);
         if let Some(wake) = wake {
             wake.notify();
         }
