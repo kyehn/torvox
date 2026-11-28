@@ -34,7 +34,8 @@
 
 ### Modified Capabilities
 
-- `kitty-graphics`：补上「图集布局必须落在设备纹理边长上限内」的要求与场景。
+- `kitty-graphics`：把设备纹理边长上限并入图集布局判据的要求与场景（复用路径
+  与打包路径共用同一判据）。
 
 ## Impact
 
