@@ -20,7 +20,7 @@
 MUST NOT 自实现换行归一——三者都是上游协议语义且彼此耦合，归一与否由 bracketed 决定。
 
 MUST NOT 取用上游 `Terminal::paste`：其含换行文本返回 `Error::Rejected` 并要求嵌入方
-弹确认框后以 `allow_unsafe` 重试，而 `PROHIBITED.md` 明列「粘贴确认对话框」为禁止实现；
+弹确认框后以 `allow_unsafe` 重试，而 `docs/specification/PROHIBITED.md` 明列「粘贴确认对话框」为禁止实现；
 绕过该确认的唯一途径是恒置 `allow_unsafe`，安全检查随即失去意义。
 
 #### Scenario: 非 bracketed 下换行归一为回车

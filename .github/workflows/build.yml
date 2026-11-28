@@ -15,7 +15,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 70
     steps:
       - run: sudo rm --recursive --force /opt/hostedtoolcache /opt/google /opt/microsoft /var/lib/docker /usr/share/doc /usr/share/man /usr/share/info
       - uses: actions/checkout@main

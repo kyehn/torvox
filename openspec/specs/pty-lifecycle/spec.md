@@ -405,7 +405,7 @@ MUST NOT 原样放行。
 
 上游的字节预算已解除（行数是回滚区唯一的约束），故行数一旦越界放行，回滚区可一路
 长到把进程内存吃光。越界回退默认与上游 `getDefaultIfNotInRange` 同口径，也与
-`CONFIG.md`「配置非法时回退默认值」一致。
+`docs/specification/CONFIG.md`「配置非法时回退默认值」一致。
 
 收窄点是会话层（`native/src/terminal/session/mod.rs` 的
 `validated_scrollback_lines`），故 JNI 边界与任何其他调用方共用同一条判据；JNI 边界

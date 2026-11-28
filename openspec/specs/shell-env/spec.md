@@ -9,7 +9,7 @@
 ### Requirement: Shell 钩子与 rc 文件一律不注入
 
 终端 MUST NOT 设置 `ENV` 或 `PROMPT_COMMAND`，MUST NOT 创建或改写 `.mkshrc`
-（`DESIGN.md` Shell 节）。会话标题与提示符由 shell 及其用户配置自行决定：
+（`docs/specification/DESIGN.md` Shell 节）。会话标题与提示符由 shell 及其用户配置自行决定：
 shell 未上报 OSC 0/2 时标题留空，抽屉按「未设置标题时仅显示序号」渲染。
 
 #### Scenario: 构建环境时不含钩子
@@ -33,7 +33,7 @@ shell 未上报 OSC 0/2 时标题留空，抽屉按「未设置标题时仅显�
 
 ### Requirement: 声明的环境变量集合固定
 
-子进程环境 MUST 只包含下列变量及其取值（`DESIGN.md` Shell 节）：
+子进程环境 MUST 只包含下列变量及其取值（`docs/specification/DESIGN.md` Shell 节）：
 
 - `HOME` 与 `TERMUX_HOME_DIR_PATH`：`/data/data/com.termux/files/home`
 - `PREFIX` 与 `TERMUX_PREFIX_DIR_PATH`：`/data/data/com.termux/files/usr`
@@ -82,7 +82,7 @@ API 26+ 上是错的）：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、
 
 ### Requirement: PATH 以 prefix 的 bin 开头并保留宿主原值
 
-`build_env` MUST 设置 `PATH`：`{prefix}/bin` 在前，宿主进程的 `PATH` 原值在后（`DESIGN.md` Shell 节：原 `PATH` 附加 `/data/data/com.termux/files/usr/bin`，仅目录存在时附加设置）；`{prefix}/bin` 仅在目录存在时附加。`prefix` 为 `None`（无引导或 failsafe）时 MUST 只保留宿主 `PATH`，不附加 Termux 的 bin 目录。宿主没有 `PATH` 时 MUST 只给 `{prefix}/bin`，不得拼出空路径项。
+`build_env` MUST 设置 `PATH`：`{prefix}/bin` 在前，宿主进程的 `PATH` 原值在后（`docs/specification/DESIGN.md` Shell 节：原 `PATH` 附加 `/data/data/com.termux/files/usr/bin`，仅目录存在时附加设置）；`{prefix}/bin` 仅在目录存在时附加。`prefix` 为 `None`（无引导或 failsafe）时 MUST 只保留宿主 `PATH`，不附加 Termux 的 bin 目录。宿主没有 `PATH` 时 MUST 只给 `{prefix}/bin`，不得拼出空路径项。
 
 #### Scenario: 有 prefix 的会话解析 Termux 与系统命令
 

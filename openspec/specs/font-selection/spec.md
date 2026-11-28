@@ -110,7 +110,7 @@ name 表里，只有读完 `fonts.xml` 声明的全部文件才能得到。渲�
 #### Scenario: 复制 font.ttf 后生效
 
 - **WHEN** `font.ttf` 存在
-- **THEN** 生效字体为其 family，界面显示一致（`TESTING.md` 设备项）
+- **THEN** 生效字体为其 family，界面显示一致（`docs/specification/TESTING.md` 设备项）
 
 ### Requirement: 用户字体目录
 

@@ -15,7 +15,7 @@ MUST NOT 使用 `which` 做运行时路径探测，也 MUST NOT 另行执行 Zig
 
 #### Scenario: 进入声明式环境
 
-- **WHEN** 开发者按 `BUILD.md` 创建并进入开发环境
+- **WHEN** 开发者按 `docs/specification/BUILD.md` 创建并进入开发环境
 - **THEN** 构建与测试所需工具均由该环境提供，不依赖系统临时安装
 
 ### Requirement: Android 构建顺序与参数

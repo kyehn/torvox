@@ -40,7 +40,7 @@ OSC 段的处理归属与核对表：每个常见 OSC 段在本仓的行为归�
 | 4（调色板覆盖） | 上游处理且有测试钉住生效路径 | `internal/run.rs` 初始主题注释；`internal/tests.rs` 的 `osc4_palette_override_reaches_dumped_grid` |
 | 7（工作目录） | 上游解析，本仓不消费；透传行为有测试 | `output_processor.rs` 模块文档与 `osc7_and_osc8_pass_through`；`on_pwd_changed` 不采用见「上游 API 取用判定登记」 |
 | 8（超链接） | 上游解析；本仓经 `hyperlink_at` 查询网格单元 URI | `internal/selection.rs` 的 `hyperlink_at_impl`（4KiB 内联缓冲 + 越界精确重读） |
-| 9（iTerm2 通知） | 上游解析并观察：本仓注册 `on_desktop_notification` 回调，通知按会话归属投递 | `DESIGN.md` 软件节要求处理 OSC 9 通知（前台 Toast、后台系统通知、点击切换会话）；回调注册见 `ghostty_terminal/internal/run.rs`，分派见 `runtime/DesktopNotificationPlayer.kt`，规约见 `desktop-notification` |
+| 9（iTerm2 通知） | 上游解析并观察：本仓注册 `on_desktop_notification` 回调，通知按会话归属投递 | `docs/specification/DESIGN.md` 软件节要求处理 OSC 9 通知（前台 Toast、后台系统通知、点击切换会话）；回调注册见 `ghostty_terminal/internal/run.rs`，分派见 `runtime/DesktopNotificationPlayer.kt`，规约见 `desktop-notification` |
 | 10 / 11 / 12（默认前背景色 / 光标色查询与设置） | 上游不处理，默认值归内嵌方；本仓经原生主题 setter 置默认色 | `internal/run.rs` 初始主题段落三处注释（默认色归内嵌方、OSC 4 覆盖归上游、故走原生 setter 而非手写 OSC 序列） |
 | 52（剪贴板读写） | 写走上游回调；读取请求由本仓扫描器收割并拼帧应答 | `pty-lifecycle`「OSC 52 读取请求的收割与应答须对每个会话有界」；`output_processor.rs` `ReadScan` 状态机 |
 | 104 / 110 / 111 / 112（色重置） | 上游处理；跨分块重组有测试 | `tests.rs` OSC color reset 跨分块用例 |
@@ -51,5 +51,5 @@ OSC 段的处理归属与核对表：每个常见 OSC 段在本仓的行为归�
 #### Scenario: 新增 OSC 消费者时先补 DESIGN
 
 - **WHEN** 拟为某个 OSC 段新增本仓消费者（如 cwd 展示、桌面通知）
-- **THEN** MUST 先在 `DESIGN.md` 声明该功能再接线，
+- **THEN** MUST 先在 `docs/specification/DESIGN.md` 声明该功能再接线，
       MUST NOT 以「上游已解析」为由直接消费

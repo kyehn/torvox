@@ -110,30 +110,7 @@
               openssl
               zig_0_17
               cargo-ndk
-              (pkgs.python3.pkgs.callPackage
-                (inputs.nixpkgs + "/pkgs/development/python-modules/semgrep/default.nix")
-                {
-                  semgrep-core =
-                    (pkgs.python3.pkgs.callPackage (
-                      inputs.nixpkgs + "/pkgs/development/python-modules/semgrep/semgrep-core.nix"
-                    ) { }).overrideAttrs
-                      (oldAttrs: {
-                        nativeBuildInputs =
-                          pkgs.lib.lists.subtractLists [ pkgs.patchelf ] (oldAttrs.nativeBuildInputs or [ ])
-                          ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.patchelfUnstable ];
-                        postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-                          ${pkgs.lib.getExe pkgs.patchelfUnstable} \
-                            --set-rpath "$out/bin/libs:${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.libc ]}" \
-                            $out/bin/semgrep-core
-
-                          ${pkgs.lib.getExe pkgs.patchelfUnstable} \
-                            --set-interpreter "$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)" \
-                            $out/bin/semgrep-core
-                        '';
-                      });
-                  mcp = pkgs.python3.pkgs.mcp_1;
-                }
-              )
+              semgrep
               systemdLibs
               fontconfig
               libpulseaudio

@@ -5,7 +5,7 @@
 终端网格整体状态的测试覆盖方式。本能力不设金标语料与快照比对装置——判据是
 `docs/specification/TESTING.md` 的「只测试本项目功能」「被测试部分应当曾经发生过错误
 或该测试可以证明最终功能正确」与「不保留无意义或低价值测试」：语料回放考的是上游
-`libghostty-vt` 的 VT 语义，属 `TESTING.md` 明禁的「不测试依赖行为」，且
+`libghostty-vt` 的 VT 语义，属 `docs/specification/TESTING.md` 明禁的「不测试依赖行为」，且
 `ghostty_terminal::tests` 中针对具体行为的断言覆盖，其中回滚区旧行顺序、输入回显与
 光标、显示宽度、字重与颜色四类均逐项直接断言网格输出（逐格读 `CellSnapshot` 或
 `CellData`，不经中间文本层）。
@@ -283,7 +283,7 @@ MUST NOT 因整幅网格重建、命令批尾发布等与被测语义无关的�
 - **WHEN** 某 VT 特性在终端上游 master 存在、在绑定层所钉提交中不存在
 - **THEN** 记录 MUST 写明是绑定层滞后，并给出可复核的两处上游事实——提交日期与
       提交数差；MUST NOT 写 hash（见「rev 本身不进正文」，rev 的唯一载体是
-      `Cargo.toml` 的依赖钉）
+      `native/Cargo.toml` 的依赖钉）
 
 #### Scenario: 终端上游与绑定层同时缺失
 

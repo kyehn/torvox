@@ -323,7 +323,7 @@ Debug 与 Release 的可选等级列表 MUST 不同：Release 里被剥离的档
 调用点由 R8 的 `assumenosideeffects` 在 Release 构建中真正移除。原生侧（Rust）的
 调试级调用点当前由运行时等级门控跳过——消息构造不执行，但调用点仍在二进制里：
 两个 APK 变体共用同一份按 release profile 构建的原生库，编译期剥离需要为它们
-分别构建原生库（改 `Cargo.toml` 的 `log` 特性并调整构建流水线）。
+分别构建原生库（改 `native/Cargo.toml` 的 `log` 特性并调整构建流水线）。
 
 #### Scenario: Release 的可选等级不含被剥离的档位
 
