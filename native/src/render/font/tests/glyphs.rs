@@ -487,6 +487,40 @@ fn atlas_eviction_keeps_glyphs_retrievable() {
     );
 }
 
+/// 字形缓存写满后，LRU 自行淘汰的条目其图集分配必须被回收。
+///
+/// `lru` 的 `put` 在缓存写满时淘汰最久未用的条目并把它返回来。那条目的图集
+/// 分配若不回收，分配器里就留下一块永远占着的死区：图集被死区一点点吃满后，
+/// 每来一个新字形都要重建整张图集（重光栅化全部缓存字形），终端表现为
+/// 「越用越慢」，而根因是早已无人引用的分配。
+///
+/// 判别力：图集里的活分配数必须与缓存条目数一致——每个缓存字形恰好占一块，
+/// 且没有别的块悬在那里。删掉回收逻辑后本用例立即判红（预热 95 个 ASCII
+/// 字形，图集里会留下 91 块死区）。
+#[test]
+fn glyph_cache_eviction_reclaims_the_atlas_allocation() {
+    let mut database = fontdb::Database::new();
+    database.load_system_fonts();
+    let pipeline = FontPipeline::with_database(
+        512,
+        512,
+        14.0,
+        database,
+        crate::render::font::glyph_cache::GlyphCache::with_glyph_capacity(4),
+    );
+    // 预热（`with_database` 内已光栅化 ASCII 区）后缓存只剩 4 条。
+    assert_eq!(
+        pipeline.cache_length(),
+        4,
+        "前置条件：字形缓存应停在容量上限"
+    );
+    assert_eq!(
+        pipeline.atlas.iter().count(),
+        pipeline.cache_length(),
+        "图集里的活分配数须与缓存条目数一致：被 LRU 淘汰的字形不得留下死区"
+    );
+}
+
 #[test]
 fn glyph_information_has_atlas_coords() {
     let mut pipeline = FontPipeline::new(1024, 1024, 14.0);

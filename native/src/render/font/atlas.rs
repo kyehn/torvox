@@ -238,7 +238,20 @@ impl FontPipeline {
             allocation_id,
         };
 
-        self.caches.glyph_cache.put(key, info.clone());
+        // LRU 缓存写满时 `lru` 会自行淘汰最久未用的条目并把它交还：那条目的
+        // 图集分配必须在此回收，否则分配器里留下一块永远占着的死区——图集被
+        // 死区一点点吃满后，每来一个新字形都要重建整张图集（重光栅化全部缓存
+        // 字形），终端表现为「越用越慢」。回收会改写该区域的像素，故代际必须
+        // 推进：仍引用旧 UV 的实例缓存否则会采样到别人的像素。
+        //
+        // 用 `push` 而非 `put`：容量淘汰时只有 `push` 会把被淘汰的条目交还，
+        // `put` 静默丢弃（它只在「键已存在」时返回旧值）。
+        if let Some((_, evicted)) = self.caches.glyph_cache.push(key, info.clone())
+            && let Some(evicted_allocation_id) = evicted.allocation_id
+        {
+            self.atlas.deallocate(evicted_allocation_id);
+            self.atlas_generation = self.atlas_generation.wrapping_add(1);
+        }
         self.caches.note_used_face(font_id);
         // 注意：此处不推进 atlas_generation。新分配只占用空闲区，已有 UV 不变；
         // 代际只在驱逐/重建（真正搬迁 UV）时推进，否则每帧新字形都会误杀增量实例缓存。

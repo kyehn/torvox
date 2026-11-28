@@ -486,6 +486,49 @@ fn load_font_file_after_set_font_family() {
     );
 }
 
+/// 装入字体文件必须作废「此码位无面能解析」的负缓存。
+///
+/// 负缓存让全库扫描整条跳过（`find_glyph_anywhere`），于是刚装入的字体提供的
+/// 字形永远出不来：用户装完字体看到的仍是豆腐块，直到碰巧换一次字号或字体族。
+/// 换字体 / 换 locale / 换字号三条路径都清了负缓存，唯独「装入字体文件」这条没有。
+#[test]
+fn loading_a_font_file_invalidates_the_unresolvable_negative_cache() {
+    let mut pipeline = FontPipeline::new(512, 512, 14.0);
+    // U+10FFFD（私用平面）无任何字体覆盖，稳定落在「扫描失败」这一支。
+    let rare = char::from_u32(0x10_FFFD).expect("valid private-use codepoint");
+    pipeline.glyph_information(rare);
+    assert!(
+        pipeline.caches.unresolvable_glyphs.contains(&rare),
+        "前置条件：扫描失败后必须记入负缓存"
+    );
+    pipeline
+        .load_font_file(&find_test_font())
+        .expect("测试字体应可装入");
+    assert!(
+        !pipeline.caches.unresolvable_glyphs.contains(&rare),
+        "装入字体后负缓存必须作废，否则新字体覆盖的码位永远显示豆腐块"
+    );
+}
+
+/// 样式面判定依赖库内容：装入的文件可能给当前族补上真粗/斜面。若沿用装入前的
+/// 「无匹配面」结论，`bold=true` 会一直在常规面上合成加粗，真粗面永不生效。
+#[test]
+fn loading_a_font_file_invalidates_the_style_face_verdict() {
+    let mut pipeline = FontPipeline::new(512, 512, 14.0);
+    let _ = pipeline.glyph_information_styled('A', true, false);
+    assert!(
+        !pipeline.caches.style_face_cache.is_empty(),
+        "前置条件：样式面判定应已被缓存"
+    );
+    pipeline
+        .load_font_file(&find_test_font())
+        .expect("测试字体应可装入");
+    assert!(
+        pipeline.caches.style_face_cache.is_empty(),
+        "装入字体后旧的「有无粗面」结论必须作废"
+    );
+}
+
 /// 真机日志：每次改字号后 Kotlin 侧会对**同一**字族再调两次 `setFontFamily`
 /// （设置应用与会话状态发射两条路径），而每次都清图集、重光栅、重探回退层，
 /// 渲染帧被拖到 100–180ms，VT 线程的单元帧通道随之溢出丢帧。重设为当前字面
@@ -564,7 +607,13 @@ fn duplicate_regular_face_is_not_taken_as_the_italic_face() {
         .expect("重复装载应产出一个面");
     assert_ne!(duplicate, primary, "前提：重复装载得到另一个面 ID");
 
-    let mut pipeline = FontPipeline::with_database(512, 512, 14.0, database);
+    let mut pipeline = FontPipeline::with_database(
+        512,
+        512,
+        14.0,
+        database,
+        crate::render::font::glyph_cache::GlyphCache::new(),
+    );
     let style_of = |id| {
         pipeline
             .font_system

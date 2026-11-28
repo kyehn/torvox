@@ -482,6 +482,15 @@ impl FontPipeline {
         let face = *loaded.get(pick_primary_face(&loaded)?)?;
         let family = face.families.first()?.0.clone();
         self.user_font_faces.insert(family.to_lowercase(), face.id);
+        // 库里多了新面：「此码位无面能解析」的负缓存可能已不成立。负缓存会让
+        // 全库扫描整条跳过（`find_glyph_anywhere`），于是刚装入的字体提供的
+        // 字形永远出不来——用户装完字体看到的仍是豆腐块。负缓存与
+        // `cjk_glyph_cache` 同批失效的其余三条路径（换字体 / 换 locale / 换字号）
+        // 都经 `clear_identity_caches`，装入字体文件这条不经，故在此单独清。
+        self.caches.unresolvable_glyphs.clear();
+        // 样式面判定同样取自库内容：装入的文件可能给当前族补上真粗/斜面，而
+        // 「此族无匹配面」的结论按 (face, bold, italic) 缓存且不会自然淘汰。
+        self.caches.style_face_cache.clear();
         Some(family)
     }
 

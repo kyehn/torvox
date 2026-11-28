@@ -127,7 +127,20 @@ impl GlyphCache {
     /// 创建空缓存：各 LRU 按各自容量预分配。
     #[must_use]
     pub fn new() -> Self {
-        let cache_cap = NonZeroUsize::new(GLYPH_CACHE_CAPACITY).expect("GLYPH_CACHE_CAPACITY > 0");
+        Self::with_glyph_capacity(GLYPH_CACHE_CAPACITY)
+    }
+
+    /// 指定字形缓存容量的构造：其余各级缓存仍取各自的常量。
+    ///
+    /// 字形缓存写满后，`lru` 自行淘汰最久未用的条目并把它交还给调用方；
+    /// 那条目的图集分配必须由调用方回收（见 `atlas.rs` 的写入路径），否则
+    /// 图集空间被死区一点点吃满。故测试需要能把容量调到很小，才能在十几次
+    /// 写入内覆盖这条淘汰路径。
+    #[must_use]
+    pub(crate) fn with_glyph_capacity(glyph_capacity: usize) -> Self {
+        let cache_cap = NonZeroUsize::new(glyph_capacity).expect("字形缓存容量须为正");
+        let cjk_cache_cap =
+            NonZeroUsize::new(GLYPH_CACHE_CAPACITY).expect("GLYPH_CACHE_CAPACITY > 0");
         let shape_cache_cap =
             NonZeroUsize::new(SHAPE_CACHE_CAPACITY).expect("SHAPE_CACHE_CAPACITY > 0");
         let style_face_cache_cap =
@@ -142,7 +155,7 @@ impl GlyphCache {
             glyph_cache: LruCache::new(cache_cap),
             shape_cache: LruCache::new(shape_cache_cap),
             ascii_glyph_ids: [None; ASCII_UPPER_BOUND as usize],
-            cjk_glyph_cache: LruCache::new(cache_cap),
+            cjk_glyph_cache: LruCache::new(cjk_cache_cap),
             style_face_cache: LruCache::new(style_face_cache_cap),
             face_glyph_id_cache: LruCache::new(face_glyph_id_cap),
             outline_cache: LruCache::new(outline_cache_cap),

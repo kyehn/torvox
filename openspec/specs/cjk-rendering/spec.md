@@ -234,6 +234,35 @@ fontdb 全部 face 重扫一次全库。
 - **WHEN** 以粗体请求一个库内无面能解析的码位
 - **THEN** 该码位被记入负缓存，再次请求不再触发全库扫描
 
+### Requirement: 字体库内容变化时负缓存必须作废
+
+负缓存的前提是「库内无面能解析此码位」。往库里加面（装入字体文件）当场推翻这个
+前提，而负缓存会让全库扫描整条跳过：刚装入的字体提供的字形永远出不来，用户看到的
+仍是豆腐块，直到碰巧换一次字号或字体族才恢复。
+
+故任何改变字体库内容的路径 MUST 作废负缓存：换字体、换 locale、换字号经
+`clear_identity_caches` 一并清理，装入字体文件 MUST 单独清理。
+
+#### Scenario: 装入字体后负缓存作废
+
+- **WHEN** 某个码位因「库内无面能解析」被记入负缓存，随后装入覆盖该码位的字体文件
+- **THEN** 负缓存 MUST 被清空，该码位 MUST NOT 仍因命中负缓存而跳过全库扫描
+      （用例 `loading_a_font_file_invalidates_the_unresolvable_negative_cache`）
+
+### Requirement: 装入字体文件时样式面判定必须作废
+
+「某个族有没有真粗/斜面」由 fontdb 查询得出并按 `(面, 粗, 斜)` 缓存。装入字体文件会
+给库里加面，可能让装入前的「无匹配面」结论失效；沿用旧结论会让粗体一直在常规面上
+合成，真粗面永不生效。
+
+故 `load_font_file` MUST 作废样式面判定缓存，与负缓存同批清理。
+
+#### Scenario: 装入字体后重新判定样式面
+
+- **WHEN** 样式面判定已被缓存，随后装入字体文件
+- **THEN** 样式面判定缓存 MUST 被清空
+      （用例 `loading_a_font_file_invalidates_the_style_face_verdict`）
+
 ### Requirement: 单元宽度取自上游 VT，字形位图宽度不得充当宽度判据
 
 单元宽度（一个单元占几列）MUST 取自上游 VT 的宽度表，经 `CellData.width` 传递

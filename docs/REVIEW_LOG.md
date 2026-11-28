@@ -42,13 +42,14 @@
 | PTY | shell 与脚本解释器两条 linker 路径各写一份逐字相同的 `CString::new(linker_path())` 及其错误映射 | 收敛为 `linker_cstring`；该文件在严格重复率口径下归零 |
 | 静态检查 | 方案调研文档照录被禁 API 的事实，触发 `docs/` 下的字面量禁令规则误报，质量门红灯 | 按既有豁免口径按文件路径豁免（与 `docs/persistence/*`、`docs/specification/*` 同类）；探针验证代码侧仍被拦下 |
 | 设置页渲染暂停 | 领凭证与存入状态之间隔着协程取消点：凭证领到但未存入状态时协程被取消，`DisposableEffect` 的 `onDispose` 拿不到凭证，账本计数永不归零，共享渲染器被永久暂停（终端全黑） | 领用与归还收敛为 `SettingsRenderPauseEffect`：不可取消段内完成「领 + 写入状态」，并在领到之前复检设置页的**当前**状态（effect 体里捕获的是启动快照，关闭后仍是旧值），已关闭则不再领；补三条 Robolectric 回归用例（关闭竞态、正常释放、等待期间取消）；规范同步 |
+| 字体缓存 | `load_font_file` 向字体库加面却只作废负缓存；样式面判定按 `(面, 粗, 斜)` 缓存且不会自然淘汰，装入前的「无匹配面」结论会活过加面，真粗面永不生效，粗体一直走合成 | `load_font_file` 同时清空 `style_face_cache`；补回归用例，变异验证（去掉该行即失败）；规范同步 |
 
 重复度扫描（`jscpd`，阈值 8 行/80 token）：Rust 0 处克隆；Kotlin 1 处 11 行重复，且为两个设置分区的相同 import 块，不构成逻辑重复。另以更严的阈值（5 行/40 token）复扫一遍，全量命中 128 处 / 926 行 / 1.09%；逐类判定后，生产代码内的命中归为四类且均不构成逻辑重复：Kotlin import 段与 Compose 脚手架（18 处）、Android 资源文件（3 处）、Rust 函数签名形状（JNI 导出与转发函数的参数表，20 处）、文档注释（6 处）。唯一两处可收敛的真重复已处理：`pty.rs` 的 prefix 判据与 linker CString 构造，收敛后该文件在严格口径下归零。判定明细见 `openspec/changes/archive/2026-11-24-code-health-audit/audit.md` 的严格口径一节。
 
 ## 验证
 
 - `./scripts/check.nu` 全量质量门通过（fmt、clippy、arm64 ndk clippy、cargo-machete、cargo test、rustdoc `-D warnings`、bench、release 构建、semgrep 55 条规则 0 命中、markdownlint 0 issue、openspec strict 55/55、Gradle 全套 `BUILD SUCCESSFUL`）。
-- Rust：`cargo test --all-targets` 为 992 + 1 + 2 + 1 个测试全部通过；`cargo clippy --all-targets --all-features -- -D warnings` 零告警。
+- Rust：`cargo test --all-targets` 为 994 + 1 + 2 + 1 个测试全部通过；`cargo clippy --all-targets --all-features -- -D warnings` 零告警。
 - Android：`testDebugUnitTest` 为 1177 个单元测试全部通过；`detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、benchmark 与 baselineprofile 编译全部 `BUILD SUCCESSFUL`。
 - 依赖更新：AGP 升至 9.6.0-alpha07，`cargo update` 将 `cc`、`find-msvc-tools`、`owo-colors` 升至 Rust 1.99 兼容的最新版，`nix flake update` 后锁文件无变化。Kotlin 2.5.0-RC2 因 KSP 仍停留在 2.3.14（尚无匹配版本）暂不升级；`fontdb` 受 `cosmic-text 0.19` 的 `^0.23` 约束，保持 0.23。
 - JNI 边界：Rust 侧 78 个 `Java_*` 导出与 Kotlin `NativeBridge.kt` 78 个 `external fun` 双向差集为空（名字、参数个数与类型均核对）。
@@ -57,11 +58,11 @@
 
 ## 审查结论（rust-review 口径）
 
-审查对象为 `native` crate 全部 147 个 Rust 文件与 `android/app/src/main` 全部 116 个 Kotlin 文件（53,765 + 30,406 行）。`native` 是应用型 crate（cdylib + lib，无 feature 开关、MSRV 1.99、edition 2024），故按「简洁性优先」的适用规则审，不套用库的严格 API 契约。clippy、测试与全量质量门均已实跑。
+审查对象为 `native` crate 全部 147 个 Rust 文件与 `android/app/src/main` 全部 116 个 Kotlin 文件（53,869 + 30,406 行）。`native` 是应用型 crate（cdylib + lib，无 feature 开关、MSRV 1.99、edition 2024），故按「简洁性优先」的适用规则审，不套用库的严格 API 契约。clippy、测试与全量质量门均已实跑。
 
 ### Must fix
 
-无。全部已发现缺陷均已修复并落库，本轮新发现的三项（规范版本漂移、PTY prefix 判据与恒真分支、方案调研文档误触静态规则）已分别提交并推送。
+无。全部已发现缺陷均已修复并落库，本轮新发现的六项（规范版本漂移、PTY prefix 判据与恒真分支、方案调研文档误触静态规则、字形缓存淘汰时图集分配不回收、装入字体后负缓存不作废、装入字体后样式面判定不作废）已分别提交并推送。
 
 ### Should fix
 
