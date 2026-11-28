@@ -487,25 +487,31 @@ internal const val MAX_WHEEL_NOTCHES_PER_EVENT = 24
 /**
  * 触摸拖动换算为滚轮档位（应用启用鼠标上报时）。
  *
- * 手指上移（`distanceY > 0`）为滚轮上，手指下移为滚轮下，与 `key-input-encoding`
- * 规范及鼠标上报仪器用例一致。
+ * 方向以**内容跟随手指**为准，与本地回滚（[applyScrollDistance]）同一语义：
+ * 手指下移（`distanceY < 0`）进入更早的历史，等价于滚轮上；手指上移回到更新的内容，
+ * 等价于滚轮下。反向映射（手指上移发滚轮上）会让同一个手势因前台程序是否启用鼠标
+ * 上报而朝相反方向滚动——用户的手感在应用切换的那一刻被反转。
+ *
+ * 对标 termux `TerminalView.onScroll`：`deltaRows = distanceY / lineSpacing` 经
+ * `doScroll(rowsDown)` 落到 `rowsDown < 0 → 滚轮上`，即手指上移发滚轮下。
  *
  * 位移按单元格高度累积：一次 `ACTION_MOVE` 常不足一行，逐事件至少发一档会把慢速
  * 拖动放大数倍（拖过两行能发出数十档）。
  *
- * @param accumulatorPx 上一次事件留下的亚行余量（正 = 滚轮上）
+ * @param accumulatorPx 上一次事件留下的亚行余量（正 = 待消化的更旧位移，与 [applyScrollDistance] 同约定）
  * @param distanceY `GestureDetector` 的 `distanceY`（前一帧减当前帧，手指上移为正）
  * @param cellHeightPx 单元格像素高度
  */
 internal fun wheelDragStep(accumulatorPx: Float, distanceY: Float, cellHeightPx: Float): WheelDragStep {
     val cellHeight = cellHeightPx.coerceAtLeast(MIN_CELL_HEIGHT_PX)
-    val olderPx = accumulatorPx + distanceY
-    val notches = (olderPx / cellHeight).toInt()
+    // 与本地回滚同一累加约定：正 = 更旧的待消化位移（手指下移累积它）。
+    val olderPx = accumulatorPx - distanceY
+    val olderNotches = (olderPx / cellHeight).toInt()
         .coerceIn(-MAX_WHEEL_NOTCHES_PER_EVENT, MAX_WHEEL_NOTCHES_PER_EVENT)
     return WheelDragStep(
-        notches = abs(notches),
-        button = if (notches >= 0) WHEEL_UP_BUTTON else WHEEL_DOWN_BUTTON,
-        remainderPx = olderPx - notches * cellHeight,
+        notches = abs(olderNotches),
+        button = if (olderNotches >= 0) WHEEL_UP_BUTTON else WHEEL_DOWN_BUTTON,
+        remainderPx = olderPx - olderNotches * cellHeight,
     )
 }
 

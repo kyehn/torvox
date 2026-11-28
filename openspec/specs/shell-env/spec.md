@@ -44,8 +44,6 @@ shell 未上报 OSC 0/2 时标题留空，抽屉按「未设置标题时仅显�
 - `TERMUX_VERSION`：`0.119.0-beta.3`
 - `PATH`：见「PATH 以 prefix 的 bin 开头并保留宿主原值」
 
-MUST NOT 设置 `LD_LIBRARY_PATH`、`PWD`、`LD_PRELOAD`、`ENV`、`PROMPT_COMMAND`。
-
 #### Scenario: 变量取值符合声明
 
 - **WHEN** 构建带 prefix 的会话环境变量
@@ -59,6 +57,17 @@ MUST NOT 设置 `LD_LIBRARY_PATH`、`PWD`、`LD_PRELOAD`、`ENV`、`PROMPT_COMMA
 - **WHEN** 构建 failsafe 会话的环境变量（无 prefix）
 - **THEN** 结果中不出现 `PREFIX`、`TERMUX_PREFIX_DIR_PATH`、`TMPDIR`、
       `TERMUX_TMP_PREFIX_DIR_PATH`
+
+### Requirement: 禁止设置的环境变量
+
+子进程环境 MUST NOT 设置 `LD_LIBRARY_PATH`、`PWD`、`LD_PRELOAD`、`ENV`、
+`PROMPT_COMMAND`。
+
+#### Scenario: 禁止变量不出现在子进程环境
+
+- **WHEN** 构建任意会话的环境变量
+- **THEN** `LD_LIBRARY_PATH`、`PWD`、`LD_PRELOAD`、`ENV`、`PROMPT_COMMAND`
+      MUST NOT 出现在结果中
 
 ### Requirement: 只透传宿主存在的 Android 系统变量
 

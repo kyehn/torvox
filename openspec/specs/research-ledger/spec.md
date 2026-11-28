@@ -10,12 +10,19 @@
 
 ## Requirements
 
-### Requirement: 研究报告逐份索引与文档可移除性
+### Requirement: 研究报告逐份索引
 
 已整体删除的每份研究报告 MUST 在本规范内有一条**以报告文件名为键**的索引行，
 写明该报告的实质、判定结果与依据位置（上游对标能力各表、其他 spec 的能力名、或已落地代码）。
 索引行 MUST 能独立回答「该仓有无可用资产、结论是什么、为什么」，MUST NOT 以
 「其余若干份已核对」这类群体概括收尾。
+
+#### Scenario: 索引覆盖到文件
+
+- **WHEN** 遍历 `docs/research/` 曾有（现已整体退役）的任一份报告文件
+- **THEN** 索引表内有以该文件名为键的行，且该行的判定与依据可在已点名的能力或代码位置读到
+
+### Requirement: 索引完整是删除报告的前置条件
 
 索引完整是本仓删除研究文档的**前置条件**：任取一份报告，其全部可执行项的去向
 MUST 已在索引行内可读到；满足该条件后报告本体 MUST 可被删除而不丢失任何仍需遵守的结论。
@@ -25,55 +32,44 @@ MUST 已在索引行内可读到；满足该条件后报告本体 MUST 可被删
 `rex-protocol-support-2026.md`、`rust-dependency-survey-2026.md`、
 `terminal-performance-comparison-2026.md`、`verification-tooling-2026.md` 与
 `warp-terminal-research-2026.md`）同批删除并登记，合计 118 份；
-索引表是这批研究的**唯一常驻载体**；6 份综合研究报告的索引行 MUST 承接
-其全部仍需遵守的结论——文档在库时索引行是这些报告结论的登记处，文档删除后由同键索引行
-承接，MUST NOT 因文档已删而让结论失去落点。
+索引表是这批研究的**唯一常驻载体**。
 
 #### Scenario: 索引外的补充事实
 
 - **WHEN** 引用生态扫描得出的判断
 - **THEN** MUST 使用下文保留的事实，MUST NOT 引用已退役的研究报告原文
-
-生态扫描中仍作为判断依据保留的事实：跨 25 仓扫描 `wgpu` 零命中、完整 GPU 终端渲染
-路径仅本仓；Canvas 逐格体系在 CJK 性能上先天不足，Termux 与 ghostty 均已批注
-「等宽 ASCII 的 advance 恰为 cellWidth」前提，本仓字形图集 + 整形正是该前提的职责边界；
-与本仓同用 libghostty-vt 的对照组为 `mostty`／`hollow`／`con`／`ghostel`
-四家壳（`ghostel` 为 Emacs 动态模块且已支持 Android/Termux）；
-本仓无死代码可白捡（`allow(dead_code)`／`todo!`／`unimplemented!` 计 0），减码只能靠重构。
-禁止项三条保留：不 vendor 第三方 VT 代码片段、不更换 VT 核、不等待完整 libghostty 支持 Android。
-换核对照结论一并保留：`alacritty_terminal`／`wezterm-terminal` 体量可 rival 但违单一来源；
-完整 `libghostty` 的 `ghostty_platform_e` 仅 `INVALID/MACOS/IOS`、对 Android 无收益；
-`rio-vt` 未上 crates.io、须自 rio 仓库自建——在本仓确切约束（Android + Rust 宿主 + wgpu +
-无头 + C ABI + kitty 图形 + 单一来源）下无「更完整又能直接换」者。
-测试边界由 `terminal-state-regression` 与该能力「上游 VT 语义不由本仓测试覆盖」承担：
-VT 解析归上游，上游权威 fuzz 为 `libghostty` 的 `test/fuzz-libghostty`（parser／stream／osc），
-本仓只测接缝与契约，外部数据即基准、不入库。
-
-原 `ecosystem.md` 的 S/A/B/C 参照面评级是研究期分流工具，其作用已由索引表的「判定」列
-与各台账取代；表中依据列写作「生态参照面组行」的行共享同一事实依据（上段生态扫描
-与 `docs/specification/DESIGN.md` 的未声明口径）：这些报告的形态或技术栈与本仓无交集，其可用内容止于
-语言级或算法级对照，且已由本仓既有实现越过或撞明禁/未声明——各行「判定」列 MUST
-写明该行自身不可采纳的具体理由，不得只以组名代替；不再单设评级表。
-
-生态内其余仍需对照的结论：终端状态单一来源无第二家（「复用 Ghostty」三条路——Java + 预编译库、
-自绑 Rust、复用 Termux 库——本仓取自绑 Rust 且唯一在 wgpu 上落地；「自研 VT」四条路全部是子集，
-Termux 自身也被 fork 删过 `doDcs`／`sixel`）；会话不随 Activity 走是跨生态共识
-（ghostty 进程单例、`ThothTerm` 前台 Service、本仓会话归 Rust），ghostty `attachSession`
-的跨会话清理五项已由 `session-list` 登记；Web/WASM 系（即便直接封装 libghostty）与
-桌面壳系（复用 xterm.js／QML）都把 VT 解析与渲染放在别处，参照面只剩产品面，而产品面
-多属本仓明禁项或未声明项。
-
-两处研究期悬问已实地闭合：`pg83/shitty` 许可为双轨——2023-07-11 导入的基线（含
-`lib/vterm`）保持 GPL-3.0-or-later，此后一手贡献 MIT/GPL3 双选，本仓按自研 VT 与
-不 vendor 双规则不引入代码；`orhun/ratty` 的 font/atlas 悬问——`src/` 全部 20 个条目
-内无 font/atlas 模块，字体与图集随 Bevy 默认栈，原「本仓已越过该层」的判断维持。
-字体表的真值对照保留在 `native/src/render/font/rasterization.rs` 与 `font_db.rs`
-的宿主字体库用例（数据取自开发环境固定的 fontconfig 字体集），外部数据不入库。
-
-#### Scenario: 索引覆盖到文件
-
-- **WHEN** 遍历 `docs/research/` 曾有（现已整体退役）的任一份报告文件
-- **THEN** 索引表内有以该文件名为键的行，且该行的判定与依据可在已点名的能力或代码位置读到
+- **AND** 生态扫描中仍作为判断依据保留的事实：跨 25 仓扫描 `wgpu` 零命中、完整 GPU 终端渲染
+  路径仅本仓；Canvas 逐格体系在 CJK 性能上先天不足，Termux 与 ghostty 均已批注
+  「等宽 ASCII 的 advance 恰为 cellWidth」前提，本仓字形图集 + 整形正是该前提的职责边界；
+  与本仓同用 libghostty-vt 的对照组为 `mostty`／`hollow`／`con`／`ghostel`
+  四家壳（`ghostel` 为 Emacs 动态模块且已支持 Android/Termux）；
+  本仓无死代码可白捡（`allow(dead_code)`／`todo!`／`unimplemented!` 计 0），减码只能靠重构。
+  禁止项三条保留：不 vendor 第三方 VT 代码片段、不更换 VT 核、不等待完整 libghostty 支持 Android。
+  换核对照结论一并保留：`alacritty_terminal`／`wezterm-terminal` 体量可 rival 但违单一来源；
+  完整 `libghostty` 的 `ghostty_platform_e` 仅 `INVALID/MACOS/IOS`、对 Android 无收益；
+  `rio-vt` 未上 crates.io、须自 rio 仓库自建——在本仓确切约束（Android + Rust 宿主 + wgpu +
+  无头 + C ABI + kitty 图形 + 单一来源）下无「更完整又能直接换」者。
+  测试边界由 `terminal-state-regression` 与该能力「上游 VT 语义不由本仓测试覆盖」承担：
+  VT 解析归上游，上游权威 fuzz 为 `libghostty` 的 `test/fuzz-libghostty`（parser／stream／osc），
+  本仓只测接缝与契约，外部数据即基准、不入库。
+- **AND** 原 `ecosystem.md` 的 S/A/B/C 参照面评级是研究期分流工具，其作用已由索引表的「判定」列
+  与各台账取代；表中依据列写作「生态参照面组行」的行共享同一事实依据（上段生态扫描
+  与 `docs/specification/DESIGN.md` 的未声明口径）：这些报告的形态或技术栈与本仓无交集，其可用内容止于
+  语言级或算法级对照，且已由本仓既有实现越过或撞明禁/未声明——各行「判定」列 MUST
+  写明该行自身不可采纳的具体理由，不得只以组名代替；不再单设评级表。
+- **AND** 生态内其余仍需对照的结论：终端状态单一来源无第二家（「复用 Ghostty」三条路——Java + 预编译库、
+  自绑 Rust、复用 Termux 库——本仓取自绑 Rust 且唯一在 wgpu 上落地；「自研 VT」四条路全部是子集，
+  Termux 自身也被 fork 删过 `doDcs`／`sixel`）；会话不随 Activity 走是跨生态共识
+  （ghostty 进程单例、`ThothTerm` 前台 Service、本仓会话归 Rust），ghostty `attachSession`
+  的跨会话清理五项已由 `session-list` 登记；Web/WASM 系（即便直接封装 libghostty）与
+  桌面壳系（复用 xterm.js／QML）都把 VT 解析与渲染放在别处，参照面只剩产品面，而产品面
+  多属本仓明禁项或未声明项。
+- **AND** 两处研究期悬问已实地闭合：`pg83/shitty` 许可为双轨——2023-07-11 导入的基线（含
+  `lib/vterm`）保持 GPL-3.0-or-later，此后一手贡献 MIT/GPL3 双选，本仓按自研 VT 与
+  不 vendor 双规则不引入代码；`orhun/ratty` 的 font/atlas 悬问——`src/` 全部 20 个条目
+  内无 font/atlas 模块，字体与图集随 Bevy 默认栈，原「本仓已越过该层」的判断维持。
+  字体表的真值对照保留在 `native/src/render/font/rasterization.rs` 与 `font_db.rs`
+  的宿主字体库用例（数据取自开发环境固定的 fontconfig 字体集），外部数据不入库。
 
 #### Scenario: 删除报告不丢结论
 
@@ -229,6 +225,15 @@ Termux 自身也被 fork 删过 `doDcs`／`sixel`）；会话不随 Activity 走
 本次退役范围）；该编号集曾用于立项 `bootstrap-install`、PTY 收尾清单、搜索上限与
 文档提供器形态，其逐仓结论已由「Android 侧终端项目的复查台账」承接、其余结论按
 上表各行指向表内可读位置。
+
+### Requirement: 综合研究报告的索引承接
+
+6 份综合研究报告的索引行 MUST 承接其全部仍需遵守的结论——文档在库时索引行是这些报告结论的登记处，文档删除后由同键索引行承接，MUST NOT 因文档已删而让结论失去落点。
+
+#### Scenario: 综合报告删除后结论仍有落点
+
+- **WHEN** 6 份综合研究报告已按索引协议删除
+- **THEN** 其同键索引行 MUST 承接全部仍需遵守的结论，MUST NOT 因文档已删而让结论失去落点
 
 ### Requirement: 逐份处置补齐行台账
 

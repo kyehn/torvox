@@ -42,6 +42,9 @@ class MouseReportingInstrumentedTest : ComposeTerminalLogcatTest() {
         /** 触摸落点：第 6 列（远在 32dp 抽屉边缘区外）、视口第 5 行。 */
         private const val TAP_COL = 6
         private const val TAP_ROW = 5
+
+        /** SGR 滚轮下行按钮号（ghostty `Button::Five`）：手指上滑、内容跟随手指。 */
+        private const val WHEEL_DOWN_SGR_BUTTON = 65
     }
 
     @Before
@@ -111,10 +114,12 @@ class MouseReportingInstrumentedTest : ComposeTerminalLogcatTest() {
     private fun sgrSequence(button: Int, col: Int, row: Int, release: Boolean): String =
         "\u001b[<$button;${col + 1};${row + 1}${if (release) "m" else "M"}"
 
-    /** 滚轮上行（button 64）的按下次数：批量编码必须成对，故按下数即档位数。 */
-    private fun wheelPresses(bytes: String): Int = Regex("\u001b\\[<64;\\d+;\\d+M").findAll(bytes).count()
+    /** 滚轮按钮（SGR 64=上、65=下）的按下次数：批量编码必须成对，故按下数即档位数。 */
+    private fun wheelPresses(bytes: String, button: Int): Int =
+        Regex("\u001b\\[<$button;\\d+;\\d+M").findAll(bytes).count()
 
-    private fun wheelReleases(bytes: String): Int = Regex("\u001b\\[<64;\\d+;\\d+m").findAll(bytes).count()
+    private fun wheelReleases(bytes: String, button: Int): Int =
+        Regex("\u001b\\[<$button;\\d+;\\d+m").findAll(bytes).count()
 
     /** 断言消息用的可读化：ESC 显示为 `^[`。 */
     private fun readable(bytes: String): String = bytes.replace("\u001b", "^[")
@@ -217,20 +222,20 @@ class MouseReportingInstrumentedTest : ComposeTerminalLogcatTest() {
         val (cellWidth, cellHeight) =
             terminalCellSizePx(composeTestRule.activity, composeTestRule.requireBridge())
         val surface = findTerminalSurface(composeTestRule.activity)
-        // 手指上滑两行 = 滚轮上行（SGR button 64）：pointerY 从 row+2 中心滑到 row 中心。
+        // 手指上滑两行 = 滚轮下行（SGR button 65）：内容跟随手指，与本地回滚同向。
         dragGesture(
             surface,
             pointerX = (TAP_COL + 0.5f) * cellWidth,
             fromY0 = (TAP_ROW + 2 + 0.5f) * cellHeight,
             toY0 = (TAP_ROW + 0.5f) * cellHeight,
         )
-        // 手指上滑 = 滚轮上行（SGR button 64，ghostty Button::Four）。
+        // 手指上滑 = 滚轮下行（SGR button 65，ghostty Button::Five）。
         val wheeled =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 200) {
-                receivedBytes().contains("\u001b[<64;")
+                receivedBytes().contains("\u001b[<65;")
             }
         assertNotNull(
-            "拖动必须转发为滚轮上行, 实际[${readable(receivedBytes())}]",
+            "拖动必须转发为滚轮下行, 实际[${readable(receivedBytes())}]",
             wheeled,
         )
         val scrollOffset =
@@ -261,14 +266,14 @@ class MouseReportingInstrumentedTest : ComposeTerminalLogcatTest() {
         )
         val forwarded =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 200) {
-                wheelPresses(receivedBytes()) >= 3
+                wheelPresses(receivedBytes(), WHEEL_DOWN_SGR_BUTTON) >= 3
             }
         val bytes = receivedBytes()
         assertNotNull("四行拖动必须转发多档滚轮, 实际[${readable(bytes)}]", forwarded)
         assertEquals(
             "每个滚轮档必须有对应抬起（按下=抬起）",
-            wheelPresses(bytes),
-            wheelReleases(bytes),
+            wheelPresses(bytes, WHEEL_DOWN_SGR_BUTTON),
+            wheelReleases(bytes, WHEEL_DOWN_SGR_BUTTON),
         )
         disarmMouseReporting()
         composeTestRule.cleanUpTerminalState()

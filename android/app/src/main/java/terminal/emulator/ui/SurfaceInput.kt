@@ -213,6 +213,8 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                     val mouseCellWidth = surface.viewModel?.runtime?.cellWidth ?: 1f
                     val mouseCellHeight = surface.viewModel?.runtime?.cellHeight ?: 1f
                     // 走满一个单元格高度 = 一个滚轮档，不足一行的余量留给下一次事件。
+                    // 方向与下方本地回滚同一语义（内容跟随手指）：手指下移 = 更旧 = 滚轮上，
+                    // 手指上移 = 滚轮下；累加器也共用同一符号约定（正 = 更旧的待消化位移）。
                     val step = wheelDragStep(surface.scrollAccumulatorPx, distanceY, surface.cellHeight)
                     if (step.notches == 0) {
                         // 应用拥有本手势的滚动权：余量留在累加器里，绝不落到本地回滚。
@@ -819,6 +821,12 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                     // 收尾清零不是手势：滚动运动时钟由手势期间的运动事件刷新。
                     surface.viewModel?.runtime?.clearScrollRemainder()
                     surface.onScrollingStateChanged?.invoke(false)
+                }
+                // 转发滚轮的手势也攒亚行余量（未走满一档的部分），而本地路径未走，
+                // 余量不经 applyScrollStep 归零：抬手时清掉，否则下一条外部滚轮事件
+                // 会把这笔余量当成待消化的本地位移，画面凭空偏移半行。
+                if (wheelForwarded) {
+                    surface.scrollAccumulatorPx = 0f
                 }
                 if (longPressDragging) {
                     longPressDragging = false
