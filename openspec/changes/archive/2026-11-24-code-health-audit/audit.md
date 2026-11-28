@@ -15,8 +15,8 @@
 
 | 口径 | sources | lines | tokens | clones | duplicatedLines | 重复率 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 生产 | 266 | 68748 | 522393 | 3 | 30 | 0.04% |
-| 全量 | 529 | 104516 | 802430 | 26 | 257 | 0.25% |
+| 生产 | 266 | 69027 | 524397 | 3 | 30 | 0.04% |
+| 全量 | 529 | 104874 | 805042 | 26 | 257 | 0.25% |
 
 复算轮次：2026-11-27（同一组参数、同一条命令）。克隆集合与首轮基线完全相同，
 `lines`/`tokens` 随代码树变化（生产 68916 → 69140 → 69202 → 69185 → 68748 行、全量
@@ -24,6 +24,9 @@
 回落；第 6 轮的回落来自 `SecondStageRunner` 及其用例随「删除规范禁止的 postinstall
 二阶段执行器」落地而删除——生产少一个文件（−421 行）、测试少一个文件（−192 行），
 克隆集合一字未变，全量口径重复率由 0.24% 升到 0.25% 是分母缩小所致，不是新增克隆）。
+第 7 轮（同参数）克隆集合仍为首轮那 3 / 26 处，生产 68748 → 69027 行、全量 104516 →
+104874 行的增长来自组合簇整形零分配改造、Kitty 图集上限判定、JNI 局部引用释放与全仓审查
+留档，重复率不变。
 
 生产口径三处命中的判定：
 
@@ -199,19 +202,21 @@ if __name__ == "__main__":
 
 | 仓库 | 生产 | 测试 | 合计 |
 | --- | --- | --- | --- |
-| torvox | 41520 | 50602 | 92122 |
+| torvox | 41716 | 50818 | 92534 |
 | termux-app | 26637 | 2471 | 29108 |
 | ghostty-android-terminal | 22381 | 2850 | 25231 |
 | 两个参考项目生产之和 | 49018 | 5321 | 54339 |
 
-判定：生产口径 41520 未越界（不超过 49018），满足 `STYLE.md` 的代码量约束；测试口径
+判定：生产口径 41716 未越界（不超过 49018），满足 `STYLE.md` 的代码量约束；测试口径
 50602 远超两个参考项目测试之和 5321，源码合计口径同样越界。按 `code-health`「不同口径
 导出相反结论」的条款，该项判定为**不可判定**，并以生产口径数字作为后续复算基线。
 不得以删测试的方式满足规模约束。
 
 口径轨迹：第 6 轮（2026-11-27）生产 41834 → 41520、测试 50734 → 50602，来源是
 `SecondStageRunner` 与 `SecondStageRunnerTest` 随二阶段执行器删除而下线（合计 −613 行），
-不是为满足规模约束删测试——删除的是规范禁止的 postinstall 执行器与其用例。
+不是为满足规模约束删测试——删除的是规范禁止的 postinstall 执行器与其用例。第 7 轮生产
+41520 → 41716、测试 50602 → 50818，增长来自组合簇整形零分配改造（内联键与共享切片）、
+JNI 局部引用释放、KGP 上限判定与审查留档；生产口径仍低于参考项目之和。
 
 参考项目取自 `termux-app`（v0.119.0-beta.3 分支）与 `ghostty-android-terminal` 的浅克隆，
 与 `docs/specification/DESIGN.md` 点名的两个参考项目一致。
@@ -219,9 +224,11 @@ if __name__ == "__main__":
 ## 静态形状扫描
 
 - semgrep：`semgrep scan --config .semgrep/rules.yml --json --metrics=off
-  --disable-version-check .`，55 条规则扫过 1694 个文件，**0 findings、0 errors**。
-  扫描文件数随代码树增长（首轮 1691 → 复算 1693 → 第 6 轮 1694）；2026-11-27 复算仍为
-  0 findings、0 errors。
+  --disable-version-check .`，55 条规则扫过 1713 个文件，**0 findings、0 errors**。
+  扫描文件数随代码树增长（首轮 1691 → 复算 1693 → 第 6 轮 1694 → 第 7 轮 1713）。
+  第 7 轮曾报 637 处：全部来自新增的全仓审查留档——逐文件 SHA-256 摘要列与处置表的提交号列
+  命中 `no-git-short-hash-in-source-and-docs`。两列已撤除（`STYLE.md` 本就禁止文档出现哈希），
+  复扫 0 findings、0 errors。
   扫描须在 git 仓库内执行并配置 `origin` 远端，否则规则集里的远端引用无法解析。
 - aislop 0.23.0：`npx --yes aislop@latest scan --json native/src`，`score` 100、label
   `Healthy`、`errors` 0、`warnings` 0、`coverage.supportedFiles` 116、`unsupportedFiles` 0。
@@ -229,7 +236,7 @@ if __name__ == "__main__":
   `render/cell_builder/tests/` 后消失，告警归零。按 `code-health`「超大文件阈值必须跨源码
   语言一致应用」，本仓不得为凑行数阈值拆分生产源码文件。该工具扫不到 Kotlin 源码，只能
   作为 Rust 侧的门禁。2026-11-27 复算仍为 score 100、Healthy、0 errors、0 warnings、
-  `supportedFiles` 116、`unsupportedFiles` 0。
+  `supportedFiles` 116、`unsupportedFiles` 0（第 7 轮复算同值）。
 - clippy pedantic（一次性评估，非门禁；2026-11-27 复算）：`cargo clippy --all-targets --
   -W clippy::pedantic` 给出 605 条告警，分类为数值转换 425 条（`cast_sign_loss` 144、
   `cast_possible_truncation` 118、`cast_precision_loss` 114、`cast_possible_wrap` 49）、
@@ -246,21 +253,22 @@ if __name__ == "__main__":
   复算时不必逐条重判，只需确认默认 clippy 无新增告警。
 - Rust 生产源码形状：剔除测试专用文件（`*_tests.rs`、`tests.rs`、`test_helpers.rs`、
   `mock_pty.rs` 与 `tests/` 目录）、文件内 `#[cfg(test)]` 项、注释与字符串字面量后，
-  `unwrap()` 0 处、`expect(` 23 处、`panic!` 5 处、`unsafe` 132 处（unsafe block 45、
+  `unwrap()` 0 处、`expect(` 25 处、`panic!` 5 处、`unsafe` 132 处（unsafe block 45、
   unsafe fn 3、unsafe extern 4、unsafe impl 0）、`todo!`/`unimplemented!` 0 处。
   计数口径：`unsafe` 统计代码位置的关键字出现次数，细分按语法形态计数，
   `unsafe extern "C" fn` 同时计入 extern 与 fn 两项。
 
 逐处判定：
 
-- 23 处 `expect` 全是不变量断言，每处带解释性注释：日志配额非零与限流闸已初始化
+- 25 处 `expect` 全是不变量断言，每处带解释性注释：日志配额非零与限流闸已初始化
   （`slow_log.rs` 2）、回滚余量已夹到合法区间（`terminal/pty.rs`）、默认主题必在主题清单内
   （`terminal/theme.rs` 2）、命令快照缓存必然存在（`ghostty_terminal/internal/commands.rs`）、
   增量渲染蕴含缓存存在（`render/cell_builder.rs`）、可复用槽位非空
-  （`render/context/gpu.rs`）、字形缓存容量常量大于零（`render/font/glyph_cache.rs` 6）、
+  （`render/context/gpu.rs`）、字形缓存容量常量大于零、内联键长度可折进 `u8`、内联切片来自
+  `&str`（`render/font/glyph_cache.rs` 8）、
   `CString` 不含内嵌零字节且日志器未重复安装（`android/logging.rs` 4）、u16 线字段计数成立
   （`android/ffi/font.rs` 2）、渲染状态已初始化（`android/ffi/render/window.rs` 3）。
-  上述清单逐文件相加为 23，与总数一致。`terminal/session/mod.rs` 的
+  上述清单逐文件相加为 25，与总数一致。`terminal/session/mod.rs` 的
   `output_tx send must succeed` 位于 `#[cfg(test)]` 的 `inject_output_for_test` 内，
   不属生产口径，不计入本条。
 - 5 处 `panic!` 是「失败即崩、不掩盖错误」的设计决策：alacritty 主题解析失败
@@ -283,6 +291,8 @@ if __name__ == "__main__":
   同一扫描口径在第 2 轮快照上重放得 `unsafe` 131（block 44），差额来自第 2 轮之后落地的
   `terminal/pty.rs` 工作目录回退修复新增的 `unsafe { libc::chdir(...) }`，与上述归因一致。
 
+- 第 7 轮复算：`expect` 23 → 25，两处新增于整形缓存键 `ShapeText` 的内联长度折 `u8` 与
+  内联切片取 `&str` 视图；其余与上表逐项一致。
 - `unwrap` 0、`expect` 23、`panic!` 5、`todo!`/`unimplemented!` 0 与首轮一致。
 - `unsafe` 134 → 131：减少的三处来自 `android/logging.rs`（−1）、
   `terminal/ghostty_terminal/internal/selection.rs` 整文件移除（−1）与
@@ -453,8 +463,8 @@ MUST 维持 0，`style-policy` 类命中 MUST NOT 阻断构建；jscpd 的重复
 ## 清洁运行计数
 
 本留档的复算轮次按同一组命令在已提交树快照上重复执行，每轮覆盖重复率、代码规模口径、
-静态形状扫描与依赖事实复算。当前计数为 **6**（第 1 轮 2026-11-24，第 2 轮 2026-11-26，
-第 3、4、5、6 轮 2026-11-27），已达「连续清洁运行计数 ≥ 5」；每轮的实测数字 MUST 与本留档
+静态形状扫描与依赖事实复算。当前计数为 **7**（第 1 轮 2026-11-24，第 2 轮 2026-11-26，
+第 3、4、5、6、7 轮 2026-11-27），已达「连续清洁运行计数 ≥ 5」；每轮的实测数字 MUST 与本留档
 各表的基线逐项对照，出现偏差时 MUST 写明偏差来源，不得直接改写基线掩盖偏差。
 
 第 3、4、5、6 轮（2026-11-27）的对照结果：克隆集合、重复率、静态形状扫描、依赖版本判定与
@@ -464,6 +474,10 @@ MUST 维持 0，`style-policy` 类命中 MUST NOT 阻断构建；jscpd 的重复
 四类口径与第 4 轮逐项相同，依赖采样另取当日新值。第 6 轮在第 5 轮之后的新代码树上复算，
 四类口径仍与基线逐项相同，行数与 SLOC 的回落已写明来源；直接依赖坐标未变（第 5 轮之后
 只有传递依赖 `allocator-api2` 由 0.2.21 升到 0.2.22），依赖活跃度判定不变。
+
+第 7 轮在新代码树上复算：克隆集合与判定不变（生产 3 处 / 全量 26 处），SLOC 与 `expect`
+计数的增长已写明来源（见各表口径轨迹），semgrep 的 637 处短哈希命中随审查留档撤列而清零，
+aislop 仍为 score 100、0 告警；依赖坐标与上轮相同。
 
 ## vendor 与硬编码核对
 
