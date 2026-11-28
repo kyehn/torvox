@@ -35,10 +35,12 @@
 | 字体图集 | 驱逐重建与字号/字体变化后的重置各写一份「重建 etagere 分配器 + 位图清零」 | 收敛为 `reset_atlas_storage`；只重建分配器而忘了清位图会让新字形与旧像素叠加 |
 | 终端帧 | 帧网格在行缓存、帧邮箱与渲染侧各存一份整网格拷贝（24×80 约 184KB），每帧多两次「分配 + 拷贝」 | 帧网格改为单一所有权（`Arc` 共享），三者共用一份；分配预算护栏收紧到每帧 2 份整帧缓冲，帧内存身份比对作回归钉；取舍台账第⑨项 |
 | 前台服务 | 唤醒锁默认自动持有，并设 30 分钟超时 + 半程续期定时器，与 DESIGN「不自动申请、不自动持锁、锁由通知栏按钮切换、无超时机制」冲突 | 默认改为不持锁，仅由通知栏按钮申请/释放；移除超时与续期定时器，锁只由用户释放或会话归零释放；补「默认不取锁」「按钮双向切换」「长时间不失锁」三条用例；规范同步 |
+| 前台服务 | `specialUse` 类型未声明 `PROPERTY_SPECIAL_USE_FGS_SUBTYPE`，系统与 Play 审核无从识别该服务的用途 | 在 `<service>` 内声明终端会话保活的用途说明，与既有 `FOREGROUND_SERVICE_SPECIAL_USE` 权限配套 |
+| 启动入口 | `EXTRA_INSTALL_BOOTSTRAP_URL` 在 release 构建中同样可达，任何应用都能借官方地址触发一次约 150 MB 的下载与安装 | 与另一测试 extra 统一收进 `BuildConfig.DEBUG`：两个使用方（`NixBootstrapTest`、`TermuxBootstrapRealTerminalTest`）都跑 debug 变种 |
 | 现行规范 | Gradle wrapper 已升到 9.9.3，而 `build-and-validation` 与 `code-health` 两处规范仍写 9.9.2，「唯一弃用警告只有一条」那条判据无法按记录的版本复现 | 两处规范同步到 9.9.3，并实测复核：9.9.3 + AGP 9.6.0-alpha06 下 `:app:compileDebugKotlin --warning-mode all` 的弃用警告仍恰好一条（`Configuration.setVisible(boolean)`） |
 | PTY | shell 路径与解释器路径各写一份 prefix 判据，分隔符 `/` 容易漏写；同一处还留着恒真的 `contains('\0')`（含 NUL 的路径已由 `cstring_without_null` 在 fork 前以 `?` 拒绝） | 判据收敛为 `under_prefix` 共享实现，按路径元素比较（`<prefix>_evil/…` 不再算 prefix 下）；删除恒真分支；补边界用例 |
 | PTY | shell 与脚本解释器两条 linker 路径各写一份逐字相同的 `CString::new(linker_path())` 及其错误映射 | 收敛为 `linker_cstring`；该文件在严格重复率口径下归零 |
-| 静态检查 | 方案调研文档照录被禁 API 的事实触发 `no-termux-api-refs` 误报，质量门红灯 | 按既有豁免口径按文件路径豁免（与 `docs/persistence/*`、`docs/specification/*` 同类）；探针验证代码侧仍被拦下 |
+| 静态检查 | 方案调研文档照录被禁 API 的事实，触发 `docs/` 下的字面量禁令规则误报，质量门红灯 | 按既有豁免口径按文件路径豁免（与 `docs/persistence/*`、`docs/specification/*` 同类）；探针验证代码侧仍被拦下 |
 
 重复度扫描（`jscpd`，阈值 8 行/80 token）：Rust 0 处克隆；Kotlin 1 处 11 行重复，且为两个设置分区的相同 import 块，不构成逻辑重复。另以更严的阈值（5 行/40 token）复扫一遍，全量命中 128 处 / 926 行 / 1.09%；逐类判定后，生产代码内的命中归为四类且均不构成逻辑重复：Kotlin import 段与 Compose 脚手架（18 处）、Android 资源文件（3 处）、Rust 函数签名形状（JNI 导出与转发函数的参数表，20 处）、文档注释（6 处）。唯一两处可收敛的真重复已处理：`pty.rs` 的 prefix 判据与 linker CString 构造，收敛后该文件在严格口径下归零。判定明细见 `openspec/changes/archive/2026-11-24-code-health-audit/audit.md` 的严格口径一节。
 
