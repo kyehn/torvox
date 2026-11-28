@@ -30,6 +30,7 @@ pub enum ShapeText {
 
 impl ShapeText {
     /// 从文本构造键内文本：短文本内联，长文本堆存。
+    #[must_use]
     pub fn new(text: &str) -> Self {
         if text.len() <= SHAPE_TEXT_INLINE_CAPACITY {
             let mut bytes = [0u8; SHAPE_TEXT_INLINE_CAPACITY];
@@ -44,6 +45,7 @@ impl ShapeText {
     }
 
     /// 键内文本的字符串视图。
+    #[must_use]
     pub fn as_str(&self) -> &str {
         match self {
             Self::Inline { bytes, len } => {
