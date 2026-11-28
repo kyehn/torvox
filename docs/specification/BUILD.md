@@ -18,7 +18,7 @@
 - 提供 `applicationIdSuffix = ".nix"` 和 `app_name` 为 `Nix` 的基于 release 构建的变种，使用 `/data/data/com.termux.nix` 目录，对其禁用如 termux bootstrap 等不兼容功能。
   - 设置中 Bootstrap 提供 Nix-on-Droid 预设选项，根据架构选择 `https://nix-on-droid.unboiled.info/bootstrap-release-24.05/bootstrap-x86_64.zip` 或 `https://nix-on-droid.unboiled.info/bootstrap-release-24.05/bootstrap-aarch64.zip`
 - `versionCode` 为 2000，`versionName` 为 0.1.0。
-- Rust 版本最低为 1.99，`edition` 最低为 2024。
+- Rust 版本最低为 1.100，`edition` 最低为 2024。
 - 不得保留未使用依赖，所有依赖使用最新稳定版本；如果目前已使用不稳定版本（如 alpha、beta 等相关版本）且无更高版本的稳定版本则使用最新不稳定版本，不得降级依赖。尽力处理破坏性更新。
 - 代码、Gradle 配置等不得出现 `cargo build`、`cargo test`、`./gradlew`、`git clone` 等未受管理的构建和外部源引入。
 - 只支持 `arm64-v8a`、`x86_64` 架构；`x86_64` 用于构建、测试与模拟器测试。
