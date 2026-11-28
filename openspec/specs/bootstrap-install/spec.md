@@ -28,6 +28,11 @@ bootstrap 经 staging 目录的原子安装行为：解压防护、清单建链�
 - **WHEN** 归档含绝对路径或 `..` 逃逸条目
 - **THEN** 安装失败并清理 staging，不写 prefix
 
+#### Scenario: 单个大条目写入期间取消
+
+- **WHEN** 用户在归档条目尚未写完时取消安装
+- **THEN** 解压循环 MUST 在下一次读取前中断，清理 staging，不得继续写完整个条目
+
 ### Requirement: 清单建链
 
 `SYMLINKS.txt` 缺失 MUST 失败；符号链接路径与目标 MUST 同受逃逸校验，绝对目标只允许落在规范 prefix 内；`EXECUTABLES.txt` 可执行项 MUST 赋予执行位。
