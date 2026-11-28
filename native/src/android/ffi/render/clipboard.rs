@@ -266,7 +266,17 @@ fn answer_writer_loop(receiver: std::sync::mpsc::Receiver<ClipboardAnswerJob>) {
     loop {
         let wait = CLIPBOARD_SWEEP_INTERVAL.saturating_sub(last_sweep.elapsed());
         match receiver.recv_timeout(wait) {
-            Ok(job) => write_back_clipboard_answer(job),
+            Ok(job) => {
+                // 单条应答的 panic 不得带走整条应答管道：写线程是进程内唯一的，
+                // 它一死，之后所有宿主答复都只入队不写回（远端永远等不到应答）。
+                // panic 钩子已记下现场，这里只把该条记为失败并继续服务下一条。
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    write_back_clipboard_answer(job)
+                }));
+                if outcome.is_err() {
+                    log::error!("osc52: clipboard answer write-back panicked");
+                }
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
