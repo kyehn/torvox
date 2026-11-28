@@ -105,6 +105,9 @@ pub(super) fn append_row_instances(
     cell_row: &[crate::terminal::ghostty_terminal::CellData],
     cluster_text: &mut String,
 ) {
+    // 无搜索高亮（常见情形）时整行跳过逐格查表：`cell_highlight` 要按行号哈希
+    // 查表，逐格一次在整屏重建里就是 1920 次哈希；空表在行级一判即知。
+    let has_highlights = !highlights_by_row.is_empty();
     for cell_data_entry in cell_row {
         // 非法码位由 codepoint_to_char 记录（每个构建都记，不再只有 debug），
         // 避免终端内容缺陷在 release 里被静默替换成方框而不留痕迹。
@@ -128,8 +131,9 @@ pub(super) fn append_row_instances(
 
         // 搜索高亮叠加（施加在终端烘焙的
         // 选区反显之上）。
-        if let Some(hl) =
-            cell_highlight(cell_data_entry.row, cell_data_entry.col, highlights_by_row)
+        if has_highlights
+            && let Some(hl) =
+                cell_highlight(cell_data_entry.row, cell_data_entry.col, highlights_by_row)
         {
             apply_search_highlight(&mut foreground, &mut background, *hl);
         }
