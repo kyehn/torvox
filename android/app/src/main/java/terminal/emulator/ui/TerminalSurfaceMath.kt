@@ -3,6 +3,7 @@ package terminal.emulator.ui
 import terminal.emulator.SELECTION_BOUNDS_LENGTH
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.settings.SettingsRepository
+import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -470,6 +471,43 @@ internal fun zoomSettledOnNewSize(baseFontSizeSp: Float, finalSizeSp: Float): Bo
  * @param encodedNow 本次滚动是否已成功转发给远端
  */
 internal fun wheelForwardedState(forwardedBefore: Boolean, encodedNow: Boolean): Boolean = forwardedBefore || encodedNow
+
+/** 一次拖动事件换算出的滚轮档位：档数、按钮、未满一行的剩余像素。 */
+internal data class WheelDragStep(val notches: Int, val button: Int, val remainderPx: Float)
+
+/** 滚轮上（更旧的历史）在原生编码器里的按钮号（见 `GhosttyTerminal::mouse_button`）。 */
+internal const val WHEEL_UP_BUTTON = 3
+
+/** 滚轮下（较新的历史）。 */
+internal const val WHEEL_DOWN_BUTTON = 4
+
+/** 单个拖动事件可转发的档数上限：余下位移留给后续事件，逐事件不无界展开。 */
+internal const val MAX_WHEEL_NOTCHES_PER_EVENT = 24
+
+/**
+ * 触摸拖动换算为滚轮档位（应用启用鼠标上报时）。
+ *
+ * 手指上移（`distanceY > 0`）为滚轮上，手指下移为滚轮下，与 `key-input-encoding`
+ * 规范及鼠标上报仪器用例一致。
+ *
+ * 位移按单元格高度累积：一次 `ACTION_MOVE` 常不足一行，逐事件至少发一档会把慢速
+ * 拖动放大数倍（拖过两行能发出数十档）。
+ *
+ * @param accumulatorPx 上一次事件留下的亚行余量（正 = 滚轮上）
+ * @param distanceY `GestureDetector` 的 `distanceY`（前一帧减当前帧，手指上移为正）
+ * @param cellHeightPx 单元格像素高度
+ */
+internal fun wheelDragStep(accumulatorPx: Float, distanceY: Float, cellHeightPx: Float): WheelDragStep {
+    val cellHeight = cellHeightPx.coerceAtLeast(MIN_CELL_HEIGHT_PX)
+    val olderPx = accumulatorPx + distanceY
+    val notches = (olderPx / cellHeight).toInt()
+        .coerceIn(-MAX_WHEEL_NOTCHES_PER_EVENT, MAX_WHEEL_NOTCHES_PER_EVENT)
+    return WheelDragStep(
+        notches = abs(notches),
+        button = if (notches >= 0) WHEEL_UP_BUTTON else WHEEL_DOWN_BUTTON,
+        remainderPx = olderPx - notches * cellHeight,
+    )
+}
 
 /**
  * 遮罩帧在开孔里的等比贴合参数（开孔遮罩的取放规则）。

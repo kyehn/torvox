@@ -15,13 +15,6 @@ import terminal.emulator.input.KeyModifiers
 import terminal.emulator.runtime.LogUtil
 import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.max
-
-/** 单次触摸手势转发的滚轮行数上限：无界 repeat 会在主线程逐行同步
- * 等待原生查询（VT 忙时每行最长 500ms），大幅滑动即冻结 UI。
- * 超限行数由后续手势事件携带新坐标补发——丢弃旧坐标而非阻塞等待。
- */
-private const val MAX_WHEEL_LINES_PER_GESTURE = 8
 
 private const val ZOOM_THRESHOLD_LOW = 0.9f
 private const val ZOOM_THRESHOLD_HIGH = 1.1f
@@ -219,31 +212,35 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                 if (wheelBridge != null && wheelBridge.isMouseTrackingActive()) {
                     val mouseCellWidth = surface.viewModel?.runtime?.cellWidth ?: 1f
                     val mouseCellHeight = surface.viewModel?.runtime?.cellHeight ?: 1f
-                    val pointerXPx = secondEvent.x
-                    val pointerYPx = secondEvent.y
-                    // 走满一个单元格高度 = 一个滚轮行，与下方的本地滚动映射
-                    // （distanceY / surface.cellHeight）一致。
-                    val lines = max(1, abs((distanceY / surface.cellHeight).toInt()))
-                    // 手指上移（distanceY > 0）= 滚轮上（3，较旧）；手指下移 = 滚轮下（4，较新）
-                    val button = if (distanceY > 0f) 3 else 4
-                    val cappedLines = lines.coerceAtMost(MAX_WHEEL_LINES_PER_GESTURE)
+                    // 走满一个单元格高度 = 一个滚轮档，不足一行的余量留给下一次事件。
+                    val step = wheelDragStep(surface.scrollAccumulatorPx, distanceY, surface.cellHeight)
+                    if (step.notches == 0) {
+                        // 应用拥有本手势的滚动权：余量留在累加器里，绝不落到本地回滚。
+                        surface.scrollAccumulatorPx = step.remainderPx
+                        return true
+                    }
                     // 一次往返编码全部档位：逐档 encodeMouseEvent 会把 UI 线程
                     // 按在每档一次 VT 应答上（滚动手势一次可滚十余行）。
                     // 标记只升不降：一次手势里只要有一档被转发，整段手势（含惯性段）
                     // 都属于远端。若按本次编码结果覆盖，前一次转发成功、后一次因 VT
                     // 查询超时失败时标记会被清掉——本地回滚随即接管，应用与本地同时滚。
-                    wheelForwarded = wheelForwardedState(
-                        wheelForwarded,
+                    val encoded =
                         wheelBridge.encodeMouseWheel(
-                            pointerXPx,
-                            pointerYPx,
-                            button,
+                            secondEvent.x,
+                            secondEvent.y,
+                            step.button,
                             KeyModifiers.ghosttyMods(secondEvent.metaState),
                             mouseCellWidth,
                             mouseCellHeight,
-                            cappedLines,
-                        ),
-                    )
+                            step.notches,
+                        )
+                    // 编码未产出（应用已关上报或 VT 忙）：本次位移交回本地回滚，
+                    // 不推进累加器，下方本地路径据此看到同一份位移。
+                    if (encoded) {
+                        wheelForwarded = wheelForwardedState(wheelForwarded, true)
+                        surface.scrollAccumulatorPx = step.remainderPx
+                        return true
+                    }
                 }
                 if (wheelForwarded) return true
                 if (wheelBridge != null && wheelBridge.isAltScreenActive()) return true
@@ -256,7 +253,7 @@ internal class SurfaceInput(private val surface: TerminalSurface) {
                 }
                 // 亚单元格累加器：distanceY < surface.cellHeight 绝不能被丢弃，
                 // 只发出整行，余量带入下一次 onScroll。
-                // 方向：手指下移（distanceY<0，currentY - previousY）→ 更旧的历史
+                // 方向：手指下移（distanceY<0，previousY < currentY）→ 更旧的历史
                 // （偏移增大，视口顶部行号减小）→
                 // 对应 termux TerminalView:onScroll 的 deltaRows = distanceY / lineSpacing
                 // 与 doScroll rowsDown>0 → mTopRow+1（更新）、rowsDown<0 → mTopRow-1（更旧）。
