@@ -1,6 +1,6 @@
 package terminal.emulator.runtime
 
-import android.view.Choreographer
+import android.view.Choreographer.FrameCallback
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,7 +47,7 @@ internal class SurfacePresentTracker(
     private var token = 0L
 
     /** 主线程上排队的帧回调：false 发布时撤掉它。 */
-    private var frameCallback: Choreographer.FrameCallback? = null
+    private var frameCallback: FrameCallback? = null
 
     /** 当前开孔的世代：开孔失效（surface 被拆或换了实例）时 +1。 */
     val epoch: Long get() = synchronized(lock) { token }
@@ -85,38 +85,41 @@ internal class SurfacePresentTracker(
         }
         val capturedToken = synchronized(lock) { token }
         postToMain {
-            val callback =
-                object : Choreographer.FrameCallback {
-                    override fun doFrame(frameTimeNanos: Long) {
-                        var waitMore = false
-                        synchronized(lock) {
-                            if (capturedToken != token || !pending) return
-                            if (deferralFrames > 0) {
-                                deferralFrames--
-                                waitMore = true
-                            } else {
-                                pending = false
-                                frameCallback = null
-                                if (!presentFlow.value) {
-                                    presentFlow.value = true
-                                    // 遮罩不在此撤：这里只知道原生侧提交过帧，不知道
-                                    // **当前窗口**是否已经画过遮罩。撤下权交给视图的
-                                    // 可见绘制（TerminalSurface.onDraw）。
-                                    onBufferPresentChanged(true)
-                                }
-                            }
-                        }
-                        if (waitMore) {
-                            // 交换链还压着这一帧：再等一个显示帧，遮罩继续盖着。
-                            frameClock.post(this)
-                        }
-                    }
-                }
+            val callback = deferralCallback(capturedToken)
             synchronized(lock) {
                 if (capturedToken != token || !pending) return@postToMain
                 frameCallback = callback
             }
             frameClock.post(callback)
+        }
+    }
+
+    private fun deferralCallback(capturedToken: Long): FrameCallback = object : FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            if (consumeDisplayFrame(capturedToken)) {
+                // 交换链还压着这一帧：再等一个显示帧，遮罩继续盖着。
+                frameClock.post(this)
+            }
+        }
+    }
+
+    /** 消费一个显示帧；返回 true 表示交换链还压着缓冲区，需再等一帧。 */
+    private fun consumeDisplayFrame(capturedToken: Long): Boolean {
+        return synchronized(lock) {
+            if (capturedToken != token || !pending) return@synchronized false
+            if (deferralFrames > 0) {
+                deferralFrames--
+                return@synchronized true
+            }
+            pending = false
+            frameCallback = null
+            if (!presentFlow.value) {
+                presentFlow.value = true
+                // 遮罩不在此撤：这里只知道原生侧提交过帧，不知道**当前窗口**是否已经
+                // 画过遮罩。撤下权交给视图的可见绘制（TerminalSurface.onDraw）。
+                onBufferPresentChanged(true)
+            }
+            false
         }
     }
 
