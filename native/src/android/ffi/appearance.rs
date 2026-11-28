@@ -6,10 +6,11 @@
 //! `record.target()` 作 tag），故归位到外观模块即可让 tag 与语义一致，无需任何
 //! 过滤或降级。
 
+use super::query::session_handle;
 use super::session::read_jni_string;
 use super::{
-    Env, EnvUnowned, JClass, JNIString, JString, ThrowRuntimeExAndFailure, jbyteArray, jint,
-    jintArray, jlong, jni_str, render_state_mut, rlock_session_registry, theme,
+    Env, EnvUnowned, JClass, JNIString, JString, Mutex, Session, ThrowRuntimeExAndFailure,
+    jbyteArray, jint, jintArray, jlong, jni_str, render_state_mut, rlock_session_registry, theme,
     throw_session_missing,
 };
 
@@ -74,20 +75,14 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setThem
         };
         let palette = entry.palette.with_overrides(&palette_override);
         let background = palette.background;
-        {
-            let registry = rlock_session_registry();
-            let Some(session_entry) = registry.get(&id) else {
-                throw_session_missing(env, "setTheme");
-                return Ok(());
-            };
-            let session = session_entry.session.lock();
-            session
-                .terminal()
-                .set_theme_palette(entry.name, palette.clone());
-            // 先让 VT 线程把换主题后的单元数据推出来，再标记渲染脏：
-            // 否则渲染线程可能先用旧单元数据 + 新背景色重绘一帧，造成新旧底色混屏。
-            session.terminal().flush();
-        }
+        // 会话句柄在注册表读锁内取、锁外用：等 VT 线程排空（上限 5s）不得按住
+        // 注册表读锁——读锁挡住写锁，销毁/切换会话都要写锁，一次主题切换会把
+        // 整台终端冻住 5s（`feedPty`/`focusEvent` 同款理由：锁不跨阻塞等待）。
+        let Some(session) = session_handle(id) else {
+            throw_session_missing(env, "setTheme");
+            return Ok(());
+        };
+        apply_theme_to_session(&session, entry.name, palette.clone());
         // 全局锁序：注册表读锁 → 会话锁 → RENDER_STATE。`render_inner` 在阶段 3
         // 持 RENDER_STATE 反向取注册表与会话锁，若此处嵌套持有即构成环形等待
         // （parking_lot 互斥锁不可重入），渲染线程与设置应用线程将同时冻结。
@@ -107,6 +102,27 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setThem
         drop(state);
         log::info!("setTheme: session {id} theme={name}");
     });
+}
+
+/// 换主题的会话侧动作：投递调色板并等 VT 线程排空。
+///
+/// **不取注册表锁**：等排空（上限 `FLUSH_TIMEOUT_SECS` = 5s）期间若持注册表读锁，
+/// 销毁/切换会话（注册表写锁）要等满这 5s——一次主题切换把整台终端冻住。
+/// 会话句柄由调用方在注册表读锁内取得、在此传入（`feedPty`/`focusEvent` 同款理由：
+/// 锁不跨阻塞等待）。
+///
+/// 会话锁仍在锁内持有：换主题到渲染器换背景之间不容许渲染线程取走新帧，
+/// 否则新单元数据会配旧背景色重绘一帧，造成新旧底色混屏。
+pub(super) fn apply_theme_to_session(
+    session: &Mutex<Session>,
+    name: &'static str,
+    palette: theme::Palette,
+) {
+    let session = session.lock();
+    session.terminal().set_theme_palette(name, palette);
+    // 先让 VT 线程把换主题后的单元数据推出来，再标记渲染脏：
+    // 否则渲染线程可能先用旧单元数据 + 新背景色重绘一帧，造成新旧底色混屏。
+    session.terminal().flush();
 }
 
 /// 读取 JNI `int[]`（调色板覆盖通道）。

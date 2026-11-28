@@ -1078,3 +1078,5 @@ mod session_entry_flag_tests;
 mod session_registry_tests;
 #[cfg(test)]
 mod session_scoped_tests;
+#[cfg(test)]
+mod theme_apply_tests;
