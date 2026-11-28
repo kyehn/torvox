@@ -198,13 +198,13 @@
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SettingsShellSection.kt` | 129 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SettingsThemeSection.kt` | 312 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SurfaceAttachGate.kt` | 54 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
-| Compose UI | `android/app/src/main/java/terminal/emulator/ui/SurfaceInput.kt` | 912 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；人工重点复核；风险模式命中 0 处 |
+| Compose UI | `android/app/src/main/java/terminal/emulator/ui/SurfaceInput.kt` | 917 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；人工重点复核；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SurfaceOwnership.kt` | 39 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SystemBars.kt` | 84 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/TerminalInputEncoder.kt` | 153 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/TerminalScreen.kt` | 1082 | 2 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；人工重点复核；风险模式命中 2 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/TerminalSurface.kt` | 1348 | 1 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；人工重点复核；风险模式命中 1 处 |
-| Compose UI | `android/app/src/main/java/terminal/emulator/ui/TerminalSurfaceMath.kt` | 493 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
+| Compose UI | `android/app/src/main/java/terminal/emulator/ui/TerminalSurfaceMath.kt` | 508 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/TextSearchBar.kt` | 223 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/theme/TerminalTheme.kt` | 146 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/theme/ThemeRepository.kt` | 145 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
@@ -387,6 +387,7 @@
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/TerminalInputEncoderTest.kt` | 145 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/TerminalSurfaceLogicTest.kt` | 566 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/TextSearchBarCounterRobolectricTest.kt` | 58 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
+| Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/WheelForwardingTest.kt` | 35 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/theme/TerminalThemePaletteTest.kt` | 67 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/theme/ThemeRepositoryTest.kt` | 140 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/util/RunCatchingTest.kt` | 31 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |

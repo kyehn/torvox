@@ -2,7 +2,7 @@
 
 ## 范围与依据
 
-- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 624 个受控文件并逐行记录行数、风险命中与核验结论；其中生产代码扫描为 145 个 Rust 文件（53,413 行）与 115 个 Kotlin 文件（30,334 行）。
+- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 625 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（53,608 行）与 `android/app/src/main` 下 115 个 Kotlin 文件（30,381 行）逐个过目。
 - 外部规则：`awesome-skills/code-review-skill` 的 `SKILL.md`、`review-checklist.md`、`code-quality-universal.md`、`common-bugs-checklist.md`、`architecture-review-guide.md`、`performance-review-guide.md`、`security-review-guide.md`、`kotlin.md`、`rust.md`；`android/skills` 的 `android-jni-security`、`jetpack-compose-performance`、`anr-audit-and-fix`、`r8-analyzer`、`edge-to-edge`、`testing-setup`、`agp-9-upgrade`。
 - 本地规则：`docs/specification/` 全部文档，以及 `rust-review`、`rust-best-practices`、`code-review-and-quality`、`compose-expert`、`compose-screens-footguns`、`state-and-background-footguns`、`data-layer-footguns`、`security-and-hardening`。
 - 重点模块：Rust FFI/JNI 边界、会话与 PTY、渲染/Kitty 图集、字体与日志；Kotlin 启动与 ViewModel、渲染监督、Compose UI、设置/DataStore、DocumentsProvider、引导下载与解压、构建与 R8。
@@ -24,13 +24,16 @@
 | 引导安装 | 成功路径在原子换入后才创建 `home`/`usr/tmp` 且忽略创建失败，可能留下「prefix 已发布但安装返回失败」的半成功状态 | 换入前在 staging 内准备 `tmp`，显式校验两个目录的创建结果；补回归用例钉住失败路径不发布 prefix |
 | 引导下载 | 下载无体积上限：声明长度虚高或分块响应可持续写满缓存目录，而解压已有 1 GiB 上限 | 声明长度与落盘字节双向按 1 GiB 封顶，超限即删暂存并返回失败；规范同步，补拒收用例 |
 | 日志 | 两处慢帧诊断各写一份 60ms 警告阈值，调整时易漏改一处 | 共用 `slow_frame_log_level` 纯函数与单一阈值常量，补分档单测 |
+| JNI | `setExtraFontPaths` 的路径数组元素每次循环新建局部引用且不释放，入口参数长度不受限，足够长的数组会耗尽局部引用表（上限 512） | 读毕即删局部引用（解码失败的提前返回分支同样释放） |
+| 输入 | 触摸拖动的「已转发滚轮」标记被本次编码结果覆盖：前一档已转发、后一档因 VT 忙而拿不到编码器时标记回落，本地回滚在手势中途接管，应用与本地同时滚动 | 标记在手势内只升不降；判定抽为纯函数 `wheelForwardedState` 并补 JVM 回归测试；规范同步 |
+| 终端网格 | `DISCONNECTED_COLS`/`DISCONNECTED_ROWS` 是 u32 常量，却先 `as u16` 收窄再升回 u32，窄化本身有损 | 直接按上游 `cols()`/`rows()` 的 u16 取值映射到 u32，回退值用常量的原生类型 |
 
 重复度扫描（`jscpd`，阈值 8 行/80 token）：Rust 0 处克隆；Kotlin 1 处 11 行重复，且为两个设置分区的相同 import 块，不构成逻辑重复。
 
 ## 验证
 
-- Rust：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 通过；`cargo test --all-targets` 为 983 + 1 + 2 + 1 个测试全部通过。
-- Android：`nu scripts/build-android-libs.nu x86_64` 后执行 `detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、`testDebugUnitTest`（1168 个单元测试）、benchmark 与 baselineprofile 编译、`assembleRelease`、`analyzeReleaseR8Config`，全部 `BUILD SUCCESSFUL`。
+- Rust：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 通过；`cargo test --all-targets` 为 987 + 1 + 2 + 1 个测试全部通过。
+- Android：`nu scripts/build-android-libs.nu x86_64` 后执行 `detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、`testDebugUnitTest`（1172 个单元测试）、benchmark 与 baselineprofile 编译、`assembleRelease`、`analyzeReleaseR8Config`，全部 `BUILD SUCCESSFUL`。
 - 反汇编 release `classes.dex`：69 个可达 JNI 方法全部保留；9 个仅诊断/测试用且 Kotlin 侧无可达调用点的方法随死代码移除，原生侧不存在通过 JNI 反射回调 Kotlin 的路径。
 - 全部修复均已提交并推送到 `origin/main`。
 
