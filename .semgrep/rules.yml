@@ -107,6 +107,8 @@ rules:
         - "/docs/specification/*"
         # 参考资料：照录被禁 API 的事实，不等于实现它。
         - "/docs/persistence/*"
+        # 方案调研文档：逐条列出被排除的依赖与硬边界，属事实记录。
+        - "/docs/AI_NATIVE.md"
         - "/README.md"
   - id: no-deprecated-bootstrap-values
     pattern-regex: 'apt-android-5\b|2022\.04\.28\b'
