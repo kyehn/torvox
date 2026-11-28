@@ -19,12 +19,10 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -36,10 +34,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.detectDeviceArchitecture
 import terminal.emulator.input.KeyModifiers
@@ -56,6 +52,7 @@ import terminal.emulator.settings.BackKeyBehaviour
 import terminal.emulator.settings.SessionShortcut
 import terminal.emulator.settings.TermuxProperties
 import terminal.emulator.settings.VolumeKeysBehaviour
+import terminal.emulator.ui.SettingsRenderPauseEffect
 import terminal.emulator.ui.SettingsScreen
 import terminal.emulator.ui.TerminalScreen
 import terminal.emulator.ui.theme.resolveMaterialColorScheme
@@ -540,33 +537,24 @@ private fun TerminalNavHost(openSettingsRequests: Int = 0, viewModel: TerminalVi
     // 设置页的渲染暂停走运行期的共享账本而不是直接写全局布尔：关设置页时
     // 无条件 setRenderPaused(false) 会把切后台那条暂停一并顶掉，在已被系统回收的
     // BufferQueue 上出帧即永久黑屏。账本保证只有全部来源都归还后才恢复。
-    var settingsPauseToken by remember { mutableStateOf<Long?>(null) }
-    LaunchedEffect(showSettings) {
-        if (!showSettings) return@LaunchedEffect
+    //
+    // 领用与归还的配对在 SettingsRenderPauseEffect 里：凭证一旦领到就必须有确定的
+    // 归属，否则账本计数永不归零，终端永久黑屏。
+    SettingsRenderPauseEffect(
+        enabled = showSettings,
+        // 读当前值而非 effect 体里捕获的 enabled 快照：设置页可能在本 effect
+        // 运行期间关掉，那时 onDispose 早已跑过且没拿到凭证。
+        stillNeeded = { showSettings },
         // bridge 由运行期在首个会话 spawn 之后异步创建；原生暂停标志落在全局渲染器
         // 上，渲染器尚未建立时写入即丢失，故打开设置页前先等它出现（有界等待，
         // 只在带 `openSettingsOnLaunch` 的冷启动才真正等待）。
-        awaitBridgeReady { viewModel.runtime.bridge() != null }
-        // 领凭证与存入状态之间不能有取消点：否则 DisposableEffect 看不到凭证，
-        // 账本里永远留着一次暂停，终端从此不再出帧。
-        settingsPauseToken =
-            withContext(NonCancellable) {
-                viewModel.runtime.acquireRenderPause()
-            }
-    }
-    DisposableEffect(showSettings) {
-        onDispose {
-            // 打开设置时也走这里（本次持有为空），那一次 MUST NOT 出帧：刚打开就
-            // 出一帧，等于在「设置页遮住终端」的第一帧上白白跑一次 GPU。
-            val token = settingsPauseToken
-            settingsPauseToken = null
-            if (token == null) return@onDispose
-            viewModel.runtime.releaseRenderPause(token)
-            // 关设置页要的是「立刻出一帧」：账本归还不是无条件恢复，Surface 已就绪时
-            // 这里补一次，与 TerminalSurface.surfaceCreated 同源。
-            viewModel.runtime.forceRender()
-        }
-    }
+        awaitReady = { awaitBridgeReady { viewModel.runtime.bridge() != null } },
+        acquire = { viewModel.runtime.acquireRenderPause() },
+        release = { viewModel.runtime.releaseRenderPause(it) },
+        // 关设置页要的是「立刻出一帧」：账本归还不是无条件恢复，Surface 已就绪时
+        // 这里补一次，与 TerminalSurface.surfaceCreated 同源。
+        onReleased = { viewModel.runtime.forceRender() },
+    )
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val appThemeMode = settings.appThemeMode
     val isDarkTheme = isSystemInDarkTheme()

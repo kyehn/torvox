@@ -2,7 +2,7 @@
 
 ## 范围与依据
 
-- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 625 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（53,754 行）与 `android/app/src/main` 下 115 个 Kotlin 文件（30,349 行）逐个过目。
+- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 627 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（53,765 行）与 `android/app/src/main` 下 116 个 Kotlin 文件（30,406 行）逐个过目。
 - 外部规则：`awesome-skills/code-review-skill` 的 `SKILL.md`、`review-checklist.md`、`code-quality-universal.md`、`common-bugs-checklist.md`、`architecture-review-guide.md`、`performance-review-guide.md`、`security-review-guide.md`、`kotlin.md`、`rust.md`；`android/skills` 的 `android-jni-security`、`jetpack-compose-performance`、`anr-audit-and-fix`、`r8-analyzer`、`edge-to-edge`、`testing-setup`、`agp-9-upgrade`。
 - 本地规则：`docs/specification/` 全部文档，以及 `rust-review`、`rust-best-practices`、`code-review-and-quality`、`compose-expert`、`compose-screens-footguns`、`state-and-background-footguns`、`data-layer-footguns`、`security-and-hardening`。
 - 重点模块：Rust FFI/JNI 边界、会话与 PTY、渲染/Kitty 图集、字体与日志；Kotlin 启动与 ViewModel、渲染监督、Compose UI、设置/DataStore、DocumentsProvider、引导下载与解压、构建与 R8。
@@ -41,6 +41,7 @@
 | PTY | shell 路径与解释器路径各写一份 prefix 判据，分隔符 `/` 容易漏写；同一处还留着恒真的 `contains('\0')`（含 NUL 的路径已由 `cstring_without_null` 在 fork 前以 `?` 拒绝） | 判据收敛为 `under_prefix` 共享实现，按路径元素比较（`<prefix>_evil/…` 不再算 prefix 下）；删除恒真分支；补边界用例 |
 | PTY | shell 与脚本解释器两条 linker 路径各写一份逐字相同的 `CString::new(linker_path())` 及其错误映射 | 收敛为 `linker_cstring`；该文件在严格重复率口径下归零 |
 | 静态检查 | 方案调研文档照录被禁 API 的事实，触发 `docs/` 下的字面量禁令规则误报，质量门红灯 | 按既有豁免口径按文件路径豁免（与 `docs/persistence/*`、`docs/specification/*` 同类）；探针验证代码侧仍被拦下 |
+| 设置页渲染暂停 | 领凭证与存入状态之间隔着协程取消点：凭证领到但未存入状态时协程被取消，`DisposableEffect` 的 `onDispose` 拿不到凭证，账本计数永不归零，共享渲染器被永久暂停（终端全黑） | 领用与归还收敛为 `SettingsRenderPauseEffect`：不可取消段内完成「领 + 写入状态」，并在领到之前复检设置页的**当前**状态（effect 体里捕获的是启动快照，关闭后仍是旧值），已关闭则不再领；补三条 Robolectric 回归用例（关闭竞态、正常释放、等待期间取消）；规范同步 |
 
 重复度扫描（`jscpd`，阈值 8 行/80 token）：Rust 0 处克隆；Kotlin 1 处 11 行重复，且为两个设置分区的相同 import 块，不构成逻辑重复。另以更严的阈值（5 行/40 token）复扫一遍，全量命中 128 处 / 926 行 / 1.09%；逐类判定后，生产代码内的命中归为四类且均不构成逻辑重复：Kotlin import 段与 Compose 脚手架（18 处）、Android 资源文件（3 处）、Rust 函数签名形状（JNI 导出与转发函数的参数表，20 处）、文档注释（6 处）。唯一两处可收敛的真重复已处理：`pty.rs` 的 prefix 判据与 linker CString 构造，收敛后该文件在严格口径下归零。判定明细见 `openspec/changes/archive/2026-11-24-code-health-audit/audit.md` 的严格口径一节。
 
@@ -55,7 +56,7 @@
 
 ## 审查结论（rust-review 口径）
 
-审查对象为 `native` crate 全部 147 个 Rust 文件与 `android/app/src/main` 全部 115 个 Kotlin 文件（53,755 + 30,343 行）。`native` 是应用型 crate（cdylib + lib，无 feature 开关、MSRV 1.99、edition 2024），故按「简洁性优先」的适用规则审，不套用库的严格 API 契约。clippy、测试与全量质量门均已实跑。
+审查对象为 `native` crate 全部 147 个 Rust 文件与 `android/app/src/main` 全部 116 个 Kotlin 文件（53,765 + 30,406 行）。`native` 是应用型 crate（cdylib + lib，无 feature 开关、MSRV 1.99、edition 2024），故按「简洁性优先」的适用规则审，不套用库的严格 API 契约。clippy、测试与全量质量门均已实跑。
 
 ### Must fix
 

@@ -106,7 +106,7 @@
 | Kotlin main | `android/app/src/main/java/terminal/emulator/DocumentWatcher.kt` | 231 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/FontManager.kt` | 226 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/FontUtils.kt` | 47 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
-| Kotlin main | `android/app/src/main/java/terminal/emulator/MainActivity.kt` | 670 | 3 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 3 处 |
+| Kotlin main | `android/app/src/main/java/terminal/emulator/MainActivity.kt` | 658 | 3 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 3 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/SelectionManager.kt` | 494 | 1 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 1 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/SelectionState.kt` | 155 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/SessionState.kt` | 88 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
@@ -194,6 +194,7 @@
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SettingsClearDataSection.kt` | 94 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SettingsComponents.kt` | 349 | 1 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 1 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SettingsLogLevelSection.kt` | 90 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
+| Compose UI | `android/app/src/main/java/terminal/emulator/ui/SettingsRenderPauseEffect.kt` | 69 | 0 | detekt/spotless/lint/单元测试通过；凭证归属不变量由 Robolectric 覆盖；人工重点复核；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SettingsScreen.kt` | 251 | 1 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 1 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SettingsShellSection.kt` | 129 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SettingsThemeSection.kt` | 312 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
@@ -378,6 +379,7 @@
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/SelectionMenuActionsTest.kt` | 21 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/SessionDrawerNarrowTest.kt` | 211 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/SessionItemLabelTest.kt` | 46 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
+| Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/SettingsRenderPauseEffectRobolectricTest.kt` | 110 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/SettingsShellSectionRobolectricTest.kt` | 65 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/SettingsSliderRowRobolectricTest.kt` | 149 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/StartupKeyboardRequestTest.kt` | 39 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
@@ -567,7 +569,7 @@
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/kitty.rs` | 430 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/mod.rs` | 746 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/mouse_input.rs` | 71 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
-| Rust/native | `native/src/terminal/ghostty_terminal/internal/rendering.rs` | 811 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 0 处 |
+| Rust/native | `native/src/terminal/ghostty_terminal/internal/rendering.rs` | 822 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/run.rs` | 550 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/selection.rs` | 517 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/tests.rs` | 326 | 6 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 6 处 |
