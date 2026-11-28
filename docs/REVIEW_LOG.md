@@ -2,7 +2,7 @@
 
 ## 范围与依据
 
-- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 625 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（53,692 行）与 `android/app/src/main` 下 115 个 Kotlin 文件（30,381 行）逐个过目。
+- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 625 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（53,755 行）与 `android/app/src/main` 下 115 个 Kotlin 文件（30,343 行）逐个过目。
 - 外部规则：`awesome-skills/code-review-skill` 的 `SKILL.md`、`review-checklist.md`、`code-quality-universal.md`、`common-bugs-checklist.md`、`architecture-review-guide.md`、`performance-review-guide.md`、`security-review-guide.md`、`kotlin.md`、`rust.md`；`android/skills` 的 `android-jni-security`、`jetpack-compose-performance`、`anr-audit-and-fix`、`r8-analyzer`、`edge-to-edge`、`testing-setup`、`agp-9-upgrade`。
 - 本地规则：`docs/specification/` 全部文档，以及 `rust-review`、`rust-best-practices`、`code-review-and-quality`、`compose-expert`、`compose-screens-footguns`、`state-and-background-footguns`、`data-layer-footguns`、`security-and-hardening`。
 - 重点模块：Rust FFI/JNI 边界、会话与 PTY、渲染/Kitty 图集、字体与日志；Kotlin 启动与 ViewModel、渲染监督、Compose UI、设置/DataStore、DocumentsProvider、引导下载与解压、构建与 R8。

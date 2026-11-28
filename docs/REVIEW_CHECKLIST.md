@@ -99,19 +99,19 @@
 | Android instrumentation | `android/app/src/androidTest/java/terminal/emulator/ui/VtCorrectnessInstrumentedTest.kt` | 373 | 1 | connectedAndroidTest 结果见验证章节；工具链覆盖；风险模式命中 1 处 |
 | Android instrumentation | `android/app/src/androidTest/java/terminal/emulator/ui/ZoomPreviewGestureInstrumentedTest.kt` | 254 | 1 | connectedAndroidTest 结果见验证章节；工具链覆盖；风险模式命中 1 处 |
 | Android manifest/resources | `android/app/src/debug/AndroidManifest.xml` | 29 | 1 | lintDebug/lintVitalRelease 通过；工具链覆盖；风险模式命中 1 处 |
-| Android manifest/resources | `android/app/src/main/AndroidManifest.xml` | 126 | 2 | lintDebug/lintVitalRelease 通过；工具链覆盖；风险模式命中 2 处 |
+| Android manifest/resources | `android/app/src/main/AndroidManifest.xml` | 132 | 2 | lintDebug/lintVitalRelease 通过；工具链覆盖；风险模式命中 2 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/BootstrapManager.kt` | 215 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/DocumentMutations.kt` | 617 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/DocumentQueries.kt` | 210 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/DocumentWatcher.kt` | 231 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/FontManager.kt` | 226 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/FontUtils.kt` | 47 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
-| Kotlin main | `android/app/src/main/java/terminal/emulator/MainActivity.kt` | 669 | 3 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 3 处 |
+| Kotlin main | `android/app/src/main/java/terminal/emulator/MainActivity.kt` | 670 | 3 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 3 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/SelectionManager.kt` | 494 | 1 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 1 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/SelectionState.kt` | 155 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/SessionState.kt` | 88 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/TerminalApp.kt` | 131 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
-| Kotlin main | `android/app/src/main/java/terminal/emulator/TerminalDocumentsProvider.kt` | 672 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
+| Kotlin main | `android/app/src/main/java/terminal/emulator/TerminalDocumentsProvider.kt` | 676 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/TerminalViewModel.kt` | 1230 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/ThemeManager.kt` | 49 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/TransientMessageChannel.kt` | 42 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
@@ -152,7 +152,7 @@
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/InputBatchBuffer.kt` | 202 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/LogLevel.kt` | 42 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/LogUtil.kt` | 53 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
-| Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/PasteChunks.kt` | 57 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
+| Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/PasteChunks.kt` | 59 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/RenderErrorLedger.kt` | 74 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/RenderFailurePolicy.kt` | 163 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/RenderSupervisor.kt` | 1362 | 3 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 3 处 |
@@ -162,7 +162,7 @@
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/SessionEntry.kt` | 287 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/SessionRegistry.kt` | 121 | 1 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 1 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/SessionSwitchPolicy.kt` | 34 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
-| Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/SurfacePresentTracker.kt` | 127 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
+| Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/SurfacePresentTracker.kt` | 130 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/TerminalRuntime.kt` | 3529 | 2 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 2 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/TerminalRuntimeEntryPoint.kt` | 18 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/VsyncChain.kt` | 241 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
@@ -207,7 +207,7 @@
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/TerminalSurfaceMath.kt` | 508 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/TextSearchBar.kt` | 223 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/theme/TerminalTheme.kt` | 146 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
-| Compose UI | `android/app/src/main/java/terminal/emulator/ui/theme/ThemeRepository.kt` | 145 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
+| Compose UI | `android/app/src/main/java/terminal/emulator/ui/theme/ThemeRepository.kt` | 143 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/util/DirectoryListing.kt` | 14 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/util/RunCatching.kt` | 19 | 4 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 4 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/util/Streams.kt` | 19 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
@@ -316,7 +316,7 @@
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/runtime/LogLevelTest.kt` | 78 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/runtime/LogUtilLevelTest.kt` | 23 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/runtime/NormalPathLogSeverityTest.kt` | 88 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
-| Kotlin unit tests | `android/app/src/test/java/terminal/emulator/runtime/PasteChunksTest.kt` | 62 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
+| Kotlin unit tests | `android/app/src/test/java/terminal/emulator/runtime/PasteChunksTest.kt` | 68 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/runtime/ReadCoverFrameSafelyTest.kt` | 73 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/runtime/RenderErrorBackoffTest.kt` | 31 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/runtime/RenderErrorLedgerTest.kt` | 69 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
@@ -438,7 +438,7 @@
 | Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/MeasurementScenario.kt` | 169 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
 | Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/MeasurementScenarioTest.kt` | 93 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
 | Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/OutputLoadCompletion.kt` | 64 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
-| Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/OutputScenarioFrames.kt` | 110 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
+| Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/OutputScenarioFrames.kt` | 108 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
 | Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/OutputScenarioFramesTest.kt` | 184 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
 | Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/PresentedFrames.kt` | 90 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
 | Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/ProcessCpuTime.kt` | 81 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
@@ -459,7 +459,7 @@
 | Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/SurfaceLayerFramesTest.kt` | 67 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
 | Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/SustainedOutputLoad.kt` | 80 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
 | Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/SustainedOutputLoadTest.kt` | 48 | 2 | 配置参与构建并通过；工具链覆盖；风险模式命中 2 处 |
-| Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/WideCharacterBenchmark.kt` | 119 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
+| Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/WideCharacterBenchmark.kt` | 118 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
 | Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/WideCharacterLoad.kt` | 58 | 0 | 配置参与构建并通过；工具链覆盖；风险模式命中 0 处 |
 | Config | `android/benchmark/src/main/java/terminal/emulator/benchmark/WideCharacterLoadTest.kt` | 72 | 2 | 配置参与构建并通过；工具链覆盖；风险模式命中 2 处 |
 | Gradle build | `android/build.gradle.kts` | 63 | 0 | Gradle 构建通过；工具链覆盖；风险模式命中 0 处 |
@@ -565,12 +565,12 @@
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/input_filter.rs` | 779 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/input_filter/tests.rs` | 788 | 29 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 29 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/kitty.rs` | 430 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
-| Rust/native | `native/src/terminal/ghostty_terminal/internal/mod.rs` | 745 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
+| Rust/native | `native/src/terminal/ghostty_terminal/internal/mod.rs` | 746 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/mouse_input.rs` | 71 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/rendering.rs` | 811 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/run.rs` | 550 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/internal/selection.rs` | 517 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
-| Rust/native | `native/src/terminal/ghostty_terminal/internal/tests.rs` | 307 | 6 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 6 处 |
+| Rust/native | `native/src/terminal/ghostty_terminal/internal/tests.rs` | 326 | 6 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 6 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/key_encoding_tests.rs` | 454 | 4 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 4 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/mod.rs` | 160 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/notification_queue.rs` | 94 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
@@ -597,10 +597,10 @@
 | Rust/native | `native/src/terminal/mock_pty.rs` | 302 | 23 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 23 处 |
 | Rust/native | `native/src/terminal/mod.rs` | 56 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/output_processor.rs` | 634 | 2 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 2 处 |
-| Rust/native | `native/src/terminal/pty.rs` | 881 | 26 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 26 处 |
+| Rust/native | `native/src/terminal/pty.rs` | 890 | 26 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 26 处 |
 | Rust/native | `native/src/terminal/pty/child.rs` | 179 | 9 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 9 处 |
 | Rust/native | `native/src/terminal/pty/env.rs` | 103 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
-| Rust/native | `native/src/terminal/pty/tests.rs` | 903 | 71 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 71 处 |
+| Rust/native | `native/src/terminal/pty/tests.rs` | 937 | 71 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 71 处 |
 | Rust/native | `native/src/terminal/session/lifecycle.rs` | 227 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/session/mod.rs` | 392 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |
 | Rust/native | `native/src/terminal/session/output.rs` | 472 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
