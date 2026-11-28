@@ -38,10 +38,13 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFon
         let Ok(string_class) = string_class else {
             return Ok(std::ptr::null_mut());
         };
-        let array = env.new_object_array(families.len() as jsize, string_class, JObject::null());
-        let Ok(array) = array else {
+        let Ok(array) =
+            env.new_object_array(families.len() as jsize, &string_class, JObject::null())
+        else {
+            env.delete_local_ref(string_class);
             return Ok(std::ptr::null_mut());
         };
+        env.delete_local_ref(string_class);
         // 元素初值为 null：任一 `new_string` / `set_element` 失败都会留下 null，
         // 而 Kotlin 侧声明是 `Array<String>`，null 元素会在字体选择器里变成 NPE。
         // 故失败即整体作废，由 Kotlin 侧按「无数据」处理。
@@ -50,7 +53,9 @@ pub(super) extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFon
                 log::error!("listFontFamilies: cannot encode family {family:?}, aborting list");
                 return Ok(std::ptr::null_mut());
             };
-            if let Err(error) = array.set_element(env, index, &element) {
+            let stored = array.set_element(env, index, &element);
+            env.delete_local_ref(element);
+            if let Err(error) = stored {
                 log::error!(
                     "listFontFamilies: cannot store family {family:?}, aborting list: {error}"
                 );

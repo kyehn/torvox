@@ -1,5 +1,7 @@
 -dontobfuscate
--keep class terminal.emulator.** { *; }
+# JNI 入口的类名与方法名由 AGP 默认规则 `native <methods>` 保留；
+# Kotlin 侧未被引用（如仅诊断/测试用）的方法随死代码移除，
+# 原生库不通过 JNI 反射回调 Kotlin，因此移除它们不会影响运行时。
 -keepclassmembers class * {
     @dagger.hilt.android.lifecycle.HiltViewModel <init>(...);
 }
@@ -7,9 +9,6 @@
 -keepattributes Signature
 -keepattributes InnerClasses
 -keepattributes EnclosingMethod
-
--keep class io.cucumber.** { *; }
--keep class terminal.emulator.cucumber.** { *; }
 
 # Release 构建剥离调试级日志代码（DESIGN 日志节「Release 版本构建时应该剥离
 # DEBUG 和 TRACE 日志代码」）：调试级的调用点连同其消息构造一起移除，故 release

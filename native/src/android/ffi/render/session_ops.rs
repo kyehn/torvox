@@ -84,12 +84,14 @@ fn collect_session_strings(
     };
     let Ok(array) = env.new_object_array(
         session_id_values.len() as jsize,
-        string_class,
+        &string_class,
         JObject::null(),
     ) else {
         log::error!("{what}: new_object_array failed");
+        env.delete_local_ref(string_class);
         return std::ptr::null_mut();
     };
+    env.delete_local_ref(string_class);
     for (index, id) in session_id_values.iter().enumerate() {
         // 未知会话留 null：调用方按「无此项」处理，不抛异常——批量查询发生在
         // 列表刷新途中，竞态下少一个会话是正常状态。
@@ -103,7 +105,9 @@ fn collect_session_strings(
             },
             None => JObject::null(),
         };
-        if let Err(error) = array.set_element(env, index, &element) {
+        let stored = array.set_element(env, index, &element);
+        env.delete_local_ref(element);
+        if let Err(error) = stored {
             log::error!("{what}: cannot store element {index}: {error}");
             return std::ptr::null_mut();
         }
