@@ -741,6 +741,70 @@ fn sgr_tricolor_default_theme_reaches_foreground() {
     }
 }
 
+/// 同一行内相邻的不同样式必须各自取到自己的颜色。
+///
+/// 抽取路径按「原始单元序号」定位样式：定位错一格，整行样式就会串位
+/// （后一格拿到前一格的颜色）。这条断言把定位口径钉死。
+#[test]
+fn sgr_run_boundary_in_one_row_reads_the_right_cell() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write(b"\x1b[31mR\x1b[32mG\x1b[0m");
+    terminal_under_test.flush();
+    let (cells, _) = terminal_under_test.receive_cell_data().expect("cell data");
+    assert_color(
+        marked_cell(&cells, b'R').foreground,
+        default_ansi(1),
+        "R 前景",
+    );
+    assert_color(
+        marked_cell(&cells, b'G').foreground,
+        default_ansi(2),
+        "G 前景",
+    );
+}
+
+/// 宽字符的 spacer 不产出记录：其后的单元在原始序列里比记录列号多一格。
+/// 样式定位按原始序号走，故这一格仍须取到自己的颜色。
+#[test]
+fn sgr_run_boundary_after_a_wide_char_reads_the_right_cell() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write("\x1b[31m中\x1b[32mG\x1b[0m".as_bytes());
+    terminal_under_test.flush();
+    let (cells, _) = terminal_under_test.receive_cell_data().expect("cell data");
+    let wide = cells
+        .iter()
+        .find(|cell| cell.codepoint == '中' as u32)
+        .expect("宽字符在场");
+    assert_eq!(wide.col, 0, "宽字符在首列");
+    assert_eq!(wide.width, 2, "宽字符占两列");
+    let green = cells
+        .iter()
+        .find(|cell| cell.codepoint == 'G' as u32)
+        .expect("G 在场");
+    assert_eq!(green.col, 2, "G 紧接宽字符之后");
+    assert_color(wide.foreground, default_ansi(1), "宽字符前景");
+    assert_color(green.foreground, default_ansi(2), "G 前景");
+}
+
+/// 组合簇的附加码位不得外溢到后一格。
+#[test]
+fn a_plain_cell_after_a_combining_cluster_has_no_grapheme_extra() {
+    let mut terminal_under_test = terminal();
+    terminal_under_test.vt_write("e\u{301}X".as_bytes());
+    terminal_under_test.flush();
+    let (cells, _) = terminal_under_test.receive_cell_data().expect("cell data");
+    let base = cells
+        .iter()
+        .find(|cell| cell.codepoint == 'e' as u32)
+        .expect("基格在场");
+    assert_eq!(base.grapheme_extra[0], 0x301, "组合记号须落在基格");
+    assert_eq!(
+        marked_cell(&cells, b'X').grapheme_extra,
+        [0; MAX_GRAPHEME_EXTRA],
+        "后一格不得带组合记号"
+    );
+}
+
 /// 256 色 SGR（`38;5;n` / `48;5;n`）必须落到 xterm 标准色：6×6×6 色立方与
 /// 24 级灰阶由上游调色板生成，本仓不得另造公式。取色立方顶点、灰阶首格与
 /// 一个中间绿做外部基准，证明 16..255 槽位真的进了 `CellData`。

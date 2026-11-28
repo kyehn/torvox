@@ -1,7 +1,7 @@
 # 代码健康度审计留档
 
 本留档是 `code-health` 能力的唯一审计落点：重复率、代码规模口径、静态形状扫描、依赖
-活跃度四类实测数字与逐处判定都写在此处。最新采样日期 2026-11-27；测量对象是复算当时的
+活跃度四类实测数字与逐处判定都写在此处。最新采样日期 2026-11-28；测量对象是复算当时的
 已提交树快照（`git archive HEAD` 展开到独立目录），不含工作区未提交改动，故结果可复算。
 2026-11-24 的首轮基线保留在各表对照栏，偏差逐项写明来源。
 
@@ -15,10 +15,10 @@
 
 | 口径 | sources | lines | tokens | clones | duplicatedLines | 重复率 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 生产 | 266 | 69222 | 525338 | 3 | 30 | 0.04% |
-| 全量 | 530 | 105155 | 806680 | 26 | 257 | 0.24% |
+| 生产 | 267 | 69520 | 527076 | 3 | 30 | 0.04% |
+| 全量 | 532 | 105593 | 809462 | 26 | 257 | 0.24% |
 
-复算轮次：2026-11-27（同一组参数、同一条命令）。克隆集合与首轮基线完全相同，
+复算轮次：2026-11-28（同一组参数、同一条命令）。克隆集合与首轮基线完全相同，
 `lines`/`tokens` 随代码树变化（生产 68916 → 69140 → 69202 → 69185 → 68748 行、全量
 104924 → 105230 → 105296 → 105243 → 104516 行；第 3、4 轮之间代码树有其他提交，行数
 回落；第 6 轮的回落来自 `SecondStageRunner` 及其用例随「删除规范禁止的 postinstall
@@ -30,6 +30,9 @@
 第 8 轮（同参数）克隆集合仍为首轮那 3 / 26 处，生产 69027 → 69222 行、全量 104874 →
 105155 行的增长来自本轮的去重改造与配套回归测试；全量口径重复率由 0.25% 降到 0.24% 是
 分母增长所致，不是克隆减少。
+第 9 轮（2026-11-28，同参数）克隆集合仍为首轮那 3 / 26 处，生产 69222 → 69520 行、全量
+105155 → 105593 行（源文件 266 → 267、530 → 532）；增长来自组合簇零分配改造后的测试补充、
+字形缓存样式面判据与图集回收改造，两口径重复率均不变（0.04% / 0.24%），不是克隆增减。
 
 生产口径三处命中的判定：
 
@@ -69,11 +72,12 @@
 
 - 工具与参数：`jscpd` 4.0.5，`--min-lines 5 --min-tokens 40`，范围为 `native/src` 与
   `android/app/src/main`，并排除测试专用文件（`tests/` 目录、`*_tests.rs`、`*Test.kt`）。
-- 结果：53 处命中，其中 34 处触及生产文件，19 处两侧均为测试代码（测试夹具与断言样板）。
+- 结果：51 处命中，其中 35 处触及生产文件（33 处两侧均为生产代码、2 处一侧生产一侧测试），
+  16 处两侧均为测试代码（测试夹具、断言样板与仅测试使用的计数器）。
 
-触及生产文件的 34 处逐类判定：
+触及生产文件的 35 处逐类判定：
 
-1. Kotlin 的包声明与 import 段（14 处）：各文件按需 import 同一组 Compose 与项目符号，
+1. Kotlin 的包声明与 import 段（13 处）：各文件按需 import 同一组 Compose 与项目符号，
    合并只能靠通配导入或门面对象，换来的是可读性与静态检查退化，违 `STYLE.md` 的一次性
    抽象禁令。判为天然相似。
 2. Android 资源（3 处）：`launcher_monochrome.xml` 与 `logo_art.xml` 的 `<vector>` 头与
@@ -84,7 +88,9 @@
    固定，参数表由 Kotlin 的 `NativeBridge` 声明决定，签名形状不可合并；各导出的函数体
    已共享同一实现（会话标量查询、终端标志读取、批量字符串查询、单会话查询）。判为 ABI
    固定。
-4. 转发函数的参数表（3 处）：`public_api/encoding.rs` 的公开入口与通道外置版、
+4. 转发函数的参数表（4 处）：`public_api/encoding.rs` 的公开入口与通道外置版、
+   `public_api/construction.rs` 的构造器链（`new_with_frame_wake` 与
+   `new_with_frame_wake_and_temp_dir` 逐项相同只多一个临时目录参数）、
    `internal/rendering.rs` 的薄封装与被转发者。参数表与被转发者逐项相同正是转发的
    前提，打包成结构体要改的是调用链而不是重复本身。判为转发形状。
 5. VT 核心命令函数的参数表（3 处）：`internal/run.rs`、`internal/dispatch.rs`、
@@ -94,6 +100,19 @@
 6. wgpu 纹理回读样板（1 处）：`render/context/cover.rs` 的生产实现与
    `render/pass/tests.rs` 的用例各自写一份 `copy_texture_to_buffer` 参数。生产侧是真实
    实现，测试侧是 API 形状，合并需跨模块暴露内部细节。判为天然相似。
+7. 轮询等待变体（1 处）：`render/context/poll.rs` 的 `poll_device_wait` 带
+   `#[cfg(test)]`，只供测试脚手架使用，其体与生产侧的 `poll_device_now` 同形；生产侧不
+   编译该函数，测试侧又要与生产侧保持同一调用形状，合并会迫使生产路径接受只在测试里
+   成立的等待语义。判为天然相似。
+
+两侧均为测试代码的 16 处落在测试夹具与断言样板（`internal/input_filter/tests.rs`、
+`native/src/terminal/pty/tests.rs`、`render/font/font_db/tests.rs`、
+`render/context/tests.rs`、`render/pass/tests.rs`、`native/src/terminal/test_helpers.rs`）
+与仅测试使用的同形代码上：`internal/mod.rs` 的两个 `#[cfg(test)]` 计数器
+（`CacheStats::take` 与 `BatchStats::take`，各计一对命中）、`notification_queue.rs` 与
+`render/font/shaping.rs` 的 `#[cfg(test)]` 用例、`terminal/output_processor.rs` 的四个
+OSC 透传用例。各自的断言对象不同（复用行数与批条数、通知队列去重、整形键构造、OSC 52
+与 OSC 7/8 透传），抽公共夹具会掩盖各自的不变量。判为天然相似。
 
 本轮按该口径判定为真重复并已收敛的命中（收敛后复扫不再命中）：
 
@@ -257,7 +276,7 @@ if __name__ == "__main__":
 
 | 仓库 | 生产 | 测试 | 合计 |
 | --- | --- | --- | --- |
-| torvox | 41761 | 50925 | 92686 |
+| torvox | 41835 | 51211 | 93046 |
 | termux-app | 26637 | 2471 | 29108 |
 | ghostty-android-terminal | 22381 | 2850 | 25231 |
 | 两个参考项目生产之和 | 49018 | 5321 | 54339 |
@@ -273,7 +292,9 @@ if __name__ == "__main__":
 41520 → 41716、测试 50602 → 50818，增长来自组合簇整形零分配改造（内联键与共享切片）、
 JNI 局部引用释放、KGP 上限判定与审查留档；生产口径仍低于参考项目之和。第 8 轮生产
 41716 → 41761、测试 50818 → 50925，增长来自本轮去重改造与配套回归测试；生产口径仍低于
-参考项目之和。
+参考项目之和。第 9 轮（2026-11-28）生产 41761 → 41835、测试 50925 → 51211，生产文件 227
+个、测试文件 359 个；增长来自组合簇零分配的配套用例、字形缓存样式面判据与图集回收改造，
+生产口径仍低于参考项目之和 49018。
 
 参考项目取自 `termux-app`（v0.119.0-beta.3 分支）与 `ghostty-android-terminal` 的浅克隆，
 与 `docs/specification/DESIGN.md` 点名的两个参考项目一致。
@@ -281,9 +302,9 @@ JNI 局部引用释放、KGP 上限判定与审查留档；生产口径仍低于
 ## 静态形状扫描
 
 - semgrep：`semgrep scan --config .semgrep/rules.yml --json --metrics=off
-  --disable-version-check .`，55 条规则扫过 1717 个文件，**0 findings、0 errors**。
+  --disable-version-check .`，55 条规则扫过 1721 个文件，**0 findings、0 errors**。
   扫描文件数随代码树增长（首轮 1691 → 复算 1693 → 第 6 轮 1694 → 第 7 轮 1713 →
-  第 8 轮 1717）。
+  第 8 轮 1717 → 第 9 轮 1721）。
   第 7 轮曾报 637 处：全部来自新增的全仓审查留档——逐文件 SHA-256 摘要列与处置表的提交号列
   命中 `no-git-short-hash-in-source-and-docs`。两列已撤除（`STYLE.md` 本就禁止文档出现哈希），
   复扫 0 findings、0 errors。
@@ -294,7 +315,9 @@ JNI 局部引用释放、KGP 上限判定与审查留档；生产口径仍低于
   `render/cell_builder/tests/` 后消失，告警归零。按 `code-health`「超大文件阈值必须跨源码
   语言一致应用」，本仓不得为凑行数阈值拆分生产源码文件。该工具扫不到 Kotlin 源码，只能
   作为 Rust 侧的门禁。2026-11-27 复算仍为 score 100、Healthy、0 errors、0 warnings、
-  `supportedFiles` 116、`unsupportedFiles` 0（第 7、8 轮复算同值）。
+  `supportedFiles` 116、`unsupportedFiles` 0（第 7、8 轮复算同值）。2026-11-28 复算为
+  score 100、Healthy、0 errors、0 warnings、`supportedFiles` 117、`unsupportedFiles` 0
+  （新增 1 个受支持文件来自字形缓存样式面判据改造）。
 - clippy pedantic（一次性评估，非门禁；2026-11-27 复算）：`cargo clippy --all-targets --
   -W clippy::pedantic` 给出 605 条告警，分类为数值转换 425 条（`cast_sign_loss` 144、
   `cast_possible_truncation` 118、`cast_precision_loss` 114、`cast_possible_wrap` 49）、
@@ -311,19 +334,20 @@ JNI 局部引用释放、KGP 上限判定与审查留档；生产口径仍低于
   复算时不必逐条重判，只需确认默认 clippy 无新增告警。
 - Rust 生产源码形状：剔除测试专用文件（`*_tests.rs`、`tests.rs`、`test_helpers.rs`、
   `mock_pty.rs` 与 `tests/` 目录）、文件内 `#[cfg(test)]` 项、注释与字符串字面量后，
-  `unwrap()` 0 处、`expect(` 25 处、`panic!` 5 处、`unsafe` 132 处（unsafe block 45、
+  `unwrap()` 0 处、`expect(` 26 处、`panic!` 5 处、`unsafe` 132 处（unsafe block 45、
   unsafe fn 3、unsafe extern 4、unsafe impl 0）、`todo!`/`unimplemented!` 0 处。
   计数口径：`unsafe` 统计代码位置的关键字出现次数，细分按语法形态计数，
   `unsafe extern "C" fn` 同时计入 extern 与 fn 两项。
 
 逐处判定：
 
-- 25 处 `expect` 全是不变量断言，每处带解释性注释：日志配额非零与限流闸已初始化
+- 26 处 `expect` 全是不变量断言，每处带解释性注释：日志配额非零与限流闸已初始化
   （`slow_log.rs` 2）、回滚余量已夹到合法区间（`terminal/pty.rs`）、默认主题必在主题清单内
   （`terminal/theme.rs` 2）、命令快照缓存必然存在（`ghostty_terminal/internal/commands.rs`）、
   增量渲染蕴含缓存存在（`render/cell_builder.rs`）、可复用槽位非空
-  （`render/context/gpu.rs`）、字形缓存容量常量大于零、内联键长度可折进 `u8`、内联切片来自
-  `&str`（`render/font/glyph_cache.rs` 8）、
+  （`render/context/gpu.rs`）、字形缓存容量常量大于零（样式面字形缓存容量常量随字形缓存
+  样式面判据改造新增）、内联键长度可折进 `u8`、内联切片来自
+  `&str`（`render/font/glyph_cache.rs` 9）、
   `CString` 不含内嵌零字节且日志器未重复安装（`android/logging.rs` 4）、u16 线字段计数成立
   （`android/ffi/font.rs` 2）、渲染状态已初始化（`android/ffi/render/window.rs` 3）。
   上述清单逐文件相加为 25，与总数一致。`terminal/session/mod.rs` 的
@@ -343,6 +367,10 @@ JNI 局部引用释放、KGP 上限判定与审查留档；生产口径仍低于
 - 2026-11-27 复算（第 3、4 轮同一日、两次快照）：`unwrap` 0、`expect` 23、`panic!` 5、
   `todo!`/`unimplemented!` 0、`unsafe` 132（block 45、fn 3、extern 4、impl 0），与上表
   逐项一致，无新增形状偏差。
+- 2026-11-28 复算（第 9 轮快照）：同口径重跑 `shape_scan.py` 得 `unwrap` 0、`expect` 26、
+  `panic!` 5、`todo!`/`unimplemented!` 0、`unsafe` 132（block 45、fn 3、extern 4、impl 0）；
+  相对上表的唯一变化是 `expect` 25 → 26，新增一处在
+  `render/font/glyph_cache.rs`（样式面字形缓存容量常量必须为正，与其余容量常量同一形态）。
 - 2026-11-27 复算（第 6 轮快照）：同口径重跑 `shape_scan.py` 得 `unwrap` 0、`expect` 23、
   `panic!` 5、`todo!`/`unimplemented!` 0、`unsafe` 132（block 45、fn 3、extern 4、impl 0），
   与上表逐项一致，无新增形状偏差。
@@ -372,40 +400,40 @@ JNI 局部引用释放、KGP 上限判定与审查留档；生产口径仍低于
 类型（仅作类型边界、无独立逻辑）可豁免「最近发布」一项，但须写明豁免理由。crates.io
 公开下载量，Maven Central 与 Google Maven 只公开发布元数据，本仓据后者判定发布节奏。
 
-crates.io 直接依赖（采样于 2026-11-27）：
+crates.io 直接依赖（采样于 2026-11-28）：
 
 | crate | 累计下载 | 近 90 天 | 最近发布 | 判定 |
 | --- | --- | --- | --- | --- |
-| base64 | 2080383848 | 585216277 | 2026-08-04 | 保留 |
-| bytemuck | 505142979 | 156368405 | 2026-07-19 | 保留 |
-| cosmic-text | 13467890 | 5707278 | 2026-04-22 | 保留 |
-| flume | 308820363 | 89451182 | 2025-12-08 | 保留 |
-| foldhash | 899482684 | 377829161 | 2025-08-23 | 豁免（生态基线） |
-| fontdb | 50280803 | 19759753 | 2026-07-29 | 保留 |
-| governor | 98364161 | 24920673 | 2025-12-16 | 保留 |
-| pollster | 53911038 | 25242619 | 2026-11-18 | 保留 |
-| etagere | 11226202 | 5027553 | 2026-03-18 | 保留 |
-| jni | 264507085 | 93802199 | 2026-03-16 | 保留 |
-| libc | 2072530894 | 523539462 | 2026-10-16 | 保留 |
-| log | 1610768868 | 425699321 | 2026-10-30 | 保留 |
-| lru | 468401871 | 143080878 | 2026-11-23 | 保留 |
-| nix | 1028484497 | 271285662 | 2026-11-17 | 保留 |
-| parking_lot | 1333444596 | 305478955 | 2026-10-21 | 保留 |
-| raw-window-handle | 145123537 | 50062782 | 2024-05-17 | 豁免（生态基线） |
-| roxmltree | 116366930 | 47804575 | 2026-10-24 | 保留 |
-| serde | 1791729068 | 465148212 | 2026-07-18 | 保留 |
-| serde_json | 1699368670 | 468402314 | 2026-10-11 | 保留 |
-| shell-words | 189784506 | 51383984 | 2025-12-10 | 保留 |
-| swash | 20902468 | 9114554 | 2026-07-17 | 保留 |
-| thiserror | 1957379631 | 575176741 | 2026-09-23 | 保留 |
-| toml | 1200918637 | 343148309 | 2026-11-25 | 保留 |
-| unicode-script | 68923342 | 26758342 | 2026-11-02 | 保留 |
-| wgpu | 55128180 | 22074635 | 2026-11-12 | 保留 |
-| wgpu-types | 57470177 | 23095186 | 2026-11-12 | 保留 |
-| criterion（dev） | 354540550 | 86175706 | 2026-02-04 | 保留 |
-| proptest（dev） | 262370960 | 85453517 | 2026-10-10 | 保留 |
-| shuttle（dev） | 8079469 | 2833695 | 2026-11-05 | 保留 |
-| tempfile（dev） | 1045968666 | 275567543 | 2026-03-11 | 保留 |
+| base64 | 2087965672 | 590251437 | 2026-08-04 | 保留 |
+| bytemuck | 507116951 | 157526236 | 2026-07-19 | 保留 |
+| cosmic-text | 13562431 | 5778965 | 2026-04-22 | 保留 |
+| flume | 309855519 | 90084348 | 2025-12-08 | 保留 |
+| foldhash | 904520376 | 381091106 | 2025-08-23 | 豁免（生态基线） |
+| fontdb | 50596720 | 19989241 | 2026-07-29 | 保留 |
+| governor | 98582903 | 25054993 | 2025-12-16 | 保留 |
+| pollster | 54295252 | 25533501 | 2026-11-18 | 保留 |
+| etagere | 11309929 | 5088581 | 2026-03-18 | 保留 |
+| jni | 265690041 | 94564125 | 2026-03-16 | 保留 |
+| libc | 2079034190 | 527082807 | 2026-10-16 | 保留 |
+| log | 1616183189 | 428663586 | 2026-10-30 | 保留 |
+| lru | 469884645 | 143912107 | 2026-11-23 | 保留 |
+| nix | 1031524016 | 273035159 | 2026-11-17 | 保留 |
+| parking_lot | 1337250668 | 307626298 | 2026-10-21 | 保留 |
+| raw-window-handle | 145863239 | 50541101 | 2024-05-17 | 豁免（生态基线） |
+| roxmltree | 117112507 | 48383262 | 2026-10-24 | 保留 |
+| serde | 1797632242 | 468373298 | 2026-07-18 | 保留 |
+| serde_json | 1705279259 | 471686474 | 2026-10-11 | 保留 |
+| shell-words | 190284316 | 51557104 | 2025-12-10 | 保留 |
+| swash | 21060669 | 9226394 | 2026-07-17 | 保留 |
+| thiserror | 1964573479 | 579368342 | 2026-09-23 | 保留 |
+| toml | 1205046210 | 345440966 | 2026-11-25 | 保留 |
+| unicode-script | 69331309 | 27059574 | 2026-11-02 | 保留 |
+| wgpu | 55483307 | 22337961 | 2026-11-12 | 保留 |
+| wgpu-types | 57838306 | 23367020 | 2026-11-12 | 保留 |
+| criterion（dev） | 355365773 | 86524895 | 2026-02-04 | 保留 |
+| proptest（dev） | 263391238 | 86074589 | 2026-10-10 | 保留 |
+| shuttle（dev） | 8111805 | 2856878 | 2026-11-05 | 保留 |
+| tempfile（dev） | 1049214186 | 277305217 | 2026-03-11 | 保留 |
 
 `libghostty-vt` 是 git 依赖（钉住上游 master rev），不走 registry 发布节奏，不适用下载量
 口径。
@@ -413,12 +441,15 @@ crates.io 直接依赖（采样于 2026-11-27）：
 2026-11-27 再采一轮：30 个 crate 的最新版本逐项未变，下载量随日累计自然增长；唯一的新发布
 是 `toml` 1.2.3+spec-1.1.0（2026-11-25），本仓 `native/Cargo.lock` 已钉在该版本，发布日随
 本表更新为 2026-11-25。
+2026-11-28 再采一轮：30 个 crate 的最新版本与发布日期逐项未变（`nix` 的 crate 级发布日期
+2026-11-17 与版本 0.32.0 的发布日 2026-11-14 同属一批），下载量按日累计自然增长；两项
+豁免（`foldhash`、`raw-window-handle`）的下载量口径不变，判定逐项不变。
 
 两项豁免的理由：`foldhash` 与 `raw-window-handle` 只提供哈希函数与窗口句柄的类型边界，
 不承担独立逻辑，且被 wgpu 与窗口生态广泛依赖；两者下载量分别 9.0 亿与 1.5 亿，近 90 天
 分别 3.8 亿与 5000 万，维护停滞不等于使用面窄。
 
-Maven 与 Google 侧坐标（45 个 Gradle 直接依赖，加 compose-bom 与 5 个 lint 插件坐标，
+Maven 与 Google 侧坐标（46 个 Gradle 直接依赖，加 compose-bom 与 4 个 lint 插件坐标，
 共 51 个，采样同日）：
 
 | 坐标 | 仓库 | 最新版本 | 最近发布 | 判定 |
@@ -443,7 +474,8 @@ Maven 与 Google 侧坐标（45 个 Gradle 直接依赖，加 compose-bom 与 5 
 | `com.google.dagger:hilt-android-testing` | central | 2.60.1 | 2026-07-06 | 通过 |
 | `androidx.hilt:hilt-lifecycle-viewmodel-compose` | google | 1.4.0 | 2026-07-01 | 通过 |
 | `androidx.datastore:datastore-preferences` | google | 1.3.0 | 2026-10-21 | 通过 |
-| `com.jakewharton.timber:timber` | central | 5.0.1 | 2021-08-13 | 超期，见下 |
+| `androidx.concurrent:concurrent-futures` | google | 1.4.0-beta01 | 2026-11-18 | 通过 |
+| `de.peilicke.sascha:log4k` | central | 1.7.1 | 2026-11-09 | 通过 |
 | `com.squareup.okhttp3:okhttp` | central | 5.5.1 | 2026-10-22 | 通过 |
 | `com.squareup.okhttp3:mockwebserver3` | central | 5.5.1 | 2026-10-22 | 通过 |
 | `com.squareup.okhttp3:okhttp-tls` | central | 5.5.1 | 2026-10-22 | 通过 |
@@ -466,7 +498,6 @@ Maven 与 Google 侧坐标（45 个 Gradle 直接依赖，加 compose-bom 与 5 
 | `androidx.test:rules` | google | 1.8.0-alpha04 | 2026-11-11 | 通过 |
 | `io.cucumber:cucumber-android` | central | 7.19.0 | 2026-10-13 | 通过 |
 | `androidx.benchmark:benchmark-macro-junit4` | google | 1.6.0-alpha02 | 2026-11-18 | 通过 |
-| `com.ms-square:debugoverlay` | central | 2.7.1 | 2026-10-09 | 通过 |
 | `com.slack.lint.compose:compose-lint-checks` | central | 1.6.1 | 2026-10-07 | 通过 |
 | `com.slack.lint:slack-lint-checks` | central | 0.11.1 | 2025-10-10 | 超期，见下 |
 | `dev.detekt:detekt-rules-ktlint-wrapper` | central | 2.0.0-alpha.6 | 2026-08-04 | 通过 |
@@ -475,13 +506,8 @@ Maven 与 Google 侧坐标（45 个 Gradle 直接依赖，加 compose-bom 与 5 
 | `io.github.detekt.sarif4k:sarif4k` | central | 0.8.0 | 2026-08-25 | 通过 |
 | `io.github.oshai:kotlin-logging` | central | 8.0.7 | 2026-11-10 | 通过 |
 
-七处超期的逐项结论：
+六处超期的逐项结论：
 
-- `com.jakewharton.timber:timber` 5.0.1（2021-08-13）：`docs/specification/DESIGN.md` 明文
-  要求使用 Timber，本仓只用它包一层 logcat 树。规范属受保护文件，审查不得单方面推翻，
-  故登记为**待维护者裁定**的冲突项：若裁定移除，需在 Kotlin 侧直接写 `android.util.Log`；
-  若裁定保留，本项按生态基线豁免。替换方案的实测代价已记录在提交 `revert(app): 恢复
-  Timber 输出通道并登记依赖口径冲突`。
 - `junit:junit` 4.13.2（2021-02-13）：JUnit 4 是 Android 测试运行器的事实基线，只承担
   测试框架边界；无新版本可升，退出方案为改接 JUnit 5 与新运行器，收益不足。
 - `app.cash.turbine:turbine` 1.2.1（2025-06-11）：上游无更新的稳定版可换，承担 Flow 断言
@@ -498,6 +524,12 @@ Maven 与 Google 侧坐标（45 个 Gradle 直接依赖，加 compose-bom 与 5 
 `kotlinx-coroutines-android` 读到 2026-05-07（中央仓库镜像上传时刻），首轮记 2026-05-08，
 两者指向同一发布批次，不改变判定。2026-11-27 再读同一批坐标，版本号逐项未变，两个协程坐标
 仍读到 2026-05-07，其余坐标的发布日与表中一致。
+2026-11-28 复算坐标集合随代码树变动：日志通道由 `com.jakewharton.timber:timber` 换为
+`de.peilicke.sascha:log4k`（1.7.1，2026-11-09，通过），新增
+`androidx.concurrent:concurrent-futures`（1.4.0-beta01，2026-11-18，通过；本仓以
+`resolutionStrategy` 钉在 1.3.0），`com.ms-square:debugoverlay` 已不再声明；
+`io.github.oshai:kotlin-logging` 仍在坐标集合内，但只作为 ktlint 配置的 lint 工具依赖，
+不再是运行时依赖。其余坐标的版本号与发布日期逐项未变，超期项由七处减为六处。
 
 ## 禁改区待维护者裁定项台账
 
@@ -507,7 +539,7 @@ Maven 与 Google 侧坐标（45 个 Gradle 直接依赖，加 compose-bom 与 5 
 
 | 项 | 规范依据 | 落地方案（未实施） | 当次实测基线 |
 | --- | --- | --- | --- |
-| aislop 与 jscpd 代码检查门禁 | `docs/specification/TESTING.md` 环境节 | `scripts/check.nu` 与 CI 增 `npx aislop@latest scan` 与 `npx jscpd@latest --min-lines 8 --min-tokens 60` 两步 | aislop：score 100、Healthy、0 errors、0 warnings、supportedFiles 116；jscpd：生产口径 3 处克隆 / 30 行 / 0.04% |
+| aislop 与 jscpd 代码检查门禁 | `docs/specification/TESTING.md` 环境节 | `scripts/check.nu` 与 CI 增 `npx aislop@latest scan` 与 `npx jscpd@latest --min-lines 8 --min-tokens 60` 两步 | aislop：score 100、Healthy、0 errors、0 warnings、supportedFiles 117；jscpd：生产口径 3 处克隆 / 30 行 / 0.04% |
 | rapidocr OCR 自动化 | `docs/specification/TESTING.md` 环境节 | `scripts/` 增 OCR 判定脚本并在 CI 模拟器步骤调用 | 未实跑（本轮无截图产物） |
 | CI 产物哈希比对 | `vercel-labs-wterm` 研究结论 | CI 增产物 sha256 记录步骤 | CI 现无产物哈希步骤 |
 | Android 15+ 16KB 页 `.so` 对齐 | `GlobalTechInfo-RedTerm` 研究结论 | `android/app/build.gradle.kts` 按 AGP 16KB 对齐指南调整打包 | `android/app/build.gradle.kts` 现无 16KB 对齐配置 |
@@ -521,9 +553,10 @@ MUST 维持 0，`style-policy` 类命中 MUST NOT 阻断构建；jscpd 的重复
 ## 清洁运行计数
 
 本留档的复算轮次按同一组命令在已提交树快照上重复执行，每轮覆盖重复率、代码规模口径、
-静态形状扫描与依赖事实复算。当前计数为 **8**（第 1 轮 2026-11-24，第 2 轮 2026-11-26，
-第 3、4、5、6、7、8 轮 2026-11-27），已达「连续清洁运行计数 ≥ 5」；每轮的实测数字 MUST 与本留档
-各表的基线逐项对照，出现偏差时 MUST 写明偏差来源，不得直接改写基线掩盖偏差。
+静态形状扫描与依赖事实复算。当前计数为 **9**（第 1 轮 2026-11-24，第 2 轮 2026-11-26，
+第 3、4、5、6、7、8 轮 2026-11-27，第 9 轮 2026-11-28），已达「连续清洁运行计数 ≥ 5」；
+每轮的实测数字 MUST 与本留档各表的基线逐项对照，出现偏差时 MUST 写明偏差来源，不得直接
+改写基线掩盖偏差。
 
 第 3、4、5、6 轮（2026-11-27）的对照结果：克隆集合、重复率、静态形状扫描、依赖版本判定与
 显示节拍核实逐项与基线一致；偏差只有代码树变化带来的行数与 SLOC 浮动，已在对应表内
@@ -542,6 +575,13 @@ SLOC 与行数的增长已写明来源（见各表口径轨迹），形状扫描
 25、`panic!` 5、`unsafe` 132），semgrep 0 findings、0 errors，aislop 仍为 score 100、0 告警；
 依赖坐标与上轮相同（本轮未改依赖）。另按严格口径（5 行 / 40 token）复扫一遍，触及生产文件
 的 34 处命中已逐类判定并留档，其中 7 类真重复已收敛为共享实现。
+
+第 9 轮（2026-11-28）在组合簇零分配改造与字形缓存样式面判据改造后的新代码树上复算：规范
+口径克隆集合与判定不变（生产 3 处 / 全量 26 处），严格口径 51 处命中的逐类判定已更新（触及
+生产文件 35 处、两侧均为测试代码 16 处，无新增真重复），SLOC 与行数增长来源已写明；形状扫描
+相对基线仅 `expect` 25 → 26（新增一处在字形缓存的样式面容量常量，与其余容量常量同一形态）；
+semgrep 0 findings、0 errors，aislop score 100、0 告警；依赖坐标随日志通道改造而变（Timber
+退场、log4k 与 concurrent-futures 进场），逐项判定已更新，超期项由七处减为六处。
 
 ## vendor 与硬编码核对
 

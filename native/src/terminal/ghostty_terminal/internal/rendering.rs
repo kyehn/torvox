@@ -4,6 +4,7 @@ use super::{
     RenderExtractors, RowCache, RunConfig, Terminal, create_render_iterators, cursor_in_viewport,
     grid_cols, grid_rows, scrollback_len, viewport_row,
 };
+use libghostty_vt::screen::{CellContentTag, CellWide};
 use libghostty_vt::style::Underline;
 
 /// VT 线程每帧刷新的无锁屏幕状态镜像。
@@ -182,6 +183,21 @@ impl super::GhosttyTerminal {
             };
 
             row_data.clear();
+            let mut current_col = 0u32;
+            // CellRun 式逐行样式缓存（termlib CellRun.kt）：共享同一 style_id 的
+            // 连续单元只解析一次 style/前景/背景；扁平 CellData 输出不变，
+            // 但该 run 内跳过了逐单元的 FFI 调用（style/前景/背景）。
+            let mut cached_style_id: Option<libghostty_vt::style::Id> = None;
+            let mut cached_foreground = default_foreground;
+            let mut cached_background = default_background;
+            let mut cached_underline = default_foreground;
+            let mut cached_flags = 0u32;
+            // 组合簇附加码位：绝大多数单元没有组合簇，这份数组跨单元复用，
+            // 只在组合簇单元写入，写完复位（省掉每单元清零 7 个 u32）。
+            let mut grapheme_extra = [0u32; MAX_GRAPHEME_EXTRA];
+
+            // 单元迭代器只在样式解析与组合簇附加码位处用到：上游的样式、颜色、
+            // 组合簇都以「当前列」为口径，用前先定位到目标列。
             let mut cell_iter_impl = match cell_iter.update(row) {
                 Ok(ci) => ci,
                 Err(error) => {
@@ -193,130 +209,176 @@ impl super::GhosttyTerminal {
                 }
             };
 
-            let mut current_col = 0u32;
-            // CellRun 式逐行样式缓存（termlib CellRun.kt）：共享同一 style_id 的
-            // 连续单元只解析一次 style/前景/背景；扁平 CellData 输出不变，
-            // 但该 run 内跳过了逐单元的 FFI 调用（style/前景/背景）。
-            let mut cached_style_id: Option<libghostty_vt::style::Id> = None;
-            let mut cached_foreground = default_foreground;
-            let mut cached_background = default_background;
-            let mut cached_underline = default_foreground;
-            let mut cached_flags = 0u32;
+            // 整行批量取原始单元：一次 FFI 拿到该行全部单元，取代「逐单元
+            // `next()` + 逐单元 `raw_cell()`」两趟往返——上游 `cells_raw` 明确
+            // 是逐单元取值的批量等价物。
+            match row.cells_raw() {
+                Ok(raw_cells) => {
+                    for (column, raw) in raw_cells.enumerate() {
+                        let style_id = raw.style_id().ok();
+                        let wide = raw.wide().unwrap_or(CellWide::Narrow);
+                        // 单元占用的列数：`None` 是 spacer（宽字符的尾/头格），
+                        // 它不产出 `CellData`，两列已由宽字符本身消耗。
+                        let width = Self::cell_columns(wide);
 
-            while let Some(cell) = cell_iter_impl.next() {
-                let Ok(raw) = cell.raw_cell() else {
-                    // `raw_cell()` 失败则宽度无从得知（宽度只存在于 raw cell），
-                    // 只能按 1 列推进——这是该失败路径的固有上限。
-                    Self::push_blank_cell(
-                        &mut row_data,
-                        default_foreground,
-                        default_background,
-                        current_row,
-                        current_col,
-                        1,
-                    );
-                    current_col += 1;
-                    continue;
-                };
-
-                let style_id = raw.style_id().ok();
-                let (_style, foreground, background, underline_color, flags) =
-                    if style_id.is_some() && style_id == cached_style_id {
-                        // 同一样式 run：复用已缓存的解析颜色。
-                        (
-                            None,
-                            cached_foreground,
-                            cached_background,
-                            cached_underline,
-                            cached_flags,
-                        )
-                    } else if let Ok(style) = cell.style() {
-                        let foreground = Self::cell_color(cell.fg_color(), default_foreground);
-                        let background = Self::cell_color(cell.bg_color(), default_background);
-                        let underline =
-                            Self::resolve_style_color(terminal, style.underline_color, foreground);
-                        let style_flags = Self::pack_style_flags(&style);
-                        cached_style_id = style_id;
-                        cached_foreground = foreground;
-                        cached_background = background;
-                        cached_underline = underline;
-                        cached_flags = style_flags;
-                        (Some(style), foreground, background, underline, style_flags)
-                    } else {
-                        // 宽度仍可从 raw cell 读到，必须照真实宽度推进：
-                        // 宽字符（中日韩）按 1 列推进会让本行其后每一个单元的
-                        // `col` 左移一格，且行长度不再等于 cols。
-                        // spacer（None）：两列已由宽字符本身消耗，直接跳过。
-                        if let Some(width) = Self::cell_columns(raw) {
-                            Self::push_blank_cell(
-                                &mut row_data,
-                                default_foreground,
-                                default_background,
-                                current_row,
-                                current_col,
-                                width,
-                            );
-                            current_col += width;
-                        }
-                        continue;
-                    };
-
-                let codepoint = raw.codepoint().unwrap_or('\0');
-
-                // 跳过 Ghostty 为宽字符发出的 spacer 单元（SpacerTail、SpacerHead）。
-                // 它们没有内容，若照常推进会让 `current_col` 错位，
-                // 导致其后所有单元右移一列。
-                // spacer 单元不产出 CellData 条目。
-                // `current_col` 保持不变——两列已由宽字符本身消耗。
-                let Some(width) = Self::cell_columns(raw) else {
-                    continue;
-                };
-
-                let mut grapheme_extra = [0u32; MAX_GRAPHEME_EXTRA];
-                // 复用调用方缓冲：上游 `graphemes()` 每次调用都新建 `Vec<char>`，
-                // 全屏重绘即每帧约 1920 次堆分配（实测整屏帧 1029 次/帧）。
-                // `graphemes_buf` 写入调用方缓冲；空间不足时按上游约定保留前
-                // `cap` 个码位，与旧的「取前 MAX_GRAPHEME_EXTRA 个附加码位」
-                // 截断语义一致。
-                grapheme_buffer.fill('\0');
-                match cell.graphemes_buf(&mut grapheme_buffer) {
-                    Ok(()) | Err(libghostty_vt::error::Error::OutOfSpace { .. }) => {
-                        for (grapheme_index, &codepoint) in grapheme_buffer
-                            .iter()
-                            .enumerate()
-                            .skip(1)
-                            .take(MAX_GRAPHEME_EXTRA)
+                        let (_style, foreground, background, underline_color, flags) = if style_id
+                            .is_some()
+                            && style_id == cached_style_id
                         {
-                            grapheme_extra[grapheme_index - 1] = codepoint as u32;
+                            // 同一样式 run：复用已缓存的解析颜色。
+                            (
+                                None,
+                                cached_foreground,
+                                cached_background,
+                                cached_underline,
+                                cached_flags,
+                            )
+                        } else {
+                            // 样式变了：把单元迭代器定位到本格再取样式与颜色。
+                            let style = cell_iter_impl
+                                .select(column as u16)
+                                .and_then(|()| cell_iter_impl.style());
+                            match style {
+                                Ok(style) => {
+                                    let foreground = Self::cell_color(
+                                        cell_iter_impl.fg_color(),
+                                        default_foreground,
+                                    );
+                                    let background = Self::cell_color(
+                                        cell_iter_impl.bg_color(),
+                                        default_background,
+                                    );
+                                    let underline = Self::resolve_style_color(
+                                        terminal,
+                                        style.underline_color,
+                                        foreground,
+                                    );
+                                    let style_flags = Self::pack_style_flags(&style);
+                                    cached_style_id = style_id;
+                                    cached_foreground = foreground;
+                                    cached_background = background;
+                                    cached_underline = underline;
+                                    cached_flags = style_flags;
+                                    (Some(style), foreground, background, underline, style_flags)
+                                }
+                                Err(error) => {
+                                    // 样式读不出：该格按空白推进，但宽度仍要照真实
+                                    // 值——宽字符（中日韩）按 1 列推进会让本行其后
+                                    // 每一个单元的 `col` 左移一格，且行长度不再等于
+                                    // cols。spacer（None）：两列已由宽字符本身消耗。
+                                    log::warn!("build_cell_data: cell style read failed: {error}");
+                                    if let Some(width) = width {
+                                        Self::push_blank_cell(
+                                            &mut row_data,
+                                            default_foreground,
+                                            default_background,
+                                            current_row,
+                                            current_col,
+                                            width,
+                                        );
+                                        current_col += width;
+                                    }
+                                    continue;
+                                }
+                            }
+                        };
+
+                        // 跳过 Ghostty 为宽字符发出的 spacer 单元（SpacerTail、SpacerHead）。
+                        // 它们没有内容，若照常推进会让 `current_col` 错位，
+                        // 导致其后所有单元右移一列。
+                        // spacer 单元不产出 CellData 条目。
+                        // `current_col` 保持不变——两列已由宽字符本身消耗。
+                        let Some(width) = width else {
+                            continue;
+                        };
+
+                        let codepoint = raw.codepoint().unwrap_or('\0');
+
+                        // 组合簇：只有标记为组合簇成员的单元才有附加码位；其余单元
+                        // 取簇只会得到基础码位本身——跳过这次 FFI 往返。
+                        let mut grapheme_cluster = false;
+                        if raw.content_tag().unwrap_or(CellContentTag::Codepoint)
+                            == CellContentTag::CodepointGrapheme
+                        {
+                            grapheme_cluster = true;
+                            // 复用调用方缓冲：上游 `graphemes()` 每次调用都新建 `Vec<char>`，
+                            // 全屏重绘即每帧约 1920 次堆分配（实测整屏帧 1029 次/帧）。
+                            // `graphemes_buf` 写入调用方缓冲；空间不足时按上游约定保留前
+                            // `cap` 个码位，与旧的「取前 MAX_GRAPHEME_EXTRA 个附加码位」
+                            // 截断语义一致。
+                            match cell_iter_impl.select(column as u16) {
+                                Ok(()) => {
+                                    grapheme_buffer.fill('\0');
+                                    match cell_iter_impl.graphemes_buf(&mut grapheme_buffer) {
+                                        Ok(())
+                                        | Err(libghostty_vt::error::Error::OutOfSpace { .. }) => {
+                                            for (grapheme_index, &codepoint) in grapheme_buffer
+                                                .iter()
+                                                .enumerate()
+                                                .skip(1)
+                                                .take(MAX_GRAPHEME_EXTRA)
+                                            {
+                                                grapheme_extra[grapheme_index - 1] =
+                                                    codepoint as u32;
+                                            }
+                                        }
+                                        Err(_) => {}
+                                    }
+                                }
+                                Err(error) => {
+                                    log::warn!(
+                                        "build_cell_data: grapheme cell select failed: {error}"
+                                    );
+                                }
+                            }
+                        }
+
+                        // 终端持有选区的行内反白（经典反白：前景背景互换，与覆盖层旧语义一致；
+                        // 下划线色同步取反白后的前景，保证选中文本的下划线仍可见）。
+                        let (foreground, background, underline_color) =
+                            if row_selection.as_ref().is_some_and(|range| {
+                                let col = current_col as u16;
+                                col >= range.start_x && col <= range.end_x
+                            }) {
+                                (background, foreground, background)
+                            } else {
+                                (foreground, background, underline_color)
+                            };
+
+                        row_data.push(CellData {
+                            codepoint: u32::from(codepoint),
+                            width,
+                            grapheme_extra,
+                            foreground,
+                            background,
+                            underline_color,
+                            flags,
+                            row: current_row,
+                            col: current_col,
+                        });
+                        current_col += width;
+                        if grapheme_cluster {
+                            // 复位：下一个单元若不是组合簇，直接复用这份全零数组。
+                            grapheme_extra.fill(0);
                         }
                     }
-                    Err(_) => {}
                 }
-
-                // 终端持有选区的行内反白（经典反白：前景背景互换，与覆盖层旧语义一致；
-                // 下划线色同步取反白后的前景，保证选中文本的下划线仍可见）。
-                let (foreground, background, underline_color) =
-                    if row_selection.as_ref().is_some_and(|range| {
-                        let col = current_col as u16;
-                        col >= range.start_x && col <= range.end_x
-                    }) {
-                        (background, foreground, background)
-                    } else {
-                        (foreground, background, underline_color)
-                    };
-
-                row_data.push(CellData {
-                    codepoint: u32::from(codepoint),
-                    width,
-                    grapheme_extra,
-                    foreground,
-                    background,
-                    underline_color,
-                    flags,
-                    row: current_row,
-                    col: current_col,
-                });
-                current_col += width;
+                Err(error) => {
+                    // 该行原始单元读不出：连宽度都无从得知，只能整行按空白推进——
+                    // 这是该失败路径的固有上限（同逐单元读失败时的降级口径）。
+                    log::warn!("build_cell_data: row cells_raw failed: {error}");
+                    for _ in 0..cols {
+                        Self::push_blank_cell(
+                            &mut row_data,
+                            default_foreground,
+                            default_background,
+                            current_row,
+                            current_col,
+                            1,
+                        );
+                        current_col += 1;
+                    }
+                }
             }
             data.extend_from_slice(&row_data);
             current_row += 1;
@@ -696,14 +758,11 @@ impl super::GhosttyTerminal {
 
     /// 单元占用的列数：`None` 表示 spacer 单元（宽字符的尾/头格），
     /// 它不产出 `CellData`，两列已由宽字符本身消耗。
-    pub(crate) fn cell_columns(raw: libghostty_vt::screen::Cell) -> Option<u32> {
-        match raw.wide() {
-            Ok(libghostty_vt::screen::CellWide::Wide) => Some(2),
-            Ok(
-                libghostty_vt::screen::CellWide::SpacerTail
-                | libghostty_vt::screen::CellWide::SpacerHead,
-            ) => None,
-            _ => Some(1),
+    pub(crate) fn cell_columns(wide: CellWide) -> Option<u32> {
+        match wide {
+            CellWide::Wide => Some(2),
+            CellWide::SpacerTail | CellWide::SpacerHead => None,
+            CellWide::Narrow => Some(1),
         }
     }
 
