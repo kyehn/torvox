@@ -12,8 +12,6 @@ plugins {
   id("androidx.benchmark") version "1.6.0-alpha02" apply false
   id("androidx.baselineprofile") version "1.6.0-alpha02" apply false
   id("io.github.ben-manes.versions") version "0.67.0" apply false
-  id("com.ncorti.ktfmt.gradle") version "0.28.0" apply false
-  id("org.jlleitschuh.gradle.ktlint") version "14.2.0" apply false
 }
 
 val nativeBuildInputs = System.getenv("nativeBuildInputs")
@@ -51,12 +49,6 @@ subprojects {
           )
       target("*.gradle.kts")
     }
-  }
-
-  apply(plugin = "org.jlleitschuh.gradle.ktlint")
-  configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
-    version.set("1.8.0")
-    android.set(true)
   }
 }
 

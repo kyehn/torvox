@@ -7,8 +7,6 @@ plugins {
   id("com.google.dagger.hilt.android")
   id("com.google.devtools.ksp")
   id("dev.detekt")
-  id("com.ncorti.ktfmt.gradle")
-  id("org.jlleitschuh.gradle.ktlint")
 }
 
 detekt {
@@ -21,8 +19,6 @@ dependencies {
   detektPlugins("dev.detekt:detekt-rules-ktlint-wrapper:2.0.0-alpha.6")
   detektPlugins("dev.detekt:detekt-rules-libraries:2.0.0-alpha.6")
   detektPlugins("dev.detekt:detekt-rules-ruleauthors:2.0.0-alpha.6")
-  ktlint("io.github.detekt.sarif4k:sarif4k:0.8.0")
-  ktlint("io.github.oshai:kotlin-logging:8.0.7")
 }
 
 android {
