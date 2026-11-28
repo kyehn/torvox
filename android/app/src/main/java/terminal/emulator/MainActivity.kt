@@ -312,18 +312,19 @@ class MainActivity : ComponentActivity() {
             LogUtil.info(TAG, "handleLaunchIntent: switching to session $notificationSessionId")
             terminalViewModel.requestSessionSwitch(notificationSessionId, freshIntent)
         }
-        // 仅测试用的引导安装入口（TermuxBootstrapRealTerminalTest）。
-        // 仅限 debug 构建：release APK 绝不能携带该安装后门 extra
-        // （否则任何应用都能把我们指向任意 zip）。
+        // 仅测试用的引导安装入口（TermuxBootstrapRealTerminalTest）与 Nix 变种的
+        // 引导包安装用例（NixBootstrapTest）：两者都跑 debug 变种。
+        // 仅限 debug 构建：release APK 绝不能携带这两个后门 extra——否则任何应用都能
+        // 把我们指向任意 zip，或借官方地址触发一次不受控的下载与安装。
         if (BuildConfig.DEBUG) {
             intent.getStringExtra(EXTRA_INSTALL_BOOTSTRAP)?.let { zipPath ->
                 installBootstrapFromPath(zipPath)
             }
-        }
-        // 引导包的官方地址入口：Nix 变种的引导包安装用例（CI）用它跑一次真实安装。
-        // 只认本变种的官方引导包地址——任意地址会让任何应用都能借我们下载任意 zip。
-        intent.getStringExtra(EXTRA_INSTALL_BOOTSTRAP_URL)?.let { url ->
-            installBootstrapFromPresetUrl(url)
+            // 官方地址入口只认本变种预设里的那个地址：地址由外部给出，放开任意地址
+            // 就等于让任何应用借我们下载并解压任意 zip（写进应用私有目录、再由用户当 shell 跑）。
+            intent.getStringExtra(EXTRA_INSTALL_BOOTSTRAP_URL)?.let { url ->
+                installBootstrapFromPresetUrl(url)
+            }
         }
     }
 
