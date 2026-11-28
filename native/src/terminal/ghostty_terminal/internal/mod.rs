@@ -329,38 +329,33 @@ pub(crate) struct RenderExtractors<'alloc> {
     pub(crate) cache_stats: CacheStats,
 }
 
+/// 构造上游迭代器：失败即记日志并返回 `None`。
+///
+/// 四个上游构造器的形状与错误类型相同，只有「是哪一个迭代器构造失败」不同——
+/// 那正是排障要的形状，故由 `what` 参数带出，不合并成一条泛化日志。
+/// 四处各写一份 `match` 时，改错误文案要动四个地方，漏一处即留下一条与
+/// 实际失败对象不符的日志。
+fn new_iterator<T, E: std::fmt::Display>(
+    what: &str,
+    make: impl FnOnce() -> Result<T, E>,
+) -> Option<T> {
+    match make() {
+        Ok(value) => Some(value),
+        Err(error) => {
+            log::error!("RenderExtractors: {what}::new() failed: {error}");
+            None
+        }
+    }
+}
+
 impl<'alloc> RenderExtractors<'alloc> {
     /// 创建失败即记日志并返回 `None`：缺了它们既取不到网格也读不到光标，
     /// 以「本帧返回空网格」延后只会在第一次渲染时静默降级。
     pub(crate) fn new() -> Option<Self> {
-        let render_state = match RenderState::new() {
-            Ok(initialized_state) => initialized_state,
-            Err(state_error) => {
-                log::error!("RenderExtractors: RenderState::new() failed: {state_error}");
-                return None;
-            }
-        };
-        let row_iter = match RowIterator::new() {
-            Ok(initialized_rows) => initialized_rows,
-            Err(row_error) => {
-                log::error!("RenderExtractors: RowIterator::new() failed: {row_error}");
-                return None;
-            }
-        };
-        let cell_iter = match CellIterator::new() {
-            Ok(initialized_cells) => initialized_cells,
-            Err(cell_error) => {
-                log::error!("RenderExtractors: CellIterator::new() failed: {cell_error}");
-                return None;
-            }
-        };
-        let image_iter = match ImageIterator::new() {
-            Ok(initialized_images) => initialized_images,
-            Err(image_error) => {
-                log::error!("RenderExtractors: ImageIterator::new() failed: {image_error}");
-                return None;
-            }
-        };
+        let render_state = new_iterator("RenderState", RenderState::new)?;
+        let row_iter = new_iterator("RowIterator", RowIterator::new)?;
+        let cell_iter = new_iterator("CellIterator", CellIterator::new)?;
+        let image_iter = new_iterator("ImageIterator", ImageIterator::new)?;
         Some(Self {
             render_state,
             row_iter,

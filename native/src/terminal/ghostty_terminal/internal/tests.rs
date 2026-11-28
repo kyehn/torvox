@@ -305,3 +305,22 @@ pub(crate) fn row_cache_shares_the_published_frame() {
         "行缓存必须持有与发布帧同一块内存，不得是拷贝"
     );
 }
+
+/// 上游迭代器构造失败必须让 `RenderExtractors::new()` 交出 `None`。
+///
+/// 判别力：构造失败若被折成「带着空迭代器继续」，VT 线程会以空网格继续渲染，
+/// 表现为「终端一直不显示内容」而非「启动即出声」——静默降级比明确失败难查得多。
+/// `new_iterator` 是这条契约的唯一实现点，四个上游构造器共用它。
+#[test]
+pub(crate) fn extractor_construction_failure_is_not_downgraded_to_a_default() {
+    assert_eq!(
+        super::new_iterator("Probe", || Ok::<u32, String>(7)),
+        Some(7),
+        "构造成功必须原样交出构造出的值"
+    );
+    assert_eq!(
+        super::new_iterator("Probe", || Err::<u32, String>("boom".to_owned())),
+        None,
+        "构造失败必须交出 None，不得折成默认值让 VT 线程静默降级"
+    );
+}
