@@ -1,5 +1,6 @@
 package terminal.emulator.service
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,9 +9,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.net.wifi.WifiManager
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.os.PowerManager
 import dagger.hilt.android.EntryPointAccessors
 import terminal.emulator.MainActivity
@@ -28,9 +27,6 @@ class TerminalForegroundService : Service() {
         private const val ACTION_EXIT = "terminal.emulator.action.EXIT"
         private const val ACTION_WAKE_LOCK = "terminal.emulator.action.WAKE_LOCK"
         private const val ACTION_WAKE_UNLOCK = "terminal.emulator.action.WAKE_UNLOCK"
-
-        // 唤醒锁单次持有的上限：安全网，由 [scheduleWakeLockRenewal] 在半程续期。
-        private const val WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1000L
 
         fun start(context: Context) {
             val intent = Intent(context, TerminalForegroundService::class.java)
@@ -83,19 +79,17 @@ class TerminalForegroundService : Service() {
      */
     private var wifiLock: WifiManager.WifiLock? = null
 
-    // 续期走主线程 Handler：唤醒锁的释放/重取必须在有 Looper 的线程上完成。
-    private val wakeLockRenewal = Handler(Looper.getMainLooper())
-
     private var sessionCount: Int = 0
 
     /**
      * 用户是否要设备保持唤醒。
      *
-     * 默认 `true`：有会话就持锁（DESIGN「应用位于后台时能够继续活跃」）。通知栏的
-     * 唤醒锁按钮把它翻成 `false`——用户明确表示不想被唤醒时，后续的会话数更新
-     * MUST NOT 又把锁抢回来。
+     * 默认 `false`：唤醒锁不自动申请、不自动持锁，锁由通知栏按钮切换
+     * （DESIGN「参考 termux-app 实现唤醒锁（不自动申请），包括通知栏按钮，
+     * 不自动持锁，无超时机制」）。按钮把它翻成 `true` 后，有会话时才真正持锁；
+     * 用户再点一次释放，后续的会话数更新 MUST NOT 又把锁抢回来。
      */
-    private var wakeLockRequested = true
+    private var wakeLockRequested = false
 
     override fun onCreate() {
         super.onCreate()
@@ -132,8 +126,7 @@ class TerminalForegroundService : Service() {
             return START_STICKY
         }
         // 进程被杀后 START_STICKY 重启：没有会话能在进程死亡后存活，
-        // 故服务（及其 PARTIAL_WAKE_LOCK）已无保活对象。
-        // 改为停止，而不是带着永久唤醒锁无休止地重新固定通知。
+        // 故服务已无保活对象。改为停止，而不是无休止地重新固定通知。
         if (intent == null) {
             stopSelf()
             return START_NOT_STICKY
@@ -228,17 +221,14 @@ class TerminalForegroundService : Service() {
     }
 
     /**
-     * 获取唤醒锁并排定续期。
+     * 获取唤醒锁（无限时持有）。
      *
-     * 超时是安全网（进程崩溃或漏释放时不至于永久耗电），续期保证空闲会话不会
-     * 因超时而过早失锁：只带超时的旧实现在 30 分钟后锁自动失效，而服务仍在
-     * 运行、`onStartCommand` 不会再被触发取回锁，灭屏期间的会话被系统冻结。
-     * 续期间隔取超时的一半，主线程被长时间占用时仍留有一次完整补救窗口。
+     * DESIGN 要求无超时机制：只带超时的旧实现会在超时后自动失锁，而服务仍在运行、
+     * `onStartCommand` 不会再被触发取回锁，灭屏期间的会话被系统冻结。锁的释放只有
+     * 两个入口——用户在通知栏点「释放唤醒锁」，或会话归零——故不需要续期定时器。
      */
+    @SuppressLint("WakelockTimeout") // DESIGN：无超时机制，锁由用户或会话归零显式释放。
     private fun acquireWakeLockIfNeeded() {
-        // 已持锁时绝不重排续期：超时从本次 acquire 算起，而这里会被每次会话数更新调用。
-        // 若在 t0+20min 重排到 t0+35min，t0+30min 的超时会先到，锁在续期前就失效，
-        // 后台会话被冻结（这正是续期机制要防的事）。原有回调已在 acquire 时排定。
         if (wakeLock?.isHeld == true) return
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock =
@@ -246,9 +236,8 @@ class TerminalForegroundService : Service() {
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
                 .apply {
                     setReferenceCounted(false)
-                    acquire(WAKE_LOCK_TIMEOUT_MS)
+                    acquire()
                 }
-        scheduleWakeLockRenewal()
     }
 
     /**
@@ -284,26 +273,6 @@ class TerminalForegroundService : Service() {
                 }
     }
 
-    private fun scheduleWakeLockRenewal() {
-        wakeLockRenewal.removeCallbacksAndMessages(null)
-        wakeLockRenewal.postDelayed(
-            { renewWakeLock() },
-            WAKE_LOCK_TIMEOUT_MS / 2,
-        )
-    }
-
-    private fun renewWakeLock() {
-        val lock = wakeLock
-        if (lock == null) return
-        if (!lock.isHeld) {
-            acquireWakeLockIfNeeded()
-            return
-        }
-        lock.release()
-        lock.acquire(WAKE_LOCK_TIMEOUT_MS)
-        scheduleWakeLockRenewal()
-    }
-
     /**
      * 服务是 `android:exported="false"` 且全仓无 `bindService` 调用，`onBind` 必须
      * 显式声明为 null——抽象成员不实现连编译都过不去，「无人调用」不是省略的理由。
@@ -311,7 +280,6 @@ class TerminalForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun releaseWakeLock() {
-        wakeLockRenewal.removeCallbacksAndMessages(null)
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
     }
@@ -342,19 +310,5 @@ class TerminalForegroundService : Service() {
         releaseWakeLock()
         releaseWifiLock()
         super.onDestroy()
-    }
-
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        super.onTaskRemoved(rootIntent)
-        // 服务在存活的终端会话下继续运行（START_STICKY）。
-        // 重新获取唤醒锁而不是丢弃它：否则在任务被划掉且屏幕关闭时，
-        // 会话的 CPU 与网络访问会被冻结且无从恢复
-        // （此后再无任何调用 acquireWakeLockIfNeeded）。
-        // 零会话时不取：裸 start() 冷启动会走到这里，此时 sessionCount 仍为 0，
-        // 为不存在的会话持唤醒锁（同 onStartCommand 的判据）。
-        if (sessionCount >= 1 && wakeLockRequested) {
-            if (wakeLock?.isHeld != true) acquireWakeLockIfNeeded()
-            acquireWifiLockIfNeeded()
-        }
     }
 }

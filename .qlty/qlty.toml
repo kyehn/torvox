@@ -10,12 +10,7 @@ exclude_patterns = [
   "**/vendor/**",
 ]
 
-test_patterns = [
-  "**/test/**",
-  "**/spec/**",
-  "**/*_test.*",
-  "**/*_spec.*",
-]
+test_patterns = ["**/test/**", "**/spec/**", "**/*_test.*", "**/*_spec.*"]
 
 [smells]
 mode = "comment"

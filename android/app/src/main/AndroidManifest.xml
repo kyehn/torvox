@@ -65,7 +65,13 @@
         <service
             android:name=".service.TerminalForegroundService"
             android:foregroundServiceType="specialUse"
-            android:exported="false" />
+            android:exported="false">
+            <!-- specialUse 类型必须声明用途说明，供系统与 Play 审核识别；
+                 缺失会让该类型的前台服务在政策审查中无可依据。 -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Terminal sessions kept alive in the background" />
+        </service>
 
         <!-- Test-only install helper: runs in its OWN process
              (:install) so the app's SELinux domain applies even when the

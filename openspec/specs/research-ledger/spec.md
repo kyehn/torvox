@@ -261,7 +261,7 @@ MUST NOT 攒批后一次补写。整批研究收敛为 105 个键、187 行，�
 | `02-termux-termux-app.md` | P0「回滚默认 2000」 | 已实现：`DEFAULT_SCROLLBACK_LINES = 2000`（`native/src/terminal/session/mod.rs`），并解除上游默认字节上限使行数成为唯一约束（`native/src/terminal/ghostty_terminal/internal/mod.rs`） |
 | `02-termux-termux-app.md` | P0「会话事件最小集」 | 已实现（形态不同）：本仓事件为 `pollEvent` 拉取的最小事件集（退出、剪贴板、标题、响铃等），无客户端回调注册面；响铃按 DESIGN 的 `bell-character` 三态执行，事件集内含 `Bell` |
 | `02-termux-termux-app.md` | P1「输入连接掩码配置」 | 已实现：`android/app/src/main/java/terminal/emulator/input/TerminalEditorInfo.kt` 按 termux `onCreateInputConnection` 同口径设 `inputType` 与 `IME_FLAG_NO_FULLSCREEN` |
-| `02-termux-termux-app.md` | P1「前台通知与 WakeLock 策略」 | 已实现：常驻通知行已登记（`TerminalForegroundService.kt`），同文件的唤醒锁设单次持有上限并在半程续期 |
+| `02-termux-termux-app.md` | P1「前台通知与 WakeLock 策略」 | 已实现：常驻通知行已登记（`TerminalForegroundService.kt`），同文件的唤醒锁不自动申请、由通知栏按钮切换，无超时机制 |
 | `02-termux-termux-app.md` | P1「topRow 滚动与缩放字体手势划分」 | 已实现：`android/app/src/main/java/terminal/emulator/ui/TerminalSurface.kt` 以 `ScaleGestureDetector` 划分捏合缩放与滚动手势（含实时缩放预览） |
 | `02-termux-termux-app.md` | P2「配置文件落盘后移动避免半读」 | 不适用：本仓设置走 DataStore（`SettingsDataStoreProvider.kt`），无自写配置文件；安装侧落盘原子性归 `bootstrap-install`「原子换入与回滚」 |
 | `03-sohan-f-termux-monet.md` | P0「对比度与可辨识度门限思想及纯函数可测拆分」 | 不适用：本仓主题为构建期固定的上游配置，无运行时合成撞色面；颜色算法面只保留 `RgbColor::parse` 与 `perceived_luminance`（`native/src/terminal/theme.rs`），不另造颜色算法 |

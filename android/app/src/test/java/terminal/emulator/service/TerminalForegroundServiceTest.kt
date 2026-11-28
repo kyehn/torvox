@@ -6,7 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.wifi.WifiManager
-import android.os.PowerManager
+import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,10 +21,11 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ServiceController
 import org.robolectric.shadows.ShadowPowerManager
 import terminal.emulator.R
+import java.time.Duration
 
 /**
  * Foreground-service lifecycle exercised under Robolectric: null-intent restart (process death),
- * singular/plural notification text, the bounded PARTIAL_WAKE_LOCK acquire/release, and the
+ * singular/plural notification text, the user-toggled PARTIAL_WAKE_LOCK and Wi-Fi lock, and the
  * updateSessionCount stop/start decision.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -36,9 +37,6 @@ class TerminalForegroundServiceTest {
 
     /**
      * 建服务并发出启动命令；需要 `destroy()` 的用例经此拿控制器。
-     *
-     * 唤醒锁与 Wi-Fi 锁两条用例都要自己收尾（`destroy()`），拿不到服务实例就无从收尾，
-     * 于是各自抄了一份「建服务 → 启命令」——同一夹具的两份拷贝。
      */
     private fun startControllerWith(sessionCount: Int): ServiceController<TerminalForegroundService> {
         val intent =
@@ -48,6 +46,13 @@ class TerminalForegroundServiceTest {
         return Robolectric.buildService(TerminalForegroundService::class.java, intent)
             .create()
             .also { it.startCommand(0, 1) }
+    }
+
+    private fun actionIntent(action: String): Intent =
+        Intent(context, TerminalForegroundService::class.java).setAction(action)
+
+    private fun countIntent(sessionCount: Int): Intent = Intent(context, TerminalForegroundService::class.java).apply {
+        putExtra("session_count", sessionCount)
     }
 
     @Test
@@ -119,29 +124,87 @@ class TerminalForegroundServiceTest {
         )
     }
 
+    /** DESIGN：唤醒锁不自动申请、不自动持锁——会话启动本身不得取锁。 */
     @Test
-    fun `wake lock is acquired on start and released on destroy`() {
-        val controller = startControllerWith(1)
-        val wakeLock: PowerManager.WakeLock? = ShadowPowerManager.getLatestWakeLock()
-        assertNotNull("a PARTIAL_WAKE_LOCK must be created", wakeLock)
-        assertTrue("wake lock must be held while sessions run", requireNotNull(wakeLock).isHeld)
-        controller.destroy()
-        assertFalse("wake lock must be released on destroy", requireNotNull(wakeLock).isHeld)
+    fun `no wake lock is taken until the user asks for one`() {
+        val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val shadowWifiManager = shadowOf(wifiManager)
+        ShadowPowerManager.clearWakeLocks()
+        startWith(1)
+        assertNull("the wake lock must stay off by default", ShadowPowerManager.getLatestWakeLock())
+        assertEquals("the wifi lock must stay off by default", 0, shadowWifiManager.getActiveLockCount())
     }
 
     /**
-     * Wi-Fi 锁与会话同生命周期：有会话时取，服务销毁时放。
+     * 通知栏按钮是唯一的申请入口：点一下持锁，再点一下释放，按钮文案跟着状态翻。
      *
-     * 唤醒锁只保证 CPU 不休眠，Wi-Fi 省电仍会冻结长连接（ssh/mosh 表现为「卡住，
-     * 一碰屏幕就恢复」），故这把锁必须与唤醒锁同时在位、同时释放。
+     * DESIGN：锁由通知栏按钮切换，无超时机制——释放必须由用户或会话归零发起。
      */
     @Test
-    fun `wifi lock is acquired while sessions run and released on destroy`() {
+    fun `the wake lock action acquires the lock and offers to release it`() {
+        ShadowPowerManager.clearWakeLocks()
+        val controller = startControllerWith(1)
+        controller.get().onStartCommand(
+            actionIntent("terminal.emulator.action.WAKE_LOCK"),
+            0,
+            2,
+        )
+        val wakeLock = requireNotNull(ShadowPowerManager.getLatestWakeLock())
+        assertTrue("the action must acquire the lock", wakeLock.isHeld)
+        assertTrue(
+            "the button must offer to release the lock",
+            postedNotification().actions
+                .map { it.title.toString() }
+                .contains(context.getString(R.string.notification_wake_unlock)),
+        )
+
+        controller.get().onStartCommand(
+            actionIntent("terminal.emulator.action.WAKE_UNLOCK"),
+            0,
+            3,
+        )
+        assertFalse("the action must release the lock", wakeLock.isHeld)
+        assertTrue(
+            "the button must offer to acquire the lock again",
+            postedNotification().actions
+                .map { it.title.toString() }
+                .contains(context.getString(R.string.notification_wake_lock)),
+        )
+    }
+
+    /** 无超时机制：时间流逝不得使锁失效（旧实现在 30 分钟后自动失锁）。 */
+    @Test
+    fun `the wake lock is held indefinitely without a timeout`() {
+        ShadowPowerManager.clearWakeLocks()
+        val controller = startControllerWith(1)
+        controller.get().onStartCommand(
+            actionIntent("terminal.emulator.action.WAKE_LOCK"),
+            0,
+            2,
+        )
+        val wakeLock = requireNotNull(ShadowPowerManager.getLatestWakeLock())
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMinutes(31))
+        assertTrue("no timeout may drop the lock", wakeLock.isHeld)
+    }
+
+    /**
+     * Wi-Fi 锁与用户申请的唤醒锁同时在位、同时释放。
+     *
+     * 唤醒锁只保证 CPU 不休眠，Wi-Fi 省电仍会冻结长连接（ssh/mosh 表现为「卡住，
+     * 一碰屏幕就恢复」）。
+     */
+    @Test
+    fun `the wifi lock follows the user-requested wake lock`() {
         val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
         val shadowWifiManager = shadowOf(wifiManager)
         val controller = startControllerWith(1)
+        controller.get().onStartCommand(
+            actionIntent("terminal.emulator.action.WAKE_LOCK"),
+            0,
+            2,
+        )
         assertEquals(
-            "a wifi lock must be held while sessions run",
+            "the wifi lock must follow the wake lock",
             1,
             shadowWifiManager.getActiveLockCount(),
         )
@@ -216,47 +279,7 @@ class TerminalForegroundServiceTest {
         )
         assertTrue(
             "wake lock action missing: $labels",
-            labels.contains(context.getString(R.string.notification_wake_unlock)),
-        )
-    }
-
-    @Test
-    fun `the wake lock action releases the lock and offers to acquire it again`() {
-        ShadowPowerManager.clearWakeLocks()
-        val controller =
-            Robolectric.buildService(
-                TerminalForegroundService::class.java,
-                Intent(context, TerminalForegroundService::class.java).apply {
-                    putExtra("session_count", 1)
-                },
-            ).create()
-        controller.startCommand(0, 1)
-        val wakeLock = requireNotNull(ShadowPowerManager.getLatestWakeLock())
-        assertTrue("the lock must start out held", wakeLock.isHeld)
-
-        val unlockIntent =
-            Intent(context, TerminalForegroundService::class.java)
-                .setAction("terminal.emulator.action.WAKE_UNLOCK")
-        controller.get().onStartCommand(unlockIntent, 0, 2)
-        assertFalse(
-            "the action must release the lock",
-            requireNotNull(ShadowPowerManager.getLatestWakeLock()).isHeld,
-        )
-        assertTrue(
-            "the button must offer to acquire the lock again",
-            postedNotification().actions
-                .map { it.title.toString() }
-                .contains(context.getString(R.string.notification_wake_lock)),
-        )
-
-        val lockIntent =
-            Intent(context, TerminalForegroundService::class.java)
-                .setAction("terminal.emulator.action.WAKE_LOCK")
-        controller.get().onStartCommand(lockIntent, 0, 3)
-        // 释放后锁对象会被丢弃，重新申请得到的是新实例：看最新的那把锁。
-        assertTrue(
-            "the action must acquire the lock",
-            requireNotNull(ShadowPowerManager.getLatestWakeLock()).isHeld,
+            labels.contains(context.getString(R.string.notification_wake_lock)),
         )
     }
 
@@ -264,20 +287,20 @@ class TerminalForegroundServiceTest {
     fun `a released wake lock is not taken back by the next session count update`() {
         ShadowPowerManager.clearWakeLocks()
         val controller = startControllerWith(1)
-        val wakeLock = requireNotNull(ShadowPowerManager.getLatestWakeLock())
         controller.get().onStartCommand(
-            Intent(context, TerminalForegroundService::class.java)
-                .setAction("terminal.emulator.action.WAKE_UNLOCK"),
+            actionIntent("terminal.emulator.action.WAKE_LOCK"),
             0,
             2,
         )
+        val wakeLock = requireNotNull(ShadowPowerManager.getLatestWakeLock())
+        controller.get().onStartCommand(
+            actionIntent("terminal.emulator.action.WAKE_UNLOCK"),
+            0,
+            3,
+        )
         assertFalse(wakeLock.isHeld)
 
-        val updateIntent =
-            Intent(context, TerminalForegroundService::class.java).apply {
-                putExtra("session_count", 2)
-            }
-        controller.get().onStartCommand(updateIntent, 0, 3)
+        controller.get().onStartCommand(countIntent(2), 0, 4)
         assertFalse(
             "a session count update must not override the user's choice",
             wakeLock.isHeld,
@@ -309,16 +332,15 @@ class TerminalForegroundServiceTest {
         val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
         val shadowWifiManager = shadowOf(wifiManager)
         val controller = startControllerWith(1)
-        val wakeLock = requireNotNull(ShadowPowerManager.getLatestWakeLock())
-        assertTrue("the lock must start out held", wakeLock.isHeld)
-
         controller.get().onStartCommand(
-            Intent(context, TerminalForegroundService::class.java).apply {
-                putExtra("session_count", 0)
-            },
+            actionIntent("terminal.emulator.action.WAKE_LOCK"),
             0,
             2,
         )
+        val wakeLock = requireNotNull(ShadowPowerManager.getLatestWakeLock())
+        assertTrue("the lock must be held after the user asks", wakeLock.isHeld)
+
+        controller.get().onStartCommand(countIntent(0), 0, 3)
         assertFalse("no session means no wake lock", wakeLock.isHeld)
         assertEquals("no session means no wifi lock", 0, shadowWifiManager.getActiveLockCount())
     }
@@ -335,8 +357,7 @@ class TerminalForegroundServiceTest {
         val shadowWifiManager = shadowOf(wifiManager)
         val controller = startControllerWith(0)
         controller.get().onStartCommand(
-            Intent(context, TerminalForegroundService::class.java)
-                .setAction("terminal.emulator.action.WAKE_LOCK"),
+            actionIntent("terminal.emulator.action.WAKE_LOCK"),
             0,
             2,
         )
