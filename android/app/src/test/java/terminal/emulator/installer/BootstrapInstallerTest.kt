@@ -205,6 +205,8 @@ class BootstrapInstallerTest {
 
         // Staging must have been atomically renamed away.
         assertFalse("staging dir must be gone after atomic rename", stagingDir.exists())
+        assertTrue("home must exist after install", homeDir.isDirectory)
+        assertTrue("usr/tmp must be published with the prefix", File(prefixDir, "tmp").isDirectory)
 
         // Symlink direction: Termux SYMLINKS.txt is `target←linkname`, so
         // `bin/awk` must be a symlink pointing at `bin/gawk`.
@@ -240,6 +242,19 @@ class BootstrapInstallerTest {
             "retry after a missing SYMLINKS.txt must succeed: ${retry.exceptionOrNull()?.message}",
             retry.isSuccess,
         )
+    }
+
+    @Test
+    fun install_failsBeforePublishingPrefixWhenHomeCannotBeCreated() {
+        homeDir.parentFile?.mkdirs()
+        homeDir.writeText("not a directory")
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+
+        val result = runBlocking { installer.install(buildFakeBootstrapZip(withSymlinks = true)) }
+
+        assertTrue("install must fail when home cannot be created", result.isFailure)
+        assertFalse("failed install must not publish a prefix", prefixDir.exists())
+        assertFalse("failed install must clean staging", stagingDir.exists())
     }
 
     @Test

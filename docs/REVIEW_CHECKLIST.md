@@ -128,7 +128,7 @@
 | Kotlin main | `android/app/src/main/java/terminal/emulator/input/TerminalEditorInfo.kt` | 30 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/installer/BootstrapDownloader.kt` | 173 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/installer/BootstrapInstallService.kt` | 89 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
-| Kotlin main | `android/app/src/main/java/terminal/emulator/installer/BootstrapInstaller.kt` | 512 | 2 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 2 处 |
+| Kotlin main | `android/app/src/main/java/terminal/emulator/installer/BootstrapInstaller.kt` | 520 | 2 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 2 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/installer/BootstrapOrchestrator.kt` | 114 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/installer/BootstrapPreset.kt` | 31 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/installer/BootstrapProgress.kt` | 41 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
@@ -280,7 +280,7 @@
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapArchivePathTest.kt` | 47 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapDownloaderCancellationTest.kt` | 90 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapDownloaderTest.kt` | 245 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
-| Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapInstallerTest.kt` | 586 | 1 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 1 处 |
+| Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapInstallerTest.kt` | 601 | 1 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 1 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapOrchestratorTest.kt` | 132 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapPresetTest.kt` | 34 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapProgressTest.kt` | 79 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |

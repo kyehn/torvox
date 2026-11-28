@@ -168,8 +168,11 @@ class BootstrapInstaller(
             }
             onProgress?.onProgress(BootstrapProgress.CreatingSymlinks)
             createSymlinks(symlinks)
+            // home 与 usr/tmp 必须在换入前就绪：换入后再创建，失败会留下
+            // 「prefix 已发布但安装返回失败」的半成功状态；tmp 建在 staging 内，
+            // 随原子重命名一起成为新 prefix 的一部分。
+            prepareHomeAndTmp()
             atomicRename()
-            ensureHomeAndTmp()
             Result.success(Unit)
         } catch (exception: CancellationException) {
             // 取消不是安装失败：当成失败会让调用方继续走重试/报错路径，而协程此刻
@@ -470,9 +473,14 @@ class BootstrapInstaller(
         }
     }
 
-    private fun ensureHomeAndTmp() {
-        homeDir.mkdirs()
-        File(prefixDir, "tmp").mkdirs()
+    private fun prepareHomeAndTmp() {
+        if (!homeDir.isDirectory && !homeDir.mkdirs()) {
+            throw IOException("Failed to create home directory: ${homeDir.name}")
+        }
+        val tmpDir = File(stagingDir, "tmp")
+        if (!tmpDir.isDirectory && !tmpDir.mkdirs()) {
+            throw IOException("Failed to create tmp directory: ${tmpDir.name}")
+        }
     }
 }
 
