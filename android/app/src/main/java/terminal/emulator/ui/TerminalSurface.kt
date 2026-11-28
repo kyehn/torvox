@@ -722,6 +722,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             // 整段饿死——历史上多次以「输入一直不被接受」的形式失败。
             // 真正需要拦的只是切换瞬间的余波，交由下方有界窗口处理。
             isPaused = true
+            // 失焦早于平台收起输入法：在这里拍下「离开时键盘在场」的快照。
+            // 等窗口不可见再拍，可能读到的已是平台派发的隐藏态（CI 上实测出现过）。
+            ime.onWindowHidden()
             imeConnection.currentInputConnection?.let { inputConnection ->
                 inputConnection.finishComposingText()
             }

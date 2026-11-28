@@ -233,6 +233,16 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
     private var imeVisibleAtWindowHide = false
 
     /**
+     * 本轮离开前台是否已经拍过快照。
+     *
+     * 失焦（`onWindowFocusChanged(false)`）早于平台收起输入法，窗口不可见
+     * （`onWindowVisibilityChanged(INVISIBLE)`）可能晚于那次隐藏；两处都转发到
+     * [onWindowHidden]，但只允许**先到的那次**拍板，后到的隐藏态 insets 不得把
+     * 「离开时键盘在场」改写成 false——否则回前台不再要求键盘回来。
+     */
+    private var windowHidden = false
+
+    /**
      * 正在等键盘回来：期间忽略「输入法已隐藏」的 insets 派发（理由见监听器）。
      *
      * 只在 [onWindowShown] 置位，在输入法真的可见或恢复超时后清除；置位、清除与
@@ -250,6 +260,10 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
      * `ON_PAUSE`：后者在组合层，时机不保证早于那次派发。
      */
     internal fun onWindowHidden() {
+        // 失焦与窗口不可见是两个先后到达的信号：只有第一次能代表「离开时」，
+        // 后到的那次读到的可能已是平台收起输入法之后的隐藏态。
+        if (windowHidden) return
+        windowHidden = true
         imeVisibleAtWindowHide = lastImeVisible
     }
 
@@ -261,6 +275,7 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
      * 闪烁」的成因：位移按隐藏态归零、内容下移，用户轻点后键盘弹出、内容再上移。
      */
     internal fun onWindowShown() {
+        windowHidden = false
         if (!imeVisibleAtWindowHide || !surface.softKeyboardEnabled) return
         imeVisibleAtWindowHide = false
         pendingKeyboardRestore = true
@@ -269,6 +284,9 @@ internal class ImeShiftController(private val surface: TerminalSurface) {
 
     /** 窗口重新取得焦点：`show` 只在窗口有焦点时被平台接受。 */
     internal fun onFocusGained() {
+        // 焦点回来了即新一轮离开前台的开始：对话框等只失焦、窗口始终可见的场景
+        // 不能把上一轮的 windowHidden 一直挂着，否则下一次真正的后台不再拍快照。
+        windowHidden = false
         if (pendingKeyboardRestore) requestKeyboardRestore()
     }
 
