@@ -22,13 +22,15 @@
 | 终端抽取 | 逐格分配与缺行补齐的成本未留档 | 补齐取舍台账并用测试钉住分配预算 |
 | KGP | 单图整幅的零拷贝借用分支被套上字节预算判据，与规范「单图整幅照常显示」冲突：字节数超 64MiB 的单图被整幅拒掉 | 字节预算只约束需新分配的条带布局；零拷贝借用不分配新缓冲，其像素缓冲已由上游图像存储上限约束，故不受预算约束。打包与复用两条路径共用唯一判据 `check_atlas`（设备纹理上限 + 字节预算），分叉不复存在；规范同步 |
 | 引导安装 | 成功路径在原子换入后才创建 `home`/`usr/tmp` 且忽略创建失败，可能留下「prefix 已发布但安装返回失败」的半成功状态 | 换入前在 staging 内准备 `tmp`，显式校验两个目录的创建结果；补回归用例钉住失败路径不发布 prefix |
+| 引导下载 | 下载无体积上限：声明长度虚高或分块响应可持续写满缓存目录，而解压已有 1 GiB 上限 | 声明长度与落盘字节双向按 1 GiB 封顶，超限即删暂存并返回失败；规范同步，补拒收用例 |
+| 日志 | 两处慢帧诊断各写一份 60ms 警告阈值，调整时易漏改一处 | 共用 `slow_frame_log_level` 纯函数与单一阈值常量，补分档单测 |
 
 重复度扫描（`jscpd`，阈值 8 行/80 token）：Rust 0 处克隆；Kotlin 1 处 11 行重复，且为两个设置分区的相同 import 块，不构成逻辑重复。
 
 ## 验证
 
-- Rust：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 通过；`cargo test --all-targets` 为 982 + 1 + 2 + 1 个测试全部通过。
-- Android：`nu scripts/build-android-libs.nu x86_64` 后执行 `detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、`testDebugUnitTest`（1166 个单元测试）、benchmark 与 baselineprofile 编译、`assembleRelease`、`analyzeReleaseR8Config`，全部 `BUILD SUCCESSFUL`。
+- Rust：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 通过；`cargo test --all-targets` 为 983 + 1 + 2 + 1 个测试全部通过。
+- Android：`nu scripts/build-android-libs.nu x86_64` 后执行 `detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、`testDebugUnitTest`（1168 个单元测试）、benchmark 与 baselineprofile 编译、`assembleRelease`、`analyzeReleaseR8Config`，全部 `BUILD SUCCESSFUL`。
 - 反汇编 release `classes.dex`：69 个可达 JNI 方法全部保留；9 个仅诊断/测试用且 Kotlin 侧无可达调用点的方法随死代码移除，原生侧不存在通过 JNI 反射回调 Kotlin 的路径。
 - 全部修复均已提交并推送到 `origin/main`。
 

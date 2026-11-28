@@ -26,6 +26,9 @@ class BootstrapDownloader(
         private const val NETWORK_CONNECT_TIMEOUT_MS = 30_000L
         private const val NETWORK_READ_TIMEOUT_MS = 300_000L
         private const val MIN_BOOTSTRAP_SIZE_BYTES = 1_048_576L
+
+        /** 与解压总量上限同源：下载先于解压发生，无界下载会先把缓存目录写满。 */
+        internal const val MAX_BOOTSTRAP_SIZE_BYTES = 1L * 1024 * 1024 * 1024
         private const val PROGRESS_PERCENT_STEP = 2
 
         /**
@@ -106,6 +109,9 @@ class BootstrapDownloader(
                         )
                     }
                     val contentLength = response.body.contentLength()
+                    if (contentLength > MAX_BOOTSTRAP_SIZE_BYTES) {
+                        return@withContext Result.failure(Exception("File too large: $contentLength bytes"))
+                    }
                     if (contentLength > 0 && contentLength < MIN_BOOTSTRAP_SIZE_BYTES) {
                         return@withContext Result.failure(Exception("File too small: $contentLength bytes"))
                     }
@@ -126,6 +132,10 @@ class BootstrapDownloader(
                                     shouldAbort = { !isActive },
                                     onCopied = { copied ->
                                         total = copied
+                                        // 声称的长度可以撒谎（分块传输时为 -1）：落盘途中同样封顶。
+                                        if (copied > MAX_BOOTSTRAP_SIZE_BYTES) {
+                                            throw IOException("Download exceeds $MAX_BOOTSTRAP_SIZE_BYTES bytes")
+                                        }
                                         val percent =
                                             if (contentLength > 0L) {
                                                 (total * 100L / contentLength).toInt()

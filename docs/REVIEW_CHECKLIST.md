@@ -126,7 +126,7 @@
 | Kotlin main | `android/app/src/main/java/terminal/emulator/input/KeyModifiers.kt` | 99 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/input/ModifierState.kt` | 33 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/input/TerminalEditorInfo.kt` | 30 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
-| Kotlin main | `android/app/src/main/java/terminal/emulator/installer/BootstrapDownloader.kt` | 173 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
+| Kotlin main | `android/app/src/main/java/terminal/emulator/installer/BootstrapDownloader.kt` | 183 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/installer/BootstrapInstallService.kt` | 89 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/installer/BootstrapInstaller.kt` | 520 | 2 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 2 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/installer/BootstrapOrchestrator.kt` | 114 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
@@ -279,7 +279,7 @@
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapArchiveCopyTest.kt` | 62 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapArchivePathTest.kt` | 47 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapDownloaderCancellationTest.kt` | 90 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
-| Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapDownloaderTest.kt` | 245 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
+| Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapDownloaderTest.kt` | 282 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapInstallerTest.kt` | 601 | 1 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 1 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapOrchestratorTest.kt` | 132 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/installer/BootstrapPresetTest.kt` | 34 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
@@ -477,7 +477,7 @@
 | Rust/native | `native/src/android/ffi/clipboard_answer_tests.rs` | 63 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/android/ffi/clipboard_read_flood_tests.rs` | 41 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/android/ffi/cursor_anchor_tests.rs` | 37 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |
-| Rust/native | `native/src/android/ffi/font.rs` | 501 | 14 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 14 处 |
+| Rust/native | `native/src/android/ffi/font.rs` | 507 | 14 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 14 处 |
 | Rust/native | `native/src/android/ffi/font_info_packing_tests.rs` | 33 | 5 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 5 处 |
 | Rust/native | `native/src/android/ffi/font_size_cap_tests.rs` | 118 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/android/ffi/idle_repaint_gate_tests.rs` | 43 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
@@ -489,7 +489,7 @@
 | Rust/native | `native/src/android/ffi/render/clipboard.rs` | 283 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 1 处 |
 | Rust/native | `native/src/android/ffi/render/control.rs` | 92 | 3 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 3 处 |
 | Rust/native | `native/src/android/ffi/render/diagnostics.rs` | 167 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |
-| Rust/native | `native/src/android/ffi/render/frame.rs` | 960 | 3 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 3 处 |
+| Rust/native | `native/src/android/ffi/render/frame.rs` | 956 | 3 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 3 处 |
 | Rust/native | `native/src/android/ffi/render/mod.rs` | 26 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/android/ffi/render/overlay.rs` | 292 | 2 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 2 处 |
 | Rust/native | `native/src/android/ffi/render/pump.rs` | 144 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |
@@ -540,11 +540,11 @@
 | Rust/native | `native/src/render/font/tests/glyphs.rs` | 1073 | 28 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 28 处 |
 | Rust/native | `native/src/render/font/tests/loading.rs` | 624 | 44 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 44 处 |
 | Rust/native | `native/src/render/font/tests/mod.rs` | 139 | 4 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 4 处 |
-| Rust/native | `native/src/render/kitty.rs` | 637 | 7 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 7 处 |
+| Rust/native | `native/src/render/kitty.rs` | 634 | 7 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 7 处 |
 | Rust/native | `native/src/render/mod.rs` | 222 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/render/pass/acquire.rs` | 480 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |
 | Rust/native | `native/src/render/pass/bands.rs` | 250 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
-| Rust/native | `native/src/render/pass/frame.rs` | 685 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
+| Rust/native | `native/src/render/pass/frame.rs` | 681 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/render/pass/mod.rs` | 15 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/render/pass/readback.rs` | 248 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/render/pass/tests.rs` | 791 | 10 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 10 处 |
@@ -555,7 +555,7 @@
 | Rust/native | `native/src/render/tests/gpu_core.rs` | 948 | 7 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 7 处 |
 | Rust/native | `native/src/render/tests/mod.rs` | 464 | 3 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 3 处 |
 | Rust/native | `native/src/render/wgpu_backend.rs` | 223 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |
-| Rust/native | `native/src/slow_log.rs` | 366 | 3 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 3 处 |
+| Rust/native | `native/src/slow_log.rs` | 406 | 3 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 3 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/commands.rs` | 374 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/frame_mailbox.rs` | 72 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |
 | Rust/native | `native/src/terminal/ghostty_terminal/input_output_tests.rs` | 549 | 34 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 34 处 |

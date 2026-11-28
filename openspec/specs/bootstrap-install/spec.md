@@ -11,7 +11,7 @@ bootstrap 经 staging 目录的原子安装行为：解压防护、清单建链�
 
 安装 MUST 先确认 staging 区不存在；已存在时 MUST 拒绝执行，MUST NOT 清空、覆盖或复用。
 现有 prefix 存活到原子换入为止；归档条目 MUST 拒绝绝对路径与 `..` 逃逸及落 staging 根自身；
-解压设 1 GiB 总量上限与清单 1 MiB 上限。
+下载与解压各设 1 GiB 总量上限，清单设 1 MiB 上限。
 
 #### Scenario: staging 已存在时拒绝
 
@@ -32,6 +32,11 @@ bootstrap 经 staging 目录的原子安装行为：解压防护、清单建链�
 
 - **WHEN** 用户在归档条目尚未写完时取消安装
 - **THEN** 解压循环 MUST 在下一次读取前中断，清理 staging，不得继续写完整个条目
+
+#### Scenario: 超出体积上限的归档被拒
+
+- **WHEN** 下载响应的声明长度超过 1 GiB，或长度未知而实际落盘超过 1 GiB
+- **THEN** MUST 停止写入并删除暂存文件，返回失败，不得进入解压
 
 ### Requirement: 清单建链
 

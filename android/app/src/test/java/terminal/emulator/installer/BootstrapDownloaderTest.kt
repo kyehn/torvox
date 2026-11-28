@@ -6,14 +6,17 @@ import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
+import okhttp3.ResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.tls.HandshakeCertificates
 import okhttp3.tls.HeldCertificate
 import okio.Buffer
+import okio.BufferedSource
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -211,6 +214,40 @@ class BootstrapDownloaderTest {
         val result = downloader.download(httpsServer.url("/bootstrap.zip").toString(), "test")
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()?.message?.contains("too small") == true)
+    }
+
+    @Test
+    fun oversizedArchiveRejectedBeforeWritingCache() = runBlocking {
+        val client =
+            OkHttpClient
+                .Builder()
+                .addInterceptor { chain ->
+                    Response
+                        .Builder()
+                        .request(chain.request())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(
+                            object : ResponseBody() {
+                                override fun contentType(): MediaType? = null
+
+                                override fun contentLength(): Long = BootstrapDownloader.MAX_BOOTSTRAP_SIZE_BYTES + 1
+
+                                override fun source(): BufferedSource = Buffer()
+                            },
+                        ).build()
+                }.build()
+        val result = BootstrapDownloader(
+            context(),
+            client = client,
+        ).download("https://example.test/bootstrap.zip", "test")
+        assertTrue(result.isFailure)
+        assertEquals(
+            "File too large: ${BootstrapDownloader.MAX_BOOTSTRAP_SIZE_BYTES + 1} bytes",
+            result.exceptionOrNull()?.message,
+        )
+        assertTrue("cache file was created", tempDir.listFiles().isNullOrEmpty())
     }
 
     @Test
