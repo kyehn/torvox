@@ -1,6 +1,5 @@
 package terminal.emulator.benchmark
 
-import android.os.SystemClock
 import androidx.test.uiautomator.UiDevice
 
 /**
@@ -21,14 +20,13 @@ internal data class OutputScenarioFrames(
 /**
  * 采集输出类场景的帧面：呈现汇总、逐图层通道、显示级帧时间线三通道，按属主归属到被测应用。
  *
- * [summaries] 是调用方已经等停摆后的呈现汇总；[loadStartMillis] 是负载开始的 epoch 毫秒；
+ * [summaries] 是调用方已经等停摆后的呈现汇总；
  * [loadStartElapsedMillis] / [timelineReadElapsedMillis] 是单调时钟域的起止时刻。
  */
 internal fun collectOutputScenarioFrames(
     device: UiDevice,
     packageName: String,
     contentLayer: String,
-    loadStartMillis: Long,
     loadStartElapsedMillis: Long,
     timelineReadElapsedMillis: Long,
     summaries: List<PresentedFrameSummary>,

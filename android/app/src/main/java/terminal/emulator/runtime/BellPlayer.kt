@@ -27,7 +27,7 @@ class BellPlayer internal constructor(
 ) {
     constructor(context: Context) : this(
         vibrateAction = { vibrateOnce(context) },
-        beepAction = beepAction(context),
+        beepAction = beepAction(),
     )
 
     /**
@@ -87,7 +87,7 @@ class BellPlayer internal constructor(
          * 构造提示音动作：`ToneGenerator` 持有原生 AudioTrack，不可每次响铃新建，
          * 复用槽由返回的闭包捕获（进程级单实例语义与挂实例字段等价）。
          */
-        private fun beepAction(context: Context): () -> Unit {
+        private fun beepAction(): () -> Unit {
             val holder = arrayOfNulls<ToneGenerator>(1)
             return beep@{
                 // runCatching 会吞 CancellationException（slack-lint DenyListedApi），

@@ -661,7 +661,7 @@ constructor(
     }
 
     /** 目录已删除或本就不存在返回 true；存在却删不掉返回 false。 */
-    private fun deletedOrAbsent(file: java.io.File): Boolean = !file.exists() || file.deleteRecursively()
+    private fun deletedOrAbsent(file: File): Boolean = !file.exists() || file.deleteRecursively()
 
     // ══════════════════════════════════════════════════════════════════════
     // 二、会话编排与设置 setter

@@ -69,9 +69,7 @@ object ThemeRepository {
      * @param fetch 取回目录字节；返回 null 表示 native 侧没有目录。
      */
     internal fun themeCatalogBytesOrThrow(isNativeLoaded: Boolean, fetch: () -> ByteArray?): ByteArray {
-        if (!isNativeLoaded) {
-            throw IllegalStateException("native library not loaded: theme catalog unavailable")
-        }
+        check(isNativeLoaded) { "native library not loaded: theme catalog unavailable" }
         return fetch() ?: error("Theme catalog unavailable from native")
     }
 

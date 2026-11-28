@@ -68,7 +68,6 @@ class WideCharacterBenchmark {
                 device = device,
                 packageName = TARGET_PACKAGE,
                 contentLayer = contentLayer,
-                loadStartMillis = loadStartMillis,
                 loadStartElapsedMillis = loadStartElapsedMillis,
                 timelineReadElapsedMillis = timelineReadElapsedMillis,
                 summaries = summaries,
