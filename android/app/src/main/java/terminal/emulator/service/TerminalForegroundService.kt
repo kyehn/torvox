@@ -188,6 +188,10 @@ class TerminalForegroundService : Service() {
                     .setAction(if (wakeLockHeld) ACTION_WAKE_UNLOCK else ACTION_WAKE_LOCK),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
+        val wakeLockLabel =
+            getString(
+                if (wakeLockHeld) R.string.notification_wake_unlock else R.string.notification_wake_lock,
+            )
         val notification =
             Notification
                 .Builder(this, CHANNEL_ID)
@@ -197,27 +201,9 @@ class TerminalForegroundService : Service() {
                 .setOngoing(true)
                 .setContentIntent(pending)
                 .setCategory(Notification.CATEGORY_SERVICE)
-                .addAction(
-                    Notification.Action
-                        .Builder(
-                            null,
-                            getString(R.string.notification_exit),
-                            exitPending,
-                        ).build(),
-                ).addAction(
-                    Notification.Action
-                        .Builder(
-                            null,
-                            getString(
-                                if (wakeLockHeld) {
-                                    R.string.notification_wake_unlock
-                                } else {
-                                    R.string.notification_wake_lock
-                                },
-                            ),
-                            wakeLockPending,
-                        ).build(),
-                ).build()
+                .addAction(notificationAction(getString(R.string.notification_exit), exitPending))
+                .addAction(notificationAction(wakeLockLabel, wakeLockPending))
+                .build()
         // 缺失 POST_NOTIFICATIONS 不会使这里抛异常（平台文档：前台服务照常启动，
         // 只是通知不进抽屉、仅见于任务管理器）；实测 API 35 上拒绝该权限后
         // startForeground 仍成功（dumpsys 报 isForeground=true）。
@@ -225,6 +211,10 @@ class TerminalForegroundService : Service() {
         // 记日志并让进程崩掉，不在此静默吞掉。
         startForeground(NOTIFICATION_ID, notification)
     }
+
+    /** 常驻通知的动作按钮：标签为空图标动作，点击即投递到本服务。 */
+    private fun notificationAction(label: String, pending: PendingIntent): Notification.Action =
+        Notification.Action.Builder(null, label, pending).build()
 
     /**
      * 获取唤醒锁（无限时持有）。

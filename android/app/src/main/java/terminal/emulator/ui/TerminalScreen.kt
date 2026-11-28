@@ -509,22 +509,25 @@ fun TerminalScreen(
                 surfaceRef.value?.bindActivePtyWriteQueue()
             }
 
+            // Surface 持有一个用于选区坐标计算的私有 scrollOffset：会话切换、
+            // 程序化复位与自动贴底后都必须与运行时视口重新对齐，否则首个手势会按
+            // 旧视口折算网格行（选区、拖柄、长按菜单全部锚错位置）。
+            fun resyncSurfaceScrollOffset() {
+                surfaceRef.value?.resetScrollOffset()
+                viewportScrollOffset.intValue = viewModel.runtime.activeSessionScrollOffset()
+            }
+
             LaunchedEffect(state.activeSessionId) {
                 showTextSearch = false
                 searchState = SearchState()
-                // Surface 持有一个用于选区坐标计算的私有 scrollOffset；
-                // 切换时它必须跟随会话自身的偏移，
-                // 否则切换后的首个手势会算出错误的网格行。
-                surfaceRef.value?.resetScrollOffset()
-                viewportScrollOffset.intValue = viewModel.runtime.activeSessionScrollOffset()
+                resyncSurfaceScrollOffset()
             }
 
             // 程序化滚动复位（由输入驱动的贴底）：重同步 Surface 的私有偏移，
             // 使选区/拖动的坐标计算与运行时视口保持一致。
             LaunchedEffect(state.scrollEpoch) {
                 if (state.scrollEpoch > 0L) {
-                    surfaceRef.value?.resetScrollOffset()
-                    viewportScrollOffset.intValue = viewModel.runtime.activeSessionScrollOffset()
+                    resyncSurfaceScrollOffset()
                 }
             }
 
@@ -535,8 +538,7 @@ fun TerminalScreen(
                     // Surface 的私有偏移也必须跟着归零：选区/拖柄/长按菜单都按
                     // `scrollbackLength - scrollOffset` 折算绝对行，只同步高亮镜像
                     // 会让自动贴底后的首次长按锚到旧视口，偏差正好是刚才滚开的行数。
-                    surfaceRef.value?.resetScrollOffset()
-                    viewportScrollOffset.intValue = viewModel.runtime.activeSessionScrollOffset()
+                    resyncSurfaceScrollOffset()
                 }
             }
 

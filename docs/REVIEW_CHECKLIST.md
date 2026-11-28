@@ -101,7 +101,7 @@
 | Android manifest/resources | `android/app/src/debug/AndroidManifest.xml` | 29 | 1 | lintDebug/lintVitalRelease 通过；工具链覆盖；风险模式命中 1 处 |
 | Android manifest/resources | `android/app/src/main/AndroidManifest.xml` | 132 | 2 | lintDebug/lintVitalRelease 通过；工具链覆盖；风险模式命中 2 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/BootstrapManager.kt` | 215 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
-| Kotlin main | `android/app/src/main/java/terminal/emulator/DocumentMutations.kt` | 617 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
+| Kotlin main | `android/app/src/main/java/terminal/emulator/DocumentMutations.kt` | 606 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/DocumentQueries.kt` | 210 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/DocumentWatcher.kt` | 231 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/FontManager.kt` | 226 | 0 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 0 处 |
@@ -166,7 +166,7 @@
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/TerminalRuntime.kt` | 3529 | 2 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 2 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/TerminalRuntimeEntryPoint.kt` | 18 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/runtime/VsyncChain.kt` | 241 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
-| Kotlin main | `android/app/src/main/java/terminal/emulator/service/TerminalForegroundService.kt` | 320 | 1 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 1 处 |
+| Kotlin main | `android/app/src/main/java/terminal/emulator/service/TerminalForegroundService.kt` | 310 | 1 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 1 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/settings/ColorsProperties.kt` | 167 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/settings/SettingsDataStoreProvider.kt` | 50 | 1 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 1 处 |
 | Kotlin main | `android/app/src/main/java/terminal/emulator/settings/SettingsRepository.kt` | 572 | 2 | detekt/spotless/lint/单元测试通过；人工重点复核；风险模式命中 2 处 |
@@ -199,13 +199,13 @@
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SettingsShellSection.kt` | 129 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SettingsThemeSection.kt` | 312 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SurfaceAttachGate.kt` | 54 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
-| Compose UI | `android/app/src/main/java/terminal/emulator/ui/SurfaceInput.kt` | 917 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；人工重点复核；风险模式命中 0 处 |
+| Compose UI | `android/app/src/main/java/terminal/emulator/ui/SurfaceInput.kt` | 914 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；人工重点复核；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SurfaceOwnership.kt` | 39 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/SystemBars.kt` | 84 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/TerminalInputEncoder.kt` | 153 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
-| Compose UI | `android/app/src/main/java/terminal/emulator/ui/TerminalScreen.kt` | 1082 | 2 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；人工重点复核；风险模式命中 2 处 |
+| Compose UI | `android/app/src/main/java/terminal/emulator/ui/TerminalScreen.kt` | 1084 | 2 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；人工重点复核；风险模式命中 2 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/TerminalSurface.kt` | 1348 | 1 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；人工重点复核；风险模式命中 1 处 |
-| Compose UI | `android/app/src/main/java/terminal/emulator/ui/TerminalSurfaceMath.kt` | 508 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
+| Compose UI | `android/app/src/main/java/terminal/emulator/ui/TerminalSurfaceMath.kt` | 546 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/TextSearchBar.kt` | 223 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/theme/TerminalTheme.kt` | 146 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/theme/ThemeRepository.kt` | 143 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
@@ -389,6 +389,7 @@
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/TerminalInputEncoderTest.kt` | 145 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/TerminalSurfaceLogicTest.kt` | 566 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/TextSearchBarCounterRobolectricTest.kt` | 58 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
+| Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/WheelDragStepTest.kt` | 77 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/WheelForwardingTest.kt` | 35 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/theme/TerminalThemePaletteTest.kt` | 67 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
 | Kotlin unit tests | `android/app/src/test/java/terminal/emulator/ui/theme/ThemeRepositoryTest.kt` | 140 | 0 | testDebugUnitTest 通过；工具链覆盖；风险模式命中 0 处 |
@@ -473,6 +474,8 @@
 | Rust/native | `native/benches/support.rs` | 88 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/benches/vt_typing.rs` | 50 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |
 | Rust/native | `native/build.rs` | 12 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |
+| Rust/native | `native/shaders/cell.wgsl` | 131 | 0 | cargo test --all-targets 通过（naga 校验入口点）；人工重点复核；风险模式命中 0 处 |
+| Rust/native | `native/shaders/kitty_graphics.wgsl` | 64 | 0 | cargo test --all-targets 通过（naga 校验入口点）；人工重点复核；风险模式命中 0 处 |
 | Rust/native | `native/src/android/ffi.rs` | 1042 | 4 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 4 处 |
 | Rust/native | `native/src/android/ffi/appearance.rs` | 191 | 6 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 6 处 |
 | Rust/native | `native/src/android/ffi/busy_marker_tests.rs` | 84 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |

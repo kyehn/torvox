@@ -2,7 +2,7 @@
 
 ## 范围与依据
 
-- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 627 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（54,004 行）与 `android/app/src/main` 下 116 个 Kotlin 文件（30,406 行）逐个过目。
+- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 630 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（54,004 行）、`native/shaders` 下 2 个 WGSL 着色器（195 行）与 `android/app/src/main` 下 116 个 Kotlin 文件（30,422 行）逐个过目。
 - 外部规则：`awesome-skills/code-review-skill` 的 `SKILL.md`、`review-checklist.md`、`code-quality-universal.md`、`common-bugs-checklist.md`、`architecture-review-guide.md`、`performance-review-guide.md`、`security-review-guide.md`、`kotlin.md`、`rust.md`；`android/skills` 的 `android-jni-security`、`jetpack-compose-performance`、`anr-audit-and-fix`、`r8-analyzer`、`edge-to-edge`、`testing-setup`、`agp-9-upgrade`。
 - 本地规则：`docs/specification/` 全部文档，以及 `rust-review`、`rust-best-practices`、`code-review-and-quality`、`compose-expert`、`compose-screens-footguns`、`state-and-background-footguns`、`data-layer-footguns`、`security-and-hardening`。
 - 重点模块：Rust FFI/JNI 边界、会话与 PTY、渲染/Kitty 图集、字体与日志；Kotlin 启动与 ViewModel、渲染监督、Compose UI、设置/DataStore、DocumentsProvider、引导下载与解压、构建与 R8。
@@ -43,6 +43,9 @@
 | 静态检查 | 方案调研文档照录被禁 API 的事实，触发 `docs/` 下的字面量禁令规则误报，质量门红灯 | 按既有豁免口径按文件路径豁免（与 `docs/persistence/*`、`docs/specification/*` 同类）；探针验证代码侧仍被拦下 |
 | 设置页渲染暂停 | 领凭证与存入状态之间隔着协程取消点：凭证领到但未存入状态时协程被取消，`DisposableEffect` 的 `onDispose` 拿不到凭证，账本计数永不归零，共享渲染器被永久暂停（终端全黑） | 领用与归还收敛为 `SettingsRenderPauseEffect`：不可取消段内完成「领 + 写入状态」，并在领到之前复检设置页的**当前**状态（effect 体里捕获的是启动快照，关闭后仍是旧值），已关闭则不再领；补三条 Robolectric 回归用例（关闭竞态、正常释放、等待期间取消）；规范同步 |
 | 字体缓存 | `load_font_file` 向字体库加面却只作废负缓存；样式面判定按 `(面, 粗, 斜)` 缓存且不会自然淘汰，装入前的「无匹配面」结论会活过加面，真粗面永不生效，粗体一直走合成 | `load_font_file` 同时清空 `style_face_cache`；补回归用例，变异验证（去掉该行即失败）；规范同步 |
+| 文档提供者 | `copyDocument` 与 `moveDocument` 各写一份「目录不得拷/搬进自身子孙」守卫（条件与规范化相同，仅错误动词不同），docId 编码失败断言重复四处 | 收敛为 `requireNotDescendant` 与 `requireDocId`，错误文案与调用顺序不变；`DocumentsProviderTest` 91 例全绿 |
+| 前台服务 | 通知两个动作各自内联构造 `Notification.Action`，唤醒锁标签嵌套在四层构造里 | 抽 `notificationAction`，标签提前为具名局部变量；通知内容、动作顺序与点击语义不变 |
+| 终端界面 | 会话切换、程序化滚动复位、自动贴底三处各写一份「重置 Surface 私有偏移 + 同步视口镜像」 | 收敛为 `resyncSurfaceScrollOffset`，三处只保留各自的触发条件；执行顺序与副作用不变 |
 
 重复度扫描（`jscpd`，阈值 8 行/80 token）：Rust 0 处克隆；Kotlin 1 处 11 行重复，且为两个设置分区的相同 import 块，不构成逻辑重复。另以更严的阈值（5 行/40 token）复扫一遍，全量命中 128 处 / 926 行 / 1.09%；逐类判定后，生产代码内的命中归为四类且均不构成逻辑重复：Kotlin import 段与 Compose 脚手架（18 处）、Android 资源文件（3 处）、Rust 函数签名形状（JNI 导出与转发函数的参数表，20 处）、文档注释（6 处）。唯一两处可收敛的真重复已处理：`pty.rs` 的 prefix 判据与 linker CString 构造，收敛后该文件在严格口径下归零。判定明细见 `openspec/changes/archive/2026-11-24-code-health-audit/audit.md` 的严格口径一节。
 
@@ -50,7 +53,7 @@
 
 - `./scripts/check.nu` 全量质量门通过（fmt、clippy、arm64 ndk clippy、cargo-machete、cargo test、rustdoc `-D warnings`、bench、release 构建、semgrep 55 条规则 0 命中、markdownlint 0 issue、openspec strict 55/55、Gradle 全套 `BUILD SUCCESSFUL`）。
 - Rust：`cargo test --all-targets` 为 994 + 1 + 2 + 1 个测试全部通过；`cargo clippy --all-targets --all-features -- -D warnings` 零告警。
-- Android：`testDebugUnitTest` 为 1177 个单元测试全部通过；`detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、benchmark 与 baselineprofile 编译全部 `BUILD SUCCESSFUL`。
+- Android：`testDebugUnitTest` 为 1183 个单元测试全部通过；`detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、benchmark 与 baselineprofile 编译全部 `BUILD SUCCESSFUL`。
 - 依赖更新：AGP 升至 9.6.0-alpha07，`cargo update` 将 `cc`、`find-msvc-tools`、`owo-colors` 升至 Rust 1.99 兼容的最新版，`nix flake update` 后锁文件无变化。Kotlin 2.5.0-RC2 因 KSP 仍停留在 2.3.14（尚无匹配版本）暂不升级；`fontdb` 受 `cosmic-text 0.19` 的 `^0.23` 约束，保持 0.23。
 - JNI 边界：Rust 侧 78 个 `Java_*` 导出与 Kotlin `NativeBridge.kt` 78 个 `external fun` 双向差集为空（名字、参数个数与类型均核对）。
 - 反汇编 release `classes.dex`：69 个可达 JNI 方法全部保留；9 个仅诊断/测试用且 Kotlin 侧无可达调用点的方法随死代码移除，原生侧不存在通过 JNI 反射回调 Kotlin 的路径。
@@ -58,7 +61,7 @@
 
 ## 审查结论（rust-review 口径）
 
-审查对象为 `native` crate 全部 147 个 Rust 文件与 `android/app/src/main` 全部 116 个 Kotlin 文件（53,869 + 30,406 行）。`native` 是应用型 crate（cdylib + lib，无 feature 开关、MSRV 1.99、edition 2024），故按「简洁性优先」的适用规则审，不套用库的严格 API 契约。clippy、测试与全量质量门均已实跑。
+审查对象为 `native` crate 全部 155 个 Rust 文件与 `android/app/src/main` 全部 116 个 Kotlin 文件（54,889 + 30,422 行）。`native` 是应用型 crate（cdylib + lib，无 feature 开关、MSRV 1.99、edition 2024），故按「简洁性优先」的适用规则审，不套用库的严格 API 契约。clippy、测试与全量质量门均已实跑。
 
 ### Must fix
 

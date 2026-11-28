@@ -174,26 +174,10 @@ internal class DocumentMutations(
         }
         val targetParent = TerminalDocumentsProvider.decodeDocId(targetParentDocumentId, root)
         requireDirectory(targetParent)
-        // 与 moveDocument 同一守卫：复制目录进自己的子孙时 copyTreeInto 会把刚
-        // 复制的子树再当作源继续遍历，产出 a/b/a/b/… 直至 ENAMETOOLONG 或磁盘写满。
-        // 守卫只认真目录：copyTreeInto 遇到符号链接只复制 inode 自身、不展开目标树，
-        // 故「链接的解析目标在源之下」并无风险；而 canonicalFile 正是把链接解析到
-        // 目标，据此拒绝会误伤「把链接拷进其目标子目录」这一正常操作。
-        if (effectiveSource.isDirectory && !Files.isSymbolicLink(effectiveSource.toPath())) {
-            val sourceCanonical = effectiveSource.canonicalFile.path
-            val targetParentCanonical = targetParent.canonicalFile.path
-            if (
-                targetParentCanonical == sourceCanonical ||
-                targetParentCanonical.startsWith(sourceCanonical + File.separator)
-            ) {
-                throw IOException("Refusing to copy a directory into its own descendant")
-            }
-        }
+        requireNotDescendant(effectiveSource, targetParent, "copy")
         val target = copyTree(effectiveSource, targetParent)
         notifyChildren(targetParent, root)
-        val newId =
-            TerminalDocumentsProvider.encodeDocId(target, root)
-                ?: throw IOException("Failed to encode docId for '${target.name}'")
+        val newId = requireDocId(target, root)
         notifyDocument(target, root)
         return newId
     }
@@ -232,28 +216,13 @@ internal class DocumentMutations(
         }
         val targetParent = TerminalDocumentsProvider.decodeDocId(targetParentDocumentId, root)
         requireDirectory(targetParent)
-        // 禁止把目录搬进自己的子孙：否则复制/删除在环上打转。
-        // 与 copyDocument 同一守卫，且同样只认真目录：move 对符号链接只是改个名，
-        // 不遍历子树，故「链接的解析目标在源之下」并无 a/b/a/b 打转风险；而
-        // canonicalFile 正是把链接解析到目标，据此拒绝会误伤「把链接搬进其目标
-        // 子目录」这一正常操作——copyDocument 早已按此放行并有用例钉住。
-        if (source.isDirectory && !Files.isSymbolicLink(source.toPath())) {
-            val sourceCanonical = source.canonicalFile.path
-            val targetParentCanonical = targetParent.canonicalFile.path
-            if (
-                targetParentCanonical == sourceCanonical ||
-                targetParentCanonical.startsWith(sourceCanonical + File.separator)
-            ) {
-                throw IOException("Refusing to move a directory into its own descendant")
-            }
-        }
+        requireNotDescendant(source, targetParent, "move")
         val sourceParentFile = source.parentFile ?: root
         // 移到同一目录：语义上就是「不动」。AOSP 的 moveDocument 在源父目录与目标父目录
         // 相同时原样返回源 docId——用户没要求改名，就不该被 uniqueChild 改成「name (1)」
         // （源文件自身与目标同名，会被当成冲突）。
         if (sourceParentFile.canonicalFile == targetParent.canonicalFile) {
-            return TerminalDocumentsProvider.encodeDocId(source, root)
-                ?: throw IOException("Failed to encode docId for '${source.name}'")
+            return requireDocId(source, root)
         }
         val target = uniqueChild(targetParent, source.name)
         if (!source.renameTo(target)) {
@@ -263,18 +232,14 @@ internal class DocumentMutations(
             deleteWithoutFollowingSymlinks(source)
             notifyChildren(sourceParentFile, root)
             notifyChildren(targetParent, root)
-            val copiedId =
-                TerminalDocumentsProvider.encodeDocId(copied, root)
-                    ?: throw IOException("Failed to encode docId for '${copied.name}'")
+            val copiedId = requireDocId(copied, root)
             notifyDocument(copied, root)
             notifyDocument(source, root)
             return copiedId
         }
         notifyChildren(sourceParentFile, root)
         notifyChildren(targetParent, root)
-        val newId =
-            TerminalDocumentsProvider.encodeDocId(target, root)
-                ?: throw IOException("Failed to encode docId for '${target.name}'")
+        val newId = requireDocId(target, root)
         notifyDocument(target, root)
         notifyDocument(source, root)
         return newId
@@ -563,6 +528,30 @@ internal class DocumentMutations(
             throw FileNotFoundException("Not a directory: ${candidate.path}")
         }
     }
+
+    /**
+     * 拒绝把目录搬/拷进自己的子孙：遍历子树时会把刚生成的子树再当作源继续展开
+     * （a/b/a/b/… 直至 ENAMETOOLONG 或磁盘写满）。
+     *
+     * 只认真目录：符号链接只复制/改名 inode 自身、不展开目标树，故「链接的解析目标
+     * 在源之下」并无风险；canonicalFile 会把链接解析到目标，据此拒绝会误伤
+     * 「把链接放进其目标子目录」这一正常操作（已有用例钉住）。
+     */
+    private fun requireNotDescendant(source: File, targetParent: File, operation: String) {
+        if (!source.isDirectory || Files.isSymbolicLink(source.toPath())) return
+        val sourceCanonical = source.canonicalFile.path
+        val targetParentCanonical = targetParent.canonicalFile.path
+        if (
+            targetParentCanonical == sourceCanonical ||
+            targetParentCanonical.startsWith(sourceCanonical + File.separator)
+        ) {
+            throw IOException("Refusing to $operation a directory into its own descendant")
+        }
+    }
+
+    /** docId 编码失败是内部不变量破坏，按 IO 失败上报。 */
+    private fun requireDocId(file: File, root: File): String = TerminalDocumentsProvider.encodeDocId(file, root)
+        ?: throw IOException("Failed to encode docId for '${file.name}'")
 
     /**
      * 外部应用经 SAF 句柄写回后广播：文档本身与其父目录的子文档列表。
