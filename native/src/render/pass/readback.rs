@@ -11,8 +11,9 @@ const GPU_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// 仅测试使用（`render_to_buffer` 是无 surface 的回读测试脚手架，生产零调用）。
 const MAP_POLL_STEP: std::time::Duration = std::time::Duration::from_millis(10);
 /// 回读 map 总超时：超时即报 Readback 错误，不无限等待。
-/// 仅测试使用（同上）。
-const MAP_READBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
+/// 仅测试使用（同上）。软件 Vulkan 在并行测试/构建负载下 map 完成可超过 100ms，
+/// 故与设备轮询同一量级；短窗口只把 CI 的偶发慢帧变成假失败。
+const MAP_READBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl Renderer {
     /// 无 surface 的像素回读：仅测试脚手架（背景填充/滚动帧像素断言），生产零调用。
