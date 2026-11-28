@@ -485,8 +485,14 @@ pub(super) unsafe extern "system" fn Java_terminal_emulator_bridge_NativeBridge_
                     return Ok(());
                 };
                 let Some(text) = read_jni_string(env, &item, "setExtraFontPaths", "paths[]") else {
+                    // 元素是 JNI 局部引用：返回前必须释放，否则循环里的局部引用会
+                    // 一直占着局部引用表（上限 512，超出即进程 abort）。
+                    env.delete_local_ref(item);
                     return Ok(());
                 };
+                // 元素是 JNI 局部引用，读完即释放：`JObject` 不带析构副作用，
+                // 不显式删除就会留到本次 JNI 调用结束。
+                env.delete_local_ref(item);
                 path_list.push(std::path::PathBuf::from(text));
             }
             crate::render::font::font_db::set_extra_font_paths(path_list);
