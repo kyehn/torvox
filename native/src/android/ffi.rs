@@ -836,11 +836,20 @@ static NOTIFICATION_QUEUE: crate::event::EventQueue = crate::event::EventQueue::
 
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
-/// 待宿主应用作答的剪贴板应答通道发送端，按 (会话 id, 请求 id) 存入
-/// [`REQUEST_REGISTRY`]。
-type ClipboardAnswerTx = std::sync::mpsc::Sender<Option<String>>;
+/// 一条待宿主作答的 OSC 52 读取请求：选择器名与登记时刻。
+///
+/// 选择器名随请求登记：宿主答复只带 (会话 id, 请求 id)，写回应答时按 id 取回
+/// 选择器名组装 OSC 52 序列。登记时刻用于超时清理：宿主不应答时（渲染暂停即
+/// 必然如此）槽位须在 [`CLIPBOARD_ANSWER_TIMEOUT`] 后消失，否则远端反复请求会
+/// 让本表无界增长。
+pub(crate) struct ClipboardRequestSlot {
+    selection: String,
+    registered_at: std::time::Instant,
+}
 
-static REQUEST_REGISTRY: LazyLock<Mutex<HashMap<(u64, u64), ClipboardAnswerTx>>> =
+/// 待宿主应用作答的 OSC 52 读取请求，按 (会话 id, 请求 id) 存入
+/// [`REQUEST_REGISTRY`]。
+static REQUEST_REGISTRY: LazyLock<Mutex<HashMap<(u64, u64), ClipboardRequestSlot>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// 有界超时地等待宿主应用作答剪贴板。返回 `None` 表示读取失败或宿主未作答：
@@ -902,33 +911,62 @@ fn report_clipboard_answer_missing(reason: &str) {
     log_clipboard_answer_missing(reason, rendering_paused, missing_log);
 }
 
-fn wait_for_clipboard_answer(rx: std::sync::mpsc::Receiver<Option<String>>) -> Option<String> {
-    // `recv_timeout` 直接等到应答或截止：手写轮询既多一个节流常量，又把应答延迟
-    // 摊平到一个轮询周期上。
-    match rx.recv_timeout(CLIPBOARD_ANSWER_TIMEOUT) {
-        Ok(answer) => answer,
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            report_clipboard_answer_missing("channel disconnected");
-            None
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            report_clipboard_answer_missing("timed out");
-            None
-        }
+/// 取走一条待答请求（宿主答复时调用）：槽位在即移除并交出，重复答复即无操作。
+pub(crate) fn take_request_slot(session_id: u64, request_id: u64) -> Option<ClipboardRequestSlot> {
+    REQUEST_REGISTRY.lock().remove(&(session_id, request_id))
+}
+
+/// 清掉超期未答复的请求槽位：槽位留着既占「未作答」额度（后续请求全被洪泛
+/// 削减），又让本表随远端反复请求无界增长。
+///
+/// 每清掉一条即记一次应答缺失诊断：宿主不应答是真实异常（仍在渲染时）或正常
+/// 退化（已暂停渲染时），分级见 [`clipboard_answer_missing_level`]。
+pub(crate) fn expire_stale_requests() {
+    let now = std::time::Instant::now();
+    // 开机不足 `CLIPBOARD_ANSWER_TIMEOUT` 的设备上 `now - 期限` 会下溢：
+    // 此时还没有任何槽位可能超期，直接跳过即可。
+    let Some(cutoff) = now.checked_sub(CLIPBOARD_ANSWER_TIMEOUT) else {
+        return;
+    };
+    expire_requests_older_than(cutoff);
+}
+
+/// 清掉登记时刻不晚于 `cutoff` 的槽位（`cutoff` 之前的即已超期）。
+fn expire_requests_older_than(cutoff: std::time::Instant) {
+    let mut expired = 0usize;
+    {
+        let mut registry = REQUEST_REGISTRY.lock();
+        registry.retain(|_, slot| {
+            let pending = slot.registered_at > cutoff;
+            if !pending {
+                expired += 1;
+            }
+            pending
+        });
+    }
+    for _ in 0..expired {
+        report_clipboard_answer_missing("timed out");
     }
 }
 
-pub(crate) fn register_request(
-    session_id: u64,
-) -> (u64, std::sync::mpsc::Receiver<Option<String>>) {
-    let (tx, rx) = std::sync::mpsc::channel();
+/// 登记一条待宿主作答的剪贴板读取请求，返回请求 id。
+///
+/// 槽位持有选择器名与登记时刻：宿主答复时按 id 取回选择器名组装应答，超时清理
+/// 按登记时刻判定。
+pub(crate) fn register_request(session_id: u64, selection: String) -> u64 {
     let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
-    REQUEST_REGISTRY.lock().insert((session_id, request_id), tx);
-    (request_id, rx)
+    REQUEST_REGISTRY.lock().insert(
+        (session_id, request_id),
+        ClipboardRequestSlot {
+            selection,
+            registered_at: std::time::Instant::now(),
+        },
+    );
+    request_id
 }
 
-/// 移除待处理的剪贴板请求而不作答。在应答线程启动前会话消失时调用，避免每次调用都在
-/// `REQUEST_REGISTRY` 中泄漏一个永不应答的一次性 Sender。
+/// 移除待处理的剪贴板请求而不作答。会话在请求登记后消失时调用：否则槽位要等
+/// 超期才被清掉，白占本会话的「未作答」额度。
 pub(crate) fn cancel_request(session_id: u64, request_id: u64) {
     REQUEST_REGISTRY.lock().remove(&(session_id, request_id));
 }

@@ -1,12 +1,33 @@
 use super::super::query::session_handle;
 use super::super::{
     Env, EnvUnowned, Event, FLOOD_SHED_WARN_THROTTLE, JClass, JString,
-    MAX_FLOOD_SHED_ANSWERS_PER_FRAME, MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION, REQUEST_REGISTRY,
-    ThrowRuntimeExAndFailure, cancel_request, flood_shed_warn_throttled, jlong, register_request,
-    unanswered_clipboard_reads, wait_for_clipboard_answer,
+    MAX_FLOOD_SHED_ANSWERS_PER_FRAME, MAX_UNANSWERED_CLIPBOARD_READS_PER_SESSION,
+    ThrowRuntimeExAndFailure, cancel_request, expire_stale_requests, flood_shed_warn_throttled,
+    jlong, register_request, take_request_slot, unanswered_clipboard_reads,
 };
 
 use crate::terminal::session::SessionError;
+
+/// 一条待写回的剪贴板应答：(会话 id, 选择器名, 应答文本)。
+type ClipboardAnswerJob = (u64, String, Option<String>);
+
+/// 已答复的剪贴板应答队列：宿主答复后入队，由唯一的应答写线程消费。
+///
+/// 一条读请求一个线程的做法每次请求要付一次线程创建（实测 26.5µs/次；洪泛时
+/// 每帧 8 条即 212µs 渲染线程时间，每秒 480 个线程），改为单线程消费后请求数
+/// 不再转化为线程数。
+static CLIPBOARD_ANSWER_JOBS: std::sync::OnceLock<std::sync::mpsc::Sender<ClipboardAnswerJob>> =
+    std::sync::OnceLock::new();
+
+/// 应答写线程的清扫间隔：超期未答复的槽位在这个节拍上被清掉。
+///
+/// 取 250ms：超期判定本身以 2s 为界（`CLIPBOARD_ANSWER_TIMEOUT`），清扫间隔只决定
+/// 判定精度——远端等的是应答本身，不是槽位消失的时刻。但精度仍须够细：槽位驻留
+/// 期间占着本会话的「未作答」额度，驻留越久，后续请求越早被洪泛削减。
+///
+/// 清扫 MUST NOT 只在队列空闲时做：宿主只答了部分请求时队列一直非空，只在空闲时
+/// 清扫会让那部分始终不应答的槽位永远驻留。
+const CLIPBOARD_SWEEP_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
 
 // ── OSC 52 剪贴板 ───────────────────────────────────────────────────
 /// 处理待处理的 OSC 52 剪贴板读取请求（在注册表/会话锁之外）：登记一次性应答槽位、
@@ -37,6 +58,11 @@ pub(super) fn handle_clipboard_reads(
     let mut shed_counts: Vec<(u64, usize)> = Vec::new();
     // 帧级上限/预算挡下的请求必须退回会话队列：远端在等应答，丢弃即永久挂住。
     let mut deferred: Vec<(u64, String)> = Vec::new();
+    // 首次登记读请求时启动应答写线程：答复从宿主 UI 线程来，写回 PTY 要等主端
+    // 写入锁，既不能在那里做，也不能在渲染线程上做。
+    if !pending_clipboard_reads.is_empty() {
+        ensure_answer_writer();
+    }
     for (session_id, selection) in pending_clipboard_reads {
         let unanswered =
             if let Some((_, count)) = shed_counts.iter().find(|(id, _)| *id == session_id) {
@@ -89,32 +115,14 @@ pub(super) fn handle_clipboard_reads(
             }
             continue;
         }
-        let (request_id, rx) = register_request(session_id);
+        let request_id = register_request(session_id, selection.clone());
         pending_events.push(Event::ClipboardRead {
             session_id,
             request_id,
             selection: selection.clone(),
         });
-        if let Some(session) = session_handle(session_id) {
-            std::thread::spawn(move || {
-                let answer = wait_for_clipboard_answer(rx);
-                // 应答线程是槽位的唯一所有者：无论宿主是否作答（事件被队列淘汰、
-                // UI 未处理、答复晚于截止时间），槽位至多存活 CLIPBOARD_ANSWER_TIMEOUT。
-                // 否则远端反复 `\e]52;c;?` 会让本表无界增长。
-                // 迟到的 clipboardResult 在此之后到达即为无操作（见 clipboard_result_inner）。
-                cancel_request(session_id, request_id);
-                let Some(text) = answer else { return };
-                let mut session = session.lock();
-                if let Err(error) = session.answer_clipboard_read(
-                    &selection,
-                    &text,
-                    crate::terminal::pty::WRITE_BACK_TIMEOUT,
-                ) {
-                    log_clipboard_write_back_failure(&error, &CLIPBOARD_WRITE_BACK_FAILURE_LOG);
-                }
-            });
-        } else {
-            // 应答线程启动前会话已消失：丢弃一次性槽位，避免 `REQUEST_REGISTRY` 泄漏 Sender。
+        if session_handle(session_id).is_none() {
+            // 会话已消失：丢弃槽位，避免它白占本会话的「未作答」额度。
             cancel_request(session_id, request_id);
         }
     }
@@ -199,32 +207,228 @@ pub(super) fn clipboard_result_inner<'local>(
     let session_id = session_id as u64;
     let request_id = request_id as u64;
 
-    // 先取出并立即释放 guard：`try_to_string` 可能触发 JVM GC safepoint，
-    // guard 若跨过 JNI 调用会把锁持有时间拉长。
-    let tx = REQUEST_REGISTRY.lock().remove(&(session_id, request_id));
-    if let Some(tx) = tx {
-        // null 是宿主读取失败，解码失败同理：都不能退化成空串，
-        // 否则远端把「读不到剪贴板」当成「用户清空了剪贴板」（见 wait_for_clipboard_answer）。
-        let answer = if text.is_null() {
-            None
-        } else {
-            match text.try_to_string(env) {
-                Ok(decoded) => Some(decoded),
-                Err(error) => {
-                    log::error!("osc52: clipboard answer decode failed: {error}");
-                    None
-                }
+    // null 是宿主读取失败，解码失败同理：都不能退化成空串，
+    // 否则远端把「读不到剪贴板」当成「用户清空了剪贴板」（见 write_back_clipboard_answer）。
+    let answer = if text.is_null() {
+        None
+    } else {
+        match text.try_to_string(env) {
+            Ok(decoded) => Some(decoded),
+            Err(error) => {
+                log::error!("osc52: clipboard answer decode failed: {error}");
+                None
             }
-        };
-        let _ = tx.send(answer);
+        }
+    };
+    deliver_host_answer(session_id, request_id, answer);
+}
+
+/// 交付一条宿主答复：取走待答槽位并把应答交给应答写线程。
+///
+/// 槽位在即答复（迟到的答复即无操作）：槽位持有选择器名与登记时刻，取走即
+/// 释放该会话的「未作答」额度。解码在取走槽位之前完成，故注册表锁从不跨过
+/// JNI 调用（`try_to_string` 可能触发 JVM GC safepoint）。
+///
+/// 写回应答要等主端写入锁（最坏 `WRITE_BACK_TIMEOUT`），故不能在答复到达的线程
+/// （宿主 UI 线程）上做，也不能在渲染线程上做。
+fn deliver_host_answer(session_id: u64, request_id: u64, answer: Option<String>) -> bool {
+    let Some(slot) = take_request_slot(session_id, request_id) else {
+        return false;
+    };
+    let Some(sender) = answer_job_sender() else {
+        return false;
+    };
+    let _ = sender.send((session_id, slot.selection, answer));
+    true
+}
+
+/// 应答队列的发送端；写线程尚未启动时为 `None`（此时不会有待答请求）。
+fn answer_job_sender() -> Option<std::sync::mpsc::Sender<ClipboardAnswerJob>> {
+    CLIPBOARD_ANSWER_JOBS.get().cloned()
+}
+
+/// 启动应答写线程（首次登记读请求时调用），返回应答队列的发送端。
+///
+/// 进程内只起一个写线程：请求数不再转化为线程数。
+fn ensure_answer_writer() -> std::sync::mpsc::Sender<ClipboardAnswerJob> {
+    CLIPBOARD_ANSWER_JOBS
+        .get_or_init(|| {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            std::thread::spawn(move || answer_writer_loop(receiver));
+            sender
+        })
+        .clone()
+}
+
+/// 应答写线程的主循环：消费已答复的读请求并写回 PTY；周期性清掉超期槽位。
+fn answer_writer_loop(receiver: std::sync::mpsc::Receiver<ClipboardAnswerJob>) {
+    let mut last_sweep = std::time::Instant::now();
+    loop {
+        let wait = CLIPBOARD_SWEEP_INTERVAL.saturating_sub(last_sweep.elapsed());
+        match receiver.recv_timeout(wait) {
+            Ok(job) => write_back_clipboard_answer(job),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+        // 清扫与队列是否空闲无关：宿主只答部分请求时队列一直非空，只在空闲时清扫
+        // 会让那部分始终不应答的槽位永远驻留，白占「未作答」额度。
+        if last_sweep.elapsed() >= CLIPBOARD_SWEEP_INTERVAL {
+            expire_stale_requests();
+            last_sweep = std::time::Instant::now();
+        }
+    }
+}
+
+/// 把一条已答复的剪贴板读请求写回对应会话的 PTY。
+fn write_back_clipboard_answer(job: ClipboardAnswerJob) {
+    let (session_id, selection, answer) = job;
+    // 空答复（宿主读取失败）不写回：空串等于告诉远端「用户剪贴板是空的」，
+    // tmux/ssh 会粘出空白且像是用户清空了剪贴板。
+    let Some(text) = answer else { return };
+    let Some(session) = session_handle(session_id) else {
+        // 会话已销毁：应答无处可去。与写失败同口径记 debug（见 `logcat-hygiene`
+        // 的「会话已结束后的剪贴板应答回写」）。
+        log::debug!("osc52: 会话已结束，丢弃剪贴板应答");
+        return;
+    };
+    let mut session = session.lock();
+    if let Err(error) =
+        session.answer_clipboard_read(&selection, &text, crate::terminal::pty::WRITE_BACK_TIMEOUT)
+    {
+        log_clipboard_write_back_failure(&error, &CLIPBOARD_WRITE_BACK_FAILURE_LOG);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{
-        SessionError, clipboard_write_back_session_gone, log_clipboard_write_back_failure,
+        Event, SessionError, clipboard_write_back_session_gone, deliver_host_answer,
+        handle_clipboard_reads, log_clipboard_write_back_failure,
     };
+
+    /// 宿主答复 "hello" 后的 OSC 52 应答帧（base64 编码负载）。
+    const ANSWER_FRAME: &[u8] = b"\x1b]52;c;aGVsbG8=\x07";
+
+    /// 一条读请求被宿主答复后，应答必须回到 PTY——整条链（登记 → 答复 → 写回）
+    /// 在共享的应答写线程上跑通。
+    ///
+    /// 判别力：写回路径若断在「答复入队」或「写线程消费」任一环，PTY 上就没有应答，
+    /// 远端会一直等下去；而只断言事件已产出则完全看不出后半段是否通。
+    #[test]
+    fn an_answered_read_request_is_written_back_to_the_pty() {
+        let (session, handle) = crate::terminal::mock_pty::mock_arc_session();
+        let session_id = 0x0C11_0BA5_u64;
+        super::super::super::wlock_session_registry().insert(
+            session_id,
+            super::super::super::SessionEntry::new(
+                Arc::clone(&session),
+                Arc::new(super::super::super::RenderWake::default()),
+            ),
+        );
+
+        let mut pending_events = Vec::new();
+        handle_clipboard_reads(vec![(session_id, "c".to_string())], &mut pending_events);
+        let request_id = match pending_events.as_slice() {
+            [
+                Event::ClipboardRead {
+                    session_id: event_session,
+                    request_id,
+                    ..
+                },
+            ] => {
+                assert_eq!(*event_session, session_id, "事件须归属登记的会话");
+                *request_id
+            }
+            other => panic!("读请求须产出且只产出一条读事件，实际 {other:?}"),
+        };
+
+        assert!(
+            deliver_host_answer(session_id, request_id, Some("hello".to_string())),
+            "答复须命中已登记的请求"
+        );
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            let written = handle.written();
+            if written
+                .windows(ANSWER_FRAME.len())
+                .any(|window| window == ANSWER_FRAME)
+            {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "答复必须在期限内写回 PTY，实际写回 {written:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        super::super::super::wlock_session_registry().remove(&session_id);
+    }
+
+    /// 重复答复同一请求只有第一次生效：槽位取走即消失，第二次是无操作。
+    ///
+    /// 判别力：槽位若在答复后仍留着，重复答复会把同一条应答写回两次，远端于是
+    /// 收到两份 OSC 52 应答。
+    #[test]
+    fn a_repeated_answer_is_a_no_op() {
+        let (session, handle) = crate::terminal::mock_pty::mock_arc_session();
+        let session_id = 0x0C11_0BA6_u64;
+        super::super::super::wlock_session_registry().insert(
+            session_id,
+            super::super::super::SessionEntry::new(
+                Arc::clone(&session),
+                Arc::new(super::super::super::RenderWake::default()),
+            ),
+        );
+
+        let mut pending_events = Vec::new();
+        handle_clipboard_reads(vec![(session_id, "c".to_string())], &mut pending_events);
+        let request_id = match pending_events.as_slice() {
+            [Event::ClipboardRead { request_id, .. }] => *request_id,
+            other => panic!("读请求须产出且只产出一条读事件，实际 {other:?}"),
+        };
+
+        assert!(deliver_host_answer(
+            session_id,
+            request_id,
+            Some("hello".to_string())
+        ));
+        assert!(
+            !deliver_host_answer(session_id, request_id, Some("hello".to_string())),
+            "同一请求的第二次答复须是无操作"
+        );
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            let written = handle.written();
+            if written
+                .windows(ANSWER_FRAME.len())
+                .any(|window| window == ANSWER_FRAME)
+            {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "答复必须在期限内写回 PTY，实际写回 {written:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        // 只写回一次：应答帧不重复。
+        assert_eq!(
+            handle
+                .written()
+                .windows(ANSWER_FRAME.len())
+                .filter(|window| *window == ANSWER_FRAME)
+                .count(),
+            1,
+            "同一次请求只许写回一条应答"
+        );
+
+        super::super::super::wlock_session_registry().remove(&session_id);
+    }
 
     /// 洪泛削减时每帧最多写 16 次应答，逐次记 warn 会把 logcat 刷成洪水。
     /// 失败按窗口汇总：首条立即交出窗口计数，窗口内的失败攒着下次一并交出。
