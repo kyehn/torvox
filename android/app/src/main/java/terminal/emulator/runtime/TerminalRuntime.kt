@@ -908,7 +908,7 @@ constructor(
                     throw serviceException
                 }
                 // stopService 的 binder 失败（罕见）不得让标志残留为真：陈旧标志会使
-                // 下次 startForegroundServiceIfNeeded 跳过启动，存活会话因此没有通知也没有唤醒锁。
+                // 下次 startForegroundServiceIfNeeded 跳过启动，存活会话因此没有常驻通知。
                 // 无论如何都重置标志——服务要么已停止，要么即将被系统杀死。
                 LogUtil.error("Runtime", "Failed to stop foreground service", serviceException)
                 false
@@ -922,7 +922,7 @@ constructor(
     /**
      * 更新前台服务的会话数，并保持 [foregroundServiceRunning] 标志同步：计数降到 0 时服务自行停止，
      * 故此处必须清除标志，否则后续 startForegroundServiceIfNeeded 会跳过重启服务
-     * ——无前台通知、无唤醒锁，后台会话可能被杀。
+     * ——无前台通知，后台会话可能被杀。
      *
      * 异常安全：在关闭路径上于会话总闸内调用，服务异常绝不能逃出锁
      * （否则会跳过 updateState 并破坏会话簿记）。
@@ -940,7 +940,7 @@ constructor(
                 throw exception
             }
             // 同理：启动没成功就不能让标志停在真，否则后续 startForegroundServiceIfNeeded
-            // 跳过重启，存活会话既无常驻通知也无唤醒锁。
+            // 跳过重启，存活会话没有常驻通知。
             foregroundServiceRunning = false
             LogUtil.error("Runtime", "updateSessionCount failed", exception)
         }
@@ -1760,7 +1760,7 @@ constructor(
                     setActiveSessionId(0L)
                     runtimeState.update { RuntimeState() }
                     // 服务可能在失败前已在锁内启动；把计数归零，
-                    // 使通知与唤醒锁不活得比空会话映射更久
+                    // 使前台服务连同通知与已申请的锁不活得比空会话映射更久
                     // （updateForegroundSessionCount 异常安全，且在 0 时清除运行标志）。
                     updateForegroundSessionCount(0)
                 }

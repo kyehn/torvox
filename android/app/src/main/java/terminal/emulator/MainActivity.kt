@@ -170,7 +170,7 @@ class MainActivity : ComponentActivity() {
         // 窗口保持不透明：SurfaceView 的开孔是窗口图层的真实透明区，切后台的
         // 系统快照取的是窗口缓冲；透明窗口会让开孔直接透出桌面（用户看到的闪）。
         // 主题的 windowBackground 已是终端底色，移除透明设置后开孔至少是同色底。
-        // 前台服务不在这里启动：它只为存活会话提供常驻通知与 PARTIAL_WAKE_LOCK，
+        // 前台服务不在这里启动：它只为存活会话提供常驻通知与按需唤醒锁，
         // 而首个会话由 `TerminalRuntime.startSession` 创建时经
         // `startForegroundServiceIfNeeded` 启动。冷启动时先起服务要付一次 AMS 往返
         // + 通知渠道创建，且裸 start() 的计数为 0，会被紧接着的会话更新覆盖。
@@ -400,8 +400,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         LogUtil.debug(TAG, "onDestroy")
         super.onDestroy()
-        // 无会话时停止前台服务：否则用户离开应用后服务（及其 PARTIAL_WAKE_LOCK）
-        // 永久存活，持续耗电并常驻通知。有活跃会话时必须继续运行。运行时在会话锁内
+        // 无会话时停止前台服务：否则用户离开应用后服务与常驻通知永久存活。
+        // 有活跃会话时必须继续运行。运行时在会话锁内
         // 重新核对：IO 线程上新建的后台会话可能已越过（较旧的）状态快照。
         runtime.stopForegroundServiceIfIdle()
     }

@@ -2,7 +2,7 @@
 
 ## 范围与依据
 
-- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 625 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（53,755 行）与 `android/app/src/main` 下 115 个 Kotlin 文件（30,343 行）逐个过目。
+- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 625 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（53,754 行）与 `android/app/src/main` 下 115 个 Kotlin 文件（30,349 行）逐个过目。
 - 外部规则：`awesome-skills/code-review-skill` 的 `SKILL.md`、`review-checklist.md`、`code-quality-universal.md`、`common-bugs-checklist.md`、`architecture-review-guide.md`、`performance-review-guide.md`、`security-review-guide.md`、`kotlin.md`、`rust.md`；`android/skills` 的 `android-jni-security`、`jetpack-compose-performance`、`anr-audit-and-fix`、`r8-analyzer`、`edge-to-edge`、`testing-setup`、`agp-9-upgrade`。
 - 本地规则：`docs/specification/` 全部文档，以及 `rust-review`、`rust-best-practices`、`code-review-and-quality`、`compose-expert`、`compose-screens-footguns`、`state-and-background-footguns`、`data-layer-footguns`、`security-and-hardening`。
 - 重点模块：Rust FFI/JNI 边界、会话与 PTY、渲染/Kitty 图集、字体与日志；Kotlin 启动与 ViewModel、渲染监督、Compose UI、设置/DataStore、DocumentsProvider、引导下载与解压、构建与 R8。
@@ -35,15 +35,45 @@
 | 字体图集 | 驱逐重建与字号/字体变化后的重置各写一份「重建 etagere 分配器 + 位图清零」 | 收敛为 `reset_atlas_storage`；只重建分配器而忘了清位图会让新字形与旧像素叠加 |
 | 终端帧 | 帧网格在行缓存、帧邮箱与渲染侧各存一份整网格拷贝（24×80 约 184KB），每帧多两次「分配 + 拷贝」 | 帧网格改为单一所有权（`Arc` 共享），三者共用一份；分配预算护栏收紧到每帧 2 份整帧缓冲，帧内存身份比对作回归钉；取舍台账第⑨项 |
 | 前台服务 | 唤醒锁默认自动持有，并设 30 分钟超时 + 半程续期定时器，与 DESIGN「不自动申请、不自动持锁、锁由通知栏按钮切换、无超时机制」冲突 | 默认改为不持锁，仅由通知栏按钮申请/释放；移除超时与续期定时器，锁只由用户释放或会话归零释放；补「默认不取锁」「按钮双向切换」「长时间不失锁」三条用例；规范同步 |
+| 现行规范 | Gradle wrapper 已升到 9.9.3，而 `build-and-validation` 与 `code-health` 两处规范仍写 9.9.2，「唯一弃用警告只有一条」那条判据无法按记录的版本复现 | 两处规范同步到 9.9.3，并实测复核：9.9.3 + AGP 9.6.0-alpha06 下 `:app:compileDebugKotlin --warning-mode all` 的弃用警告仍恰好一条（`Configuration.setVisible(boolean)`） |
+| PTY | shell 路径与解释器路径各写一份 prefix 判据，分隔符 `/` 容易漏写；同一处还留着恒真的 `contains('\0')`（含 NUL 的路径已由 `cstring_without_null` 在 fork 前以 `?` 拒绝） | 判据收敛为 `under_prefix` 共享实现，按路径元素比较（`<prefix>_evil/…` 不再算 prefix 下）；删除恒真分支；补边界用例 |
+| PTY | shell 与脚本解释器两条 linker 路径各写一份逐字相同的 `CString::new(linker_path())` 及其错误映射 | 收敛为 `linker_cstring`；该文件在严格重复率口径下归零 |
+| 静态检查 | 方案调研文档照录被禁 API 的事实触发 `no-termux-api-refs` 误报，质量门红灯 | 按既有豁免口径按文件路径豁免（与 `docs/persistence/*`、`docs/specification/*` 同类）；探针验证代码侧仍被拦下 |
 
-重复度扫描（`jscpd`，阈值 8 行/80 token）：Rust 0 处克隆；Kotlin 1 处 11 行重复，且为两个设置分区的相同 import 块，不构成逻辑重复。另以更严的阈值（5 行/40 token）复扫一遍，触及生产文件的 34 处命中已逐类判定并留档（Kotlin import 段 14、Android 资源 3、JNI 导出签名 10、转发函数参数表 3、VT 核心参数表 3、wgpu 回读样板 1），其中真重复已收敛为共享实现，判定明细见 `openspec/changes/archive/2026-11-24-code-health-audit/audit.md` 的严格口径一节。
+重复度扫描（`jscpd`，阈值 8 行/80 token）：Rust 0 处克隆；Kotlin 1 处 11 行重复，且为两个设置分区的相同 import 块，不构成逻辑重复。另以更严的阈值（5 行/40 token）复扫一遍，全量命中 128 处 / 926 行 / 1.09%；逐类判定后，生产代码内的命中归为四类且均不构成逻辑重复：Kotlin import 段与 Compose 脚手架（18 处）、Android 资源文件（3 处）、Rust 函数签名形状（JNI 导出与转发函数的参数表，20 处）、文档注释（6 处）。唯一两处可收敛的真重复已处理：`pty.rs` 的 prefix 判据与 linker CString 构造，收敛后该文件在严格口径下归零。判定明细见 `openspec/changes/archive/2026-11-24-code-health-audit/audit.md` 的严格口径一节。
 
 ## 验证
 
-- Rust：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 通过；`cargo test --all-targets` 为 989 + 1 + 2 + 1 个测试全部通过。
-- Android：`nu scripts/build-android-libs.nu x86_64` 后执行 `detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、`testDebugUnitTest`（1174 个单元测试）、benchmark 与 baselineprofile 编译、`assembleRelease`、`analyzeReleaseR8Config`，全部 `BUILD SUCCESSFUL`。
+- `./scripts/check.nu` 全量质量门通过（fmt、clippy、arm64 ndk clippy、cargo-machete、cargo test、rustdoc `-D warnings`、bench、release 构建、semgrep 55 条规则 0 命中、markdownlint 0 issue、openspec strict 55/55、Gradle 全套 `BUILD SUCCESSFUL`）。
+- Rust：`cargo test --all-targets` 为 991 + 1 + 2 + 1 个测试全部通过；`cargo clippy --all-targets -- -D warnings` 零告警。
+- Android：`testDebugUnitTest` 为 1174 个单元测试全部通过；`detekt`、`spotlessCheck`、`app:dokkaGenerate`、`lintDebug`、`lintVitalRelease`、`assembleDebugAndroidTest`、benchmark 与 baselineprofile 编译全部 `BUILD SUCCESSFUL`。
+- JNI 边界：Rust 侧 78 个 `Java_*` 导出与 Kotlin `NativeBridge.kt` 78 个 `external fun` 双向差集为空（名字、参数个数与类型均核对）。
 - 反汇编 release `classes.dex`：69 个可达 JNI 方法全部保留；9 个仅诊断/测试用且 Kotlin 侧无可达调用点的方法随死代码移除，原生侧不存在通过 JNI 反射回调 Kotlin 的路径。
 - 全部修复均已提交并推送到 `origin/main`。
+
+## 审查结论（rust-review 口径）
+
+审查对象为 `native` crate 全部 147 个 Rust 文件与 `android/app/src/main` 全部 115 个 Kotlin 文件（53,755 + 30,343 行）。`native` 是应用型 crate（cdylib + lib，无 feature 开关、MSRV 1.99、edition 2024），故按「简洁性优先」的适用规则审，不套用库的严格 API 契约。clippy、测试与全量质量门均已实跑。
+
+### Must fix
+
+无。全部已发现缺陷均已修复并落库，本轮新发现的三项（规范版本漂移、PTY prefix 判据与恒真分支、方案调研文档误触静态规则）已分别提交并推送。
+
+### Should fix
+
+无未决项。
+
+### Consider
+
+- `android/app/src/main/java/terminal/emulator/ui/BackgroundRenderPause.kt:42` 与 `SurfaceAttachGate.kt:37` 是两个刻意同构的单槽暂停凭证持有者（各 9 行重复）。两者线程契约不同（前者 `@Volatile` 供 IO 线程读，后者限主线程），释放与清凭证的顺序也因此相反；合并需要引入模式参数，复杂度反超重复本身，故保留现状。
+- `native/src/terminal/ghostty_terminal/public_api/encoding.rs` 的公开版与「通道外置版」成对出现（形似重复）。这是为让每次鼠标移动不持会话锁而刻意分出的两条入口，签名形状相同属必然。
+
+### What's already good
+
+- JNI 边界干净：Rust 导出与 Kotlin 声明双向一一对应，无孤儿方法；局部引用在长列表路径上逐个释放。
+- 帧内存路径做到单一所有权：`Arc<Vec<CellData>>` 共享给行缓存、帧邮箱与渲染侧，每帧省两次整网格拷贝，并有分配预算护栏与帧内存身份比对作回归钉。
+- 渲染热路径的代际稳定性处理扎实：图集代际推进时降级为全量重建并作废缓存写回，避免用已搬迁的 UV 采样。
+- 失败路径不留幻觉：会话未知、PTY 未排空、execve 失败等都有明确的错误类型与日志，不靠吞异常伪装成功。
 
 ## 已知残余风险
 

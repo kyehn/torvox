@@ -43,8 +43,8 @@ class TerminalForegroundService : Service() {
          * 返回值必须外传：后台启动被系统拒绝时（API 31+ 的
          * `ForegroundServiceStartNotAllowedException`，如系统杀掉服务而 `START_STICKY`
          * 尚未重启），调用方的「服务在运行」标志若停在真，此后
-         * `startForegroundServiceIfNeeded` 会永远跳过重启——存活会话既没有常驻通知
-         * 也没有 `PARTIAL_WAKE_LOCK`，后台随时可能被杀且用户看不到任何提示。
+         * `startForegroundServiceIfNeeded` 会永远跳过重启——存活会话没有常驻通知，
+         * 后台随时可能被杀且用户看不到任何提示。
          */
         fun updateSessionCount(context: Context, count: Int): Boolean {
             if (count <= 0) {
@@ -123,6 +123,12 @@ class TerminalForegroundService : Service() {
             wakeLockRequested = intent.action == ACTION_WAKE_LOCK
             applyWakeLockState()
             startForegroundWithSessionCount(sessionCount)
+            if (sessionCount == 0) {
+                // 陈旧通知的动作可能在最后一个会话关闭、服务已停止后到达：
+                // 无会话可保活，停掉服务而不是无限期挂着「启动中」。
+                stopSelf()
+                return START_NOT_STICKY
+            }
             return START_STICKY
         }
         // 进程被杀后 START_STICKY 重启：没有会话能在进程死亡后存活，
@@ -136,7 +142,7 @@ class TerminalForegroundService : Service() {
                 intent.getIntExtra(EXTRA_SESSION_COUNT, 0).coerceAtLeast(0)
             } else {
                 // 裸 start()（冷启动/首个会话）不带计数：不得回落成 1——此时可能尚无会话，
-                // 谎报「1 个活动会话」并为不存在的会话持有唤醒锁。
+                // 谎报「1 个活动会话」。
                 // 沿用上次已知值（冷启动为 0，即「启动中」）。
                 sessionCount
             }

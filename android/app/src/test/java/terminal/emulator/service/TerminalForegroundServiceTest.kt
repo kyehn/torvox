@@ -265,7 +265,7 @@ class TerminalForegroundServiceTest {
     /**
      * `updateSessionCount` 的返回值必须如实反映「是否真的发起」：后台启动被系统拒绝时
      * 调用方要靠它清掉「服务在运行」标志，否则后续 `startForegroundServiceIfNeeded`
-     * 会永远跳过重启，存活会话既无常驻通知也无唤醒锁。
+     * 会永远跳过重启，存活会话没有常驻通知。
      */
     @Test
     fun `the notification offers a wake lock action next to exit`() {
@@ -363,6 +363,10 @@ class TerminalForegroundServiceTest {
         )
         assertNull("no session means no wake lock", ShadowPowerManager.getLatestWakeLock())
         assertEquals("no session means no wifi lock", 0, shadowWifiManager.getActiveLockCount())
+        assertTrue(
+            "a stale action without sessions must stop the service",
+            shadowOf(controller.get()).isStoppedBySelf,
+        )
     }
 
     private fun postedNotification(): Notification {
