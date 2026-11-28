@@ -1,5 +1,6 @@
 package terminal.emulator
 
+import android.content.Context
 import android.content.res.AssetFileDescriptor
 import android.database.Cursor
 import android.database.MatrixCursor
@@ -269,20 +270,23 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         super.shutdown()
     }
 
+    private val providerContext: Context
+        get() = requireNotNull(context) { "TerminalDocumentsProvider requires a Context" }
+
     private val queries: DocumentQueries by lazy {
-        DocumentQueries(requireNotNull(context) { "TerminalDocumentsProvider requires a Context" })
+        DocumentQueries(providerContext)
     }
 
     private val watcher: DocumentWatcher by lazy {
         DocumentWatcher(
-            requireNotNull(context) { "TerminalDocumentsProvider requires a Context" },
+            providerContext,
             { queries.rootDir() },
         )
     }
 
     private val mutations: DocumentMutations by lazy {
         DocumentMutations(
-            requireNotNull(context) { "TerminalDocumentsProvider requires a Context" },
+            providerContext,
             { queries.rootDir() },
         )
     }
