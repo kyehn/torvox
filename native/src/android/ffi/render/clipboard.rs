@@ -307,19 +307,16 @@ mod tests {
         Event, SessionError, clipboard_write_back_session_gone, deliver_host_answer,
         handle_clipboard_reads, log_clipboard_write_back_failure,
     };
+    use crate::terminal::mock_pty::MockPtyHandle;
 
     /// 宿主答复 "hello" 后的 OSC 52 应答帧（base64 编码负载）。
     const ANSWER_FRAME: &[u8] = b"\x1b]52;c;aGVsbG8=\x07";
 
-    /// 一条读请求被宿主答复后，应答必须回到 PTY——整条链（登记 → 答复 → 写回）
-    /// 在共享的应答写线程上跑通。
+    /// 登记一个会话并走完「读请求登记 → 事件产出」，返回请求 id 与 PTY 写入面。
     ///
-    /// 判别力：写回路径若断在「答复入队」或「写线程消费」任一环，PTY 上就没有应答，
-    /// 远端会一直等下去；而只断言事件已产出则完全看不出后半段是否通。
-    #[test]
-    fn an_answered_read_request_is_written_back_to_the_pty() {
+    /// 两条用例的这段铺陈完全相同：各写一份就是一处真重复（jscpd 命中）。
+    fn register_read_request(session_id: u64) -> (u64, MockPtyHandle) {
         let (session, handle) = crate::terminal::mock_pty::mock_arc_session();
-        let session_id = 0x0C11_0BA5_u64;
         super::super::super::wlock_session_registry().insert(
             session_id,
             super::super::super::SessionEntry::new(
@@ -327,7 +324,6 @@ mod tests {
                 Arc::new(super::super::super::RenderWake::default()),
             ),
         );
-
         let mut pending_events = Vec::new();
         handle_clipboard_reads(vec![(session_id, "c".to_string())], &mut pending_events);
         let request_id = match pending_events.as_slice() {
@@ -343,12 +339,13 @@ mod tests {
             }
             other => panic!("读请求须产出且只产出一条读事件，实际 {other:?}"),
         };
+        (request_id, handle)
+    }
 
-        assert!(
-            deliver_host_answer(session_id, request_id, Some("hello".to_string())),
-            "答复须命中已登记的请求"
-        );
-
+    /// 等应答帧落到 PTY（最多 3s）：写回在应答写线程上异步发生。
+    ///
+    /// 返回落盘的全部字节：调用方要数应答帧的份数。
+    fn wait_for_answer_frame(handle: &MockPtyHandle) -> Vec<u8> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         loop {
             let written = handle.written();
@@ -356,7 +353,7 @@ mod tests {
                 .windows(ANSWER_FRAME.len())
                 .any(|window| window == ANSWER_FRAME)
             {
-                break;
+                return written;
             }
             assert!(
                 std::time::Instant::now() < deadline,
@@ -364,8 +361,30 @@ mod tests {
             );
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
+    }
 
+    /// 从会话注册表移除测试会话。
+    fn remove_session(session_id: u64) {
         super::super::super::wlock_session_registry().remove(&session_id);
+    }
+
+    /// 一条读请求被宿主答复后，应答必须回到 PTY——整条链（登记 → 答复 → 写回）
+    /// 在共享的应答写线程上跑通。
+    ///
+    /// 判别力：写回路径若断在「答复入队」或「写线程消费」任一环，PTY 上就没有应答，
+    /// 远端会一直等下去；而只断言事件已产出则完全看不出后半段是否通。
+    #[test]
+    fn an_answered_read_request_is_written_back_to_the_pty() {
+        let session_id = 0x0C11_0BA5_u64;
+        let (request_id, handle) = register_read_request(session_id);
+
+        assert!(
+            deliver_host_answer(session_id, request_id, Some("hello".to_string())),
+            "答复须命中已登记的请求"
+        );
+        wait_for_answer_frame(&handle);
+
+        remove_session(session_id);
     }
 
     /// 重复答复同一请求只有第一次生效：槽位取走即消失，第二次是无操作。
@@ -374,22 +393,8 @@ mod tests {
     /// 收到两份 OSC 52 应答。
     #[test]
     fn a_repeated_answer_is_a_no_op() {
-        let (session, handle) = crate::terminal::mock_pty::mock_arc_session();
         let session_id = 0x0C11_0BA6_u64;
-        super::super::super::wlock_session_registry().insert(
-            session_id,
-            super::super::super::SessionEntry::new(
-                Arc::clone(&session),
-                Arc::new(super::super::super::RenderWake::default()),
-            ),
-        );
-
-        let mut pending_events = Vec::new();
-        handle_clipboard_reads(vec![(session_id, "c".to_string())], &mut pending_events);
-        let request_id = match pending_events.as_slice() {
-            [Event::ClipboardRead { request_id, .. }] => *request_id,
-            other => panic!("读请求须产出且只产出一条读事件，实际 {other:?}"),
-        };
+        let (request_id, handle) = register_read_request(session_id);
 
         assert!(deliver_host_answer(
             session_id,
@@ -401,25 +406,10 @@ mod tests {
             "同一请求的第二次答复须是无操作"
         );
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        loop {
-            let written = handle.written();
-            if written
-                .windows(ANSWER_FRAME.len())
-                .any(|window| window == ANSWER_FRAME)
-            {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "答复必须在期限内写回 PTY，实际写回 {written:?}"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
+        let written = wait_for_answer_frame(&handle);
         // 只写回一次：应答帧不重复。
         assert_eq!(
-            handle
-                .written()
+            written
                 .windows(ANSWER_FRAME.len())
                 .filter(|window| *window == ANSWER_FRAME)
                 .count(),
@@ -427,7 +417,7 @@ mod tests {
             "同一次请求只许写回一条应答"
         );
 
-        super::super::super::wlock_session_registry().remove(&session_id);
+        remove_session(session_id);
     }
 
     /// 洪泛削减时每帧最多写 16 次应答，逐次记 warn 会把 logcat 刷成洪水。
