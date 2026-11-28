@@ -2,7 +2,7 @@
 
 ## 范围与依据
 
-- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 625 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（53,608 行）与 `android/app/src/main` 下 115 个 Kotlin 文件（30,381 行）逐个过目。
+- 审查对象：全仓现行代码，不以某次 diff 或提交为界。`docs/REVIEW_CHECKLIST.md` 由 `git ls-files` 枚举 625 个受控文件并逐行记录行数、风险命中与核验结论；其中 `native/src` 下 147 个 Rust 文件（53,615 行）与 `android/app/src/main` 下 115 个 Kotlin 文件（30,381 行）逐个过目。
 - 外部规则：`awesome-skills/code-review-skill` 的 `SKILL.md`、`review-checklist.md`、`code-quality-universal.md`、`common-bugs-checklist.md`、`architecture-review-guide.md`、`performance-review-guide.md`、`security-review-guide.md`、`kotlin.md`、`rust.md`；`android/skills` 的 `android-jni-security`、`jetpack-compose-performance`、`anr-audit-and-fix`、`r8-analyzer`、`edge-to-edge`、`testing-setup`、`agp-9-upgrade`。
 - 本地规则：`docs/specification/` 全部文档，以及 `rust-review`、`rust-best-practices`、`code-review-and-quality`、`compose-expert`、`compose-screens-footguns`、`state-and-background-footguns`、`data-layer-footguns`、`security-and-hardening`。
 - 重点模块：Rust FFI/JNI 边界、会话与 PTY、渲染/Kitty 图集、字体与日志；Kotlin 启动与 ViewModel、渲染监督、Compose UI、设置/DataStore、DocumentsProvider、引导下载与解压、构建与 R8。
@@ -27,8 +27,14 @@
 | JNI | `setExtraFontPaths` 的路径数组元素每次循环新建局部引用且不释放，入口参数长度不受限，足够长的数组会耗尽局部引用表（上限 512） | 读毕即删局部引用（解码失败的提前返回分支同样释放） |
 | 输入 | 触摸拖动的「已转发滚轮」标记被本次编码结果覆盖：前一档已转发、后一档因 VT 忙而拿不到编码器时标记回落，本地回滚在手势中途接管，应用与本地同时滚动 | 标记在手势内只升不降；判定抽为纯函数 `wheelForwardedState` 并补 JVM 回归测试；规范同步 |
 | 终端网格 | `DISCONNECTED_COLS`/`DISCONNECTED_ROWS` 是 u32 常量，却先 `as u16` 收窄再升回 u32，窄化本身有损 | 直接按上游 `cols()`/`rows()` 的 u16 取值映射到 u32，回退值用常量的原生类型 |
+| JNI | 网格尺寸、VT 忙时长、PTY 投递忙时长三处各抄了一份「查会话 → 读一个值 → 会话未知给默认」的样板 | 收敛为 `session_scalar`，会话未知的回落口径只剩一处；补回归钉固定「未知会话 → 默认值」 |
+| PTY | spawn 的 linker 路径、argv 收尾与含 NUL 的文本转换各写多份，含 NUL 的报错口径还分叉（有的带出错位置，有的只留一句 contains null byte） | 收敛为 `linker_path`、`push_shell_arguments` 与 `cstring_without_null`，报错统一带上出错位置；补三个回归钉 |
+| 终端会话 | 剪贴板读取请求与 VT 应答的队列溢出裁剪逻辑逐字相同 | 收敛为一个泛型实现；两个上限常量与窗口计数口径不变 |
+| 选区手柄 | 快速拖动路径与常规拖动路径各写一份「更新被拖端点状态 + 重定位两侧手柄」 | 收敛为 `applyDragResult`，端点语义不再可能分叉 |
+| JNI | 等待输出与唤醒渲染两处各抄了一份「取注册表读锁 → 查会话 → 克隆唤醒器 → 放锁」 | 收敛为 `session_render_wake`，读锁持有范围与会话已销毁的处置口径只剩一处 |
+| 字体图集 | 驱逐重建与字号/字体变化后的重置各写一份「重建 etagere 分配器 + 位图清零」 | 收敛为 `reset_atlas_storage`；只重建分配器而忘了清位图会让新字形与旧像素叠加 |
 
-重复度扫描（`jscpd`，阈值 8 行/80 token）：Rust 0 处克隆；Kotlin 1 处 11 行重复，且为两个设置分区的相同 import 块，不构成逻辑重复。
+重复度扫描（`jscpd`，阈值 8 行/80 token）：Rust 0 处克隆；Kotlin 1 处 11 行重复，且为两个设置分区的相同 import 块，不构成逻辑重复。另以更严的阈值（5 行/40 token）复扫一遍，触及生产文件的 34 处命中已逐类判定并留档（Kotlin import 段 14、Android 资源 3、JNI 导出签名 10、转发函数参数表 3、VT 核心参数表 3、wgpu 回读样板 1），其中真重复已收敛为共享实现，判定明细见 `openspec/changes/archive/2026-11-24-code-health-audit/audit.md` 的严格口径一节。
 
 ## 验证
 
@@ -40,3 +46,4 @@
 ## 已知残余风险
 
 - 未连接真机执行 GPU/JNI 压力测试与 Android instrumentation 测试；设备特定纹理上限已按运行时 `limits()` 兜底，但真机路径仍需在有设备环境复验。
+- 同一仓库存在并行提交者：其提交会把工作区暂存的内容一并卷入（本次「滚轮转发标记只升不降」的修复即随另一笔 `refactor(pty)` 提交落库，随后该提交被改写）。提交前须逐文件核对暂存区，勿把他人的半成品计入自己的提交；跨提交的归属以文件内容与本记录为准，不以提交标题为准。

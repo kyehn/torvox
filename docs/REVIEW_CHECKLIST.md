@@ -177,7 +177,7 @@
 | Kotlin main | `android/app/src/main/java/terminal/emulator/settings/TermuxPropertiesRepository.kt` | 174 | 0 | detekt/spotless/lint/单元测试通过；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/BackgroundRenderPause.kt` | 63 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/ComposingDiff.kt` | 92 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
-| Compose UI | `android/app/src/main/java/terminal/emulator/ui/HandleDragController.kt` | 291 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
+| Compose UI | `android/app/src/main/java/terminal/emulator/ui/HandleDragController.kt` | 300 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/ImeConnection.kt` | 577 | 3 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；人工重点复核；风险模式命中 3 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/ImeShiftController.kt` | 458 | 0 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；工具链覆盖；风险模式命中 0 处 |
 | Compose UI | `android/app/src/main/java/terminal/emulator/ui/ModifierBar.kt` | 1186 | 2 | detekt/spotless/lint/单元测试通过；Compose 与语义在 instrumentation 中覆盖；人工重点复核；风险模式命中 2 处 |
@@ -504,10 +504,10 @@
 | Rust/native | `native/src/android/ffi/search_highlight_tests.rs` | 141 | 2 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 2 处 |
 | Rust/native | `native/src/android/ffi/session.rs` | 299 | 4 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；人工重点复核；风险模式命中 4 处 |
 | Rust/native | `native/src/android/ffi/session_entry_flag_tests.rs` | 69 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
-| Rust/native | `native/src/android/ffi/session_registry_tests.rs` | 284 | 3 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 3 处 |
+| Rust/native | `native/src/android/ffi/session_registry_tests.rs` | 316 | 3 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 3 处 |
 | Rust/native | `native/src/android/ffi/session_scoped_tests.rs` | 42 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
-| Rust/native | `native/src/android/ffi/state.rs` | 358 | 8 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 8 处 |
-| Rust/native | `native/src/android/ffi/wake.rs` | 162 | 4 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 4 处 |
+| Rust/native | `native/src/android/ffi/state.rs` | 366 | 8 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 8 处 |
+| Rust/native | `native/src/android/ffi/wake.rs` | 164 | 4 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 4 处 |
 | Rust/native | `native/src/android/keymap.rs` | 227 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/android/logging.rs` | 155 | 9 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 9 处 |
 | Rust/native | `native/src/android/mod.rs` | 191 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
@@ -527,13 +527,13 @@
 | Rust/native | `native/src/render/context/renderer.rs` | 849 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |
 | Rust/native | `native/src/render/context/surface.rs` | 236 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/render/context/tests.rs` | 253 | 5 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 5 处 |
-| Rust/native | `native/src/render/font/atlas.rs` | 345 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
+| Rust/native | `native/src/render/font/atlas.rs` | 354 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/render/font/cjk.rs` | 269 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/render/font/font_db.rs` | 978 | 2 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 2 处 |
 | Rust/native | `native/src/render/font/font_db/tests.rs` | 861 | 26 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 26 处 |
 | Rust/native | `native/src/render/font/glyph_cache.rs` | 224 | 8 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 8 处 |
 | Rust/native | `native/src/render/font/mod.rs` | 218 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
-| Rust/native | `native/src/render/font/pipeline.rs` | 956 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
+| Rust/native | `native/src/render/font/pipeline.rs` | 952 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/render/font/pipeline/families.rs` | 680 | 5 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 5 处 |
 | Rust/native | `native/src/render/font/rasterization.rs` | 213 | 2 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 2 处 |
 | Rust/native | `native/src/render/font/shaping.rs` | 374 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
@@ -597,13 +597,13 @@
 | Rust/native | `native/src/terminal/mock_pty.rs` | 302 | 23 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 23 处 |
 | Rust/native | `native/src/terminal/mod.rs` | 56 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/output_processor.rs` | 634 | 2 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 2 处 |
-| Rust/native | `native/src/terminal/pty.rs` | 880 | 26 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 26 处 |
+| Rust/native | `native/src/terminal/pty.rs` | 881 | 26 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 26 处 |
 | Rust/native | `native/src/terminal/pty/child.rs` | 179 | 9 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 9 处 |
 | Rust/native | `native/src/terminal/pty/env.rs` | 103 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
-| Rust/native | `native/src/terminal/pty/tests.rs` | 848 | 66 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 66 处 |
+| Rust/native | `native/src/terminal/pty/tests.rs` | 903 | 69 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 69 处 |
 | Rust/native | `native/src/terminal/session/lifecycle.rs` | 227 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/session/mod.rs` | 392 | 1 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 1 处 |
-| Rust/native | `native/src/terminal/session/output.rs` | 465 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
+| Rust/native | `native/src/terminal/session/output.rs` | 472 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/session/pty_master.rs` | 123 | 0 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 0 处 |
 | Rust/native | `native/src/terminal/session/spawn.rs` | 305 | 2 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 2 处 |
 | Rust/native | `native/src/terminal/session/tests/basics.rs` | 97 | 2 | rustfmt/clippy --all-targets -D warnings/cargo test --all-targets 通过；工具链覆盖；风险模式命中 2 处 |

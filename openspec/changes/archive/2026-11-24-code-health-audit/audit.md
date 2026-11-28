@@ -15,8 +15,8 @@
 
 | 口径 | sources | lines | tokens | clones | duplicatedLines | 重复率 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 生产 | 266 | 69027 | 524397 | 3 | 30 | 0.04% |
-| 全量 | 529 | 104874 | 805042 | 26 | 257 | 0.25% |
+| 生产 | 266 | 69222 | 525338 | 3 | 30 | 0.04% |
+| 全量 | 530 | 105155 | 806680 | 26 | 257 | 0.24% |
 
 复算轮次：2026-11-27（同一组参数、同一条命令）。克隆集合与首轮基线完全相同，
 `lines`/`tokens` 随代码树变化（生产 68916 → 69140 → 69202 → 69185 → 68748 行、全量
@@ -27,6 +27,9 @@
 第 7 轮（同参数）克隆集合仍为首轮那 3 / 26 处，生产 68748 → 69027 行、全量 104516 →
 104874 行的增长来自组合簇整形零分配改造、Kitty 图集上限判定、JNI 局部引用释放与全仓审查
 留档，重复率不变。
+第 8 轮（同参数）克隆集合仍为首轮那 3 / 26 处，生产 69027 → 69222 行、全量 104874 →
+105155 行的增长来自本轮的去重改造与配套回归测试；全量口径重复率由 0.25% 降到 0.24% 是
+分母增长所致，不是克隆减少。
 
 生产口径三处命中的判定：
 
@@ -58,6 +61,58 @@
 按本规范「同一夹具在两处以上复制时 MUST 收敛为一处共享实现」，该夹具已收敛为
 `spawn_shell_and_write`（工作目录生效、工作目录缺失回退、PATH 前缀三处共用），
 调用点各自的断言强度不变；收敛后生产口径回到 3 处克隆，全量口径回到 26 处。
+
+### 严格口径复扫（min-lines 5 / min-tokens 40）
+
+规范口径只报 8 行 / 60 token 以上的片段，短片段里的真重复会漏过。故另用一组更严的
+参数复扫一遍，专门找规范口径看不到的短重复；两组参数不同，结果不直接比较。
+
+- 工具与参数：`jscpd` 4.0.5，`--min-lines 5 --min-tokens 40`，范围为 `native/src` 与
+  `android/app/src/main`，并排除测试专用文件（`tests/` 目录、`*_tests.rs`、`*Test.kt`）。
+- 结果：53 处命中，其中 34 处触及生产文件，19 处两侧均为测试代码（测试夹具与断言样板）。
+
+触及生产文件的 34 处逐类判定：
+
+1. Kotlin 的包声明与 import 段（14 处）：各文件按需 import 同一组 Compose 与项目符号，
+   合并只能靠通配导入或门面对象，换来的是可读性与静态检查退化，违 `STYLE.md` 的一次性
+   抽象禁令。判为天然相似。
+2. Android 资源（3 处）：`launcher_monochrome.xml` 与 `logo_art.xml` 的 `<vector>` 头与
+   `<group>` 变换、`ic_launcher.xml` 与 `ic_launcher_round.xml` 的启动器别名、
+   `data_extraction_rules.xml` 内两段同形排除规则。drawable 不支持跨文件引用几何，
+   资源别名必须自带同一份声明。判为天然相似。
+3. JNI 导出签名（10 处）：导出函数名由 `Java_terminal_emulator_bridge_NativeBridge_<方法名>`
+   固定，参数表由 Kotlin 的 `NativeBridge` 声明决定，签名形状不可合并；各导出的函数体
+   已共享同一实现（会话标量查询、终端标志读取、批量字符串查询、单会话查询）。判为 ABI
+   固定。
+4. 转发函数的参数表（3 处）：`public_api/encoding.rs` 的公开入口与通道外置版、
+   `internal/rendering.rs` 的薄封装与被转发者。参数表与被转发者逐项相同正是转发的
+   前提，打包成结构体要改的是调用链而不是重复本身。判为转发形状。
+5. VT 核心命令函数的参数表（3 处）：`internal/run.rs`、`internal/dispatch.rs`、
+   `internal/commands.rs` 成组传递「配置 + 终端 + 抽取器 + 状态」。打包成上下文结构体
+   需改动 VT 线程的全部命令路径，并把「每个函数只拿自己用得到的状态」变成一个共享可变
+   别名——判据不变而可读性与借用检查都变差。判为转发形状。
+6. wgpu 纹理回读样板（1 处）：`render/context/cover.rs` 的生产实现与
+   `render/pass/tests.rs` 的用例各自写一份 `copy_texture_to_buffer` 参数。生产侧是真实
+   实现，测试侧是 API 形状，合并需跨模块暴露内部细节。判为天然相似。
+
+本轮按该口径判定为真重复并已收敛的命中（收敛后复扫不再命中）：
+
+- 慢帧诊断的 60ms 警告分级（`render/pass/frame.rs` 与 `android/ffi/render/frame.rs`）：
+  收敛为 `slow_log::slow_frame_log_level`，级别判定为纯函数，用例无需安装 logger。
+- 会话标量查询（`android/ffi/state.rs` 的网格尺寸、VT 忙时长、PTY 投递忙时长）：
+  收敛为 `session_scalar`，「会话未知即默认值」只剩一处口径。
+- PTY spawn 的参数装配（`terminal/pty.rs`）：linker 路径、argv 收尾与含 NUL 的文本转换
+  收敛为 `linker_path`、`push_shell_arguments` 与 `cstring_without_null`。
+- 队列溢出裁剪（`terminal/session/output.rs` 的剪贴板读取请求与 VT 应答）：收敛为一个
+  泛型实现。
+- 手柄拖动结果落点（`ui/HandleDragController.kt` 的快速路径与常规路径）：收敛为
+  `applyDragResult`。
+- 会话渲染唤醒器（`android/ffi/wake.rs` 的等待输出与唤醒渲染）：收敛为
+  `session_render_wake`。
+- 图集存储清空（`render/font/atlas.rs` 与 `render/font/pipeline.rs`）：收敛为
+  `reset_atlas_storage`。
+
+每项收敛都保持调用点原有的判据与断言强度，并配了回归钉。
 
 ## 代码规模口径
 
@@ -202,7 +257,7 @@ if __name__ == "__main__":
 
 | 仓库 | 生产 | 测试 | 合计 |
 | --- | --- | --- | --- |
-| torvox | 41716 | 50818 | 92534 |
+| torvox | 41761 | 50925 | 92686 |
 | termux-app | 26637 | 2471 | 29108 |
 | ghostty-android-terminal | 22381 | 2850 | 25231 |
 | 两个参考项目生产之和 | 49018 | 5321 | 54339 |
@@ -216,7 +271,9 @@ if __name__ == "__main__":
 `SecondStageRunner` 与 `SecondStageRunnerTest` 随二阶段执行器删除而下线（合计 −613 行），
 不是为满足规模约束删测试——删除的是规范禁止的 postinstall 执行器与其用例。第 7 轮生产
 41520 → 41716、测试 50602 → 50818，增长来自组合簇整形零分配改造（内联键与共享切片）、
-JNI 局部引用释放、KGP 上限判定与审查留档；生产口径仍低于参考项目之和。
+JNI 局部引用释放、KGP 上限判定与审查留档；生产口径仍低于参考项目之和。第 8 轮生产
+41716 → 41761、测试 50818 → 50925，增长来自本轮去重改造与配套回归测试；生产口径仍低于
+参考项目之和。
 
 参考项目取自 `termux-app`（v0.119.0-beta.3 分支）与 `ghostty-android-terminal` 的浅克隆，
 与 `docs/specification/DESIGN.md` 点名的两个参考项目一致。
@@ -224,8 +281,9 @@ JNI 局部引用释放、KGP 上限判定与审查留档；生产口径仍低于
 ## 静态形状扫描
 
 - semgrep：`semgrep scan --config .semgrep/rules.yml --json --metrics=off
-  --disable-version-check .`，55 条规则扫过 1713 个文件，**0 findings、0 errors**。
-  扫描文件数随代码树增长（首轮 1691 → 复算 1693 → 第 6 轮 1694 → 第 7 轮 1713）。
+  --disable-version-check .`，55 条规则扫过 1717 个文件，**0 findings、0 errors**。
+  扫描文件数随代码树增长（首轮 1691 → 复算 1693 → 第 6 轮 1694 → 第 7 轮 1713 →
+  第 8 轮 1717）。
   第 7 轮曾报 637 处：全部来自新增的全仓审查留档——逐文件 SHA-256 摘要列与处置表的提交号列
   命中 `no-git-short-hash-in-source-and-docs`。两列已撤除（`STYLE.md` 本就禁止文档出现哈希），
   复扫 0 findings、0 errors。
@@ -236,7 +294,7 @@ JNI 局部引用释放、KGP 上限判定与审查留档；生产口径仍低于
   `render/cell_builder/tests/` 后消失，告警归零。按 `code-health`「超大文件阈值必须跨源码
   语言一致应用」，本仓不得为凑行数阈值拆分生产源码文件。该工具扫不到 Kotlin 源码，只能
   作为 Rust 侧的门禁。2026-11-27 复算仍为 score 100、Healthy、0 errors、0 warnings、
-  `supportedFiles` 116、`unsupportedFiles` 0（第 7 轮复算同值）。
+  `supportedFiles` 116、`unsupportedFiles` 0（第 7、8 轮复算同值）。
 - clippy pedantic（一次性评估，非门禁；2026-11-27 复算）：`cargo clippy --all-targets --
   -W clippy::pedantic` 给出 605 条告警，分类为数值转换 425 条（`cast_sign_loss` 144、
   `cast_possible_truncation` 118、`cast_precision_loss` 114、`cast_possible_wrap` 49）、
@@ -463,8 +521,8 @@ MUST 维持 0，`style-policy` 类命中 MUST NOT 阻断构建；jscpd 的重复
 ## 清洁运行计数
 
 本留档的复算轮次按同一组命令在已提交树快照上重复执行，每轮覆盖重复率、代码规模口径、
-静态形状扫描与依赖事实复算。当前计数为 **7**（第 1 轮 2026-11-24，第 2 轮 2026-11-26，
-第 3、4、5、6、7 轮 2026-11-27），已达「连续清洁运行计数 ≥ 5」；每轮的实测数字 MUST 与本留档
+静态形状扫描与依赖事实复算。当前计数为 **8**（第 1 轮 2026-11-24，第 2 轮 2026-11-26，
+第 3、4、5、6、7、8 轮 2026-11-27），已达「连续清洁运行计数 ≥ 5」；每轮的实测数字 MUST 与本留档
 各表的基线逐项对照，出现偏差时 MUST 写明偏差来源，不得直接改写基线掩盖偏差。
 
 第 3、4、5、6 轮（2026-11-27）的对照结果：克隆集合、重复率、静态形状扫描、依赖版本判定与
@@ -478,6 +536,12 @@ MUST 维持 0，`style-policy` 类命中 MUST NOT 阻断构建；jscpd 的重复
 第 7 轮在新代码树上复算：克隆集合与判定不变（生产 3 处 / 全量 26 处），SLOC 与 `expect`
 计数的增长已写明来源（见各表口径轨迹），semgrep 的 637 处短哈希命中随审查留档撤列而清零，
 aislop 仍为 score 100、0 告警；依赖坐标与上轮相同。
+
+第 8 轮在去重改造后的新代码树上复算：规范口径克隆集合与判定不变（生产 3 处 / 全量 26 处），
+SLOC 与行数的增长已写明来源（见各表口径轨迹），形状扫描逐项与基线一致（`unwrap` 0、`expect`
+25、`panic!` 5、`unsafe` 132），semgrep 0 findings、0 errors，aislop 仍为 score 100、0 告警；
+依赖坐标与上轮相同（本轮未改依赖）。另按严格口径（5 行 / 40 token）复扫一遍，触及生产文件
+的 34 处命中已逐类判定并留档，其中 7 类真重复已收敛为共享实现。
 
 ## vendor 与硬编码核对
 
@@ -500,6 +564,9 @@ npx --yes jscpd@4.0.5 --min-lines 8 --min-tokens 60 --reporters json \
     --output /tmp/jscpd-prod native/src android/app/src/main
 npx --yes jscpd@4.0.5 --min-lines 8 --min-tokens 60 --reporters json \
     --output /tmp/jscpd-all native/src android/app/src
+npx --yes jscpd@4.0.5 --min-lines 5 --min-tokens 40 --reporters json \
+    --output /tmp/jscpd-strict --ignore "**/tests/**,**/*_tests.rs,**/test/**,**/*Tests.kt,**/*Test.kt" \
+    native/src android/app/src/main
 npx --yes aislop@latest scan --json native/src
 semgrep scan --config .semgrep/rules.yml --json --metrics=off --disable-version-check .
 python3 sloc.py /tmp/audit-head
